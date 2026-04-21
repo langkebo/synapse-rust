@@ -1,5 +1,6 @@
 use crate::auth::*;
 use crate::cache::*;
+#[cfg(feature = "voip-tracking")]
 use crate::call_service::CallService;
 use crate::common::config::{
     AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
@@ -16,8 +17,11 @@ use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
 use crate::federation::{
-    DeviceSyncManager, EventAuthChain, FederationClient, FriendFederation, KeyRotationManager,
+    DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager,
 };
+#[cfg(feature = "friends")]
+use crate::federation::FriendFederation;
+#[cfg(feature = "burn-after-read")]
 use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use crate::storage::email_verification::EmailVerificationStorage;
 pub use crate::storage::PresenceStorage;
@@ -49,9 +53,11 @@ pub struct ServiceContainer {
     pub to_device_service: ToDeviceService,
     pub verification_service: VerificationService,
     pub device_trust_service: crate::e2ee::device_trust::DeviceTrustService,
+    #[cfg(feature = "voice-extended")]
     pub voice_service: crate::services::voice_service::VoiceService,
     pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
     pub room_service: Arc<crate::services::room_service::RoomService>,
+    #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::services::beacon_service::BeaconService>,
     pub sync_service: Arc<crate::services::sync_service::SyncService>,
     pub sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
@@ -69,9 +75,13 @@ pub struct ServiceContainer {
     pub key_rotation_manager: KeyRotationManager,
     pub federation_client: Arc<FederationClient>,
     pub device_sync_manager: DeviceSyncManager,
+    #[cfg(feature = "friends")]
     pub friend_storage: FriendRoomStorage,
+    #[cfg(feature = "friends")]
     pub friend_room_service: Arc<crate::services::friend_room_service::FriendRoomService>,
+    #[cfg(feature = "friends")]
     pub friend_federation: Arc<FriendFederation>,
+    #[cfg(feature = "voip-tracking")]
     pub call_service: Arc<CallService>,
     pub directory_service: Arc<crate::services::directory_service::DirectoryServiceImpl>,
     pub dm_service: Arc<crate::services::dm_service::DMServiceImpl>,
@@ -103,7 +113,9 @@ pub struct ServiceContainer {
     pub module_storage: crate::storage::module::ModuleStorage,
     pub module_service: Arc<crate::services::module_service::ModuleService>,
     pub account_validity_service: Arc<crate::services::module_service::AccountValidityService>,
+    #[cfg(feature = "saml-sso")]
     pub saml_storage: crate::storage::saml::SamlStorage,
+    #[cfg(feature = "saml-sso")]
     pub saml_service: Arc<crate::services::saml_service::SamlService>,
     pub captcha_storage: crate::storage::captcha::CaptchaStorage,
     pub captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
@@ -118,20 +130,29 @@ pub struct ServiceContainer {
     pub thread_service: Arc<crate::services::thread_service::ThreadService>,
     pub relations_storage: crate::storage::relations::RelationsStorage,
     pub relations_service: Arc<crate::services::relations_service::RelationsService>,
+    #[cfg(feature = "cas-sso")]
     pub cas_storage: crate::storage::cas::CasStorage,
+    #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::services::cas_service::CasService>,
     pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
     pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
+    #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
+    #[cfg(feature = "server-notifications")]
     pub server_notification_storage: crate::storage::server_notification::ServerNotificationStorage,
+    #[cfg(feature = "server-notifications")]
     pub server_notification_service:
         Arc<crate::services::server_notification_service::ServerNotificationService>,
+    #[cfg(feature = "privacy-ext")]
     pub privacy_storage: crate::storage::privacy::PrivacyStorage,
     pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
+    #[cfg(feature = "widgets")]
     pub widget_storage: crate::storage::widget::WidgetStorage,
+    #[cfg(feature = "widgets")]
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
     pub telemetry_alert_service:
         Arc<crate::services::telemetry_alert_service::TelemetryAlertService>,
+    #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
     pub builtin_oidc_provider:
@@ -152,8 +173,6 @@ impl ServiceContainer {
                 "./data/media".to_string()
             }
         });
-        let voice_path =
-            env::var("SYNAPSE_VOICE_PATH").unwrap_or_else(|_| format!("{}/voice", media_path));
 
         let presence_pool = pool.clone();
         let metrics = Arc::new(MetricsCollector::new());
@@ -193,11 +212,16 @@ impl ServiceContainer {
             std::sync::Arc::new(device_keys_service.clone()),
         );
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let voice_service = crate::services::voice_service::VoiceService::new(
-            pool,
-            cache.clone(),
-            voice_path.as_str(),
-        );
+        #[cfg(feature = "voice-extended")]
+        let voice_service = {
+            let voice_path =
+                env::var("SYNAPSE_VOICE_PATH").unwrap_or_else(|_| format!("{}/voice", media_path));
+            crate::services::voice_service::VoiceService::new(
+                pool,
+                cache.clone(),
+                voice_path.as_str(),
+            )
+        };
         let search_service = Arc::new(
             crate::services::search_service::SearchService::with_postgres(
                 &config.search.elasticsearch_url,
@@ -241,6 +265,7 @@ impl ServiceContainer {
                 task_queue.clone(),
             ),
         );
+        #[cfg(feature = "beacons")]
         let beacon_service = Arc::new(crate::services::beacon_service::BeaconService::new(
             pool.clone(),
             cache.clone(),
@@ -256,7 +281,10 @@ impl ServiceContainer {
                 validator: auth_service.validator.clone(),
                 server_name: config.server.name.clone(),
                 task_queue: task_queue.clone(),
+                #[cfg(feature = "beacons")]
                 beacon_service: Some(beacon_service.clone()),
+                #[cfg(not(feature = "beacons"))]
+                beacon_service: None,
             },
         ));
         let sync_service = Arc::new(crate::services::sync_service::SyncService::from_deps(
@@ -312,7 +340,9 @@ impl ServiceContainer {
         ));
         let device_sync_manager =
             DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
+        #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
+        #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(
             crate::services::friend_room_service::FriendRoomService::new(
                 friend_storage.clone(),
@@ -322,9 +352,12 @@ impl ServiceContainer {
                 Arc::new(key_rotation_manager.clone()),
             ),
         );
+        #[cfg(feature = "friends")]
         let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));
+        #[cfg(feature = "voip-tracking")]
         let call_session_storage =
             crate::storage::call_session::CallSessionStorage::new(pool.clone());
+        #[cfg(feature = "voip-tracking")]
         let call_service = Arc::new(CallService::new(Arc::new(call_session_storage)));
         let directory_service =
             Arc::new(crate::services::directory_service::DirectoryServiceImpl::new());
@@ -404,7 +437,9 @@ impl ServiceContainer {
                 module_storage.clone(),
             )),
         );
+        #[cfg(feature = "saml-sso")]
         let saml_storage = crate::storage::saml::SamlStorage::new(pool);
+        #[cfg(feature = "saml-sso")]
         let saml_service = Arc::new(crate::services::saml_service::SamlService::new(
             Arc::new(config.saml.clone()),
             Arc::new(saml_storage.clone()),
@@ -437,7 +472,9 @@ impl ServiceContainer {
             Arc::new(crate::services::relations_service::RelationsService::new(
                 Arc::new(relations_storage.clone()),
             ));
+        #[cfg(feature = "cas-sso")]
         let cas_storage = crate::storage::cas::CasStorage::new(pool);
+        #[cfg(feature = "cas-sso")]
         let cas_service = Arc::new(crate::services::cas_service::CasService::new(
             Arc::new(cas_storage.clone()),
             config.server.name.clone(),
@@ -448,18 +485,24 @@ impl ServiceContainer {
                 media_quota_storage.clone(),
             )),
         );
+        #[cfg(feature = "openclaw-routes")]
         let ai_connection_storage =
             crate::storage::ai_connection::AiConnectionStorage::new(pool.clone());
+        #[cfg(feature = "server-notifications")]
         let server_notification_storage =
             crate::storage::server_notification::ServerNotificationStorage::new(pool);
+        #[cfg(feature = "server-notifications")]
         let server_notification_service = Arc::new(
             crate::services::server_notification_service::ServerNotificationService::new(Arc::new(
                 server_notification_storage.clone(),
             )),
         );
+        #[cfg(feature = "privacy-ext")]
         let privacy_storage = crate::storage::privacy::PrivacyStorage::new(pool.clone());
         let rendezvous_storage = crate::storage::rendezvous::RendezvousStorage::new(pool.clone());
+        #[cfg(feature = "widgets")]
         let widget_storage = crate::storage::widget::WidgetStorage::new(pool.clone());
+        #[cfg(feature = "widgets")]
         let widget_service = Arc::new(crate::services::widget_service::WidgetService::new(
             Arc::new(widget_storage.clone()),
         ));
@@ -469,6 +512,7 @@ impl ServiceContainer {
                 config.database.max_size,
             ),
         );
+        #[cfg(feature = "burn-after-read")]
         let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
         let oidc_service = if config.oidc.is_enabled() {
             Some(Arc::new(crate::services::oidc_service::OidcService::new(
@@ -510,9 +554,11 @@ impl ServiceContainer {
             to_device_service,
             verification_service,
             device_trust_service,
+            #[cfg(feature = "voice-extended")]
             voice_service,
             registration_service,
             room_service,
+            #[cfg(feature = "beacons")]
             beacon_service,
             sync_service,
             sliding_sync_service,
@@ -529,9 +575,13 @@ impl ServiceContainer {
             key_rotation_manager,
             federation_client,
             device_sync_manager,
+            #[cfg(feature = "friends")]
             friend_storage,
+            #[cfg(feature = "friends")]
             friend_room_service,
+            #[cfg(feature = "friends")]
             friend_federation,
+            #[cfg(feature = "voip-tracking")]
             call_service,
             directory_service,
             dm_service,
@@ -561,7 +611,9 @@ impl ServiceContainer {
             module_storage,
             module_service,
             account_validity_service,
+            #[cfg(feature = "saml-sso")]
             saml_storage,
+            #[cfg(feature = "saml-sso")]
             saml_service,
             captcha_storage,
             captcha_service,
@@ -573,18 +625,27 @@ impl ServiceContainer {
             thread_service,
             relations_storage,
             relations_service,
+            #[cfg(feature = "cas-sso")]
             cas_storage,
+            #[cfg(feature = "cas-sso")]
             cas_service,
             media_quota_storage,
             media_quota_service,
+            #[cfg(feature = "openclaw-routes")]
             ai_connection_storage,
+            #[cfg(feature = "server-notifications")]
             server_notification_storage,
+            #[cfg(feature = "server-notifications")]
             server_notification_service,
+            #[cfg(feature = "privacy-ext")]
             privacy_storage,
             rendezvous_storage,
+            #[cfg(feature = "widgets")]
             widget_storage,
+            #[cfg(feature = "widgets")]
             widget_service,
             telemetry_alert_service,
+            #[cfg(feature = "burn-after-read")]
             burn_after_read,
             oidc_service,
             builtin_oidc_provider,

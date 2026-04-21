@@ -2,14 +2,12 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub mod ai_connection;
+// =============================================================================
+// Core Matrix storage modules (always compiled)
+// =============================================================================
 pub mod application_service;
 pub mod audit;
 pub mod background_update;
-pub mod beacon;
-pub mod call_session;
-pub mod captcha;
-pub mod cas;
 pub mod compile_time_validation;
 pub mod connection_monitor;
 pub mod dehydrated_device;
@@ -21,23 +19,19 @@ pub mod event_report;
 pub mod feature_flags;
 pub mod federation_blacklist;
 pub mod filter;
-pub mod friend_room;
 pub mod integrity_checker;
 pub mod invite_blocklist;
 pub mod maintenance;
-pub mod matrixrtc;
 pub mod media;
 pub mod media_quota;
 pub mod membership;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;
-pub mod openclaw;
 pub mod openid_token;
 pub mod performance;
 pub mod pool_monitor;
 pub mod presence;
-pub mod privacy;
 pub mod push_notification;
 pub mod qr_login;
 pub mod refresh_token;
@@ -48,11 +42,9 @@ pub mod retention;
 pub mod room;
 pub mod room_summary;
 pub mod room_tag;
-pub mod saml;
 pub mod schema_health_check;
 pub mod schema_validator;
 pub mod search_index;
-pub mod server_notification;
 pub mod sliding_sync;
 pub mod space;
 pub mod sticky_event;
@@ -60,19 +52,53 @@ pub mod thread;
 pub mod threepid;
 pub mod token;
 pub mod user;
+
+// =============================================================================
+// Feature-gated extension storage modules
+// =============================================================================
+#[cfg(feature = "openclaw-routes")]
+pub mod ai_connection;
+#[cfg(feature = "openclaw-routes")]
+pub mod openclaw;
+
+#[cfg(feature = "friends")]
+pub mod friend_room;
+
+#[cfg(feature = "voice-extended")]
 pub mod voice;
+
+#[cfg(feature = "saml-sso")]
+pub mod saml;
+
+#[cfg(feature = "cas-sso")]
+pub mod cas;
+
+#[cfg(feature = "beacons")]
+pub mod beacon;
+
+#[cfg(feature = "voip-tracking")]
+pub mod call_session;
+#[cfg(feature = "voip-tracking")]
+pub mod matrixrtc;
+
+#[cfg(feature = "widgets")]
 pub mod widget;
+
+#[cfg(feature = "server-notifications")]
+pub mod server_notification;
+
+#[cfg(feature = "privacy-ext")]
+pub mod privacy;
+
+// Captcha is used by registration flow — keep unconditional
+pub mod captcha;
 
 pub use self::user::*;
 pub use self::threepid::UserThreepid;
 
-pub use self::ai_connection::*;
 pub use self::application_service::*;
 pub use self::audit::*;
-pub use self::beacon::*;
-pub use self::call_session::*;
 pub use self::captcha::*;
-pub use self::cas::*;
 pub use self::dehydrated_device::*;
 pub use self::delayed_event::*;
 pub use self::device::*;
@@ -80,10 +106,8 @@ pub use self::event::*;
 pub use self::feature_flags::*;
 pub use self::federation_blacklist::*;
 pub use self::filter::*;
-pub use self::friend_room::*;
 pub use self::invite_blocklist::*;
 pub use self::maintenance::*;
-pub use self::matrixrtc::*;
 pub use self::media_quota::*;
 pub use self::membership::*;
 pub use self::moderation::*;
@@ -92,7 +116,6 @@ pub use self::monitoring::{
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
     PerformanceMetrics, VacuumStats,
 };
-pub use self::openclaw::*;
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::pool_monitor::{
@@ -100,23 +123,53 @@ pub use self::pool_monitor::{
     DatabasePoolMonitor, PoolHealthStatus, PoolStats, QueryTimeoutConfig,
 };
 pub use self::presence::*;
-pub use self::privacy::*;
 pub use self::push_notification::*;
 pub use self::qr_login::*;
 pub use self::rendezvous::*;
 pub use self::room::*;
-pub use self::saml::*;
 pub use self::schema_validator::*;
 pub use self::search_index::*;
-pub use self::server_notification::*;
 pub use self::sliding_sync::*;
 pub use self::space::*;
 pub use self::sticky_event::*;
 pub use self::thread::*;
 pub use self::threepid::*;
 pub use self::token::*;
+
+// Feature-gated re-exports
+#[cfg(feature = "openclaw-routes")]
+pub use self::ai_connection::*;
+#[cfg(feature = "openclaw-routes")]
+pub use self::openclaw::*;
+
+#[cfg(feature = "friends")]
+pub use self::friend_room::*;
+
+#[cfg(feature = "voice-extended")]
 pub use self::voice::*;
+
+#[cfg(feature = "saml-sso")]
+pub use self::saml::*;
+
+#[cfg(feature = "cas-sso")]
+pub use self::cas::*;
+
+#[cfg(feature = "beacons")]
+pub use self::beacon::*;
+
+#[cfg(feature = "voip-tracking")]
+pub use self::call_session::*;
+#[cfg(feature = "voip-tracking")]
+pub use self::matrixrtc::*;
+
+#[cfg(feature = "widgets")]
 pub use self::widget::*;
+
+#[cfg(feature = "server-notifications")]
+pub use self::server_notification::*;
+
+#[cfg(feature = "privacy-ext")]
+pub use self::privacy::*;
 
 /// 数据库结构体。
 ///
