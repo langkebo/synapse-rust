@@ -115,7 +115,6 @@ pub async fn create_registration_token(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    super::ensure_super_admin_for_privilege_change(&admin)?;
     let now = chrono::Utc::now().timestamp_millis();
     let token = body
         .token
