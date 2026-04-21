@@ -35,10 +35,19 @@ pub struct KeyRotationManager {
     server_name: String,
     rotation_enabled: Arc<RwLock<bool>>,
     signing_keys_table_ready: Arc<AtomicBool>,
+    signing_key_path: Option<String>,
 }
 
 impl KeyRotationManager {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
+        Self::with_key_path(pool, server_name, None)
+    }
+
+    pub fn with_key_path(
+        pool: &Arc<Pool<Postgres>>,
+        server_name: &str,
+        signing_key_path: Option<String>,
+    ) -> Self {
         Self {
             pool: pool.clone(),
             memory_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -47,6 +56,7 @@ impl KeyRotationManager {
             server_name: server_name.to_string(),
             rotation_enabled: Arc::new(RwLock::new(true)),
             signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
+            signing_key_path,
         }
     }
 
@@ -196,13 +206,14 @@ impl KeyRotationManager {
 
         match existing_key {
             Ok(Some(key)) => {
-                *self.current_key.write().await = Some(key);
+                *self.current_key.write().await = Some(key.clone());
                 tracing::info!("Loaded existing signing key from database");
+                if let Err(e) = self.export_signing_key_to_file(&key).await {
+                    tracing::warn!("Failed to export signing key to file: {}", e);
+                }
                 return Ok(());
             }
-            Ok(None) => {
-                // No existing key, create new one
-            }
+            Ok(None) => {}
             Err(e) => {
                 return Err(e.into());
             }
@@ -219,6 +230,27 @@ impl KeyRotationManager {
             }
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn export_signing_key_to_file(&self, key: &SigningKey) -> Result<(), anyhow::Error> {
+        let path = match &self.signing_key_path {
+            Some(p) => p.clone(),
+            None => return Ok(()),
+        };
+
+        let key_content = format!(
+            "ed25519 {} {}",
+            key.key_id.strip_prefix("ed25519:").unwrap_or(&key.key_id),
+            key.secret_key
+        );
+
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        tokio::fs::write(&path, &key_content).await?;
+        tracing::info!("Exported signing key to file: {}", path);
+        Ok(())
     }
 
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), anyhow::Error> {
@@ -277,6 +309,10 @@ impl KeyRotationManager {
         .bind(signing_key.expires_at)
         .execute(&*self.pool)
         .await?;
+
+        if let Err(e) = self.export_signing_key_to_file(&signing_key).await {
+            tracing::warn!("Failed to export signing key to file: {}", e);
+        }
 
         Ok(())
     }
