@@ -3,6 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      target: runtime
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped
@@ -46,8 +47,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "/app/healthcheck"]
-      interval: 30s
+      test: [ "CMD", "/app/healthcheck" ]
+      interval: 15s
       timeout: 10s
       retries: 5
       start_period: 60s
@@ -81,7 +82,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./config/postgres.conf:/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -89,8 +90,7 @@ services:
     networks:
       - synapse_network
     command: >
-      postgres
-      -c config_file=/etc/postgresql/postgresql.conf
+      postgres -c config_file=/etc/postgresql/postgresql.conf
     logging:
       driver: "json-file"
       options:
@@ -105,18 +105,11 @@ services:
     mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
     pids_limit: ${REDIS_PIDS_LIMIT:-128}
     command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
-      --appendonly yes
-      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
-      --maxmemory-policy ${REDIS_EVICTION_POLICY:-allkeys-lru}
-      --save 60 1000
-      --save 300 100
-      --save 900 1
+      redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set} --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-256mb} --maxmemory-policy ${REDIS_EVICTION_POLICY:-allkeys-lru} --save 60 1000 --save 300 100 --save 900 1
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:?REDIS_PASSWORD must be set}\" ping | grep PONG"]
+      test: [ "CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:?REDIS_PASSWORD must be set}\" ping | grep PONG" ]
       interval: 10s
       timeout: 5s
       retries: 5

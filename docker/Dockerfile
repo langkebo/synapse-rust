@@ -59,11 +59,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /out/app /app
-
 RUN groupadd -g 1000 synapse && \
-    useradd -u 1000 -g synapse -m -s /usr/sbin/nologin synapse && \
-    chown -R synapse:synapse /app
+    useradd -u 1000 -g synapse -m -s /usr/sbin/nologin synapse
+
+COPY --chown=1000:1000 --from=builder /out/app /app
 
 FROM tools-base AS tools
 
@@ -94,9 +93,9 @@ RUN set -eux; \
 FROM ${RUNTIME_BASE_IMAGE} AS runtime
 
 LABEL org.opencontainers.image.title="synapse-rust" \
-      org.opencontainers.image.description="Matrix homeserver implemented in Rust" \
-      org.opencontainers.image.source="https://github.com/langkebo/synapse-rust" \
-      org.opencontainers.image.vendor="synapse-rust"
+    org.opencontainers.image.description="Matrix homeserver implemented in Rust" \
+    org.opencontainers.image.source="https://github.com/langkebo/synapse-rust" \
+    org.opencontainers.image.vendor="synapse-rust"
 
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1 \
@@ -111,5 +110,5 @@ COPY --chown=1000:1000 --from=builder /out/app /app
 WORKDIR /app
 USER 1000:1000
 EXPOSE 8008 8448 9090
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
 ENTRYPOINT ["/app/synapse-rust"]

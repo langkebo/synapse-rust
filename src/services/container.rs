@@ -301,7 +301,11 @@ impl ServiceContainer {
         } else {
             config.federation.server_name.clone()
         };
-        let key_rotation_manager = KeyRotationManager::new(pool, &server_name);
+        let key_rotation_manager = KeyRotationManager::with_key_path(
+            pool,
+            &server_name,
+            config.server.signing_key_path.clone(),
+        );
         let federation_client = Arc::new(FederationClient::new(
             server_name.clone(),
             Arc::new(key_rotation_manager.clone()),
