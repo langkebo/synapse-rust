@@ -34,7 +34,7 @@ test-results/
 docker/test-results/
 reports/
 artifacts/
-!artifacts/README.md
+test-artifacts/
 scripts/db/__pycache__/
 *.pyc
 
