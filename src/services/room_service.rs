@@ -590,6 +590,7 @@ impl RoomService {
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
 
+        #[allow(unused_variables)]
         let beacon_location_params = {
             #[cfg(feature = "beacons")]
             {
