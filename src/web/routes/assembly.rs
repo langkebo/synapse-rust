@@ -64,33 +64,38 @@ fn create_client_media_config_router() -> Router<AppState> {
 }
 
 fn create_voip_compat_router() -> Router<AppState> {
-    Router::new()
+    let mut router = Router::new()
         .route(
             "/voip/turnServer",
             get(get_turn_server).post(get_turn_server),
         )
         .route("/voip/config", get(get_voip_config))
-        .route("/voip/turnServer/guest", get(get_turn_credentials_guest))
-        .route(
-            "/rooms/{room_id}/send/m.call.invite/{txn_id}",
-            put(voip::call_invite),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-            put(voip::call_candidates),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.answer/{txn_id}",
-            put(voip::call_answer),
-        )
-        .route(
-            "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-            put(voip::call_hangup),
-        )
-        .route(
-            "/rooms/{room_id}/call/{call_id}",
-            get(voip::get_call_session),
-        )
+        .route("/voip/turnServer/guest", get(get_turn_credentials_guest));
+    #[cfg(feature = "voip-tracking")]
+    {
+        router = router
+            .route(
+                "/rooms/{room_id}/send/m.call.invite/{txn_id}",
+                put(voip::call_invite),
+            )
+            .route(
+                "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+                put(voip::call_candidates),
+            )
+            .route(
+                "/rooms/{room_id}/send/m.call.answer/{txn_id}",
+                put(voip::call_answer),
+            )
+            .route(
+                "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+                put(voip::call_hangup),
+            )
+            .route(
+                "/rooms/{room_id}/call/{call_id}",
+                get(voip::get_call_session),
+            );
+    }
+    router
 }
 
 pub fn create_router(state: AppState) -> Router {

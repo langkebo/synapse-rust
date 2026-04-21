@@ -151,13 +151,15 @@ mod tests {
 }
 
 // ============================================================================
-// VOIP Call Event Handlers (MSC3079)
+// VOIP Call Event Handlers (MSC3079) — requires voip-tracking feature
 // ============================================================================
 
+#[cfg(feature = "voip-tracking")]
 use crate::services::call_service::{
     CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent,
 };
 
+#[cfg(feature = "voip-tracking")]
 async fn ensure_call_room_member(
     state: &AppState,
     auth_user: &AuthenticatedUser,
@@ -174,6 +176,7 @@ async fn ensure_call_room_member(
 }
 
 /// Call invite event
+#[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_invite(
     State(state): State<AppState>,
@@ -196,6 +199,7 @@ pub async fn call_invite(
 }
 
 /// Call candidates event
+#[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_candidates(
     State(state): State<AppState>,
@@ -215,6 +219,7 @@ pub async fn call_candidates(
 }
 
 /// Call answer event
+#[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_answer(
     State(state): State<AppState>,
@@ -237,6 +242,7 @@ pub async fn call_answer(
 }
 
 /// Call hangup event
+#[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_hangup(
     State(state): State<AppState>,
@@ -256,6 +262,7 @@ pub async fn call_hangup(
 }
 
 /// Get call session
+#[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn get_call_session(
     State(state): State<AppState>,

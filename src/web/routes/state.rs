@@ -1,8 +1,7 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
 use crate::common::rate_limit_config::RateLimitConfigManager;
-use crate::services::{mcp_proxy::McpProxyService, ServiceContainer};
-use crate::storage::ai_connection::AiConnectionStorage;
+use crate::services::ServiceContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -20,10 +19,13 @@ pub struct AppState {
     pub federation_inbound_edu_origin_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
-    pub ai_connection_storage: Arc<AiConnectionStorage>,
+    #[cfg(feature = "openclaw-routes")]
+    pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
+    #[cfg(feature = "openclaw-routes")]
     pub matrix_ai_connection_service:
         Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
-    pub mcp_proxy_service: Arc<McpProxyService>,
+    #[cfg(feature = "openclaw-routes")]
+    pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
 }
 
 impl AppState {
@@ -43,6 +45,7 @@ impl AppState {
             ),
         ));
 
+        #[cfg(feature = "openclaw-routes")]
         let pool = services.user_storage.pool.clone();
         let key_fetch_max_concurrency = services.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency = if key_fetch_max_concurrency <= 1 {
@@ -73,14 +76,17 @@ impl AppState {
             federation_inbound_edu_origin_semaphores: Arc::new(Mutex::new(HashMap::new())),
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
-            ai_connection_storage: Arc::new(AiConnectionStorage::new(pool.clone())),
+            #[cfg(feature = "openclaw-routes")]
+            ai_connection_storage: Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool.clone())),
+            #[cfg(feature = "openclaw-routes")]
             matrix_ai_connection_service: Arc::new(
                 crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                    Arc::new(AiConnectionStorage::new(pool)),
-                    Arc::new(McpProxyService::new(cache.clone())),
+                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool)),
+                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
                 ),
             ),
-            mcp_proxy_service: Arc::new(McpProxyService::new(cache.clone())),
+            #[cfg(feature = "openclaw-routes")]
+            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
         }
     }
 

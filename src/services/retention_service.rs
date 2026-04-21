@@ -1,6 +1,7 @@
 use crate::common::config::RetentionConfig;
 use crate::common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use crate::common::ApiError;
+#[cfg(feature = "beacons")]
 use crate::services::beacon_service::BeaconService;
 use crate::services::media::chunked_upload::ChunkedUploadService;
 use crate::storage::audit::AuditEventStorage;
@@ -528,6 +529,7 @@ impl RetentionService {
         self.last_lifecycle_summary.read().await.clone()
     }
 
+    #[cfg(feature = "beacons")]
     #[instrument(skip(self, beacon_service, config))]
     pub async fn run_data_lifecycle_cycle(
         &self,
@@ -561,6 +563,44 @@ impl RetentionService {
             }
         }
 
+        self.finish_lifecycle_cycle(&mut summary, config, started_ts, started)
+            .await
+    }
+
+    #[cfg(not(feature = "beacons"))]
+    #[instrument(skip(self, config))]
+    pub async fn run_data_lifecycle_cycle_no_beacons(
+        &self,
+        config: &RetentionConfig,
+    ) -> DataLifecycleCleanupSummary {
+        let started_ts = chrono::Utc::now().timestamp_millis();
+        let started = Instant::now();
+        let mut summary = DataLifecycleCleanupSummary {
+            started_ts,
+            ..Default::default()
+        };
+
+        match self.run_scheduled_cleanups().await {
+            Ok(count) => {
+                summary.expired_events_deleted = count as u64;
+            }
+            Err(error) => {
+                summary.failed_tasks += 1;
+                warn!("Failed to run scheduled retention cleanups: {}", error);
+            }
+        }
+
+        self.finish_lifecycle_cycle(&mut summary, config, started_ts, started)
+            .await
+    }
+
+    async fn finish_lifecycle_cycle(
+        &self,
+        summary: &mut DataLifecycleCleanupSummary,
+        config: &RetentionConfig,
+        started_ts: i64,
+        started: Instant,
+    ) -> DataLifecycleCleanupSummary {
         match self.cleanup_expired_uploads().await {
             Ok(count) => {
                 summary.expired_uploads_deleted = count;
@@ -612,22 +652,23 @@ impl RetentionService {
 
         summary.duration_ms = started.elapsed().as_millis() as i64;
         summary.completed_ts = chrono::Utc::now().timestamp_millis();
-        self.lifecycle_metrics.observe_cycle(&summary);
-        *self.last_lifecycle_summary.write().await = Some(summary.clone());
+        self.lifecycle_metrics.observe_cycle(summary);
+        let result = summary.clone();
+        *self.last_lifecycle_summary.write().await = Some(result.clone());
 
         info!(
-            expired_events_deleted = summary.expired_events_deleted,
-            expired_beacons_deleted = summary.expired_beacons_deleted,
-            expired_uploads_deleted = summary.expired_uploads_deleted,
-            expired_audit_events_deleted = summary.expired_audit_events_deleted,
-            cleanup_queue_items_processed = summary.cleanup_queue_items_processed,
-            cleanup_queue_rows_pruned = summary.cleanup_queue_rows_pruned,
-            failed_tasks = summary.failed_tasks,
-            duration_ms = summary.duration_ms,
+            expired_events_deleted = result.expired_events_deleted,
+            expired_beacons_deleted = result.expired_beacons_deleted,
+            expired_uploads_deleted = result.expired_uploads_deleted,
+            expired_audit_events_deleted = result.expired_audit_events_deleted,
+            cleanup_queue_items_processed = result.cleanup_queue_items_processed,
+            cleanup_queue_rows_pruned = result.cleanup_queue_rows_pruned,
+            failed_tasks = result.failed_tasks,
+            duration_ms = result.duration_ms,
             "Completed data lifecycle cleanup cycle"
         );
 
-        summary
+        result
     }
 
     async fn cleanup_expired_uploads(&self) -> Result<u64, ApiError> {
