@@ -1,7 +1,7 @@
 enabled: true
 default:
-  per_second: 20
-  burst_size: 40
+  per_second: 50
+  burst_size: 100
 endpoints: []
 ip_header_priority:
   - "x-forwarded-for"
@@ -12,14 +12,17 @@ exempt_paths:
   - "/"
   - "/_matrix/client/versions"
   - "/_matrix/client/v3/versions"
-exempt_path_prefixes: []
+  - "/_matrix/client/r0/versions"
+  - "/_matrix/federation/v1/version"
+exempt_path_prefixes:
+  - "/_matrix/client/"
 endpoint_aliases: {}
 fail_open_on_error: true
 sync:
   enabled: true
   initial:
-    per_second: 2
-    burst_size: 4
+    per_second: 5
+    burst_size: 10
   incremental:
-    per_second: 20
-    burst_size: 40
+    per_second: 50
+    burst_size: 100
