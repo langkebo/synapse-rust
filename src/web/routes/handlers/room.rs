@@ -4294,3 +4294,88 @@ pub(crate) async fn unban_user(
         "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }
+
+pub(crate) async fn get_room_permissions(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+
+    let power_levels_events = state
+        .services
+        .event_storage
+        .get_state_events_by_type(&room_id, "m.room.power_levels")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get power levels: {}", e)))?;
+
+    let pl_content = power_levels_events
+        .iter()
+        .find(|e| e.state_key.as_ref().map(|s| s.is_empty()) == Some(true))
+        .map(|e| e.content.clone())
+        .unwrap_or(json!({}));
+
+    let join_rules_events = state
+        .services
+        .event_storage
+        .get_state_events_by_type(&room_id, "m.room.join_rules")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get join rules: {}", e)))?;
+
+    let join_rule = join_rules_events
+        .iter()
+        .find(|e| e.state_key.as_ref().map(|s| s.is_empty()) == Some(true))
+        .and_then(|e| e.content.get("join_rule").cloned())
+        .unwrap_or(json!("invite"));
+
+    let user_pl = pl_content
+        .get("users")
+        .and_then(|u| u.get(&auth_user.user_id))
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| {
+            pl_content
+                .get("users_default")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+        });
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": auth_user.user_id,
+        "user_power_level": user_pl,
+        "join_rule": join_rule,
+        "power_levels": pl_content
+    })))
+}
+
+pub(crate) async fn get_room_resolve(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+
+    let room = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+    let aliases = state
+        .services
+        .room_storage
+        .get_room_aliases(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "aliases": aliases,
+        "name": room.name,
+        "canonical_alias": room.canonical_alias
+    })))
+}

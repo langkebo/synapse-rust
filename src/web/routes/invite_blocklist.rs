@@ -27,6 +27,10 @@ async fn ensure_invite_list_manage_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        return Ok(());
+    }
+
     ensure_room_member(
         state,
         auth_user,

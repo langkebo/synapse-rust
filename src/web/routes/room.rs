@@ -1,4 +1,6 @@
-use crate::web::routes::handlers::room::{get_room_device, get_room_reduced_events};
+use crate::web::routes::handlers::room::{
+    get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
+};
 use crate::web::routes::{
     ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
     get_event_keys, get_joined_members, get_membership_events, get_messages, get_power_levels,
@@ -121,6 +123,8 @@ fn create_room_v1_router() -> Router<AppState> {
 fn create_room_v3_router() -> Router<AppState> {
     create_room_r0_v3_compat_router()
         .merge(create_room_power_levels_compat_router())
+        .route("/rooms/{room_id}/permissions", get(get_room_permissions))
+        .route("/rooms/{room_id}/resolve", get(get_room_resolve))
         .route(
             "/rooms/{room_id}/notifications",
             get(get_room_notifications),

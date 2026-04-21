@@ -76,6 +76,7 @@ impl From<crate::storage::widget::Widget> for WidgetApiResponse {
 pub fn create_widget_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/widgets", post(create_widget))
+        .route("/_matrix/client/v3/widgets/create", post(create_widget))
         .route("/_matrix/client/v1/widgets/{widget_id}", get(get_widget))
         .route("/_matrix/client/v1/widgets/{widget_id}", put(update_widget))
         .route(
