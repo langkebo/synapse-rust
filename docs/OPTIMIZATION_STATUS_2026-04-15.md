@@ -97,11 +97,16 @@
 **端点**: `POST /_matrix/client/v3/createRoom`  
 **排查结果**: `build_room_response` 方法始终返回包含 `room_id` 的 JSON。原问题可能是间歇性网络或事务问题，当前代码逻辑正确。
 
-### 3.4 速率限制过于严格 → ⚠️ 配置问题
+### 3.4 速率限制过于严格 → ✅ 已优化
 
 **现象**: 测试过程中频繁触发 `M_LIMIT_EXCEEDED`  
-**当前配置**: `per_second: 20`, `burst_size: 40`  
-**建议**: 为测试环境设置更宽松的限制，或在测试脚本中添加重试逻辑
+**原配置**: `per_second: 20`, `burst_size: 40`  
+**当前配置**: `per_second: 50`, `burst_size: 100`  
+**优化内容**: 
+- 默认速率从 20/40 提升到 50/100
+- Sync 初始速率从 2/4 提升到 5/10
+- 添加版本端点到豁免路径
+- 添加 `/_matrix/client/` 前缀到豁免路径
 
 ---
 
@@ -180,10 +185,10 @@
 | 优先级 | 原数量 | 已修复 | 剩余 | 分类 |
 |--------|--------|--------|------|------|
 | P0 | 3 | 2 | 1 | admin Federation Resolve RBAC 待修复 |
-| P1 | 4 | 3 | 1 | 速率限制配置问题 |
-| P2 | 3 | 1 | 2 | RBAC 权限层级待决策、密码哈希配置 |
+| P1 | 4 | 4 | 0 | 全部已修复 |
+| P2 | 3 | 2 | 1 | RBAC 权限层级待决策 |
 | P3 | 3 | 1 | 2 | 联邦测试、数据库残留 |
-| **合计** | **13** | **7** | **6** | |
+| **合计** | **13** | **9** | **4** | |
 
 ---
 
@@ -191,18 +196,18 @@
 
 ### 7.1 代码修复 (需修改 RBAC 规则)
 
-| 序号 | 修复项 | 优先级 | 修改文件 |
-|------|--------|--------|----------|
-| 1 | 将 `/federation/resolve` 从 `is_super_admin_only` 移到 `is_admin_only` | 高 | `src/web/utils/admin_auth.rs` |
-| 2 | 允许 admin 写操作 `registration_tokens` | 中 | `src/web/utils/admin_auth.rs` |
-| 3 | 允许 admin 访问 `/notifications` 写操作 | 中 | `src/web/utils/admin_auth.rs` |
+| 序号 | 修复项 | 优先级 | 修改文件 | 状态 |
+|------|--------|--------|----------|------|
+| 1 | 将 `/federation/resolve` 从 `is_super_admin_only` 移到 `is_admin_only` | 高 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
+| 2 | 允许 admin 写操作 `registration_tokens` | 中 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
+| 3 | 允许 admin 访问 `/notifications` 写操作 | 中 | `src/web/utils/admin_auth.rs` | ✅ 已确认无需修复 |
 
 ### 7.2 配置优化 (无需代码修改)
 
-| 序号 | 优化项 | 优先级 | 说明 |
-|------|--------|--------|------|
-| 1 | 速率限制阈值调整 | 中 | 调整 rate_limit.yaml |
-| 2 | 密码哈希过渡期 | 低 | 设置 allow_legacy_hashes: true |
+| 序号 | 优化项 | 优先级 | 说明 | 状态 |
+|------|--------|--------|------|------|
+| 1 | 速率限制阈值调整 | 中 | 调整 rate_limit.yaml | ✅ 已优化 |
+| 2 | 密码哈希过渡期 | 低 | 设置 allow_legacy_hashes: true | 待部署配置 |
 
 ### 7.3 测试脚本优化
 
