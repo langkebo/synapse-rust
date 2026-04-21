@@ -326,13 +326,11 @@ pub async fn deactivate_user(
 
 #[axum::debug_handler]
 pub async fn reset_user_password(
-    admin: AdminUser,
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     state
         .services
         .auth_service
