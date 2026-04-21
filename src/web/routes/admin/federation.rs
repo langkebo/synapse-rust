@@ -25,6 +25,10 @@ pub fn create_federation_router(_state: AppState) -> Router<AppState> {
             post(reset_connection),
         )
         .route(
+            "/_synapse/admin/v1/federation/destinations/{destination}/reset",
+            post(reset_connection),
+        )
+        .route(
             "/_synapse/admin/v1/federation/destinations/{destination}",
             delete(delete_destination),
         )
@@ -154,11 +158,10 @@ pub async fn get_destination(
 
 #[axum::debug_handler]
 pub async fn reset_connection(
-    admin: AdminUser,
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::ensure_super_admin_for_privilege_change(&admin)?;
     let result = sqlx::query(
         "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1"
     )

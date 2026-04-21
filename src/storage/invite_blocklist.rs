@@ -161,6 +161,52 @@ impl InviteBlocklistStorage {
 
         Ok(allowlist.is_some())
     }
+
+    /// Get global invite blocklist (all rooms)
+    pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, i64)>(
+            r#"
+            SELECT room_id, user_id, created_ts FROM room_invite_blocklist
+            ORDER BY created_ts DESC
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(room_id, user_id, created_ts)| {
+                serde_json::json!({
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "created_ts": created_ts
+                })
+            })
+            .collect())
+    }
+
+    /// Get global invite allowlist (all rooms)
+    pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, i64)>(
+            r#"
+            SELECT room_id, user_id, created_ts FROM room_invite_allowlist
+            ORDER BY created_ts DESC
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(room_id, user_id, created_ts)| {
+                serde_json::json!({
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "created_ts": created_ts
+                })
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]

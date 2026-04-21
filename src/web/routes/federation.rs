@@ -528,6 +528,10 @@ async fn validate_federation_origin_shares_user_room(
     user_id: &str,
     origin: &str,
 ) -> ApiResult<()> {
+    if origin == state.services.server_name.as_str() {
+        return Ok(());
+    }
+
     let joined_room_ids = state
         .services
         .room_storage
@@ -2539,12 +2543,6 @@ fn parse_backfill_query(raw_query: Option<String>) -> Result<(Vec<String>, i64),
         }
     }
 
-    if event_ids.is_empty() {
-        return Err(ApiError::bad_request(
-            "v query parameter is required".to_string(),
-        ));
-    }
-
     Ok((event_ids, limit.clamp(1, 100)))
 }
 
@@ -2567,8 +2565,32 @@ async fn backfill(
 
     let mut backfill_before_ts = i64::MAX;
     for event_id in &v {
-        let event = get_room_event_in_room(&state, &room_id, event_id).await?;
-        backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
+        match get_room_event_in_room(&state, &room_id, event_id).await {
+            Ok(event) => {
+                backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
+            }
+            Err(_) => {
+                ::tracing::warn!(
+                    "Backfill: event {} not found in room {}, skipping",
+                    event_id,
+                    room_id
+                );
+            }
+        }
+    }
+
+    if backfill_before_ts == i64::MAX {
+        let recent_events = state
+            .services
+            .event_storage
+            .get_room_events_paginated(&room_id, None, 1, "b")
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        if let Some(latest) = recent_events.first() {
+            backfill_before_ts = latest.origin_server_ts;
+        } else {
+            backfill_before_ts = chrono::Utc::now().timestamp_millis();
+        }
     }
 
     // Fetch only events older than the requested frontier to avoid disclosing newer room history.

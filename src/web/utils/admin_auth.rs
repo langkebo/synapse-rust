@@ -205,23 +205,30 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
     let is_read = matches!(*method, Method::GET | Method::HEAD);
 
-    // 敏感操作列表 (通常需要 super_admin)
-    let is_restricted_path = path.contains("/deactivate")
-        || path.contains("/login")
-        || path.contains("/logout")
+    let is_super_admin_only = path.contains("/deactivate")
+        || path.contains("/users/") && path.contains("/login") && !path.contains("/login/")
+        || path.contains("/users/") && path.contains("/logout")
         || path.ends_with("/admin")
-        || path.contains("/shutdown")
         || path.contains("/make_admin")
         || path.contains("/federation/resolve")
         || path.contains("/federation/blacklist")
         || path.contains("/federation/cache/clear")
-        || path.contains("/registration_tokens");
+        || path.contains("/registration_tokens") && !is_read;
+
+    let is_admin_only = path.contains("/shutdown")
+        || path.contains("/federation/rewrite")
+        || path.contains("/federation/confirm")
+        || path.contains("/purge")
+        || path.contains("/reset_connection");
 
     match role {
         "admin" => {
-            // admin 角色限制敏感操作，无论是否为读操作
-            if is_restricted_path {
+            if is_super_admin_only {
                 return false;
+            }
+
+            if is_admin_only {
+                return true;
             }
 
             path.starts_with("/_synapse/admin/v1/users")
@@ -229,6 +236,8 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || path.starts_with("/_synapse/admin/v1/notifications")
                 || path.starts_with("/_synapse/admin/v1/media")
                 || path.starts_with("/_synapse/admin/v1/rooms")
+                || path.starts_with("/_synapse/admin/v1/registration_tokens")
+                || path.starts_with("/_synapse/admin/v1/federation")
                 || path.starts_with("/_synapse/worker/v1/")
                 || path.starts_with("/_synapse/room_summary/v1/")
                 || (is_read && path.starts_with("/_synapse/admin/v1/"))
@@ -246,8 +255,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || path.starts_with("/_synapse/admin/v1/server")
         }
         "user_admin" => {
-            // user_admin 限制敏感操作
-            if is_restricted_path {
+            if is_super_admin_only {
                 return false;
             }
 
@@ -284,7 +292,41 @@ mod tests {
         assert!(!is_role_allowed(
             "admin",
             &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/login"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/registration_tokens"
+        ));
+    }
+
+    #[test]
+    fn admin_role_allowed_endpoints() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
             "/_synapse/admin/v1/shutdown_room"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/registration_tokens"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/federation/destinations"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/users"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/rooms"
         ));
     }
 
@@ -313,6 +355,16 @@ mod tests {
             "super_admin",
             &Method::POST,
             "/_synapse/admin/v1/federation/cache/clear"
+        ));
+        assert!(is_role_allowed(
+            "super_admin",
+            &Method::POST,
+            "/_synapse/admin/v1/registration_tokens"
+        ));
+        assert!(is_role_allowed(
+            "super_admin",
+            &Method::POST,
+            "/_synapse/admin/v1/shutdown_room"
         ));
     }
 }
