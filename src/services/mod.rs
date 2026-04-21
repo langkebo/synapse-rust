@@ -126,9 +126,8 @@ pub mod matrixrtc_service;
 pub use livekit_client::*;
 #[cfg(feature = "voip-tracking")]
 pub use matrixrtc_service::*;
-#[cfg(feature = "voip-tracking")]
+// VoipService provides TURN server config (standard Matrix) — always available
 pub mod voip_service;
-#[cfg(feature = "voip-tracking")]
 pub use voip_service::*;
 
 #[cfg(feature = "widgets")]
