@@ -48,7 +48,7 @@
 | **辅助脚本过度工程化** (73 个) | ✅ 精简 66% | 48 个冗余脚本已删除 |
 | **文档膨胀严重** (96+ 个) | ✅ 精简 71% | 82 个文档归档，28 个活跃 |
 | **仓库卫生差** (15 个临时文件) | ✅ 全部清理 | .gitignore 防止再次提交 |
-| **过度工程化基础设施** (~3,800 行) | 🟡 部分完成 | 已删除 2,770 行死代码/冗余基础设施 |
+| **过度工程化基础设施** (~3,800 行) | ✅ 大部分完成 | 已删除 4,664 行（含 storage/models 死代码目录），剩余 ~2,191 行有活跃消费者 |
 
 ---
 
@@ -532,7 +532,7 @@ docs/
 - [x] `cargo check --all-features` 通过
 - [x] `cargo clippy --all-features -- -D warnings` 通过
 
-### Phase 4: 冗余代码删除 ✅ 已完成
+### Phase 4: 冗余代码与数据库表删除 ✅ 已完成
 
 - [x] 删除过度工程化的存储基础设施（5 个文件 ~2,000 行）:
   - maintenance_plan.rs — 自建维护调度（应用 pg_cron）
@@ -541,8 +541,19 @@ docs/
   - connection_monitor.rs — 与 pool_monitor 功能重叠
   - compile_time_validation.rs — 无外部引用的编译时检查
 - [x] 删除死代码存储文件（batch.rs, connection_pool.rs, query_utils.rs ~784 行）
+- [x] 删除死代码模型目录（storage/models/ 13 个文件 ~1,857 行 — 未在 mod.rs 声明）
 - [x] 删除孤立测试文件（6 个文件 ~1,175 行）
 - [x] 删除孤立 benchmark 文件（7 个文件）
+- [x] 删除 Docker 测试/性能产物（9 个文件）
+- [x] 删除 docker/deploy 冗余文档与脚本（8 个文件）
+- [x] 移除 .trae/ IDE 配置目录 (47 个文件) 并加入 .gitignore
+- [x] 验证并移除 3 张零引用数据库死表:
+  - private_sessions — 零 DML 引用
+  - private_messages — 仅 schema_health_check 列存在性检查（已移除）
+  - room_children — 仅 schema_validator 契约定义（已移除）
+- [x] 从 unified schema 移除 3 张死表定义 (-61 行)
+- [x] 新增 20260421000001_drop_unused_tables.sql 迁移 + undo
+- [x] 清理 schema_validator.rs 和 schema_health_check.rs 中的死表引用
 
 ### Phase 5: 脚本精简 ✅ 已完成
 
@@ -562,7 +573,8 @@ docs/
 |------|------|------|
 | 拆分 unified schema 为 core + extensions | 高 | 需逐表验证依赖，影响已部署环境迁移链 |
 | 修复最小构建（--no-default-features --features server） | 中 | 需逐一处理 ~100 处跨模块引用 |
-| 删除冗余数据库表（第三层 ~40 张） | 高 | 需验证运行时无代码引用后逐表操作 |
+| 继续删除冗余数据库表 | 高 | 剩余候选表均有活跃代码引用，需重构后才能删除 |
+| 精简 monitoring.rs / pool_monitor.rs / schema_validator.rs | 中 | 有活跃消费者，需接入 Prometheus 后替换 |
 | 精简语音消息子系统为标准 media 适配器 | 中 | 涉及 API 契约变更 |
 | 精简 Beacon 为 MSC3489 基本实现 | 中 | 需移除距离计算/统计附加功能 |
 
@@ -590,16 +602,22 @@ docs/
 
 ## 附录：精简前后实际对比
 
+> 最后更新: 2026-04-21 (第三轮优化后)
+
 | 维度 | 精简前 | 精简后 (当前) | 变化 |
 |------|--------|---------------|------|
-| Rust 代码行数 | ~175,840 | ~173,067 | -2,773 行 |
+| Rust 代码行数 | ~175,840 | ~171,176 | **-4,664 行** |
 | 辅助脚本数 | 73 (git tracked) | 25 | **-66%** |
 | 文档文件数 (活跃) | 96+ | 28 | **-71%** |
 | 文档文件数 (归档) | 0 | 82 | 仅归档不删除 |
-| 迁移文件数 (活跃) | 51 | 44 | 归档冗余迁移 |
+| 迁移文件数 (活跃) | 51 | 44+2 | +drop migration |
+| Unified schema 行数 | 3,610 | 3,549 | -61 行 (移除 3 张死表) |
 | 测试文件 (孤立) | 7 | 0 | -7 文件 |
 | Benchmark 文件 (孤立) | 7 | 0 | -7 文件 |
 | 根目录临时文件 | 15 | 0 | 全部清理 |
+| IDE 配置文件 (.trae/) | 47 tracked | 0 tracked | gitignored |
+| Docker 测试/报告产物 | 12+ | 0 | 已清理 |
+| 死代码模型目录 (storage/models/) | 1,857 行 | 0 | **已删除** |
+| 数据库死表 (schema 移除) | 3 张 | 0 | private_sessions/private_messages/room_children |
 | Feature flags | 4 | 16 | +12 个扩展 feature |
 | ServiceContainer 条件字段 | 0 | 18 | 18 个字段按 feature 编译 |
-| 存储基础设施 (删除) | 3,816 行 | -2,770 行 | 5 个过度工程模块 + 3 个死代码文件 |
