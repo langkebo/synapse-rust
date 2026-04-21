@@ -146,7 +146,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_sync_router())
         .merge(create_moderation_router())
         .merge(create_device_router())
-        .merge(create_voice_router(state.clone()))
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
@@ -156,7 +155,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_reactions_router(state.clone()))
         .merge(create_admin_module_router(state.clone()))
         .merge(create_federation_router(state.clone()))
-        .merge(create_friend_router(state.clone()))
         .merge(create_push_router(state.clone()))
         .merge(crate::web::routes::handlers::search::create_search_router(
             state.clone(),
@@ -173,12 +171,17 @@ pub fn create_router(state: AppState) -> Router {
     router = router.merge(create_worker_router(state.clone()));
 
     // Optional authentication capabilities - only expose when enabled
+    #[cfg(feature = "saml-sso")]
     if state.services.saml_service.is_enabled() {
         router = router.merge(create_saml_router(state.clone()));
     }
+    #[cfg(feature = "saml-sso")]
+    let saml_enabled = state.services.saml_service.is_enabled();
+    #[cfg(not(feature = "saml-sso"))]
+    let saml_enabled = false;
     if state.services.oidc_service.is_some()
         || state.services.builtin_oidc_provider.is_some()
-        || state.services.saml_service.is_enabled()
+        || saml_enabled
     {
         router = router.merge(create_oidc_router(state.clone()));
     } else {
@@ -193,7 +196,6 @@ pub fn create_router(state: AppState) -> Router {
     }
 
     router = router
-        .merge(cas_routes(state.clone()))
         .merge(create_captcha_router(state.clone()))
         .merge(create_push_notification_router(state.clone()))
         .merge(create_telemetry_router(state.clone()))
@@ -209,16 +211,28 @@ pub fn create_router(state: AppState) -> Router {
         .merge(dm::create_dm_router(state.clone()))
         .merge(typing::create_typing_router(state.clone()))
         .merge(ephemeral::create_ephemeral_router(state.clone()))
-        .merge(create_external_service_router(state.clone()))
-        .merge(create_burn_after_read_router(state.clone()))
         .merge(crate::web::routes::handlers::thread::create_thread_routes(
             state.clone(),
         ))
-        .merge(create_widget_router())
         .merge(create_rendezvous_router(state.clone()))
-        .merge(create_ai_connection_router())
         .route("/_matrix/client/v3/createRoom", post(create_room))
         .merge(create_presence_router());
+
+    // Feature-gated extension routers
+    #[cfg(feature = "friends")]
+    { router = router.merge(create_friend_router(state.clone())); }
+    #[cfg(feature = "voice-extended")]
+    { router = router.merge(create_voice_router(state.clone())); }
+    #[cfg(feature = "cas-sso")]
+    { router = router.merge(cas_routes(state.clone())); }
+    #[cfg(feature = "external-services")]
+    { router = router.merge(create_external_service_router(state.clone())); }
+    #[cfg(feature = "burn-after-read")]
+    { router = router.merge(create_burn_after_read_router(state.clone())); }
+    #[cfg(feature = "widgets")]
+    { router = router.merge(create_widget_router()); }
+    #[cfg(feature = "openclaw-routes")]
+    { router = router.merge(create_ai_connection_router()); }
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))

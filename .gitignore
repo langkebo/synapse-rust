@@ -61,3 +61,20 @@ docker/deploy/.env
 docker/deploy/media/
 docker/deploy/ssl/
 docker/deploy/test-results/
+docker/deploy/test-results-matrix/
+docker/deploy/logs/
+
+# 临时令牌和测试凭证（不应入库）
+*_token.txt
+test_tokens.json
+
+# 临时探测/分析脚本
+.tmp_*.py
+analyze_results.py
+prepare_test_accounts.py
+register_test_accounts.py
+
+# 测试结果日志（根目录）
+test-results-*.log
+test-results-fixed/
+.DS_Store

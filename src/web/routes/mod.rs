@@ -1,14 +1,14 @@
+// =============================================================================
+// Core Matrix route modules (always compiled)
+// =============================================================================
 mod account_compat;
 pub mod account_data;
 pub mod admin;
-pub mod ai_connection;
 pub mod app_service;
 mod assembly;
 mod auth_compat;
 pub mod background_update;
-pub mod burn_after_read;
 pub mod captcha;
-pub mod cas;
 pub mod device;
 pub mod directory;
 mod directory_reporting;
@@ -16,11 +16,9 @@ pub mod dm;
 pub mod e2ee_routes;
 pub mod ephemeral;
 pub mod event_report;
-pub mod external_service;
 pub mod extractors;
 pub mod feature_flags;
 pub mod federation;
-pub mod friend_room;
 pub mod guest;
 pub mod handlers;
 pub mod invite_blocklist;
@@ -30,8 +28,6 @@ pub mod media;
 pub mod moderation;
 pub mod module;
 pub mod oidc;
-#[cfg(feature = "openclaw-routes")]
-pub mod openclaw;
 pub mod pinned;
 pub mod presence;
 pub mod push;
@@ -45,7 +41,6 @@ mod response_helpers;
 pub mod room;
 mod room_access;
 pub mod room_summary;
-pub mod saml;
 pub mod sliding_sync;
 pub mod space;
 pub mod state;
@@ -57,10 +52,38 @@ pub mod thirdparty;
 pub mod typing;
 pub mod validators;
 pub mod verification_routes;
-pub mod voice;
-pub mod voip;
-pub mod widget;
 pub mod worker;
+
+// =============================================================================
+// Feature-gated extension route modules
+// =============================================================================
+#[cfg(feature = "openclaw-routes")]
+pub mod ai_connection;
+#[cfg(feature = "openclaw-routes")]
+pub mod openclaw;
+
+#[cfg(feature = "friends")]
+pub mod friend_room;
+
+#[cfg(feature = "voice-extended")]
+pub mod voice;
+
+#[cfg(feature = "saml-sso")]
+pub mod saml;
+
+#[cfg(feature = "cas-sso")]
+pub mod cas;
+
+pub mod voip;
+
+#[cfg(feature = "widgets")]
+pub mod widget;
+
+#[cfg(feature = "burn-after-read")]
+pub mod burn_after_read;
+
+#[cfg(feature = "external-services")]
+pub mod external_service;
 
 pub use crate::common::ApiError;
 pub(crate) use account_compat::{
@@ -70,7 +93,6 @@ pub(crate) use account_compat::{
 };
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
-pub use ai_connection::create_ai_connection_router;
 pub use app_service::create_app_service_router;
 pub use assembly::create_router;
 pub(crate) use auth_compat::{
@@ -78,9 +100,7 @@ pub(crate) use auth_compat::{
     refresh_token, register, request_email_verification, submit_email_token,
 };
 pub use background_update::create_background_update_router;
-pub use burn_after_read::create_burn_after_read_router;
 pub use captcha::create_captcha_router;
-pub use cas::cas_routes;
 pub use device::create_device_router;
 pub(crate) use directory_reporting::{
     delete_room_alias, delete_room_alias_direct, get_public_rooms, get_room_aliases,
@@ -91,14 +111,12 @@ pub(crate) use directory_reporting::{
 pub use dm::create_dm_router;
 pub use e2ee_routes::create_e2ee_router;
 pub use event_report::create_event_report_router;
-pub use external_service::create_external_service_router;
 pub(crate) use extractors::extract_token_from_headers;
 pub use extractors::{
     AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser,
 };
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
-pub use friend_room::create_friend_router;
 pub use guest::create_guest_router;
 pub(crate) use handlers::room::{
     ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
@@ -131,6 +149,8 @@ pub use module::create_module_router;
 pub use oidc::create_oidc_router;
 #[cfg(feature = "openclaw-routes")]
 pub use openclaw::create_openclaw_router;
+#[cfg(feature = "openclaw-routes")]
+pub use ai_connection::create_ai_connection_router;
 pub use presence::create_presence_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
@@ -145,6 +165,7 @@ pub(crate) use room_access::{
     ensure_room_member, is_joined_room_member, is_joined_room_member_or_creator,
 };
 pub use room_summary::create_room_summary_router;
+#[cfg(feature = "saml-sso")]
 pub use saml::create_saml_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
@@ -158,6 +179,7 @@ pub use validators::{
     validate_room_id, validate_user_id,
 };
 pub use verification_routes::create_verification_router;
+#[cfg(feature = "voice-extended")]
 pub use voice::create_voice_router;
 pub use voip::call_answer;
 pub use voip::call_candidates;
@@ -167,7 +189,16 @@ pub use voip::get_call_session;
 pub use voip::get_turn_credentials_guest;
 pub use voip::get_turn_server;
 pub use voip::get_voip_config;
+#[cfg(feature = "widgets")]
 pub use widget::create_widget_router;
+#[cfg(feature = "burn-after-read")]
+pub use burn_after_read::create_burn_after_read_router;
+#[cfg(feature = "friends")]
+pub use friend_room::create_friend_router;
+#[cfg(feature = "cas-sso")]
+pub use cas::cas_routes;
+#[cfg(feature = "external-services")]
+pub use external_service::create_external_service_router;
 pub use worker::create_worker_router;
 
 #[cfg(test)]
