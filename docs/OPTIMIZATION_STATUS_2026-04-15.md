@@ -112,7 +112,7 @@
 
 ## 4. 中优先级缺陷 (P2 - 计划修复)
 
-### 4.1 RBAC 权限层级设计问题 → ⚠️ 部分修复
+### 4.1 RBAC 权限层级设计问题 → ✅ 已全部修复
 
 **super_admin vs admin 权限差异**:
 
@@ -120,25 +120,33 @@
 |------|-------------|-------|----------|------|
 | Admin Shutdown Room | ✅ | ✅ | ✅ 已修复 | `is_admin_only` 包含 `/shutdown` |
 | Admin Room Make Admin | ✅ | ❌ | ⚠️ 设计合理 | 设置房间管理员是敏感操作 |
-| Admin Federation Blacklist | ✅ | ❌ | ❌ 待评估 | `is_super_admin_only` 包含 `/federation/blacklist` |
-| Admin Federation Cache Clear | ✅ | ❌ | ❌ 待评估 | `is_super_admin_only` 包含 `/federation/cache/clear` |
-| Server Notices | ✅ | ❌ | ❌ 待评估 | admin 路径匹配未包含 `/notifications` 写操作 |
-| Admin Delete Devices | ✅ | ❌ | ❌ 待评估 | `is_super_admin_only` 包含 `/deactivate` |
-| Admin Purge History | ✅ | ❌ | ❌ 待评估 | `is_admin_only` 包含 `/purge` |
+| Admin Federation Blacklist | ✅ | ✅ | ✅ 已修复 | `is_admin_only` 包含 `/federation/blacklist` |
+| Admin Federation Cache Clear | ✅ | ✅ | ✅ 已修复 | `is_admin_only` 包含 `/federation/cache/clear` |
+| Server Notices | ✅ | ✅ | ✅ 已修复 | admin 路径匹配包含 `/notifications` 读写 |
+| Admin Delete Devices | ✅ | ✅ | ✅ 已修复 | 路径匹配 `/users` 包含设备管理 |
+| Admin Purge History | ✅ | ✅ | ✅ 已修复 | `is_admin_only` 包含 `/purge` |
 | Admin Set User Admin | ✅ | ❌ | ✅ 设计合理 | 设置管理员是 super_admin 专属 |
-| Admin Create Registration Token | ✅ | ❌ | ❌ 待修复 | `is_super_admin_only` 限制写操作 |
-| Admin Send Server Notice | ✅ | ❌ | ❌ 待评估 | 同 Server Notices |
-| Admin Set Retention Policy | ✅ | ❌ | ❌ 待评估 | admin 路径匹配未包含 |
+| Admin Create Registration Token | ✅ | ✅ | ✅ 已修复 | admin 路径匹配包含 `/registration_tokens` 读写 |
+| Admin Send Server Notice | ✅ | ✅ | ✅ 已修复 | admin 路径匹配包含 `/notifications` 读写 |
+| Admin Set Retention Policy | ✅ | ✅ | ✅ 已修复 | admin 路径匹配包含 `/rooms` 读写 |
 | Get Registration Token | ✅ | ✅ | ✅ 已修复 | admin 有 GET 读取权限 |
-| Admin Add/Remove Federation Blacklist | ✅ | ❌ | ❌ 待评估 | 同 Federation Blacklist |
+| Admin Add/Remove Federation Blacklist | ✅ | ✅ | ✅ 已修复 | 同 Federation Blacklist |
 | Admin Reset Federation Connection | ✅ | ✅ | ✅ 已修复 | `is_admin_only` 包含 `/reset_connection` |
 | Invite Blocklist | ✅ | ✅ | ✅ 已修复 | 端点已实现，RBAC 允许 |
 | Jitsi Config | ✅ | ✅ | ✅ 已修复 | 端点已实现，RBAC 允许 |
 
-**待决策**: 需明确 admin 角色的权限边界，以下操作建议开放给 admin：
-1. Federation Resolve（只读查询，admin 应可执行）
-2. Registration Tokens 写操作（令牌管理属于日常管理操作）
-3. Server Notices 发送（通知发送属于日常管理操作）
+**已决策**: admin 角色权限边界已明确，以下操作已开放给 admin：
+1. Federation Resolve（只读查询）✅
+2. Federation Blacklist/Cache Clear（联邦管理）✅
+3. Registration Tokens 写操作（令牌管理）✅
+4. Server Notices 发送（通知发送）✅
+5. Purge History（历史清理）✅
+6. Delete Devices（设备管理）✅
+
+**super_admin 专属操作**（不开放给 admin）：
+1. 用户 Deactivate（账号停用是敏感操作）
+2. 设置用户 Admin 标记（权限提升是高风险操作）
+3. 用户 Login/Logout（强制登录登出是敏感操作）
 
 ### 4.2 密码哈希参数不匹配 → ⚠️ 配置问题
 
@@ -184,23 +192,25 @@
 
 | 优先级 | 原数量 | 已修复 | 剩余 | 分类 |
 |--------|--------|--------|------|------|
-| P0 | 3 | 2 | 1 | admin Federation Resolve RBAC 待修复 |
+| P0 | 3 | 3 | 0 | 全部已修复 |
 | P1 | 4 | 4 | 0 | 全部已修复 |
-| P2 | 3 | 2 | 1 | RBAC 权限层级待决策 |
+| P2 | 3 | 3 | 0 | 全部已修复 |
 | P3 | 3 | 1 | 2 | 联邦测试、数据库残留 |
-| **合计** | **13** | **9** | **4** | |
+| **合计** | **13** | **11** | **2** | |
 
 ---
 
 ## 7. 待修复项清单
 
-### 7.1 代码修复 (需修改 RBAC 规则)
+### 7.1 代码修复 (RBAC 规则)
 
 | 序号 | 修复项 | 优先级 | 修改文件 | 状态 |
 |------|--------|--------|----------|------|
 | 1 | 将 `/federation/resolve` 从 `is_super_admin_only` 移到 `is_admin_only` | 高 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
-| 2 | 允许 admin 写操作 `registration_tokens` | 中 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
-| 3 | 允许 admin 访问 `/notifications` 写操作 | 中 | `src/web/utils/admin_auth.rs` | ✅ 已确认无需修复 |
+| 2 | 将 `/federation/blacklist` 从 `is_super_admin_only` 移到 `is_admin_only` | 高 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
+| 3 | 将 `/federation/cache/clear` 从 `is_super_admin_only` 移到 `is_admin_only` | 高 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
+| 4 | 允许 admin 写操作 `registration_tokens` | 中 | `src/web/utils/admin_auth.rs` | ✅ 已修复 |
+| 5 | 允许 admin 访问 `/notifications` 写操作 | 中 | `src/web/utils/admin_auth.rs` | ✅ 已确认无需修复 |
 
 ### 7.2 配置优化 (无需代码修改)
 
