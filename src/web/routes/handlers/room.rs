@@ -1471,6 +1471,7 @@ pub(crate) async fn send_state_event(
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
+    #[allow(unused_variables)]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
@@ -1511,7 +1512,8 @@ pub(crate) async fn send_state_event(
             .unwrap_or("m.self")
             .to_string();
 
-        Some(crate::storage::beacon::CreateBeaconInfoParams {
+        #[cfg(feature = "beacons")]
+        { Some(crate::storage::beacon::CreateBeaconInfoParams {
             room_id: room_id.clone(),
             event_id: new_event_id.clone(),
             state_key: auth_user.user_id.clone(),
@@ -1521,7 +1523,9 @@ pub(crate) async fn send_state_event(
             is_live,
             asset_type,
             created_ts,
-        })
+        }) }
+        #[cfg(not(feature = "beacons"))]
+        { let _ = (timeout, is_live, description, created_ts, asset_type); None::<()> }
     } else {
         None
     };
@@ -1544,6 +1548,7 @@ pub(crate) async fn send_state_event(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to send state event: {}", e)))?;
 
+    #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
             .services
@@ -1584,6 +1589,7 @@ pub(crate) async fn put_state_event(
         ));
     }
 
+    #[allow(unused_variables)]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
@@ -1624,7 +1630,8 @@ pub(crate) async fn put_state_event(
             .unwrap_or("m.self")
             .to_string();
 
-        Some(crate::storage::beacon::CreateBeaconInfoParams {
+        #[cfg(feature = "beacons")]
+        { Some(crate::storage::beacon::CreateBeaconInfoParams {
             room_id: room_id.clone(),
             event_id: new_event_id.clone(),
             state_key: state_key.clone(),
@@ -1634,7 +1641,9 @@ pub(crate) async fn put_state_event(
             is_live,
             asset_type,
             created_ts,
-        })
+        }) }
+        #[cfg(not(feature = "beacons"))]
+        { let _ = (timeout, is_live, description, created_ts, asset_type); None::<()> }
     } else {
         None
     };
@@ -1657,6 +1666,7 @@ pub(crate) async fn put_state_event(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
 
+    #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
             .services

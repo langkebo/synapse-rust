@@ -64,6 +64,7 @@ fn create_client_media_config_router() -> Router<AppState> {
 }
 
 fn create_voip_compat_router() -> Router<AppState> {
+    #[allow(unused_mut)]
     let mut router = Router::new()
         .route(
             "/voip/turnServer",

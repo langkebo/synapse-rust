@@ -1,10 +1,15 @@
 use crate::common::error::ApiError;
 use crate::services::VoipService;
+#[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::{
-    ensure_room_member, validate_room_id, AppState, AuthenticatedUser,
+    AppState, AuthenticatedUser,
 };
-use axum::{extract::Path, extract::State, Json};
+#[cfg(feature = "voip-tracking")]
+use crate::web::routes::{ensure_room_member, validate_room_id};
+use axum::{extract::State, Json};
+#[cfg(feature = "voip-tracking")]
+use axum::extract::Path;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

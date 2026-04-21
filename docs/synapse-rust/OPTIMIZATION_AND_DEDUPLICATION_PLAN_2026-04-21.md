@@ -564,6 +564,8 @@ docs/
 
 - [x] `cargo check --all-features --locked` 通过
 - [x] `cargo clippy --all-features --locked -- -D warnings` 通过（零警告）
+- [x] `cargo check --no-default-features --features server --locked` 通过（**最小构建零错误**）
+- [x] `cargo clippy --no-default-features --features server --locked -- -D warnings` 通过（**最小构建零警告**）
 
 ---
 
@@ -572,7 +574,6 @@ docs/
 | 项目 | 风险 | 说明 |
 |------|------|------|
 | 拆分 unified schema 为 core + extensions | 高 | 需逐表验证依赖，影响已部署环境迁移链 |
-| 完成最小构建最后 8 个错误 | 低 | handlers/room.rs 中的 beacon 引用（4 处）、voip.rs 未使用 import（4 处） |
 | 继续删除冗余数据库表 | 高 | 剩余候选表均有活跃代码引用，需重构后才能删除 |
 | 精简 monitoring.rs / pool_monitor.rs / schema_validator.rs | 中 | 有活跃消费者，需接入 Prometheus 后替换 |
 | 精简语音消息子系统为标准 media 适配器 | 中 | 涉及 API 契约变更 |
@@ -602,12 +603,13 @@ docs/
 
 ## 附录：精简前后实际对比
 
-> 最后更新: 2026-04-21 (第四轮优化后)
+> 最后更新: 2026-04-21 (第五轮优化后)
 
 | 维度 | 精简前 | 精简后 (当前) | 变化 |
 |------|--------|---------------|------|
 | Rust 代码行数 | ~175,840 | ~171,286 | **-4,554 行** |
-| 最小构建编译错误 | ~106 | 8 | **-92%** (从不可编译到接近可编译) |
+| 最小构建编译错误 | ~106 | **0** | **-100%** (完全可编译) |
+| 最小构建 clippy 警告 | N/A | **0** | 零警告 |
 | 辅助脚本数 | 73 (git tracked) | 25 | **-66%** |
 | 文档文件数 (活跃) | 96+ | 28 | **-71%** |
 | 文档文件数 (归档) | 0 | 82 | 仅归档不删除 |
