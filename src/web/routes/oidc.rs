@@ -162,6 +162,7 @@ async fn sso_redirect(
         return Ok(Redirect::temporary(&authorization_url));
     }
 
+    #[cfg(feature = "saml-sso")]
     if state.services.saml_service.is_enabled() {
         let auth_request = state
             .services
