@@ -30,12 +30,19 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
             get(get_experimental_features),
         )
         .route("/_synapse/admin/v1/backups", get(get_backups))
+        .route("/_synapse/admin/v1/jitsi/config", get(get_jitsi_config))
+        .route(
+            "/_synapse/admin/v1/invite/blocklist",
+            get(get_invite_blocklist_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/invite/allowlist",
+            get(get_invite_allowlist_admin),
+        )
 }
 
 #[axum::debug_handler]
-pub async fn get_admin_info(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "server_name": state.services.config.server.name,
         "server_version": env!("CARGO_PKG_VERSION"),
@@ -256,4 +263,53 @@ pub async fn get_experimental_features(
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     Err(unsupported_admin_server_feature("experimental_features"))
+}
+
+#[axum::debug_handler]
+pub async fn get_jitsi_config(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "domain": "meet.jit.si",
+        "app_id": null,
+        "jwt_enabled": false,
+        "jwt_asap_enabled": false,
+        "jwt_auth_type": "none",
+        "server_name": state.services.config.server.name
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_invite_blocklist_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let blocklist = state
+        .services
+        .invite_blocklist_storage
+        .get_global_invite_blocklist()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get global blocklist: {}", e)))?;
+
+    Ok(Json(json!({
+        "blocklist": blocklist
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_invite_allowlist_admin(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    let allowlist = state
+        .services
+        .invite_blocklist_storage
+        .get_global_invite_allowlist()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get global allowlist: {}", e)))?;
+
+    Ok(Json(json!({
+        "allowlist": allowlist
+    })))
 }

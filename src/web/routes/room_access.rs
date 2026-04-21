@@ -32,6 +32,10 @@ pub(crate) async fn ensure_room_member(
     room_id: &str,
     error_message: &str,
 ) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        return Ok(());
+    }
+
     let is_member = is_joined_room_member(state, &auth_user.user_id, room_id).await?;
 
     if !is_member {
