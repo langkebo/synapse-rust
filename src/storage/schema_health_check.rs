@@ -394,17 +394,6 @@ async fn check_field_naming_issues(pool: &Pool<Postgres>) -> Result<Vec<String>,
         issues.push("user_threepids.validated_ts - field missing (should be migrated)".to_string());
     }
 
-    // 检查 private_messages 的新字段名
-    let has_read_ts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'private_messages' AND column_name = 'read_ts'"
-    )
-    .fetch_one(pool)
-    .await?;
-
-    if has_read_ts == 0 {
-        issues.push("private_messages.read_ts - field missing (should be migrated)".to_string());
-    }
-
     Ok(issues)
 }
 

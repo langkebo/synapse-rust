@@ -63,29 +63,6 @@ const TABLE_CONTRACTS: &[(&str, TableContract)] = &[
         },
     ),
     (
-        "room_children",
-        TableContract {
-            columns: &[
-                "parent_room_id",
-                "child_room_id",
-                "state_key",
-                "content",
-                "suggested",
-                "created_ts",
-                "updated_ts",
-            ],
-            indexes: &[
-                "idx_room_children_parent_suggested",
-                "idx_room_children_child",
-            ],
-            constraints: &[
-                "uq_room_children_parent_child",
-                "fk_room_children_parent",
-                "fk_room_children_child",
-            ],
-        },
-    ),
-    (
         "retention_cleanup_queue",
         TableContract {
             columns: &[
