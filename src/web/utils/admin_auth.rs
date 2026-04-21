@@ -210,12 +210,11 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         || path.contains("/users/") && path.contains("/logout")
         || path.ends_with("/admin")
         || path.contains("/make_admin")
-        || path.contains("/federation/resolve")
         || path.contains("/federation/blacklist")
-        || path.contains("/federation/cache/clear")
-        || path.contains("/registration_tokens") && !is_read;
+        || path.contains("/federation/cache/clear");
 
     let is_admin_only = path.contains("/shutdown")
+        || path.contains("/federation/resolve")
         || path.contains("/federation/rewrite")
         || path.contains("/federation/confirm")
         || path.contains("/purge")
@@ -284,7 +283,7 @@ mod tests {
             &Method::PUT,
             "/_synapse/admin/v1/users/@u:localhost/admin"
         ));
-        assert!(!is_role_allowed(
+        assert!(is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/federation/resolve"
@@ -294,7 +293,7 @@ mod tests {
             &Method::POST,
             "/_synapse/admin/v1/users/@u:localhost/login"
         ));
-        assert!(!is_role_allowed(
+        assert!(is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/registration_tokens"
