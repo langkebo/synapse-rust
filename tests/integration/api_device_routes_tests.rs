@@ -339,8 +339,13 @@ async fn test_get_device_returns_not_found_for_other_users_device() {
     let (bob_token, _) = register_user(&app, "device_routes_target").await;
     let bob_device = get_first_device_id(&app, &bob_token, "/_matrix/client/v3/devices").await;
 
-    let (status, body) =
-        get_device_response(&app, &alice_token, &bob_device, "/_matrix/client/v3/devices").await;
+    let (status, body) = get_device_response(
+        &app,
+        &alice_token,
+        &bob_device,
+        "/_matrix/client/v3/devices",
+    )
+    .await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["errcode"], "M_NOT_FOUND");
@@ -379,9 +384,9 @@ async fn test_device_list_updates_filters_users_without_shared_rooms() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     let changed = json["changed"].as_array().unwrap();
 
-    assert!(!changed.iter().any(|entry| {
-        entry["user_id"] == bob_user_id && entry["device_id"] == bob_device
-    }));
+    assert!(!changed
+        .iter()
+        .any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }));
 }
 
 #[tokio::test]
@@ -422,9 +427,9 @@ async fn test_device_list_updates_allows_users_with_shared_rooms() {
     let changed = json["changed"].as_array().unwrap();
 
     assert!(
-        changed.iter().any(|entry| {
-            entry["user_id"] == bob_user_id && entry["device_id"] == bob_device
-        }),
+        changed
+            .iter()
+            .any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }),
         "expected shared-room user's device to be returned"
     );
 }

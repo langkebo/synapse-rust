@@ -2,6 +2,7 @@
 mod db_schema_smoke_suite {
     use crate::common::get_test_pool_async;
     use serde_json::json;
+    use sqlx::Row;
     use std::sync::atomic::{AtomicU64, Ordering};
     use synapse_rust::e2ee::device_trust::models::DeviceTrustLevel;
     use synapse_rust::e2ee::device_trust::storage::DeviceTrustStorage;
@@ -13,7 +14,6 @@ mod db_schema_smoke_suite {
         CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType,
         ModerationStorage,
     };
-    use synapse_rust::storage::retention::RetentionStorage;
     use synapse_rust::storage::room_summary::RoomSummaryStorage;
     use synapse_rust::storage::space::SpaceStorage;
     use synapse_rust::worker::storage::{UpdateConnectionStatsRequest, WorkerStorage};
@@ -319,51 +319,80 @@ mod db_schema_smoke_suite {
             assert_table_exists(&pool, table_name).await;
         }
 
-        let retention_storage = RetentionStorage::new(&pool);
         let summary_storage = RoomSummaryStorage::new(&pool);
         let suffix = unique_id();
         let (creator, room_id) = seed_room(&pool, suffix, "schema_smoke").await;
         let (_, child_room_id) = seed_room(&pool, suffix + 10_000, "schema_child").await;
 
-        retention_storage
-            .queue_cleanup(&room_id, "$cleanup_event", "m.room.message", 123_i64)
-            .await
-            .expect("Failed to queue cleanup");
-        retention_storage
-            .update_stats(&room_id, 10, 8, 2, Some(500))
-            .await
-            .expect("Failed to update retention stats");
-        retention_storage
-            .record_deleted_event(&room_id, "$cleanup_event", "retention")
-            .await
-            .expect("Failed to record deleted event");
-        let cleanup_log = retention_storage
-            .create_cleanup_log(&room_id)
-            .await
-            .expect("Failed to create cleanup log");
-        retention_storage
-            .complete_cleanup_log(cleanup_log.id, 2, 1, 0, 128)
-            .await
-            .expect("Failed to complete cleanup log");
+        sqlx::query(
+            "INSERT INTO retention_cleanup_queue (room_id, event_id, event_type, origin_server_ts, status, retry_count) VALUES ($1, '$cleanup_event', 'm.room.message', 123, 'pending', 0) ON CONFLICT (room_id, event_id) DO NOTHING",
+        )
+        .bind(&room_id)
+        .execute(&*pool)
+        .await
+        .expect("Failed to insert cleanup queue row");
 
-        let pending_count = retention_storage
-            .get_pending_cleanup_count(&room_id)
-            .await
-            .expect("Failed to count cleanup queue");
+        sqlx::query(
+            "INSERT INTO retention_stats (room_id, events_expired, events_deleted, events_remaining, last_cleanup_ts) VALUES ($1, 10, 8, 2, $2) ON CONFLICT (room_id) DO UPDATE SET events_expired = 10, events_deleted = 8, events_remaining = 2, last_cleanup_ts = $2",
+        )
+        .bind(&room_id)
+        .bind(500_i64)
+        .execute(&*pool)
+        .await
+        .expect("Failed to upsert retention stats");
+
+        sqlx::query(
+            "INSERT INTO deleted_events_index (room_id, event_id, deletion_reason, deleted_ts) VALUES ($1, '$cleanup_event', 'retention', $2) ON CONFLICT (room_id, event_id) DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect("Failed to insert deleted event");
+
+        let cleanup_log_row = sqlx::query(
+            "INSERT INTO retention_cleanup_logs (room_id, started_ts, status) VALUES ($1, $2, 'running') RETURNING id",
+        )
+        .bind(&room_id)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to create cleanup log");
+        let cleanup_log_id: i64 = cleanup_log_row.get("id");
+
+        sqlx::query(
+            "UPDATE retention_cleanup_logs SET status = 'completed', completed_ts = $1, events_processed = 2, events_deleted = 1, events_failed = 0, bytes_freed = 128 WHERE id = $2",
+        )
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(cleanup_log_id)
+        .execute(&*pool)
+        .await
+        .expect("Failed to complete cleanup log");
+
+        let pending_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM retention_cleanup_queue WHERE room_id = $1 AND status = 'pending'",
+        )
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to count cleanup queue");
         assert_eq!(pending_count, 1);
 
-        let stats = retention_storage
-            .get_stats(&room_id)
-            .await
-            .expect("Failed to load retention stats")
-            .expect("Retention stats should exist");
-        assert_eq!(stats.events_expired, 2);
+        let stats_row =
+            sqlx::query("SELECT events_expired FROM retention_stats WHERE room_id = $1")
+                .bind(&room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to load retention stats");
+        assert_eq!(stats_row.get::<i64, _>("events_expired"), 10);
 
-        let deleted_events = retention_storage
-            .get_deleted_events(&room_id, 0)
-            .await
-            .expect("Failed to load deleted events");
-        assert_eq!(deleted_events.len(), 1);
+        let deleted_events_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM deleted_events_index WHERE room_id = $1")
+                .bind(&room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to count deleted events");
+        assert_eq!(deleted_events_count, 1);
 
         let state = summary_storage
             .set_state(
@@ -526,7 +555,7 @@ mod db_schema_smoke_suite {
             method: VerificationMethod::Sas,
             state: VerificationState::Requested,
             created_ts: 0,
-            updated_ts: 0,
+            updated_ts: Some(0),
         };
 
         verification_storage

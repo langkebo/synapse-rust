@@ -43,6 +43,7 @@ pub struct ThreadSubscription {
     pub user_id: String,
     pub notification_level: String,
     pub is_muted: bool,
+    pub is_pinned: bool,
     pub subscribed_ts: i64,
     pub updated_ts: i64,
 }
@@ -1102,6 +1103,7 @@ mod tests {
             user_id: "@user:example.com".to_string(),
             notification_level: "all".to_string(),
             is_muted: false,
+            is_pinned: false,
             subscribed_ts: 1234567890,
             updated_ts: 1234567890,
         }
@@ -1188,6 +1190,7 @@ mod tests {
                 user_id: "@user:example.com".to_string(),
                 notification_level: level.to_string(),
                 is_muted: false,
+                is_pinned: false,
                 subscribed_ts: 1234567890,
                 updated_ts: 1234567890,
             };

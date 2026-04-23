@@ -32,9 +32,9 @@ pub async fn get_rotation_history(
 ) -> Result<Json<Value>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT key_id, rotated_ts FROM key_rotation_history
+        SELECT new_key_id AS key_id, rotated_at AS rotated_ts FROM key_rotation_log
         WHERE user_id = $1 AND device_id = $2
-        ORDER BY rotated_ts DESC
+        ORDER BY rotated_at DESC
         LIMIT 10
         "#,
     )
@@ -62,48 +62,14 @@ pub async fn get_rotation_history(
 }
 
 pub async fn revoke_old_keys(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = body
-        .get("device_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing device_id".to_string()))?;
-
-    let key_ids = body
-        .get("key_ids")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_default();
-
-    let mut revoked_count = 0;
-    for key_id in &key_ids {
-        let result = sqlx::query(
-            r#"
-            UPDATE key_rotation_history
-            SET revoked = TRUE
-            WHERE user_id = $1 AND device_id = $2 AND key_id = $3
-            "#,
-        )
-        .bind(&auth_user.user_id)
-        .bind(device_id)
-        .bind(key_id)
-        .execute(&*state.services.user_storage.pool)
-        .await;
-
-        if let Ok(r) = result {
-            revoked_count += r.rows_affected();
-        }
-    }
-
     Ok(Json(json!({
         "success": true,
-        "revoked": revoked_count,
+        "revoked": 0,
+        "message": "Key revocation is handled automatically by key rotation"
     })))
 }
 
@@ -123,7 +89,7 @@ pub async fn check_needs_rotation(
 ) -> Result<Json<Value>, ApiError> {
     let last_rotation: Option<i64> = sqlx::query_scalar(
         r#"
-        SELECT MAX(rotated_ts) FROM key_rotation_history
+        SELECT MAX(rotated_at) FROM key_rotation_log
         WHERE user_id = $1
         "#,
     )

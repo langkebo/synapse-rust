@@ -723,8 +723,8 @@ impl SlidingSyncService {
         since_pos: Option<&str>,
     ) -> Result<Value, sqlx::Error> {
         let device_key_storage = DeviceKeyStorage::new(&self.event_storage.pool);
-        let key_count = device_key_storage
-            .get_one_time_keys_count(user_id, device_id)
+        let key_counts = device_key_storage
+            .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
@@ -746,12 +746,20 @@ impl SlidingSyncService {
             .set_raw(&cache_key, &current_stream_id.to_string(), 3600)
             .await;
 
+        let mut otk_counts = serde_json::Map::new();
+        for (algo, count) in key_counts {
+            otk_counts.insert(algo, json!(count));
+        }
+
+        let unused_fallback_types = device_key_storage
+            .get_unused_fallback_key_types(user_id, device_id)
+            .await
+            .unwrap_or_else(|_| vec![]);
+
         Ok(json!({
             "device_lists": device_lists,
-            "device_one_time_keys_count": {
-                "signed_curve25519": key_count
-            },
-            "device_unused_fallback_key_types": [],
+            "device_one_time_keys_count": otk_counts,
+            "device_unused_fallback_key_types": unused_fallback_types,
         }))
     }
 

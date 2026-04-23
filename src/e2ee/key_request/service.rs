@@ -133,7 +133,9 @@ impl KeyRequestService {
 
         let session_key = session.session_key.clone();
 
-        self.storage.fulfill_request(request_id, requesting_device_id).await?;
+        self.storage
+            .fulfill_request(request_id, requesting_device_id)
+            .await?;
 
         let response = KeyShareResponse {
             room_id: request.room_id.clone(),

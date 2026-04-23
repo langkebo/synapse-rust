@@ -35,6 +35,9 @@ pub struct KeyQueryRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyQueryResponse {
     pub device_keys: serde_json::Value,
+    pub master_keys: serde_json::Value,
+    pub self_signing_keys: serde_json::Value,
+    pub user_signing_keys: serde_json::Value,
     pub failures: serde_json::Value,
 }
 
@@ -42,6 +45,8 @@ pub struct KeyQueryResponse {
 pub struct KeyUploadRequest {
     pub device_keys: Option<DeviceKeys>,
     pub one_time_keys: Option<serde_json::Value>,
+    #[serde(default)]
+    pub fallback_keys: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +132,9 @@ mod tests {
                     "DEVICE123": {}
                 }
             }),
+            master_keys: serde_json::json!({}),
+            self_signing_keys: serde_json::json!({}),
+            user_signing_keys: serde_json::json!({}),
             failures: serde_json::json!({}),
         };
 
@@ -150,6 +158,7 @@ mod tests {
             one_time_keys: Some(serde_json::json!({
                 "curve25519:KEY2": "one_time_key"
             })),
+            fallback_keys: None,
         };
 
         assert!(request.device_keys.is_some());

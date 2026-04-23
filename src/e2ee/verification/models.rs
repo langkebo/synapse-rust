@@ -61,7 +61,7 @@ pub struct VerificationRequest {
     pub method: VerificationMethod,
     pub state: VerificationState,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 /// SAS verification data for API

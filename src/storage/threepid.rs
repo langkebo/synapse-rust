@@ -9,10 +9,12 @@ pub struct UserThreepid {
     pub user_id: String,
     pub medium: String,
     pub address: String,
+    #[sqlx(rename = "validated_ts")]
     pub validated_at: Option<i64>,
     pub added_ts: i64,
     pub is_verified: bool,
     pub verification_token: Option<String>,
+    #[sqlx(rename = "verification_expires_ts")]
     pub verification_expires_at: Option<i64>,
 }
 
@@ -50,11 +52,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             "#,
         )
         .bind(&request.user_id)
@@ -83,11 +85,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
             "#,
@@ -113,11 +115,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             FROM user_threepids
             WHERE user_id = $1
             ORDER BY added_ts DESC
@@ -143,11 +145,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             FROM user_threepids
             WHERE medium = $1 AND address = $2
             "#,
@@ -173,11 +175,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             FROM user_threepids
             WHERE medium = $1 AND address = $2 AND is_verified = TRUE
             "#,
@@ -235,11 +237,11 @@ impl ThreepidStorage {
                 user_id,
                 medium,
                 address,
-                validated_ts AS validated_at,
+                validated_ts,
                 added_ts,
                 is_verified,
                 verification_token,
-                verification_expires_ts AS verification_expires_at
+                verification_expires_ts
             "#,
         )
         .bind(token)

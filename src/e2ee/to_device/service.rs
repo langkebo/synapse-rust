@@ -3,10 +3,12 @@ use crate::error::ApiError;
 use crate::storage::UserStorage;
 use serde_json::Value;
 
+const TRANSACTION_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+
 #[derive(Clone)]
 pub struct ToDeviceService {
     storage: ToDeviceStorage,
-    user_storage: Option<UserStorage>, // Made optional to avoid breaking tests if any
+    user_storage: Option<UserStorage>,
 }
 
 impl ToDeviceService {
@@ -30,16 +32,40 @@ impl ToDeviceService {
         message_id: Option<&str>,
         messages: &Value,
     ) -> Result<(), ApiError> {
+        if let Some(mid) = message_id {
+            if self
+                .storage
+                .is_duplicate_transaction(sender_user_id, sender_device_id, mid)
+                .await?
+            {
+                tracing::debug!(
+                    "Duplicate to-device transaction {} from {}:{}",
+                    mid,
+                    sender_user_id,
+                    sender_device_id
+                );
+                return Ok(());
+            }
+
+            self.storage
+                .record_transaction(sender_user_id, sender_device_id, mid)
+                .await?;
+
+            let _ = self
+                .storage
+                .cleanup_old_transactions(TRANSACTION_MAX_AGE_MS)
+                .await;
+        }
+
         if let Some(msg_map) = messages.as_object() {
             for (user_id, devices) in msg_map {
-                // Check if user exists if user_storage is available
                 if let Some(user_storage) = &self.user_storage {
                     if !user_storage
                         .user_exists(user_id)
                         .await
                         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
                     {
-                        ::tracing::warn!(
+                        tracing::warn!(
                             "Skipping to-device message for non-existent user: {}",
                             user_id
                         );
@@ -72,7 +98,9 @@ impl ToDeviceService {
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<Value>, ApiError> {
-        self.storage.get_messages(user_id, device_id).await
+        self.storage
+            .get_and_delete_messages(user_id, device_id)
+            .await
     }
 }
 

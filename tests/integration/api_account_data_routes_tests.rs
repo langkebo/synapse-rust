@@ -18,7 +18,8 @@ async fn setup_test_app() -> Option<axum::Router> {
     Some(create_router(state))
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());

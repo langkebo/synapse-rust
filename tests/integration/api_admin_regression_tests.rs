@@ -29,7 +29,8 @@ async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheM
     Some((create_router(state), pool, cache))
 }
 
-async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
+async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
         .await
         .ok()?;
@@ -865,7 +866,10 @@ async fn test_cas_admin_endpoints_require_admin_role() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let forbidden_attrs_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/cas/users/{}/attributes",
+            user_id
+        ))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -875,7 +879,10 @@ async fn test_cas_admin_endpoints_require_admin_role() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_attrs_request = Request::builder()
-        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/cas/users/{}/attributes",
+            user_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1172,7 +1179,8 @@ async fn test_room_alias_management_requires_room_creator() {
             .await
             .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
-    invalidate_admin_cache(&cache, &admin_user_id).await;    let (member_token, member_user_id) =
+    invalidate_admin_cache(&cache, &admin_user_id).await;
+    let (member_token, member_user_id) =
         register_user(&app, &format!("alias_member_{}", rand::random::<u32>()))
             .await
             .expect("failed to register joined member");
@@ -1345,7 +1353,8 @@ async fn test_room_summary_internal_write_routes_require_admin() {
             .await
             .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
-    invalidate_admin_cache(&cache, &admin_user_id).await;    let (user_token, _) = register_user(&app, &format!("summary_user_{}", rand::random::<u32>()))
+    invalidate_admin_cache(&cache, &admin_user_id).await;
+    let (user_token, _) = register_user(&app, &format!("summary_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
 

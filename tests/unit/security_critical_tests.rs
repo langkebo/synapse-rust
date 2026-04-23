@@ -436,11 +436,7 @@ fn test_key_rotation_endpoints_admin_only() {
 
 #[test]
 fn test_password_change_rejects_all_non_password_auth_types() {
-    let invalid_auth_types = vec![
-        "m.login.dummy",
-        "m.login.recaptcha",
-        "m.login.sso",
-    ];
+    let invalid_auth_types = vec!["m.login.dummy", "m.login.recaptcha", "m.login.sso"];
 
     for auth_type in invalid_auth_types {
         let result = validate_password_change_request(auth_type, true, true);

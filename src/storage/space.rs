@@ -48,6 +48,7 @@ pub struct SpaceMember {
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SpaceSummary {
+    pub id: i64,
     pub space_id: String,
     pub summary: serde_json::Value,
     pub children_count: i64,
@@ -1130,6 +1131,7 @@ mod tests {
     #[test]
     fn test_space_summary() {
         let summary = SpaceSummary {
+            id: 1,
             space_id: "!space:localhost".to_string(),
             summary: serde_json::json!({"key": "value"}),
             children_count: 5,

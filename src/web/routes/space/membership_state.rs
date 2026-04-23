@@ -5,15 +5,20 @@ pub(super) async fn get_space_members(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let members = state
-            .services
-            .space_service
-            .get_space_members(&space.space_id)
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, _auth_user| async move {
+            let members = state
+                .services
+                .space_service
+                .get_space_members(&space.space_id)
+                .await?;
 
-        Ok(json_vec_from::<_, SpaceMemberResponse>(members))
-    })
+            Ok(json_vec_from::<_, SpaceMemberResponse>(members))
+        },
+    )
     .await
 }
 
@@ -22,20 +27,25 @@ pub(super) async fn get_space_rooms(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let children = state
-            .services
-            .space_service
-            .get_space_children(&space.space_id)
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, _auth_user| async move {
+            let children = state
+                .services
+                .space_service
+                .get_space_children(&space.space_id)
+                .await?;
 
-        let rooms: Vec<String> = children.into_iter().map(|child| child.room_id).collect();
+            let rooms: Vec<String> = children.into_iter().map(|child| child.room_id).collect();
 
-        Ok(Json(serde_json::json!({
-            "space_id": space.space_id,
-            "rooms": rooms,
-        })))
-    })
+            Ok(Json(serde_json::json!({
+                "space_id": space.space_id,
+                "rooms": rooms,
+            })))
+        },
+    )
     .await
 }
 
@@ -44,15 +54,20 @@ pub(super) async fn get_space_state(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
-        let space_state = state
-            .services
-            .space_service
-            .get_space_state(&space.space_id, auth_user.user_id.as_deref())
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, auth_user| async move {
+            let space_state = state
+                .services
+                .space_service
+                .get_space_state(&space.space_id, auth_user.user_id.as_deref())
+                .await?;
 
-        Ok(Json(space_state))
-    })
+            Ok(Json(space_state))
+        },
+    )
     .await
 }
 

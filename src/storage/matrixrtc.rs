@@ -347,7 +347,7 @@ impl MatrixRTCStorage {
             r#"
             SELECT * FROM matrixrtc_encryption_keys 
             WHERE room_id = $1 AND session_id = $2 
-              AND (expires_at IS NULL OR expires_ts > $3)
+              AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY key_index ASC
             "#,
         )

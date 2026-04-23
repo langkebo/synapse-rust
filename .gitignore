@@ -36,6 +36,7 @@ reports/
 artifacts/
 test-artifacts/
 scripts/db/__pycache__/
+__pycache__/
 *.pyc
 
 # 测试媒体文件

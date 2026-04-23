@@ -519,10 +519,6 @@ CREATE INDEX IF NOT EXISTS idx_thread_relations_room_thread
 ON thread_relations(room_id, thread_id)
 WHERE thread_id IS NOT NULL;
 
--- 线程统计表 (Thread Statistics)
--- 注意: 此表已废弃，功能已合并到 thread_roots
--- CREATE TABLE IF NOT EXISTS thread_statistics (...);
-
 -- 房间父关系表
 -- 存储房间与 Space 的父子关系
 CREATE TABLE IF NOT EXISTS room_parents (
@@ -1390,9 +1386,13 @@ CREATE TABLE IF NOT EXISTS federation_servers (
     last_successful_connect_at BIGINT,
     last_failed_connect_at BIGINT,
     failure_count INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    updated_ts BIGINT,
     CONSTRAINT pk_federation_servers PRIMARY KEY (id),
     CONSTRAINT uq_federation_servers_name UNIQUE (server_name)
 );
+
+CREATE INDEX IF NOT EXISTS idx_federation_servers_status ON federation_servers(status);
 
 -- 联邦黑名单表
 -- 存储联邦黑名单
@@ -2463,21 +2463,12 @@ CREATE TABLE IF NOT EXISTS ip_blocks (
     CONSTRAINT uq_ip_blocks_ip UNIQUE (ip_address)
 );
 
-CREATE TABLE IF NOT EXISTS ip_reputation (
-    id BIGSERIAL,
-    ip_address TEXT NOT NULL,
-    score INTEGER DEFAULT 0,
-    last_seen_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    details JSONB,
-    CONSTRAINT pk_ip_reputation PRIMARY KEY (id),
-    CONSTRAINT uq_ip_reputation_ip UNIQUE (ip_address)
-);
+-- ip_reputation: 零代码引用，已废弃 (方案第三层冗余表)
+-- CREATE TABLE IF NOT EXISTS ip_reputation (...);
 
 CREATE INDEX IF NOT EXISTS idx_security_events_user_id ON security_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_security_events_created_ts ON security_events(created_ts);
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_blocked_ts ON ip_blocks(blocked_ts);
-CREATE INDEX IF NOT EXISTS idx_ip_reputation_score ON ip_reputation(score);
 
 -- ============================================================================
 -- 读标记表
@@ -2661,18 +2652,6 @@ CREATE TABLE IF NOT EXISTS user_privacy_settings (
 );
 
 -- 第三方身份验证表（独立于 user_threepids）
--- 注意: 此表已废弃，功能与 user_threepids 重复
--- CREATE TABLE IF NOT EXISTS threepids (
---     id SERIAL PRIMARY KEY,
---     user_id VARCHAR(255) NOT NULL,
---     medium VARCHAR(50) NOT NULL,
---     address VARCHAR(255) NOT NULL,
---     validated_ts BIGINT,
---     added_ts BIGINT NOT NULL,
---     CONSTRAINT uq_threepids_medium_address UNIQUE (medium, address)
--- );
--- CREATE INDEX IF NOT EXISTS idx_threepids_user ON threepids(user_id);
-
 -- 房间标签表
 CREATE TABLE IF NOT EXISTS room_tags (
     id SERIAL PRIMARY KEY,
@@ -2703,19 +2682,6 @@ CREATE TABLE IF NOT EXISTS room_events (
 
 CREATE INDEX IF NOT EXISTS idx_room_events_room ON room_events(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_events_event ON room_events(event_id);
-
--- 事件举报表（独立于 event_reports）
--- 注意: 此表已废弃，功能与 event_reports 重复
--- CREATE TABLE IF NOT EXISTS reports (
---     id SERIAL PRIMARY KEY,
---     room_id VARCHAR(255) NOT NULL,
---     event_id VARCHAR(255) NOT NULL,
---     reporter_user_id VARCHAR(255) NOT NULL,
---     reason TEXT,
---     score INTEGER DEFAULT 0,
---     created_ts BIGINT NOT NULL
--- );
--- CREATE INDEX IF NOT EXISTS idx_reports_room ON reports(room_id);
 
 -- E2EE To-Device 消息表
 CREATE TABLE IF NOT EXISTS to_device_messages (
@@ -3328,24 +3294,6 @@ CREATE TABLE IF NOT EXISTS application_service_room_namespaces (
     CONSTRAINT fk_application_service_room_namespaces_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
 );
 
--- IP 信誉表 (增强版)
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 50;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS last_checked_ts BIGINT;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS is_whitelisted BOOLEAN DEFAULT FALSE;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS blocked_until BIGINT;
-
--- 第三方身份表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能与 user_threepids 重复
--- CREATE TABLE IF NOT EXISTS threepids (...);
-
--- 事件举报表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能与 event_reports 重复
--- CREATE TABLE IF NOT EXISTS reports (...);
-
--- 线程统计表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能已合并到 thread_roots
--- CREATE TABLE IF NOT EXISTS thread_statistics (...);
-
 -- ============================================================================
 -- 完成提示
 -- ============================================================================
@@ -3362,8 +3310,7 @@ BEGIN
     RAISE NOTICE '  - 添加 one_time_keys 表 (E2EE)';
     RAISE NOTICE '  - 添加 rendezvous_session 表';
     RAISE NOTICE '  - 添加应用服务相关表 (5个)';
-    RAISE NOTICE '  - 增强 ip_reputation 表字段';
-    RAISE NOTICE '  - 标记废弃表 (threepids, reports, thread_statistics)';
+    RAISE NOTICE '  - 标记废弃表 (threepids, reports, thread_statistics, ip_reputation)';
     RAISE NOTICE '==========================================';
 END $$;
 --

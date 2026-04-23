@@ -36,6 +36,7 @@ pub struct PushRule {
     pub scope: String,
     pub kind: String,
     pub priority: i32,
+    pub priority_class: i32,
     pub conditions: serde_json::Value,
     pub actions: serde_json::Value,
     #[sqlx(rename = "is_enabled")]
@@ -343,9 +344,9 @@ impl PushNotificationStorage {
         let row = sqlx::query_as::<_, PushRule>(
             r#"
             INSERT INTO push_rules (
-                user_id, rule_id, scope, kind, priority, conditions, actions, is_enabled, created_ts, updated_ts
+                user_id, rule_id, scope, kind, priority, priority_class, conditions, actions, is_enabled, created_ts, updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $9)
             ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
                 priority = $5,
                 conditions = $6,
@@ -823,6 +824,7 @@ mod tests {
             scope: "global".to_string(),
             kind: "content".to_string(),
             priority: 0,
+            priority_class: 0,
             conditions: json!([{"kind": "event_match"}]),
             actions: json!(["notify"]),
             enabled: true,
@@ -978,6 +980,7 @@ mod tests {
             scope: "global".to_string(),
             kind: "override".to_string(),
             priority: 0,
+            priority_class: 0,
             conditions: json!([]),
             actions: json!(["notify"]),
             enabled: true,
@@ -994,6 +997,7 @@ mod tests {
             scope: "global".to_string(),
             kind: "content".to_string(),
             priority: 100,
+            priority_class: 0,
             conditions: json!([]),
             actions: json!(["notify"]),
             enabled: true,

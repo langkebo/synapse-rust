@@ -338,11 +338,8 @@ async fn test_create_widget_allows_joined_room_moderator() {
         return;
     };
 
-    let (owner_token, owner_user_id) = register_user_with_id(
-        &app,
-        &format!("widget_mod_owner_{}", rand::random::<u32>()),
-    )
-    .await;
+    let (owner_token, owner_user_id) =
+        register_user_with_id(&app, &format!("widget_mod_owner_{}", rand::random::<u32>())).await;
     let (moderator_token, moderator_user_id) = register_user_with_id(
         &app,
         &format!("widget_mod_member_{}", rand::random::<u32>()),
@@ -500,12 +497,16 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
         return;
     };
 
-    let (owner_token, _) =
-        register_user_with_id(&app, &format!("widget_owner_manage_{}", rand::random::<u32>()))
-            .await;
-    let (member_token, member_user_id) =
-        register_user_with_id(&app, &format!("widget_member_manage_{}", rand::random::<u32>()))
-            .await;
+    let (owner_token, _) = register_user_with_id(
+        &app,
+        &format!("widget_owner_manage_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (member_token, member_user_id) = register_user_with_id(
+        &app,
+        &format!("widget_member_manage_{}", rand::random::<u32>()),
+    )
+    .await;
     let room_id = create_room(&app, &owner_token).await;
     let widget_id = create_widget(&app, &owner_token, &room_id).await;
 
@@ -548,7 +549,10 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let get_session_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/sessions/{}", session_id))
+        .uri(format!(
+            "/_matrix/client/v1/widgets/sessions/{}",
+            session_id
+        ))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -563,7 +567,9 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
         .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "name": "member overwrite" }).to_string()))
+        .body(Body::from(
+            json!({ "name": "member overwrite" }).to_string(),
+        ))
         .unwrap();
     let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
         .await
@@ -572,7 +578,10 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let permission_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/permissions", widget_id))
+        .uri(format!(
+            "/_matrix/client/v1/widgets/{}/permissions",
+            widget_id
+        ))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -583,10 +592,9 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
             .to_string(),
         ))
         .unwrap();
-    let permission_response =
-        ServiceExt::<Request<Body>>::oneshot(app, permission_request)
-            .await
-            .unwrap();
+    let permission_response = ServiceExt::<Request<Body>>::oneshot(app, permission_request)
+        .await
+        .unwrap();
     assert_eq!(permission_response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -783,10 +791,9 @@ async fn test_room_widget_routes_forbidden_for_admin_without_room_access() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let capabilities_response =
-        ServiceExt::<Request<Body>>::oneshot(app, capabilities_request)
-            .await
-            .unwrap();
+    let capabilities_response = ServiceExt::<Request<Body>>::oneshot(app, capabilities_request)
+        .await
+        .unwrap();
     assert_eq!(capabilities_response.status(), StatusCode::FORBIDDEN);
     let capabilities_json = read_json(capabilities_response).await;
     assert_eq!(capabilities_json["errcode"], "M_FORBIDDEN");

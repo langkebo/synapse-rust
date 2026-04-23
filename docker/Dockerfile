@@ -10,8 +10,7 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    # 稍微放宽 LTO 和 Codegen Units 以加快编译速度，同时保持较好的性能
-    CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_LTO=false \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
@@ -38,7 +37,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && \
 COPY src ./src
 COPY migrations ./migrations
 COPY benches ./benches
-COPY docker/db_migrate.sh docker/container-migrate.sh docker/healthcheck.sh ./docker/
+COPY docker/db_migrate.sh docker/deploy/scripts/container-migrate.sh docker/healthcheck.sh ./docker/
 
 # 编译真正的二进制文件
 # 注意：touch src/main.rs 确保 cargo 意识到源码已更新

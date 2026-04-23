@@ -102,6 +102,7 @@ fn create_test_config() -> Config {
             inbound_presence_backoff_ms: 3000,
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
+            admission_mode: false,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

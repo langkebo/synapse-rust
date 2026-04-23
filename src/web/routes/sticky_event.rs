@@ -3,8 +3,7 @@
 
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::{
-    ensure_room_member, validate_event_id, validate_room_id, ApiError, AppState,
-    AuthenticatedUser,
+    ensure_room_member, validate_event_id, validate_room_id, ApiError, AppState, AuthenticatedUser,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -115,7 +114,8 @@ pub async fn set_sticky_events(
             .get_event(event_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to load sticky event: {}", e)))?;
-        let Some(stored_event) = stored_event.filter(|stored_event| stored_event.room_id == room_id)
+        let Some(stored_event) =
+            stored_event.filter(|stored_event| stored_event.room_id == room_id)
         else {
             return Err(ApiError::not_found("Event not found".to_string()));
         };

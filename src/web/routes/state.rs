@@ -77,16 +77,22 @@ impl AppState {
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
             #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage: Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool.clone())),
+            ai_connection_storage: Arc::new(
+                crate::storage::ai_connection::AiConnectionStorage::new(pool.clone()),
+            ),
             #[cfg(feature = "openclaw-routes")]
             matrix_ai_connection_service: Arc::new(
                 crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool)),
-                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
+                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(
+                        pool,
+                    )),
+                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(
+                        cache.clone(),
+                    )),
                 ),
             ),
             #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
+            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache)),
         }
     }
 

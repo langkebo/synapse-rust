@@ -48,7 +48,7 @@ impl VerificationStorage {
         transaction_id: &str,
     ) -> Result<Option<VerificationRequest>, ApiError> {
         let row = sqlx::query_as::<_, (
-            String, String, String, String, Option<String>, String, String, i64, i64
+            String, String, String, String, Option<String>, String, String, i64, Option<i64>
         )>(
             "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
              FROM verification_requests WHERE transaction_id = $1"
@@ -164,7 +164,7 @@ impl VerificationStorage {
         user_id: &str,
     ) -> Result<Vec<VerificationRequest>, ApiError> {
         let rows = sqlx::query_as::<_, (
-            String, String, String, String, Option<String>, String, String, i64, i64
+            String, String, String, String, Option<String>, String, String, i64, Option<i64>
         )>(
             "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
              FROM verification_requests 

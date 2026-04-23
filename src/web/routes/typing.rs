@@ -2,7 +2,7 @@
 // Typing indicator management
 
 use crate::services::TypingService;
-use crate::web::routes::{ensure_room_member, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_strict, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -15,7 +15,7 @@ async fn ensure_typing_room_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,

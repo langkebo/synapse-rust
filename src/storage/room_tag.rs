@@ -6,7 +6,8 @@ pub struct RoomTag {
     pub user_id: String,
     pub room_id: String,
     pub tag: String,
-    pub order: Option<f32>,
+    #[sqlx(rename = "order_value")]
+    pub order: Option<f64>,
     pub created_ts: i64,
 }
 
@@ -19,7 +20,7 @@ impl RoomTagStorage {
         room_id: &str,
     ) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
-            "SELECT id, user_id, room_id, tag, \"order\", created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2"
+            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2"
         )
         .bind(user_id)
         .bind(room_id)
@@ -32,10 +33,10 @@ impl RoomTagStorage {
         user_id: &str,
         room_id: &str,
         tag: &str,
-        order: Option<f32>,
+        order: Option<f64>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO room_tags (user_id, room_id, tag, \"order\") VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET tag = EXCLUDED.tag, \"order\" = EXCLUDED.\"order\""
+            "INSERT INTO room_tags (user_id, room_id, tag, order_value) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET tag = EXCLUDED.tag, order_value = EXCLUDED.order_value"
         )
         .bind(user_id)
         .bind(room_id)

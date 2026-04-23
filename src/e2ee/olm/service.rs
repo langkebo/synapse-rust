@@ -1,6 +1,6 @@
 use super::models::{
-    OlmAccountData, OlmAccountInfo, OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageInfo,
-    OlmMessageType, OneTimeKey,
+    OlmAccountData, OlmAccountInfo, OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageType,
+    OneTimeKey,
 };
 use super::session::OlmSessionManager;
 use super::storage::OlmStorage;
@@ -8,7 +8,7 @@ use crate::cache::CacheManager;
 use crate::error::ApiError;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use vodozemac::olm::{Account, SessionConfig};
+use vodozemac::olm::Account;
 use vodozemac::KeyId;
 
 use std::env;
@@ -18,21 +18,42 @@ static PICKLE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
 
 pub fn get_pickle_key() -> &'static [u8; 32] {
     PICKLE_KEY.get_or_init(|| {
-        let key_str = env::var("OLM_PICKLE_KEY")
-            .expect("OLM_PICKLE_KEY environment variable must be set for E2EE security");
-
-        // Validate hex format and length
-        let decoded =
-            hex::decode(&key_str).expect("OLM_PICKLE_KEY must be a valid 64-character hex string");
-
-        if decoded.len() != 32 {
-            panic!("OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters)");
+        if let Ok(key_str) = env::var("OLM_PICKLE_KEY") {
+            match hex::decode(&key_str) {
+                Ok(decoded) if decoded.len() == 32 => {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(&decoded[..32]);
+                    key
+                }
+                Ok(_) => {
+                    tracing::error!(
+                        "OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters). Generating random key."
+                    );
+                    generate_random_pickle_key()
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "OLM_PICKLE_KEY is not valid hex: {}. Generating random key.", e
+                    );
+                    generate_random_pickle_key()
+                }
+            }
+        } else {
+            tracing::warn!(
+                "OLM_PICKLE_KEY not set. Generating random key. \
+                 Encrypted Olm data will not survive restarts. \
+                 Set OLM_PICKLE_KEY for production deployments."
+            );
+            generate_random_pickle_key()
         }
-
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&decoded[..32]);
-        key
     })
+}
+
+fn generate_random_pickle_key() -> [u8; 32] {
+    use rand::RngCore;
+    let mut key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key);
+    key
 }
 
 pub struct OlmService {
@@ -366,46 +387,6 @@ impl OlmService {
             identity_keys.curve25519.to_base64()
         } else {
             String::new()
-        }
-    }
-
-    #[deprecated(
-        note = "Bug: uses own one-time keys instead of recipient's. Use create_outbound_session() instead."
-    )]
-    pub async fn create_outbound_session_legacy(
-        &self,
-        their_identity_key: &vodozemac::Curve25519PublicKey,
-        their_one_time_key: &vodozemac::Curve25519PublicKey,
-    ) -> Result<OlmMessageInfo, String> {
-        let account = self.account.read().await;
-
-        if let Some(ref account) = *account {
-            let session_config = SessionConfig::version_2();
-
-            let mut session = account.create_outbound_session(
-                session_config,
-                *their_identity_key,
-                *their_one_time_key,
-            );
-
-            let message = session.encrypt(b"");
-            let message_type = if message.message_type() == vodozemac::olm::MessageType::PreKey {
-                OlmMessageType::PreKey
-            } else {
-                OlmMessageType::Message
-            };
-
-            let ciphertext = match &message {
-                vodozemac::olm::OlmMessage::PreKey(m) => m.to_base64(),
-                vodozemac::olm::OlmMessage::Normal(m) => m.to_base64(),
-            };
-
-            Ok(OlmMessageInfo {
-                message_type,
-                ciphertext,
-            })
-        } else {
-            Err("Account not initialized".to_string())
         }
     }
 }

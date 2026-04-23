@@ -238,8 +238,9 @@ impl AdminRegistrationService {
         if request.admin.unwrap_or(false) {
             // Support both padded and unpadded "admin" string for compatibility
             if !constant_time_eq(&expected_hex, &request.mac) {
-                let mut mac_unpadded = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
-                    .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
+                let mut mac_unpadded =
+                    HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
+                        .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
                 mac_unpadded.update(request.nonce.as_bytes());
                 mac_unpadded.update(b"\0");
                 mac_unpadded.update(request.username.as_bytes());
@@ -256,7 +257,7 @@ impl AdminRegistrationService {
                     .iter()
                     .map(|b| format!("{:02x}", b))
                     .collect::<String>();
-                
+
                 if !constant_time_eq(&expected_hex_unpadded, &request.mac) {
                     return Err(ApiError::forbidden("HMAC incorrect".to_string()));
                 }

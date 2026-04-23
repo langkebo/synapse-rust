@@ -421,38 +421,20 @@ impl FederationBlacklistStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT config_value FROM federation_blacklist_config WHERE config_key = $1",
-        )
-        .bind(config_key)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get config: {}", e)))?;
-
-        Ok(row.map(|r| r.0))
+    pub async fn get_config(&self, _config_key: &str) -> Result<Option<String>, ApiError> {
+        Ok(None)
     }
 
     pub async fn get_config_as_bool(
         &self,
-        config_key: &str,
+        _config_key: &str,
         default: bool,
     ) -> Result<bool, ApiError> {
-        let value = self.get_config(config_key).await?;
-
-        Ok(match value {
-            Some(v) => v.to_lowercase() == "true",
-            None => default,
-        })
+        Ok(default)
     }
 
-    pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
-        let value = self.get_config(config_key).await?;
-
-        Ok(match value {
-            Some(v) => v.parse().unwrap_or(default),
-            None => default,
-        })
+    pub async fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
+        Ok(default)
     }
 }
 

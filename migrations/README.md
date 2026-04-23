@@ -1,112 +1,106 @@
-# 数据库 Schema 说明
+# 数据库迁移说明
 
-> 最后更新: 2026-03-21
+> 最后更新: 2026-04-22
 
-## Schema 文件说明
+## 目录结构
 
-### 主 Schema 文件
+```
+migrations/
+├── 00000000_unified_schema_v6.sql                              # 统一基线 (新环境唯一建库入口)
+├── 00000001_extensions_cas.sql                                 # Feature-gated: CAS SSO
+├── 00000001_extensions_friends.sql                             # Feature-gated: 好友系统
+├── 00000001_extensions_privacy.sql                             # Feature-gated: 隐私设置
+├── 00000001_extensions_saml.sql                                # Feature-gated: SAML SSO
+├── 00000001_extensions_voice.sql                               # Feature-gated: 语音消息
+├── 20260401000001_consolidated_schema_additions.sql (+undo)    # 增量表/索引/列 (7 文件合并)
+├── 20260406000001_consolidated_schema_fixes.sql (+undo)        # 约束/FK/契约修复 (8 文件合并)
+├── 20260410000001_consolidated_feature_additions.sql (+undo)   # 功能特性添加 (7 文件合并)
+├── 20260421000001_consolidated_drop_redundant_tables.sql (+undo) # 冗余表删除 (4 文件合并)
+├── extension_map.conf                                          # 扩展迁移映射表
+├── README.md                                                   # 本文件
+├── archive/                                                    # 已归档的旧迁移文件
+│   └── pre-consolidation-2026-04-22/                          # 合并前原始文件 (51 个)
+└── undo/                                                       # 空目录 (回滚统一用 .undo.sql 后缀)
+```
 
-| 文件 | 说明 | 状态 |
-|------|------|------|
-| `00000000_unified_schema_v6.sql` | 基础 Schema 定义（新环境唯一建库基线） | ✅ 活跃 |
-| `99999999_unified_incremental_migration.sql` | 历史综合增量兼容资产 | ⚠️ 保留 |
-| `archive/schema_legacy.sql` | 旧版基础定义 | ❌ 已废弃 |
+**文件数量**: 7 个正向迁移 + 4 个 undo + 5 个扩展 = 16 个活跃 SQL 文件
+**合并前**: 32 个正向迁移 + 25 个 undo = 57 个 SQL 文件 (**-72%**)
 
-### 使用方法
+## 迁移执行顺序
 
-#### 首次部署
+1. `00000000_unified_schema_v6.sql` — 基线 (IF NOT EXISTS，幂等)
+2. `00000001_extensions_*.sql` — 按 ENABLED_EXTENSIONS 过滤
+3. `20260401000001_consolidated_schema_additions.sql` — 增量 schema
+4. `20260406000001_consolidated_schema_fixes.sql` — 约束修复
+5. `20260410000001_consolidated_feature_additions.sql` — 功能添加
+6. `20260421000001_consolidated_drop_redundant_tables.sql` — 冗余表清理
+
+所有增量迁移均使用 `IF NOT EXISTS` / `IF EXISTS` 幂等保护，可安全重复执行。
+
+## 合并说明 (2026-04-22)
+
+### 合并策略
+
+将 26 个独立增量迁移合并为 4 个逻辑分组：
+
+| 合并文件 | 源文件数 | 合并逻辑 |
+|----------|---------|---------|
+| `consolidated_schema_additions` | 7 | 2026-03-29 ~ 2026-04-04 的表/列/索引添加 |
+| `consolidated_schema_fixes` | 8 | 2026-04-05 ~ 2026-04-06 的约束/FK/契约修复 |
+| `consolidated_feature_additions` | 7 | 2026-04-07 ~ 2026-04-18 的功能特性添加 |
+| `consolidated_drop_redundant_tables` | 4 | 2026-04-21 ~ 2026-04-22 的冗余表删除 |
+
+### 向后兼容
+
+- 原始文件保留在 `archive/pre-consolidation-2026-04-22/` (只归档不删除)
+- 已部署环境的 `schema_migrations` 表中保留旧版本记录
+- 合并文件使用新的版本号，不会与旧记录冲突
+- 所有 SQL 语句幂等，新环境和已部署环境均可安全执行
+
+## 使用方法
+
+### 首次部署
 
 ```bash
-# 由项目运维入口统一执行
 bash docker/db_migrate.sh migrate
 ```
 
-#### 推荐的升级方式
+### 升级已有环境
 
 ```bash
-# 方式一：在仓库根目录执行统一运维入口
 bash docker/db_migrate.sh migrate
 bash docker/db_migrate.sh validate
-
-# 方式二：在容器内通过相同迁移资产执行
-cd docker
-docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate
-docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 ```
 
-#### 本地排查 `sqlx migrate`
+### 扩展迁移选择
 
-仓库根目录的 `migrations/` 同时保留 forward migration 与 `.undo.sql` 回滚脚本。`sqlx` 会扫描 source 目录内所有 `.sql` 文件，因此本地排查时不要直接对根 `migrations/` 执行 `sqlx migrate info/run`。
-
-统一使用包装脚本，它会先构建只包含 forward migration 的临时目录，再把 `--source` 传给 `sqlx`：
+通过 `ENABLED_EXTENSIONS` 环境变量控制：
 
 ```bash
-bash scripts/sqlx_migrate.sh info
-bash scripts/sqlx_migrate.sh run
+# 全部功能（默认）
+ENABLED_EXTENSIONS=all ./deploy.sh
+
+# 仅核心 Matrix
+ENABLED_EXTENSIONS=none ./deploy.sh
+
+# 选择性启用
+ENABLED_EXTENSIONS=openclaw-routes,friends ./deploy.sh
 ```
 
-如需自定义输出目录，可设置 `SQLX_SOURCE_DIR=/path/to/sqlx-migrations`。
+可用功能名称（与 Cargo feature flags 一致）：
+`openclaw-routes`, `friends`, `voice-extended`, `saml-sso`, `cas-sso`,
+`beacons`, `voip-tracking`, `widgets`, `server-notifications`,
+`burn-after-read`, `privacy-ext`, `external-services`
 
-#### 治理口径
+## 字段命名规范
 
-- `db-migration-gate.yml` 是唯一迁移治理门禁
-- `ci.yml` 保留通用测试与 `sqlx migrate run` 初始化，不承担迁移治理口径定义
-- `scripts/ci/critical_migrations.txt` 定义 unified schema 之后必须补跑的 critical increments；新增会影响 schema contract、repair 或关键索引/外键的迁移时，必须同步更新该清单
-- `99999999_unified_incremental_migration.sql` 仅作为历史兼容资产保留，不再作为推荐部署入口
-- 迁移命名与目录模型以 `MIGRATION_INDEX.md` 为唯一规范源
-- Docker 入口在 `RUN_MIGRATIONS=true` 时会自动调用同一 `migrate` 入口，不代表第二套迁移方案
-- Rust 运行时数据库初始化默认关闭，只有显式设置 `SYNAPSE_ENABLE_RUNTIME_DB_INIT=true` 时才允许进入兼容路径
+- 必填毫秒时间戳: `*_ts` (BIGINT)
+- 可选时间戳: `*_at` (BIGINT 或 TIMESTAMPTZ)
+- 冲突时以 Rust 模型和实际迁移文件为单一真实来源
 
-当前 critical increments 已覆盖 `20260406000001-00004`，用于恢复 `verification_requests` 关键索引、补回 schema contract 外键，并在 public schema 中清理会阻断外键恢复的 room-derived orphan rows。
+## 相关文档
 
-### Schema 变更历史
-
-- **v1.0.0** (2026-03-20): 初始版本
-- **v1.0.1** (2026-03-21): 添加字段重命名迁移
-  - `user_threepids.validated_at` → `validated_ts`
-  - `user_threepids.verification_expires_at` → `verification_expires_ts`
-  - `private_messages.read_at` → `read_ts`
-
-### 字段命名规范
-
-时间字段命名以项目规则和 `DATABASE_FIELD_STANDARDS.md` 为准：
-- 必填毫秒时间戳使用 `*_ts`
-- 可选时间戳优先使用 `*_at`
-- 发生冲突时，以 Rust 模型和实际迁移文件为单一真实来源
-
-### 启动时验证
-
-服务启动时会自动执行 Schema 健康检查：
-- 检查核心表是否存在
-- 检查核心字段是否完整
-- 检查必需索引是否存在
-- 自动修复缺失的索引
-
-日志输出示例：
-```
-INFO: Running database schema health check...
-INFO: ✅ Database schema validation PASSED
-```
-
-### 编译期验证
-
-项目支持使用 SQLx 宏进行编译时 SQL 验证：
-
-```rust
-// 编译时验证列名
-let user = sqlx::query_as!(
-    UserRow,
-    "SELECT user_id, username, creation_ts FROM users WHERE user_id = $1",
-    user_id
-)
-.fetch_one(&pool)
-.await?;
-```
-
-启用方法：在 Cargo.toml 中确保 sqlx 启用了 `macros` feature。
-
-### 相关文档
-
-- `MIGRATION_INDEX.md`
-- `../docs/db/MIGRATION_GOVERNANCE.md`
-- `../docs/ROLLBACK_RUNBOOK.md`
+- `docs/db/MIGRATION_GOVERNANCE.md` — 迁移治理方案
+- `docs/db/MIGRATION_INDEX.md` — 迁移索引
+- `docs/synapse-rust/OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md` — 优化总方案
+- `docs/synapse-rust/REDUNDANT_TABLE_DELETION_PLAN.md` — 冗余表删除专项方案

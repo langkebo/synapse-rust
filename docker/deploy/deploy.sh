@@ -2,6 +2,22 @@
 # =============================================================================
 # synapse-rust 一键重建与部署脚本
 # =============================================================================
+# 支持按需部署：通过交互式菜单或 ENABLED_EXTENSIONS 环境变量选择需要的
+# 扩展功能，仅应用对应的数据库迁移脚本。
+#
+# 用法:
+#   ./deploy.sh                   # 交互式选择功能
+#   ./deploy.sh --all             # 部署所有功能（跳过交互）
+#   ./deploy.sh --core-only       # 仅部署核心 Matrix 功能
+#   ./deploy.sh --features LIST   # 部署指定功能（逗号分隔）
+#   ./deploy.sh --skip-build      # 跳过编译与镜像构建
+#   ./deploy.sh --image REF       # 使用指定的远程镜像（跳过本地构建，自动 pull）
+#
+# 可用扩展功能:
+#   openclaw-routes, friends, voice-extended, saml-sso, cas-sso,
+#   beacons, voip-tracking, widgets, server-notifications,
+#   burn-after-read, privacy-ext, external-services
+# =============================================================================
 
 set -Eeuo pipefail
 
@@ -9,6 +25,8 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +43,43 @@ ROLLBACK_IMAGE_TAG=""
 ROLLBACK_ENABLED=true
 DEPLOYMENT_PHASE="initialization"
 ROLLBACK_IN_PROGRESS=false
+SKIP_BUILD=false
+REMOTE_IMAGE=""
+USE_REMOTE_IMAGE=false
+
+# Extension features — order matches Cargo.toml
+ALL_EXTENSIONS=(
+    openclaw-routes
+    friends
+    voice-extended
+    saml-sso
+    cas-sso
+    beacons
+    voip-tracking
+    widgets
+    server-notifications
+    burn-after-read
+    privacy-ext
+    external-services
+)
+
+EXTENSION_DESCRIPTIONS=(
+    "OpenClaw AI 集成 (AI 对话、MCP 工具代理)"
+    "好友系统 (好友请求、好友分组)"
+    "语音消息扩展 (语音消息录制/播放)"
+    "SAML SSO 单点登录"
+    "CAS SSO 单点登录"
+    "位置信标 (实时位置共享)"
+    "VoIP 通话追踪 (通话会话、MatrixRTC)"
+    "Widget 小组件"
+    "服务器通知系统"
+    "阅后即焚消息"
+    "隐私扩展 (已读回执控制、在线状态隐藏)"
+    "外部服务集成 (Webhook 通知)"
+)
+
+# Will be set by parse_args or select_features
+ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-}"
 
 cd "$DEPLOY_ROOT"
 
@@ -50,6 +105,188 @@ compose() {
     else
         docker compose "$@"
     fi
+}
+
+# =============================================================================
+# CLI argument parsing
+# =============================================================================
+
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                ENABLED_EXTENSIONS="all"
+                ;;
+            --core-only)
+                ENABLED_EXTENSIONS="none"
+                ;;
+            --features)
+                shift
+                ENABLED_EXTENSIONS="${1:?'--features 需要参数，如: openclaw-routes,friends'}"
+                ;;
+            --skip-build)
+                SKIP_BUILD=true
+                ;;
+            --image)
+                shift
+                REMOTE_IMAGE="${1:?'--image 需要参数，如: docker.io/vmuser232922/mysynapse:latest'}"
+                USE_REMOTE_IMAGE=true
+                SKIP_BUILD=true
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "未知参数: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+}
+
+show_usage() {
+    cat <<'EOF'
+用法: deploy.sh [选项]
+
+选项:
+  --all             部署所有功能（包含全部扩展，跳过交互选择）
+  --core-only       仅部署核心 Matrix 功能（不含任何扩展）
+  --features LIST   部署指定扩展功能（逗号分隔）
+  --skip-build      跳过 cargo build 和 Docker 镜像构建
+  --image REF       使用指定的远程镜像（自动 docker pull，跳过本地构建）
+  --help            显示帮助信息
+
+如果不指定功能参数，脚本将显示交互式功能选择菜单。
+也可通过 .env 中的 ENABLED_EXTENSIONS 变量预设。
+
+可用扩展功能:
+  openclaw-routes      OpenClaw AI 集成
+  friends              好友系统
+  voice-extended       语音消息扩展
+  saml-sso             SAML SSO 单点登录
+  cas-sso              CAS SSO 单点登录
+  beacons              位置信标
+  voip-tracking        VoIP 通话追踪
+  widgets              Widget 小组件
+  server-notifications 服务器通知
+  burn-after-read      阅后即焚
+  privacy-ext          隐私扩展
+  external-services    外部服务集成
+EOF
+}
+
+# =============================================================================
+# Interactive feature selection
+# =============================================================================
+
+select_features() {
+    # If already set (by CLI args or .env), skip interactive selection
+    if [ -n "$ENABLED_EXTENSIONS" ]; then
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}==========================================${NC}"
+    echo -e "${BOLD}  功能选择${NC}"
+    echo -e "${BOLD}==========================================${NC}"
+    echo ""
+    echo -e "  ${CYAN}[0]${NC} 全部功能 (all-extensions)"
+    echo -e "  ${CYAN}[1]${NC} 仅核心 Matrix 功能 (无扩展)"
+    echo -e "  ${CYAN}[2]${NC} 自定义选择扩展功能"
+    echo ""
+
+    local choice
+    read -rp "请选择部署模式 [0/1/2] (默认 0): " choice
+    choice="${choice:-0}"
+
+    case "$choice" in
+        0)
+            ENABLED_EXTENSIONS="all"
+            log_info "已选择: 全部功能"
+            ;;
+        1)
+            ENABLED_EXTENSIONS="none"
+            log_info "已选择: 仅核心 Matrix 功能"
+            ;;
+        2)
+            select_individual_features
+            ;;
+        *)
+            ENABLED_EXTENSIONS="all"
+            log_warning "无效输入，默认使用全部功能"
+            ;;
+    esac
+}
+
+select_individual_features() {
+    local selected=()
+    local i
+
+    echo ""
+    echo -e "${BOLD}可用扩展功能:${NC}"
+    echo ""
+
+    for i in "${!ALL_EXTENSIONS[@]}"; do
+        local num=$((i + 1))
+        printf "  ${CYAN}[%2d]${NC} %-24s %s\n" "$num" "${ALL_EXTENSIONS[$i]}" "${EXTENSION_DESCRIPTIONS[$i]}"
+    done
+
+    echo ""
+    echo "输入功能编号（逗号或空格分隔），如: 1,2,7"
+    echo "直接回车跳过所有扩展 (core-only)"
+    echo ""
+    read -rp "选择: " input
+
+    if [ -z "$input" ]; then
+        ENABLED_EXTENSIONS="none"
+        log_info "未选择任何扩展，使用核心模式"
+        return
+    fi
+
+    # Parse comma/space separated numbers
+    local nums
+    nums="$(echo "$input" | tr ',' ' ')"
+    for num in $nums; do
+        num="$(echo "$num" | tr -d '[:space:]')"
+        if [ -z "$num" ]; then
+            continue
+        fi
+        if ! [[ "$num" =~ ^[0-9]+$ ]]; then
+            log_warning "忽略无效输入: $num"
+            continue
+        fi
+        local idx=$((num - 1))
+        if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#ALL_EXTENSIONS[@]}" ]; then
+            selected+=("${ALL_EXTENSIONS[$idx]}")
+        else
+            log_warning "忽略超范围编号: $num"
+        fi
+    done
+
+    if [ ${#selected[@]} -eq 0 ]; then
+        ENABLED_EXTENSIONS="none"
+        log_info "未选择有效扩展，使用核心模式"
+    else
+        ENABLED_EXTENSIONS="$(IFS=,; echo "${selected[*]}")"
+        log_info "已选择扩展: $ENABLED_EXTENSIONS"
+    fi
+}
+
+show_feature_summary() {
+    echo ""
+    echo -e "${BOLD}部署功能配置:${NC}"
+    if [ "$ENABLED_EXTENSIONS" = "all" ]; then
+        echo -e "  模式: ${GREEN}全部功能${NC} (core + all extensions)"
+    elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
+        echo -e "  模式: ${YELLOW}仅核心${NC} (pure Matrix homeserver)"
+    else
+        echo -e "  模式: ${CYAN}自定义${NC}"
+        echo -e "  扩展: ${ENABLED_EXTENSIONS}"
+    fi
+    echo ""
 }
 
 setup_logging() {
@@ -128,11 +365,16 @@ require_command() {
 }
 
 load_env() {
+    local cli_extensions="$ENABLED_EXTENSIONS"
     set -a
     # shellcheck disable=SC1091
     source .env
     set +a
     ROLLBACK_ENABLED="${ROLLBACK_ON_FAILURE:-true}"
+    # CLI args take precedence over .env value
+    if [ -n "$cli_extensions" ]; then
+        ENABLED_EXTENSIONS="$cli_extensions"
+    fi
 }
 
 is_placeholder() {
@@ -263,6 +505,10 @@ backup_current_state() {
 
 clear_project_caches() {
     DEPLOYMENT_PHASE="cache-clean"
+    if [ "$SKIP_BUILD" = "true" ]; then
+        log_info "跳过缓存清理 (--skip-build)"
+        return
+    fi
     log_info "清理项目缓存与 Docker 构建缓存..."
 
     (cd "$PROJECT_ROOT" && cargo clean)
@@ -284,6 +530,10 @@ clear_project_caches() {
 
 rebuild_project() {
     DEPLOYMENT_PHASE="project-build"
+    if [ "$SKIP_BUILD" = "true" ]; then
+        log_info "跳过项目编译 (--skip-build)"
+        return
+    fi
     log_info "重新编译项目..."
     (cd "$PROJECT_ROOT" && cargo build --release --locked --bin synapse-rust --bin healthcheck)
     log_success "项目编译完成"
@@ -295,13 +545,32 @@ remove_existing_deployment() {
 
     compose down --remove-orphans || true
     docker rm -f synapse-postgres synapse-redis synapse-migrator synapse-app synapse-nginx >/dev/null 2>&1 || true
-    docker image rm -f synapse-rust:local synapse-rust-tools:local vmuser232922/mysynapse:latest >/dev/null 2>&1 || true
+    if [ "$USE_REMOTE_IMAGE" != "true" ] && [ "$SKIP_BUILD" != "true" ]; then
+        docker image rm -f synapse-rust:local synapse-rust-tools:local >/dev/null 2>&1 || true
+    fi
 
     log_success "旧部署资源清理完成"
 }
 
 build_images() {
     DEPLOYMENT_PHASE="docker-build"
+    if [ "$USE_REMOTE_IMAGE" = "true" ]; then
+        log_info "拉取远程镜像: $REMOTE_IMAGE"
+        retry 3 5 docker pull "$REMOTE_IMAGE"
+        export SYNAPSE_IMAGE="$REMOTE_IMAGE"
+        export SYNAPSE_PULL_POLICY=missing
+        docker image inspect "$REMOTE_IMAGE" >/dev/null
+        log_success "远程镜像就绪: $REMOTE_IMAGE"
+        return
+    fi
+    if [ "$SKIP_BUILD" = "true" ]; then
+        log_info "跳过 Docker 镜像构建 (--skip-build)"
+        if ! docker image inspect "${SYNAPSE_IMAGE:-synapse-rust:local}" >/dev/null 2>&1; then
+            log_error "跳过构建但本地镜像 ${SYNAPSE_IMAGE:-synapse-rust:local} 不存在"
+            exit 1
+        fi
+        return
+    fi
     log_info "构建新的 Docker 镜像..."
     compose build --no-cache synapse
     docker image inspect synapse-rust:local >/dev/null
@@ -340,8 +609,8 @@ wait_for_container_health() {
 
 run_migrations() {
     DEPLOYMENT_PHASE="database-migrate"
-    log_info "执行数据库迁移..."
-    retry 3 5 compose run --rm --no-deps migrator
+    log_info "执行数据库迁移 (ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS)..."
+    retry 3 5 compose run --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator
     log_success "数据库迁移与校验完成"
 }
 
@@ -390,9 +659,17 @@ verify_logs_clean() {
 
     local log_dump
     log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
-    if echo "$log_dump" | grep -Eiq '\b(ERROR|WARN(ING)?)\b'; then
+    local filtered
+    filtered="$(echo "$log_dump" | grep -Ei '\b(ERROR|WARN(ING)?)\b' \
+        | grep -v 'no usable system locales' \
+        | grep -v 'enabling "trust" authentication' \
+        | grep -v 'Missing indexes' \
+        | grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' \
+        | grep -v 'forcibly turning on oci-mediatype' \
+        || true)"
+    if [ -n "$filtered" ]; then
         log_error "检测到 ERROR/WARNING 日志:"
-        echo "$log_dump" | grep -Ein '\b(ERROR|WARN(ING)?)\b' || true
+        echo "$filtered"
         return 1
     fi
 
@@ -437,14 +714,18 @@ show_access_info() {
     echo "应用健康检查:   http://localhost:${SYNAPSE_PORT:-8008}/health"
     echo "API 检查:       http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions"
     echo "部署日志:       ${LOG_FILE}"
+    echo "扩展功能:       ${ENABLED_EXTENSIONS}"
     echo ""
 }
 
 main() {
+    parse_args "$@"
     setup_logging
     show_banner
     check_dependencies
     check_env_file
+    select_features
+    show_feature_summary
     create_directories
     backup_current_state
     clear_project_caches

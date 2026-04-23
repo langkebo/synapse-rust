@@ -16,6 +16,7 @@ pub struct SamlSession {
     pub session_index: Option<String>,
     pub attributes: serde_json::Value,
     pub created_ts: i64,
+    #[sqlx(rename = "expires_ts")]
     pub expires_at: i64,
     pub last_used_ts: i64,
     pub status: String,
@@ -45,8 +46,10 @@ pub struct SamlIdentityProvider {
     pub priority: i32,
     pub attribute_mapping: serde_json::Value,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
+    #[sqlx(rename = "last_metadata_refresh_at")]
     pub last_metadata_refresh_ts: Option<i64>,
+    #[sqlx(rename = "metadata_valid_until_at")]
     pub metadata_valid_until: Option<i64>,
 }
 
@@ -78,6 +81,7 @@ pub struct SamlLogoutRequest {
     pub reason: Option<String>,
     pub status: String,
     pub created_ts: i64,
+    #[sqlx(rename = "processed_at")]
     pub processed_ts: Option<i64>,
 }
 
@@ -195,7 +199,7 @@ mod tests {
             priority: 0,
             attribute_mapping: serde_json::json!({}),
             created_ts: 1234567800000,
-            updated_ts: 1234567890000,
+            updated_ts: Some(1234567890000),
             last_metadata_refresh_ts: None,
             metadata_valid_until: None,
         };
@@ -383,12 +387,12 @@ impl SamlStorage {
         let row = sqlx::query_as::<_, SamlUserMapping>(
             r#"
             INSERT INTO saml_user_mapping (
-                name_id, user_id, issuer, first_seen_at, last_authenticated_at,
+                name_id, user_id, issuer, first_seen_ts, last_authenticated_ts,
                 authentication_count, attributes
             )
             VALUES ($1, $2, $3, $4, $4, 1, $5)
             ON CONFLICT (name_id, issuer) DO UPDATE SET
-                last_authenticated_at = NOW(),
+                last_authenticated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000,
                 authentication_count = saml_user_mapping.authentication_count + 1,
                 attributes = EXCLUDED.attributes
             RETURNING *
@@ -532,7 +536,7 @@ impl SamlStorage {
         &self,
     ) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         let rows = sqlx::query_as::<_, SamlIdentityProvider>(
-            "SELECT * FROM saml_identity_providers WHERE enabled = true ORDER BY priority ASC",
+            "SELECT * FROM saml_identity_providers WHERE is_enabled = true ORDER BY priority ASC",
         )
         .fetch_all(&*self.pool)
         .await

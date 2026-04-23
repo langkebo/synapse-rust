@@ -1076,7 +1076,9 @@ impl AuthService {
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         match member {
-            Some((membership,)) if membership == "join" => self.get_user_power_level(room_id, user_id).await,
+            Some((membership,)) if membership == "join" => {
+                self.get_user_power_level(room_id, user_id).await
+            }
             _ => Ok(-1),
         }
     }
@@ -1405,11 +1407,7 @@ impl AuthService {
         Ok(())
     }
 
-    pub async fn verify_room_moderator(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn verify_room_moderator(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
         let required_level = self
@@ -1440,11 +1438,7 @@ impl AuthService {
         Ok(())
     }
 
-    pub async fn verify_room_admin(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn verify_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
         // 默认 admin 需要 100，除非 power_levels 中有特殊定义
@@ -1682,11 +1676,7 @@ impl AuthService {
         Ok(())
     }
 
-    pub async fn can_invite_user(
-        &self,
-        room_id: &str,
-        actor_user_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn can_invite_user(&self, room_id: &str, actor_user_id: &str) -> ApiResult<()> {
         let actor_power = self
             .get_joined_user_power_level(room_id, actor_user_id)
             .await?;

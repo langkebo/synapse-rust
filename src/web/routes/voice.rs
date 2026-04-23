@@ -1,122 +1,13 @@
 use super::{ensure_room_member, AppState, AuthenticatedUser};
 use crate::common::ApiError;
-use crate::services::{VoiceMessageInfo, VoiceMessageUploadParams};
+use crate::services::voice_service::VoiceMessageUploadParams;
 use axum::{
-    extract::{Path, State},
-    routing::{delete, get, post},
+    extract::State,
+    routing::{get, post},
     Json, Router,
 };
 use base64::Engine;
-use lazy_regex::lazy_regex;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde_json::Value;
-
-static SQL_INJECTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    lazy_regex!(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b|--|;|' OR '|' AND ')")
-        .clone()
-});
-
-static XSS_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    lazy_regex!(r"(?i)(<script>|</script>|<iframe>|javascript:|onload=|onerror=|onmouseover=|alert\(|eval\()")
-        .clone()
-});
-
-fn contains_sql_injection(input: &str) -> bool {
-    SQL_INJECTION_PATTERN.is_match(input)
-}
-
-fn contains_xss(input: &str) -> bool {
-    XSS_PATTERN.is_match(input)
-}
-
-fn validate_message_id(id: &str) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("Message ID cannot be empty".to_string());
-    }
-    if id.len() > 100 {
-        return Err("Message ID must not exceed 100 characters".to_string());
-    }
-    if contains_sql_injection(id) {
-        return Err("Message ID contains invalid characters".to_string());
-    }
-    if contains_xss(id) {
-        return Err("Message ID contains invalid characters".to_string());
-    }
-    if !id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ':' || c == '.' || c == '$')
-    {
-        return Err("Message ID contains invalid characters".to_string());
-    }
-    Ok(())
-}
-
-fn validate_audio_format(format: &str, valid_codecs: &[&str]) -> Result<String, String> {
-    if format.is_empty() {
-        return Err("Format cannot be empty".to_string());
-    }
-    if !format.starts_with("audio/") {
-        return Err("Format must be an audio MIME type (e.g., audio/ogg)".to_string());
-    }
-    let codec = format.strip_prefix("audio/").unwrap_or("");
-    if !valid_codecs.contains(&codec) {
-        return Err(format!(
-            "Unsupported audio codec: {}. Supported: {}",
-            codec,
-            valid_codecs.join(", ")
-        ));
-    }
-    if contains_sql_injection(format) || contains_xss(format) {
-        return Err("Format contains invalid characters".to_string());
-    }
-    Ok(codec.to_string())
-}
-
-fn validate_bitrate(bitrate: i32) -> Result<(), String> {
-    if bitrate < 0 {
-        return Err("Bitrate cannot be negative".to_string());
-    }
-    const MIN_BITRATE: i32 = 64000;
-    const MAX_BITRATE: i32 = 320000;
-    if !(MIN_BITRATE..=MAX_BITRATE).contains(&bitrate) {
-        return Err(format!(
-            "Bitrate must be between {} and {} bps",
-            MIN_BITRATE, MAX_BITRATE
-        ));
-    }
-    Ok(())
-}
-
-fn validate_quality(quality: i32) -> Result<(), String> {
-    if quality < 0 {
-        return Err("Quality cannot be negative".to_string());
-    }
-    const MIN_QUALITY: i32 = 32;
-    const MAX_QUALITY: i32 = 320;
-    if !(MIN_QUALITY..=MAX_QUALITY).contains(&quality) {
-        return Err(format!(
-            "Quality must be between {} and {} kbps",
-            MIN_QUALITY, MAX_QUALITY
-        ));
-    }
-    Ok(())
-}
-
-fn validate_target_size_kb(size: i32) -> Result<(), String> {
-    if size < 0 {
-        return Err("Target size cannot be negative".to_string());
-    }
-    const MIN_SIZE: i32 = 10;
-    const MAX_SIZE: i32 = 10000;
-    if !(MIN_SIZE..=MAX_SIZE).contains(&size) {
-        return Err(format!(
-            "Target size must be between {} and {} KB",
-            MIN_SIZE, MAX_SIZE
-        ));
-    }
-    Ok(())
-}
 
 pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -124,145 +15,18 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/voice/upload",
             post(upload_voice_message),
         )
-        .route(
-            "/_matrix/client/r0/voice/stats",
-            get(get_current_user_voice_stats),
-        )
-        .route(
-            "/_matrix/client/r0/voice/{message_id}",
-            get(get_voice_message),
-        )
-        .route(
-            "/_matrix/client/r0/voice/{message_id}",
-            delete(delete_voice_message),
-        )
-        .route(
-            "/_matrix/client/r0/voice/user/{user_id}",
-            get(get_user_voice_messages),
-        )
-        .route(
-            "/_matrix/client/r0/voice/room/{room_id}",
-            get(get_room_voice_messages),
-        )
-        .route(
-            "/_matrix/client/r0/voice/user/{user_id}/stats",
-            get(get_user_voice_stats),
-        )
         .route("/_matrix/client/r0/voice/config", get(get_voice_config))
-        .route(
-            "/_matrix/client/r0/voice/convert",
-            post(convert_voice_message),
-        )
-        .route(
-            "/_matrix/client/r0/voice/optimize",
-            post(optimize_voice_message),
-        )
-        .route(
-            "/_matrix/client/v1/voice/transcription",
-            post(voice_transcription),
-        )
 }
 
 #[axum::debug_handler]
 async fn get_voice_config() -> Result<Json<Value>, ApiError> {
     Ok(Json(serde_json::json!({
-        "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav"],
-        "max_size_bytes": 104857600, // 100MB
-        "max_duration_ms": 600000,   // 10 minutes
-        "default_sample_rate": 48000,
-        "default_channels": 2
+        "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
+        "max_size_bytes": 52428800,
+        "max_duration_ms": 600000,
+        "content_type": "m.audio",
+        "voice_extension": "org.matrix.msc3245.voice"
     })))
-}
-
-#[axum::debug_handler]
-async fn convert_voice_message(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let message_id = body
-        .get("message_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("message_id is required".to_string()))?;
-
-    if let Err(e) = validate_message_id(message_id) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let target_format = body
-        .get("target_format")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("target_format is required".to_string()))?;
-
-    let valid_codecs = ["ogg", "mpeg", "wav", "mp3", "flac", "aac", "webm"];
-    if let Err(e) = validate_audio_format(target_format, &valid_codecs) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let quality = body.get("quality").and_then(|v| v.as_i64()).unwrap_or(128) as i32;
-
-    if let Err(e) = validate_quality(quality) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let bitrate = body
-        .get("bitrate")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(128000) as i32;
-
-    if let Err(e) = validate_bitrate(bitrate) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    Err(ApiError::unrecognized(format!(
-        "Voice conversion is not supported by this deployment yet (message_id={}, target_format={}, quality={}, bitrate={})",
-        message_id, target_format, quality, bitrate
-    )))
-}
-
-#[axum::debug_handler]
-async fn optimize_voice_message(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let message_id = body
-        .get("message_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("message_id is required".to_string()))?;
-
-    if let Err(e) = validate_message_id(message_id) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let target_size_kb = body
-        .get("target_size_kb")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(500) as i32;
-
-    if let Err(e) = validate_target_size_kb(target_size_kb) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let preserve_quality = body
-        .get("preserve_quality")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    let remove_silence = body
-        .get("remove_silence")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let normalize_volume = body
-        .get("normalize_volume")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    Err(ApiError::unrecognized(format!(
-        "Voice optimization is not supported by this deployment yet (message_id={}, target_size_kb={}, preserve_quality={}, remove_silence={}, normalize_volume={})",
-        message_id, target_size_kb, preserve_quality, remove_silence, normalize_volume
-    )))
 }
 
 #[axum::debug_handler]
@@ -282,8 +46,7 @@ async fn upload_voice_message(
         }
     };
 
-    // 1. Size Validation (Max 10MB)
-    const MAX_SIZE: usize = 10 * 1024 * 1024;
+    const MAX_SIZE: usize = 50 * 1024 * 1024;
     if content.len() > MAX_SIZE {
         return Err(ApiError::bad_request(format!(
             "Voice message too large. Max size is {} bytes",
@@ -291,7 +54,6 @@ async fn upload_voice_message(
         )));
     }
 
-    // 2. Magic Number Validation (File Type Check)
     let content_type = body
         .get("content_type")
         .and_then(|v| v.as_str())
@@ -311,7 +73,6 @@ async fn upload_voice_message(
         )));
     }
 
-    // 3. Duration Validation
     let duration_ms = body
         .get("duration_ms")
         .and_then(|v| v.as_i64())
@@ -324,10 +85,9 @@ async fn upload_voice_message(
     }
 
     let room_id = body.get("room_id").and_then(|v| v.as_str());
-    let session_id = body.get("session_id").and_then(|v| v.as_str());
 
     if let Some(target_room_id) = room_id.filter(|id| !id.is_empty()) {
-        ensure_voice_room_access(
+        ensure_room_member(
             &state,
             &auth_user,
             target_room_id,
@@ -336,257 +96,24 @@ async fn upload_voice_message(
         .await?;
     }
 
+    let waveform = body.get("waveform").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_u64().map(|n| n as u16))
+            .collect()
+    });
+
     match voice_service
-        .save_voice_message(VoiceMessageUploadParams {
+        .upload_voice_message(VoiceMessageUploadParams {
             user_id: auth_user.user_id,
             room_id: room_id.map(|s| s.to_string()),
-            session_id: session_id.map(|s| s.to_string()),
             content,
             content_type: content_type.to_string(),
             duration_ms,
+            waveform,
         })
         .await
     {
         Ok(result) => Ok(Json(result)),
         Err(e) => Err(ApiError::internal(e.to_string())),
     }
-}
-
-#[axum::debug_handler]
-async fn voice_transcription(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let event_id = body
-        .get("event_id")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            body.get("mxc")
-                .and_then(|v| v.as_str())
-                .and_then(extract_voice_message_id_from_mxc)
-        })
-        .ok_or_else(|| ApiError::bad_request("event_id or mxc is required".to_string()))?;
-
-    if let Err(e) = validate_message_id(&event_id) {
-        return Err(ApiError::bad_request(e));
-    }
-
-    let voice_message = state
-        .services
-        .voice_service
-        .get_voice_message_info(&event_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
-
-    ensure_voice_message_access(&state, &auth_user, &voice_message).await?;
-
-    let transcription = voice_message
-        .transcription
-        .unwrap_or_else(|| format!("Transcription not available for voice message {}", event_id));
-
-    Ok(Json(serde_json::json!({
-        "event_id": event_id,
-        "transcription": transcription,
-        "duration_ms": voice_message.duration_ms,
-        "status": "completed"
-    })))
-}
-
-fn extract_voice_message_id_from_mxc(mxc: &str) -> Option<String> {
-    let trimmed = mxc.strip_prefix("mxc://").unwrap_or(mxc);
-    let candidate = trimmed.rsplit('/').next()?.trim();
-    if candidate.is_empty() {
-        return None;
-    }
-    Some(candidate.to_string())
-}
-
-#[axum::debug_handler]
-async fn get_voice_message(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(message_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let voice_service = &state.services.voice_service;
-
-    let voice_message = voice_service
-        .get_voice_message_info(&message_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
-
-    ensure_voice_message_access(&state, &auth_user, &voice_message).await?;
-
-    match voice_service.get_voice_message(&message_id).await {
-        Ok(Some((content, content_type))) => {
-            let engine = base64::engine::general_purpose::STANDARD;
-            let content_base64 = engine.encode(&content);
-            Ok(Json(serde_json::json!({
-                "message_id": message_id,
-                "content": content_base64,
-                "content_type": content_type,
-                "size": content.len()
-            })))
-        }
-        Ok(None) => Err(ApiError::not_found("Voice message not found".to_string())),
-        Err(e) => Err(e),
-    }
-}
-
-#[axum::debug_handler]
-async fn delete_voice_message(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(message_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let voice_service = &state.services.voice_service;
-
-    let voice_message = voice_service
-        .get_voice_message_info(&message_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get voice message: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Voice message not found".to_string()))?;
-
-    ensure_voice_message_delete_access(&auth_user, &voice_message)?;
-
-    match voice_service
-        .delete_voice_message(&voice_message.user_id, &message_id)
-        .await
-    {
-        Ok(true) => Ok(Json(serde_json::json!({
-            "deleted": true,
-            "message_id": message_id
-        }))),
-        Ok(false) => Err(ApiError::not_found("Voice message not found".to_string())),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
-}
-
-#[axum::debug_handler]
-async fn get_user_voice_messages(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    ensure_voice_user_access(&auth_user.user_id, &user_id)?;
-
-    let voice_service = &state.services.voice_service;
-
-    match voice_service.get_user_messages(&user_id, 50, 0).await {
-        Ok(result) => Ok(Json(result)),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
-}
-
-#[axum::debug_handler]
-async fn get_room_voice_messages(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    ensure_voice_room_access(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to view voice messages",
-    )
-    .await?;
-
-    let voice_service = &state.services.voice_service;
-
-    match voice_service.get_room_messages(&room_id, 50).await {
-        Ok(result) => Ok(Json(result)),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
-}
-
-#[axum::debug_handler]
-async fn get_user_voice_stats(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    ensure_voice_user_access(&auth_user.user_id, &user_id)?;
-
-    let voice_service = &state.services.voice_service;
-
-    match voice_service.get_user_stats(&user_id, None, None).await {
-        Ok(result) => Ok(Json(result)),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
-}
-
-#[axum::debug_handler]
-async fn get_current_user_voice_stats(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let voice_service = &state.services.voice_service;
-
-    match voice_service
-        .get_user_stats(&auth_user.user_id, None, None)
-        .await
-    {
-        Ok(result) => Ok(Json(result)),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
-}
-
-fn ensure_voice_user_access(auth_user_id: &str, target_user_id: &str) -> Result<(), ApiError> {
-    if auth_user_id != target_user_id {
-        return Err(ApiError::forbidden(
-            "You can only access your own voice data".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-async fn ensure_voice_room_access(
-    state: &AppState,
-    auth_user: &AuthenticatedUser,
-    room_id: &str,
-    error_message: &str,
-) -> Result<(), ApiError> {
-    ensure_room_member(state, auth_user, room_id, error_message).await
-}
-
-async fn ensure_voice_message_access(
-    state: &AppState,
-    auth_user: &AuthenticatedUser,
-    voice_message: &VoiceMessageInfo,
-) -> Result<(), ApiError> {
-    if auth_user.user_id == voice_message.user_id {
-        return Ok(());
-    }
-
-    if !voice_message.room_id.is_empty() {
-        return ensure_voice_room_access(
-            state,
-            auth_user,
-            &voice_message.room_id,
-            "You must be a member of this room to access this voice message",
-        )
-        .await;
-    }
-
-    Err(ApiError::forbidden(
-        "You can only access your own voice data".to_string(),
-    ))
-}
-
-fn ensure_voice_message_delete_access(
-    auth_user: &AuthenticatedUser,
-    voice_message: &VoiceMessageInfo,
-) -> Result<(), ApiError> {
-    if auth_user.user_id == voice_message.user_id {
-        return Ok(());
-    }
-
-    Err(ApiError::forbidden(
-        "You can only delete your own voice data".to_string(),
-    ))
 }

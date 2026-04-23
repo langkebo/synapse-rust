@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -49,6 +49,10 @@ pub fn create_federation_router(_state: AppState) -> Router<AppState> {
             post(confirm_federation),
         )
         .route(
+            "/_synapse/admin/v1/federation/pending",
+            get(list_pending_federation),
+        )
+        .route(
             "/_synapse/admin/v1/federation/blacklist",
             get(get_blacklist),
         )
@@ -91,6 +95,13 @@ pub struct ConfirmRequest {
     pub accept: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListPendingQuery {
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[allow(dead_code)]
 fn unsupported_admin_federation_feature(feature: &str) -> ApiError {
     ApiError::unrecognized(format!(
         "Admin federation endpoint '{}' is not implemented in this deployment",
@@ -104,7 +115,7 @@ pub async fn get_destinations(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let destinations = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers ORDER BY server_name"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name"
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -119,7 +130,9 @@ pub async fn get_destinations(
                 "retry_interval": Value::Null,
                 "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
                 "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
-                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default()
+                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
+                "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
+                "updated_ts": row.get::<Option<i64>, _>("updated_ts")
             })
         })
         .collect();
@@ -136,7 +149,7 @@ pub async fn get_destination(
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let dest = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers WHERE server_name = $1"
     )
     .bind(&destination)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -150,7 +163,9 @@ pub async fn get_destination(
             "retry_interval": Value::Null,
             "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
             "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
-            "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default()
+            "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
+            "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
+            "updated_ts": row.get::<Option<i64>, _>("updated_ts")
         }))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
@@ -316,12 +331,129 @@ pub async fn resolve_federation(
 
 #[axum::debug_handler]
 pub async fn confirm_federation(
-    _admin: AdminUser,
-    State(_state): State<AppState>,
+    admin: AdminUser,
+    State(state): State<AppState>,
     Json(body): Json<ConfirmRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let _ = (&body.server_name, body.accept);
-    Err(unsupported_admin_federation_feature("confirm"))
+    let now = chrono::Utc::now().timestamp_millis();
+    let new_status = if body.accept { "active" } else { "rejected" };
+
+    let existing = sqlx::query(
+        "SELECT id, status FROM federation_servers WHERE server_name = $1"
+    )
+    .bind(&body.server_name)
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let old_status = match existing {
+        Some(row) => row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
+        None => {
+            return Err(ApiError::not_found(format!(
+                "Server '{}' not found in federation registry",
+                body.server_name
+            )));
+        }
+    };
+
+    if old_status != "pending" {
+        return Err(ApiError::bad_request(format!(
+            "Server '{}' is not in pending state (current: {})",
+            body.server_name, old_status
+        )));
+    }
+
+    sqlx::query(
+        "UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3"
+    )
+    .bind(new_status)
+    .bind(now)
+    .bind(&body.server_name)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    if !body.accept {
+        if let Err(e) = state.services.federation_blacklist_storage.add_to_blacklist(
+            crate::storage::federation_blacklist::AddBlacklistRequest {
+                server_name: body.server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: Some("Rejected federation admission request".to_string()),
+                blocked_by: admin.user_id.clone(),
+                expires_at: None,
+                metadata: None,
+            },
+        )
+        .await
+        {
+            tracing::warn!("Failed to add rejected server to blacklist: {}", e);
+        }
+    }
+
+    info!(
+        "Federation admission {} for server '{}' by admin '{}'",
+        if body.accept { "accepted" } else { "rejected" },
+        body.server_name,
+        admin.user_id
+    );
+
+    Ok(Json(json!({
+        "server_name": body.server_name,
+        "status": new_status,
+        "previous_status": old_status,
+        "updated_ts": now,
+        "confirmed_by": admin.user_id
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn list_pending_federation(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Query(query): Query<ListPendingQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = query.limit.unwrap_or(100).min(500);
+    let offset = query.offset.unwrap_or(0);
+
+    let pending = sqlx::query(
+        "SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts \
+         FROM federation_servers WHERE status = 'pending' \
+         ORDER BY COALESCE(updated_ts, 0) DESC \
+         LIMIT $1 OFFSET $2"
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'"
+    )
+    .fetch_one(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let list: Vec<Value> = pending
+        .iter()
+        .map(|row| {
+            json!({
+                "server_name": row.get::<Option<String>, _>("server_name"),
+                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
+                "last_failed_connect_at": row.get::<Option<i64>, _>("last_failed_connect_at"),
+                "last_successful_connect_at": row.get::<Option<i64>, _>("last_successful_connect_at"),
+                "status": "pending",
+                "updated_ts": row.get::<Option<i64>, _>("updated_ts")
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "servers": list,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })))
 }
 
 #[axum::debug_handler]

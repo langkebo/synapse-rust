@@ -62,6 +62,8 @@ pub use builtin_oidc_provider::{
     AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken,
 };
 pub use database_initializer::*;
+pub use directory_service::*;
+pub use dm_service::*;
 pub use feature_flag_service::*;
 pub use media_service::*;
 pub use oidc_service::OidcService;
@@ -74,8 +76,6 @@ pub use sliding_sync_service::*;
 pub use space_service::*;
 pub use sync_service::*;
 pub use telemetry_alert_service::*;
-pub use directory_service::*;
-pub use dm_service::*;
 pub use typing_service::*;
 
 // =============================================================================
@@ -134,6 +134,3 @@ pub mod burn_after_read_service;
 pub mod external_service_integration;
 #[cfg(feature = "external-services")]
 pub use external_service_integration::*;
-
-#[cfg(feature = "external-services")]
-pub mod webhook_notification;

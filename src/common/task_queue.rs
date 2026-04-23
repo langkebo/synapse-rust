@@ -157,7 +157,7 @@ impl BackgroundTaskManager {
         let task_id = self
             .task_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let name_clone = name.clone();
+        let name_clone = name;
 
         self.task_queue
             .submit(move || async move {
@@ -181,7 +181,7 @@ impl BackgroundTaskManager {
         let task_id = self
             .task_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let name_clone = name.clone();
+        let name_clone = name;
 
         self.task_queue
             .submit_async(move || {
@@ -213,7 +213,7 @@ impl BackgroundTaskManager {
         let task_id = self
             .task_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let name_clone = name.clone();
+        let name_clone = name;
 
         self.task_queue.submit_delayed(
             move || async move {

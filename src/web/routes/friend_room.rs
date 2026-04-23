@@ -13,6 +13,14 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         // v3 路径
         .route("/_matrix/client/v3/friends", get(get_friends))
         .route("/_matrix/client/v3/friends", post(send_friend_request))
+        .route(
+            "/_matrix/client/v3/friends/requests/incoming",
+            get(get_incoming_requests),
+        )
+        .route(
+            "/_matrix/client/v3/friends/requests/outgoing",
+            get(get_outgoing_requests),
+        )
         // v1 和 r0 路径 - 主路由
         .route("/_matrix/client/v1/friends", get(get_friends))
         .route("/_matrix/client/v1/friends", post(send_friend_request))

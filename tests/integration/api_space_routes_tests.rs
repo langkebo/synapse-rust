@@ -440,7 +440,10 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let invite_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/invite", root_space_id))
+        .uri(format!(
+            "/_matrix/client/v3/spaces/{}/invite",
+            root_space_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -798,11 +801,12 @@ async fn test_space_statistics_only_returns_visible_spaces() {
     )
     .await;
 
-    let public_space_id: String = sqlx::query_scalar("SELECT space_id FROM spaces WHERE room_id = $1")
-        .bind(&public_room_id)
-        .fetch_one(&*pool)
-        .await
-        .unwrap();
+    let public_space_id: String =
+        sqlx::query_scalar("SELECT space_id FROM spaces WHERE room_id = $1")
+            .bind(&public_room_id)
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
     let private_space_id: String =
         sqlx::query_scalar("SELECT space_id FROM spaces WHERE room_id = $1")
             .bind(&private_room_id)

@@ -147,10 +147,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-async fn legacy_cas_admin_alias_deprecation_middleware(
-    request: Request,
-    next: Next,
-) -> Response {
+async fn legacy_cas_admin_alias_deprecation_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 
     response

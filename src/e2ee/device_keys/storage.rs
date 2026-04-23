@@ -71,6 +71,7 @@ impl DeviceKeyStorage {
                 ts_updated_ms BIGINT,
                 is_verified BOOLEAN DEFAULT FALSE,
                 is_blocked BOOLEAN DEFAULT FALSE,
+                is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
                 display_name TEXT,
                 CONSTRAINT pk_device_keys PRIMARY KEY (id),
                 CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
@@ -153,6 +154,106 @@ impl DeviceKeyStorage {
                 )))
             }
         }
+    }
+
+    pub async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let key_data = serde_json::json!({
+            "algorithm": key.algorithm,
+            "key_id": key.key_id,
+            "public_key": key.public_key,
+            "signatures": key.signatures,
+            "display_name": key.display_name,
+        })
+        .to_string();
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms, is_fallback)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9, TRUE)
+            ON CONFLICT (user_id, device_id, key_id) DO UPDATE
+            SET public_key = EXCLUDED.public_key,
+                signatures = EXCLUDED.signatures,
+                display_name = EXCLUDED.display_name,
+                updated_ts = EXCLUDED.updated_ts,
+                ts_updated_ms = EXCLUDED.ts_updated_ms,
+                key_data = EXCLUDED.key_data,
+                is_fallback = TRUE
+            "#
+        )
+        .bind(&key.user_id)
+        .bind(&key.device_id)
+        .bind(&key.algorithm)
+        .bind(&key.key_id)
+        .bind(&key.public_key)
+        .bind(&key.signatures)
+        .bind(&key.display_name)
+        .bind(&key_data)
+        .bind(now_ms)
+        .execute(&*self.pool)
+        .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::error!("Failed to create/update fallback key: {}", e);
+                Err(ApiError::internal(format!(
+                    "Failed to save fallback key: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    pub async fn delete_fallback_keys(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"
+            DELETE FROM device_keys
+            WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to delete fallback keys: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_unused_fallback_key_types(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT algorithm
+            FROM device_keys
+            WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let algo: String = row.get("algorithm");
+                if algo.starts_with("signed_curve25519") {
+                    "signed_curve25519".to_string()
+                } else {
+                    algo
+                }
+            })
+            .collect())
     }
 
     fn parse_key_data(row: &sqlx::postgres::PgRow) -> DeviceKey {
@@ -305,6 +406,42 @@ impl DeviceKeyStorage {
         Ok(row.get("count"))
     }
 
+    pub async fn get_one_time_keys_count_by_algorithm(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<std::collections::HashMap<String, i64>, ApiError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT algorithm, COUNT(*) as count
+            FROM device_keys
+            WHERE user_id = $1 AND device_id = $2
+            GROUP BY algorithm
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        let mut counts = std::collections::HashMap::new();
+        for row in rows {
+            let algorithm: String = row.get("algorithm");
+            let count: i64 = row.get("count");
+            let algo_name = if algorithm.starts_with("signed_curve25519") {
+                "signed_curve25519".to_string()
+            } else if algorithm.starts_with("curve25519") {
+                "curve25519".to_string()
+            } else {
+                algorithm
+            };
+            *counts.entry(algo_name).or_insert(0) += count;
+        }
+
+        Ok(counts)
+    }
+
     pub async fn claim_one_time_key(
         &self,
         user_id: &str,
@@ -314,9 +451,9 @@ impl DeviceKeyStorage {
         let row = sqlx::query(
             r#"
             DELETE FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
-            RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
-            "#
+            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)
+            RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data, is_fallback
+            "#,
         )
         .bind(user_id)
         .bind(device_id)
@@ -324,7 +461,41 @@ impl DeviceKeyStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.as_ref().map(Self::parse_key_data))
+        if let Some(r) = &row {
+            let is_fallback: Option<bool> = r.try_get("is_fallback").ok().flatten();
+            if is_fallback.unwrap_or(false) {
+                tracing::warn!(
+                    "Claimed fallback key for {}:{} instead of OTK - OTK stock depleted",
+                    user_id,
+                    device_id
+                );
+            }
+            return Ok(row.as_ref().map(Self::parse_key_data));
+        }
+
+        let fallback_row = sqlx::query(
+            r#"
+            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data, is_fallback
+            FROM device_keys
+            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(algorithm)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        if fallback_row.is_some() {
+            tracing::warn!(
+                "No OTK available for {}:{}, using fallback key",
+                user_id,
+                device_id
+            );
+        }
+
+        Ok(fallback_row.as_ref().map(Self::parse_key_data))
     }
 
     pub async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
@@ -341,6 +512,57 @@ impl DeviceKeyStorage {
         .await?;
 
         Ok(rows.into_iter().map(|row| row.get("user_id")).collect())
+    }
+
+    pub async fn get_key_changes_with_left(
+        &self,
+        from_ts: i64,
+        to_ts: i64,
+        current_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), ApiError> {
+        let changed_rows = sqlx::query(
+            r#"
+            SELECT DISTINCT user_id
+            FROM device_lists_stream
+            WHERE stream_id > $1
+              AND stream_id <= $2
+              AND user_id != $3
+            ORDER BY user_id
+            LIMIT 100
+            "#,
+        )
+        .bind(from_ts)
+        .bind(to_ts)
+        .bind(current_user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get key changes: {}", e)))?;
+
+        let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
+
+        let left_rows = sqlx::query(
+            r#"
+            SELECT DISTINCT dl.user_id
+            FROM device_lists_stream dl
+            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
+            WHERE dl.stream_id > $1
+              AND dl.stream_id <= $2
+              AND dl.user_id != $3
+              AND rm.user_id IS NULL
+            ORDER BY dl.user_id
+            LIMIT 100
+            "#,
+        )
+        .bind(from_ts)
+        .bind(to_ts)
+        .bind(current_user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {}", e)))?;
+
+        let left: Vec<String> = left_rows.iter().map(|row| row.get("user_id")).collect();
+
+        Ok((changed, left))
     }
 
     pub async fn store_signature(

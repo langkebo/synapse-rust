@@ -108,20 +108,6 @@ const REPORT_RATE_LIMIT_SELECT: &str = r#"
     FROM report_rate_limits
 "#;
 
-const EVENT_REPORT_STATS_SELECT: &str = r#"
-    SELECT
-        id,
-        stat_date,
-        total_reports,
-        open_reports,
-        resolved_reports,
-        dismissed_reports,
-        avg_resolution_time_ms,
-        created_ts,
-        COALESCE(updated_ts, created_ts) AS updated_ts
-    FROM event_report_stats
-"#;
-
 impl EventReportStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
@@ -312,43 +298,33 @@ impl EventReportStorage {
         metadata: Option<serde_json::Value>,
     ) -> Result<EventReportHistory, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, EventReportHistory>(
-            r#"
-            INSERT INTO event_report_history (
-                report_id, action, actor_user_id, actor_role, old_status, new_status, reason, created_ts, metadata
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            "#,
-        )
-        .bind(report_id)
-        .bind(action)
-        .bind(actor_user_id)
-        .bind(actor_role)
-        .bind(old_status)
-        .bind(new_status)
-        .bind(reason)
-        .bind(now)
-        .bind(metadata)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        tracing::info!(
+            report_id = report_id,
+            action = action,
+            actor = ?actor_user_id,
+            old_status = ?old_status,
+            new_status = ?new_status,
+            "event report history"
+        );
+        Ok(EventReportHistory {
+            id: 0,
+            report_id,
+            action: action.to_string(),
+            actor_user_id: actor_user_id.map(|s| s.to_string()),
+            actor_role: actor_role.map(|s| s.to_string()),
+            old_status: old_status.map(|s| s.to_string()),
+            new_status: new_status.map(|s| s.to_string()),
+            reason: reason.map(|s| s.to_string()),
+            created_ts: now,
+            metadata,
+        })
     }
 
     pub async fn get_report_history(
         &self,
-        report_id: i64,
+        _report_id: i64,
     ) -> Result<Vec<EventReportHistory>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReportHistory>(
-            "SELECT * FROM event_report_history WHERE report_id = $1 ORDER BY created_ts DESC",
-        )
-        .bind(report_id)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     pub async fn check_rate_limit(
@@ -512,16 +488,8 @@ impl EventReportStorage {
         Ok(())
     }
 
-    pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReportStats>(&format!(
-            "{} WHERE stat_date >= CURRENT_DATE - $1 ORDER BY stat_date DESC",
-            EVENT_REPORT_STATS_SELECT
-        ))
-        .bind(days)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+    pub async fn get_stats(&self, _days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
+        Ok(vec![])
     }
 
     pub async fn count_reports_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {

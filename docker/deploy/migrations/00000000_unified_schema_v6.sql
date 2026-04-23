@@ -409,26 +409,6 @@ CREATE TABLE IF NOT EXISTS room_summary_update_queue (
 CREATE INDEX IF NOT EXISTS idx_room_summary_update_queue_status_priority_created
 ON room_summary_update_queue(status, priority DESC, created_ts ASC);
 
-CREATE TABLE IF NOT EXISTS room_children (
-    id BIGSERIAL PRIMARY KEY,
-    parent_room_id TEXT NOT NULL,
-    child_room_id TEXT NOT NULL,
-    state_key TEXT,
-    content JSONB NOT NULL DEFAULT '{}',
-    suggested BOOLEAN NOT NULL DEFAULT FALSE,
-    created_ts BIGINT NOT NULL DEFAULT 0,
-    updated_ts BIGINT,
-    CONSTRAINT uq_room_children_parent_child UNIQUE (parent_room_id, child_room_id),
-    CONSTRAINT fk_room_children_parent FOREIGN KEY (parent_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_room_children_child FOREIGN KEY (child_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_room_children_parent_suggested
-ON room_children(parent_room_id, suggested, child_room_id);
-
-CREATE INDEX IF NOT EXISTS idx_room_children_child
-ON room_children(child_room_id);
-
 -- 房间目录表
 -- 存储公开房间目录
 CREATE TABLE IF NOT EXISTS room_directory (
@@ -538,10 +518,6 @@ ON thread_relations(room_id, relates_to_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_relations_room_thread
 ON thread_relations(room_id, thread_id)
 WHERE thread_id IS NOT NULL;
-
--- 线程统计表 (Thread Statistics)
--- 注意: 此表已废弃，功能已合并到 thread_roots
--- CREATE TABLE IF NOT EXISTS thread_statistics (...);
 
 -- 房间父关系表
 -- 存储房间与 Space 的父子关系
@@ -2458,47 +2434,6 @@ CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver ON friend_requests(recei
 -- 私密会话表
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS private_sessions (
-    id VARCHAR(255) NOT NULL,
-    user_id_1 VARCHAR(255) NOT NULL,
-    user_id_2 VARCHAR(255) NOT NULL,
-    session_type VARCHAR(50) DEFAULT 'direct',
-    encryption_key VARCHAR(255),
-    created_ts BIGINT NOT NULL,
-    last_activity_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    unread_count INTEGER DEFAULT 0,
-    encrypted_content TEXT,
-    CONSTRAINT pk_private_sessions PRIMARY KEY (id),
-    CONSTRAINT uq_private_sessions_users UNIQUE (user_id_1, user_id_2),
-    CONSTRAINT fk_private_sessions_user1 FOREIGN KEY (user_id_1) REFERENCES users(user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_private_sessions_user2 FOREIGN KEY (user_id_2) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS private_messages (
-    id BIGSERIAL,
-    session_id VARCHAR(255) NOT NULL,
-    sender_id VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    encrypted_content TEXT,
-    created_ts BIGINT NOT NULL,
-    message_type VARCHAR(50) DEFAULT 'm.text',
-    is_read BOOLEAN DEFAULT FALSE,
-    read_by_receiver BOOLEAN DEFAULT FALSE,
-    read_ts BIGINT,
-    edit_history JSONB,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    deleted_at BIGINT,
-    is_edited BOOLEAN DEFAULT FALSE,
-    unread_count INTEGER DEFAULT 0,
-    CONSTRAINT pk_private_messages PRIMARY KEY (id),
-    CONSTRAINT fk_private_messages_session FOREIGN KEY (session_id) REFERENCES private_sessions(id) ON DELETE CASCADE,
-    CONSTRAINT fk_private_messages_sender FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_private_sessions_user ON private_sessions(user_id_1, user_id_2);
-CREATE INDEX IF NOT EXISTS idx_private_messages_session ON private_messages(session_id);
-
 -- ============================================================================
 -- 安全事件表
 -- ============================================================================
@@ -2524,21 +2459,12 @@ CREATE TABLE IF NOT EXISTS ip_blocks (
     CONSTRAINT uq_ip_blocks_ip UNIQUE (ip_address)
 );
 
-CREATE TABLE IF NOT EXISTS ip_reputation (
-    id BIGSERIAL,
-    ip_address TEXT NOT NULL,
-    score INTEGER DEFAULT 0,
-    last_seen_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    details JSONB,
-    CONSTRAINT pk_ip_reputation PRIMARY KEY (id),
-    CONSTRAINT uq_ip_reputation_ip UNIQUE (ip_address)
-);
+-- ip_reputation: 零代码引用，已废弃 (方案第三层冗余表)
+-- CREATE TABLE IF NOT EXISTS ip_reputation (...);
 
 CREATE INDEX IF NOT EXISTS idx_security_events_user_id ON security_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_security_events_created_ts ON security_events(created_ts);
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_blocked_ts ON ip_blocks(blocked_ts);
-CREATE INDEX IF NOT EXISTS idx_ip_reputation_score ON ip_reputation(score);
 
 -- ============================================================================
 -- 读标记表
@@ -2722,18 +2648,6 @@ CREATE TABLE IF NOT EXISTS user_privacy_settings (
 );
 
 -- 第三方身份验证表（独立于 user_threepids）
--- 注意: 此表已废弃，功能与 user_threepids 重复
--- CREATE TABLE IF NOT EXISTS threepids (
---     id SERIAL PRIMARY KEY,
---     user_id VARCHAR(255) NOT NULL,
---     medium VARCHAR(50) NOT NULL,
---     address VARCHAR(255) NOT NULL,
---     validated_ts BIGINT,
---     added_ts BIGINT NOT NULL,
---     CONSTRAINT uq_threepids_medium_address UNIQUE (medium, address)
--- );
--- CREATE INDEX IF NOT EXISTS idx_threepids_user ON threepids(user_id);
-
 -- 房间标签表
 CREATE TABLE IF NOT EXISTS room_tags (
     id SERIAL PRIMARY KEY,
@@ -2764,19 +2678,6 @@ CREATE TABLE IF NOT EXISTS room_events (
 
 CREATE INDEX IF NOT EXISTS idx_room_events_room ON room_events(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_events_event ON room_events(event_id);
-
--- 事件举报表（独立于 event_reports）
--- 注意: 此表已废弃，功能与 event_reports 重复
--- CREATE TABLE IF NOT EXISTS reports (
---     id SERIAL PRIMARY KEY,
---     room_id VARCHAR(255) NOT NULL,
---     event_id VARCHAR(255) NOT NULL,
---     reporter_user_id VARCHAR(255) NOT NULL,
---     reason TEXT,
---     score INTEGER DEFAULT 0,
---     created_ts BIGINT NOT NULL
--- );
--- CREATE INDEX IF NOT EXISTS idx_reports_room ON reports(room_id);
 
 -- E2EE To-Device 消息表
 CREATE TABLE IF NOT EXISTS to_device_messages (
@@ -3389,24 +3290,6 @@ CREATE TABLE IF NOT EXISTS application_service_room_namespaces (
     CONSTRAINT fk_application_service_room_namespaces_as FOREIGN KEY (as_id) REFERENCES application_services(as_id) ON DELETE CASCADE
 );
 
--- IP 信誉表 (增强版)
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 50;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS last_checked_ts BIGINT;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS is_whitelisted BOOLEAN DEFAULT FALSE;
-ALTER TABLE ip_reputation ADD COLUMN IF NOT EXISTS blocked_until BIGINT;
-
--- 第三方身份表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能与 user_threepids 重复
--- CREATE TABLE IF NOT EXISTS threepids (...);
-
--- 事件举报表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能与 event_reports 重复
--- CREATE TABLE IF NOT EXISTS reports (...);
-
--- 线程统计表 (已废弃，保留兼容性)
--- 注意: 此表已废弃，功能已合并到 thread_roots
--- CREATE TABLE IF NOT EXISTS thread_statistics (...);
-
 -- ============================================================================
 -- 完成提示
 -- ============================================================================
@@ -3423,8 +3306,7 @@ BEGIN
     RAISE NOTICE '  - 添加 one_time_keys 表 (E2EE)';
     RAISE NOTICE '  - 添加 rendezvous_session 表';
     RAISE NOTICE '  - 添加应用服务相关表 (5个)';
-    RAISE NOTICE '  - 增强 ip_reputation 表字段';
-    RAISE NOTICE '  - 标记废弃表 (threepids, reports, thread_statistics)';
+    RAISE NOTICE '  - 标记废弃表 (threepids, reports, thread_statistics, ip_reputation)';
     RAISE NOTICE '==========================================';
 END $$;
 --

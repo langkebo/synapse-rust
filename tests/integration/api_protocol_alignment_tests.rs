@@ -12,7 +12,8 @@ use tower::ServiceExt;
 
 type RoomSummaryCounts = (i64, i64, Option<String>, Option<i64>, Option<i64>);
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
@@ -758,13 +759,14 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
             .expect("failed to inspect server notice room");
     assert!(room_exists, "server notice room should be persisted");
 
-    let event_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1 AND room_id = $2)")
-            .bind(event_id)
-            .bind(room_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect server notice event");
+    let event_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1 AND room_id = $2)",
+    )
+    .bind(event_id)
+    .bind(room_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("failed to inspect server notice event");
     assert!(event_exists, "server notice event should be persisted");
 
     let target_membership: Option<(String, Option<String>)> = sqlx::query_as(
@@ -897,11 +899,12 @@ async fn test_admin_delete_server_notice_cleans_room_artifacts() {
             .expect("failed to inspect server notice after delete");
     assert!(!notice_exists, "server notice should be deleted");
 
-    let room_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rooms WHERE room_id = $1)")
-        .bind(&room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("failed to inspect room after delete");
+    let room_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rooms WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("failed to inspect room after delete");
     assert!(!room_exists, "server notice room should be deleted");
 
     let event_exists: bool =
@@ -920,7 +923,10 @@ async fn test_admin_delete_server_notice_cleans_room_artifacts() {
     .fetch_one(&*pool)
     .await
     .expect("failed to inspect room membership after delete");
-    assert!(!membership_exists, "server notice membership should be deleted");
+    assert!(
+        !membership_exists,
+        "server notice membership should be deleted"
+    );
 
     let summary_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_summaries WHERE room_id = $1)")
@@ -928,7 +934,10 @@ async fn test_admin_delete_server_notice_cleans_room_artifacts() {
             .fetch_one(&*pool)
             .await
             .expect("failed to inspect room summary after delete");
-    assert!(!summary_exists, "server notice room summary should be deleted");
+    assert!(
+        !summary_exists,
+        "server notice room summary should be deleted"
+    );
 
     let summary_member_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM room_summary_members WHERE room_id = $1 AND user_id = $2)",

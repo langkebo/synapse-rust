@@ -425,12 +425,12 @@ async fn test_admin_federation_blacklist_cache_and_confirm_routes_work() {
     let confirm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), confirm_request)
         .await
         .unwrap();
-    assert_eq!(confirm_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(confirm_response.status(), StatusCode::NOT_FOUND);
     let confirm_body = axum::body::to_bytes(confirm_response.into_body(), 2048)
         .await
         .unwrap();
     let confirm_json: Value = serde_json::from_slice(&confirm_body).unwrap();
-    assert_eq!(confirm_json["errcode"], "M_UNRECOGNIZED");
+    assert_eq!(confirm_json["errcode"], "M_NOT_FOUND");
 
     for key in [&cache_key_one, &cache_key_two] {
         sqlx::query(
@@ -555,6 +555,8 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let (admin_token, _username) = super::get_admin_token(&app).await;
     let server_name = format!("sensitive-fed-{}.example.com", rand::random::<u32>());
 
+    // Federation resolve, blacklist, and cache/clear are open to admin role
+    // (commit 7a8fdb5: 开放 Federation Blacklist/Cache Clear 给 admin 角色)
     let resolve_request = Request::builder()
         .method("POST")
         .uri("/_synapse/admin/v1/federation/resolve")
@@ -567,7 +569,7 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let resolve_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), resolve_request)
         .await
         .unwrap();
-    assert_eq!(resolve_response.status(), StatusCode::FORBIDDEN);
+    assert_ne!(resolve_response.status(), StatusCode::FORBIDDEN);
 
     let blacklist_request = Request::builder()
         .method("POST")
@@ -581,7 +583,7 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let blacklist_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), blacklist_request)
         .await
         .unwrap();
-    assert_eq!(blacklist_response.status(), StatusCode::FORBIDDEN);
+    assert_ne!(blacklist_response.status(), StatusCode::FORBIDDEN);
 
     let clear_cache_request = Request::builder()
         .method("POST")
@@ -593,5 +595,258 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), clear_cache_request)
             .await
             .unwrap();
-    assert_eq!(clear_cache_response.status(), StatusCode::FORBIDDEN);
+    assert_ne!(clear_cache_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_federation_admission_confirm_accept_pending_server() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+    let server_name = format!("pending-accept-{}.example.com", suffix);
+
+    sqlx::query(
+        "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)",
+    )
+    .bind(&server_name)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    let confirm_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/confirm")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "server_name": server_name, "accept": true }).to_string(),
+        ))
+        .unwrap();
+    let confirm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), confirm_request)
+        .await
+        .unwrap();
+    assert_eq!(confirm_response.status(), StatusCode::OK);
+    let confirm_body = axum::body::to_bytes(confirm_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let confirm_json: Value = serde_json::from_slice(&confirm_body).unwrap();
+    assert_eq!(confirm_json["status"], "active");
+    assert_eq!(confirm_json["previous_status"], "pending");
+
+    let dest_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}",
+            server_name
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let dest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), dest_request)
+        .await
+        .unwrap();
+    assert_eq!(dest_response.status(), StatusCode::OK);
+    let dest_body = axum::body::to_bytes(dest_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let dest_json: Value = serde_json::from_slice(&dest_body).unwrap();
+    assert_eq!(dest_json["status"], "active");
+}
+
+#[tokio::test]
+async fn test_federation_admission_confirm_reject_pending_server() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+    let server_name = format!("pending-reject-{}.example.com", suffix);
+
+    sqlx::query(
+        "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)",
+    )
+    .bind(&server_name)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    let confirm_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/confirm")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "server_name": server_name, "accept": false }).to_string(),
+        ))
+        .unwrap();
+    let confirm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), confirm_request)
+        .await
+        .unwrap();
+    assert_eq!(confirm_response.status(), StatusCode::OK);
+    let confirm_body = axum::body::to_bytes(confirm_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let confirm_json: Value = serde_json::from_slice(&confirm_body).unwrap();
+    assert_eq!(confirm_json["status"], "rejected");
+
+    let dest_request = Request::builder()
+        .uri(format!(
+            "/_synapse/admin/v1/federation/destinations/{}",
+            server_name
+        ))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let dest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), dest_request)
+        .await
+        .unwrap();
+    let dest_body = axum::body::to_bytes(dest_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let dest_json: Value = serde_json::from_slice(&dest_body).unwrap();
+    assert_eq!(dest_json["status"], "rejected");
+}
+
+#[tokio::test]
+async fn test_federation_admission_confirm_rejects_non_pending() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+    let active_server = format!("already-active-{}.example.com", suffix);
+
+    sqlx::query(
+        "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'active', $2)",
+    )
+    .bind(&active_server)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    let confirm_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/confirm")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "server_name": active_server, "accept": true }).to_string(),
+        ))
+        .unwrap();
+    let confirm_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), confirm_request)
+        .await
+        .unwrap();
+    assert_eq!(confirm_response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_federation_admission_confirm_unknown_server() {
+    let Some((app, _pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &_pool).await;
+
+    let confirm_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/federation/confirm")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "server_name": "nonexistent.example.com", "accept": true }).to_string(),
+        ))
+        .unwrap();
+    let confirm_response = ServiceExt::<Request<Body>>::oneshot(app, confirm_request)
+        .await
+        .unwrap();
+    assert_eq!(confirm_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_federation_admission_list_pending() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+
+    let pending_a = format!("pending-list-a-{}.example.com", suffix);
+    let pending_b = format!("pending-list-b-{}.example.com", suffix);
+    let active_c = format!("pending-list-c-{}.example.com", suffix);
+
+    for (name, status) in [(&pending_a, "pending"), (&pending_b, "pending"), (&active_c, "active")] {
+        sqlx::query(
+            "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING",
+        )
+        .bind(name)
+        .bind(status)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&*pool)
+        .await
+        .unwrap();
+    }
+
+    let list_request = Request::builder()
+        .uri("/_synapse/admin/v1/federation/pending")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = axum::body::to_bytes(list_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    assert!(list_json["total"].as_i64().unwrap() >= 2);
+
+    let servers = list_json["servers"].as_array().unwrap();
+    let server_names: Vec<&str> = servers.iter().map(|s| s["server_name"].as_str().unwrap()).collect();
+    assert!(server_names.iter().any(|n| *n == pending_a));
+    assert!(server_names.iter().any(|n| *n == pending_b));
+    assert!(!server_names.iter().any(|n| *n == active_c));
+}
+
+#[tokio::test]
+async fn test_federation_admission_destinations_include_status() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+    let server_name = format!("status-check-{}.example.com", suffix);
+
+    sqlx::query(
+        "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)",
+    )
+    .bind(&server_name)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    let list_request = Request::builder()
+        .uri("/_synapse/admin/v1/federation/destinations")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = axum::body::to_bytes(list_response.into_body(), 8192)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    let entry = list_json["destinations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["destination"] == server_name)
+        .expect("server should appear in destinations");
+    assert_eq!(entry["status"], "pending");
 }

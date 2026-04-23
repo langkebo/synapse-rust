@@ -506,7 +506,7 @@ impl FriendRoomStorage {
             r#"
             INSERT INTO friend_requests (sender_id, receiver_id, message, status, created_ts)
             VALUES ($1, $2, $3, 'pending', $4)
-            ON CONFLICT (sender_id, receiver_id) 
+            ON CONFLICT (sender_id, receiver_id)
             DO UPDATE SET status = 'pending', updated_ts = $4, message = $3
             RETURNING id
             "#,
@@ -515,10 +515,32 @@ impl FriendRoomStorage {
         .bind(receiver_id)
         .bind(message)
         .bind(now)
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.get("id"))
+        if let Some(row) = row {
+            return Ok(row.get("id"));
+        }
+
+        let fallback = sqlx::query(
+            "SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2",
+        )
+        .bind(sender_id)
+        .bind(receiver_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match fallback {
+            Some(row) => Ok(row.get("id")),
+            None => {
+                tracing::error!(
+                    "INSERT...ON CONFLICT RETURNING produced no row and no existing record for sender={} receiver={}",
+                    sender_id,
+                    receiver_id
+                );
+                Err(sqlx::Error::RowNotFound)
+            }
+        }
     }
 
     pub async fn get_friend_request(

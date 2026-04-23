@@ -773,6 +773,7 @@ mod tests {
             user_id: "@user:example.com".to_string(),
             notification_level: "all".to_string(),
             is_muted: false,
+            is_pinned: false,
             subscribed_ts: 1234567890,
             updated_ts: 1234567890,
         };

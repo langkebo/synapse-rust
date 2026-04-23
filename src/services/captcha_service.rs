@@ -251,9 +251,7 @@ impl CaptchaService {
         let content = self.render_template(&template, code, expiry_minutes);
 
         match captcha.captcha_type.as_str() {
-            "email" => {
-                self.send_email(&captcha.target, template.subject.as_deref(), &content)
-            }
+            "email" => self.send_email(&captcha.target, template.subject.as_deref(), &content),
             "sms" => self.send_sms(&captcha.target, &content),
             "image" => Ok(()),
             _ => Err(ApiError::bad_request("Invalid captcha type")),
@@ -272,12 +270,7 @@ impl CaptchaService {
         content
     }
 
-    fn send_email(
-        &self,
-        to: &str,
-        _subject: Option<&str>,
-        content: &str,
-    ) -> Result<(), ApiError> {
+    fn send_email(&self, to: &str, _subject: Option<&str>, content: &str) -> Result<(), ApiError> {
         info!("Sending email to {}: {:?}", to, content);
 
         Ok(())

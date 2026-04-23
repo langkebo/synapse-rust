@@ -155,7 +155,7 @@ fn verify_mac(
     }
 
     let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
-        .expect("HMAC can take key of any size");
+        .expect("HMAC accepts keys of any size");
     mac.update(&message);
     let result = mac.finalize();
 

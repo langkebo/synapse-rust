@@ -126,7 +126,7 @@ impl VerificationService {
             method: VerificationMethod::Sas,
             state: VerificationState::Requested,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
         };
 
         self.storage.create_request(&request).await?;
@@ -386,7 +386,7 @@ impl VerificationService {
             method: VerificationMethod::Qr,
             state: VerificationState::Pending,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
         };
 
         self.storage.create_request(&request).await?;

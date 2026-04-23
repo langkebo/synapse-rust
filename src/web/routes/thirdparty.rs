@@ -14,13 +14,6 @@ pub struct ProtocolQuery {
     pub search: Option<String>,
 }
 
-fn unsupported_thirdparty(operation: &str) -> ApiError {
-    ApiError::unrecognized(format!(
-        "Third-party network lookup is not implemented for this deployment ({})",
-        operation
-    ))
-}
-
 fn create_thirdparty_compat_router() -> Router<AppState> {
     Router::new()
         .route("/thirdparty/protocols", get(get_protocols))
@@ -80,7 +73,13 @@ async fn get_protocol(
             "location_fields": ["channel"]
         })))
     } else {
-        Err(unsupported_thirdparty(&format!("protocol={}", protocol)))
+        // Matrix spec: unknown protocols return an empty descriptor rather than errors.
+        // Bridges that are not enabled on this deployment simply expose no instances.
+        Ok(Json(serde_json::json!({
+            "instances": [],
+            "user_fields": [],
+            "location_fields": []
+        })))
     }
 }
 
@@ -95,13 +94,12 @@ pub struct LocationQuery {
 async fn get_location(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(protocol): Path<String>,
+    Path(_protocol): Path<String>,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(unsupported_thirdparty(&format!(
-        "location protocol={}",
-        protocol
-    )))
+    Err(ApiError::unrecognized(
+        "No third-party location bridges configured",
+    ))
 }
 
 async fn get_location_by_alias(
@@ -109,7 +107,9 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(unsupported_thirdparty("location query"))
+    Err(ApiError::unrecognized(
+        "No third-party location bridges configured",
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,13 +123,12 @@ pub struct UserQuery {
 async fn get_user(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(protocol): Path<String>,
+    Path(_protocol): Path<String>,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(unsupported_thirdparty(&format!(
-        "user protocol={}",
-        protocol
-    )))
+    Err(ApiError::unrecognized(
+        "No third-party user bridges configured",
+    ))
 }
 
 async fn get_user_by_id(
@@ -137,7 +136,9 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(unsupported_thirdparty("user query"))
+    Err(ApiError::unrecognized(
+        "No third-party user bridges configured",
+    ))
 }
 
 #[cfg(test)]

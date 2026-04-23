@@ -1,12 +1,12 @@
 use crate::common::{ApiError, ApiResult};
-use crate::federation::KeyRotationManager;
 use crate::federation::signing::canonical_federation_request_bytes;
+use crate::federation::KeyRotationManager;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub struct FriendFederationClient {
     client: Client,
@@ -93,10 +93,10 @@ impl FriendFederationClient {
         }
 
         if let Some(key_rotation_manager) = &self.key_rotation_manager {
-            if let Some(current_key) = key_rotation_manager
-                .get_current_key()
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to load federation signing key: {}", e)))?
+            if let Some(current_key) =
+                key_rotation_manager.get_current_key().await.map_err(|e| {
+                    ApiError::internal(format!("Failed to load federation signing key: {}", e))
+                })?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
                     return self.build_auth_header(
@@ -111,7 +111,10 @@ impl FriendFederationClient {
             }
         }
 
-        if !self.missing_signing_key_logged.swap(true, Ordering::Relaxed) {
+        if !self
+            .missing_signing_key_logged
+            .swap(true, Ordering::Relaxed)
+        {
             tracing::warn!(
                 "Friend federation signing key unavailable; checked FEDERATION_SIGNING_KEY and database-managed federation keys"
             );

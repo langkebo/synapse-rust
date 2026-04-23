@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordPolicy {
@@ -123,139 +122,22 @@ impl PasswordPolicy {
 }
 
 pub struct PasswordPolicyService {
-    pool: PgPool,
     policy: PasswordPolicy,
 }
 
 impl PasswordPolicyService {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(_pool: sqlx::PgPool) -> Self {
         Self {
-            pool,
             policy: PasswordPolicy::default(),
         }
     }
 
+    pub fn from_policy(policy: PasswordPolicy) -> Self {
+        Self { policy }
+    }
+
     pub fn policy(&self) -> &PasswordPolicy {
         &self.policy
-    }
-
-    pub async fn load_policy(&mut self) -> Result<(), sqlx::Error> {
-        let rows = sqlx::query("SELECT name, value FROM password_policy")
-            .fetch_all(&self.pool)
-            .await?;
-
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let value: String = row.try_get("value")?;
-
-            match name.as_str() {
-                "min_length" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.min_length = v;
-                    }
-                }
-                "max_length" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.max_length = v;
-                    }
-                }
-                "require_uppercase" => {
-                    self.policy.require_uppercase = value == "true";
-                }
-                "require_lowercase" => {
-                    self.policy.require_lowercase = value == "true";
-                }
-                "require_digit" => {
-                    self.policy.require_digit = value == "true";
-                }
-                "require_special" => {
-                    self.policy.require_special = value == "true";
-                }
-                "max_age_days" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.max_age_days = v;
-                    }
-                }
-                "history_count" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.history_count = v;
-                    }
-                }
-                "max_failed_attempts" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.max_failed_attempts = v;
-                    }
-                }
-                "lockout_duration_minutes" => {
-                    if let Ok(v) = value.parse() {
-                        self.policy.lockout_duration_minutes = v;
-                    }
-                }
-                "force_first_login_change" => {
-                    self.policy.force_first_login_change = value == "true";
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn add_password_to_history(
-        &self,
-        user_id: &str,
-        password_hash: &str,
-    ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-
-        sqlx::query(
-            "INSERT INTO password_history (user_id, password_hash, created_ts) VALUES ($1, $2, $3)",
-        )
-        .bind(user_id)
-        .bind(password_hash)
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-
-        self.cleanup_password_history(user_id).await
-    }
-
-    async fn cleanup_password_history(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            DELETE FROM password_history 
-            WHERE user_id = $1 
-            AND id NOT IN (
-                SELECT id FROM password_history 
-                WHERE user_id = $1 
-                ORDER BY created_ts DESC 
-                LIMIT $2
-            )
-            "#,
-        )
-        .bind(user_id)
-        .bind(self.policy.history_count as i64)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn is_password_in_history(
-        &self,
-        user_id: &str,
-        password_hash: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT COUNT(*) as count FROM password_history WHERE user_id = $1 AND password_hash = $2"
-        )
-        .bind(user_id)
-        .bind(password_hash)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let count: i64 = row.try_get("count")?;
-        Ok(count > 0)
     }
 }
 

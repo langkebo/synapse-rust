@@ -15,15 +15,6 @@ pub struct AccessToken {
     pub is_revoked: bool,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TokenBlacklistEntry {
-    pub id: i64,
-    pub token_hash: String,
-    pub user_id: String,
-    pub is_revoked: bool,
-    pub reason: Option<String>,
-}
-
 #[derive(Clone)]
 pub struct AccessTokenStorage {
     pub pool: Arc<Pool<Postgres>>,
@@ -189,7 +180,7 @@ impl AccessTokenStorage {
             r#"
             SELECT 1 FROM token_blacklist
             WHERE token_hash = $1
-              AND (expires_at = 0 OR expires_at > $2)
+              AND (expires_at IS NULL OR expires_at = 0 OR expires_at > $2)
             LIMIT 1
             "#,
         )

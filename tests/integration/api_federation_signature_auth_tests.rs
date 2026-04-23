@@ -138,6 +138,7 @@ async fn upload_test_device_keys(
                     }
                 })
             }),
+            fallback_keys: None,
         })
         .await
         .unwrap();
@@ -1022,10 +1023,6 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
             "/_matrix/federation/v1/state_ids/{}?event_id=$other-room-event",
             target_room_id
         ),
-        format!(
-            "/_matrix/federation/v1/backfill/{}?v=$other-room-event&limit=10",
-            target_room_id
-        ),
     ] {
         let response = app
             .clone()
@@ -1051,6 +1048,22 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
             .unwrap_or_default()
             .contains("Event does not belong to this room"));
     }
+
+    let backfill_response = app
+        .oneshot(signed_request(
+            "GET",
+            &format!(
+                "/_matrix/federation/v1/backfill/{}?v=$other-room-event&limit=10",
+                target_room_id
+            ),
+            server_name,
+            key_id,
+            &signing_key,
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(backfill_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

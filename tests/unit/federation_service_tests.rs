@@ -83,9 +83,9 @@ fn test_key_rotation_initialization() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        
+
         cleanup_test_database(&pool).await;
-        
+
         let id = unique_id();
         let server_name = format!("test{}.example.com", id);
         let manager = KeyRotationManager::new(&pool, &server_name);
@@ -112,7 +112,7 @@ fn test_should_rotate_keys() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        
+
         cleanup_test_database(&pool).await;
 
         let id = unique_id();

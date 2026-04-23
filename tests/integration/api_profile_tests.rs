@@ -75,11 +75,16 @@ async fn set_profile_visibility_private(pool: &sqlx::PgPool, user_id: &str) {
     sqlx::query(
         r#"
         INSERT INTO user_privacy_settings (
-            user_id, allow_presence_lookup, allow_profile_lookup, allow_room_invites, created_ts, updated_ts
+            user_id, profile_visibility, avatar_visibility, displayname_visibility,
+            presence_visibility, room_membership_visibility, created_ts, updated_ts
         )
-        VALUES ($1, TRUE, FALSE, TRUE, $2, $2)
+        VALUES ($1, 'private', 'private', 'private', 'private', 'private', $2, $2)
         ON CONFLICT (user_id) DO UPDATE SET
-            allow_profile_lookup = FALSE,
+            profile_visibility = 'private',
+            avatar_visibility = 'private',
+            displayname_visibility = 'private',
+            presence_visibility = 'private',
+            room_membership_visibility = 'private',
             updated_ts = $2
         "#,
     )

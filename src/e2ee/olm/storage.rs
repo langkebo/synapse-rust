@@ -22,8 +22,8 @@ impl OlmStorage {
                 device_id VARCHAR(255) NOT NULL,
                 identity_key VARCHAR(255) NOT NULL,
                 serialized_account TEXT NOT NULL,
-                one_time_keys_published BOOLEAN DEFAULT FALSE,
-                fallback_key_published BOOLEAN DEFAULT FALSE,
+                is_one_time_keys_published BOOLEAN DEFAULT FALSE,
+                is_fallback_key_published BOOLEAN DEFAULT FALSE,
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT NOT NULL,
                 UNIQUE(user_id, device_id)
@@ -46,7 +46,7 @@ impl OlmStorage {
                 message_index INTEGER DEFAULT 0,
                 created_ts BIGINT NOT NULL,
                 last_used_ts BIGINT NOT NULL,
-                expires_ts BIGINT
+                expires_at BIGINT
             )
             "#,
         )
@@ -79,14 +79,14 @@ impl OlmStorage {
             r#"
             INSERT INTO olm_accounts (
                 user_id, device_id, identity_key, serialized_account,
-                has_published_one_time_keys, has_published_fallback_key, created_ts, updated_ts
+                is_one_time_keys_published, is_fallback_key_published, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_id, device_id) DO UPDATE SET
                 identity_key = EXCLUDED.identity_key,
                 serialized_account = EXCLUDED.serialized_account,
-                has_published_one_time_keys = EXCLUDED.has_published_one_time_keys,
-                has_published_fallback_key = EXCLUDED.has_published_fallback_key,
+                is_one_time_keys_published = EXCLUDED.is_one_time_keys_published,
+                is_fallback_key_published = EXCLUDED.is_fallback_key_published,
                 updated_ts = EXCLUDED.updated_ts
             "#,
         )
@@ -113,7 +113,7 @@ impl OlmStorage {
         let row = sqlx::query(
             r#"
             SELECT user_id, device_id, identity_key, serialized_account,
-                   has_published_one_time_keys, has_published_fallback_key
+                   is_one_time_keys_published, is_fallback_key_published
             FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -129,8 +129,8 @@ impl OlmStorage {
             device_id: r.get("device_id"),
             identity_key: r.get("identity_key"),
             serialized_account: r.get("serialized_account"),
-            has_published_one_time_keys: r.get("has_published_one_time_keys"),
-            has_published_fallback_key: r.get("has_published_fallback_key"),
+            has_published_one_time_keys: r.get("is_one_time_keys_published"),
+            has_published_fallback_key: r.get("is_fallback_key_published"),
         }))
     }
 
@@ -157,14 +157,14 @@ impl OlmStorage {
             r#"
             INSERT INTO olm_sessions (
                 user_id, device_id, session_id, sender_key, receiver_key,
-                serialized_state, message_index, created_ts, last_used_ts, expires_ts
+                serialized_state, message_index, created_ts, last_used_ts, expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (session_id) DO UPDATE SET
                 serialized_state = EXCLUDED.serialized_state,
                 message_index = EXCLUDED.message_index,
                 last_used_ts = EXCLUDED.last_used_ts,
-                expires_ts = EXCLUDED.expires_ts
+                expires_at = EXCLUDED.expires_at
             "#,
         )
         .bind(&session.user_id)
@@ -192,7 +192,7 @@ impl OlmStorage {
         let rows = sqlx::query(
             r#"
             SELECT session_id, user_id, device_id, sender_key, receiver_key,
-                   serialized_state, message_index, created_ts, last_used_ts, expires_ts
+                   serialized_state, message_index, created_ts, last_used_ts, expires_at
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
             ORDER BY last_used_ts DESC
@@ -225,7 +225,7 @@ impl OlmStorage {
         let row = sqlx::query(
             r#"
             SELECT session_id, user_id, device_id, sender_key, receiver_key,
-                   serialized_state, message_index, created_ts, last_used_ts, expires_ts
+                   serialized_state, message_index, created_ts, last_used_ts, expires_at
             FROM olm_sessions
             WHERE session_id = $1
             "#,
@@ -245,7 +245,7 @@ impl OlmStorage {
             message_index: r.get::<i32, _>("message_index") as u32,
             created_ts: r.get("created_ts"),
             last_used_ts: r.get("last_used_ts"),
-            expires_at: r.get("expires_ts"),
+            expires_at: r.get("expires_at"),
         }))
     }
 
@@ -258,7 +258,7 @@ impl OlmStorage {
         let row = sqlx::query(
             r#"
             SELECT session_id, user_id, device_id, sender_key, receiver_key,
-                   serialized_state, message_index, created_ts, last_used_ts, expires_ts
+                   serialized_state, message_index, created_ts, last_used_ts, expires_at
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2 AND sender_key = $3
             ORDER BY last_used_ts DESC
@@ -284,7 +284,7 @@ impl OlmStorage {
             message_index: r.get::<i32, _>("message_index") as u32,
             created_ts: r.get("created_ts"),
             last_used_ts: r.get("last_used_ts"),
-            expires_at: r.get("expires_ts"),
+            expires_at: r.get("expires_at"),
         }))
     }
 
@@ -329,7 +329,7 @@ impl OlmStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM olm_sessions
-            WHERE expires_ts IS NOT NULL AND expires_ts < $1
+            WHERE expires_at IS NOT NULL AND expires_at < $1
             "#,
         )
         .bind(now)

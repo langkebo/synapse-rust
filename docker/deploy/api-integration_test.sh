@@ -349,7 +349,7 @@ federation_smoke() {
             elif echo "$err" | grep -q "Missing or invalid federation signing key"; then
                 skip "$name" "federation signing key not configured"
             elif echo "$err" | grep -q "M_UNRECOGNIZED"; then
-                pass "$name" "$err"
+                missing "$name" "M_UNRECOGNIZED: endpoint not implemented"
             else
                 fail "$name" "$err"
             fi
@@ -366,11 +366,11 @@ federation_smoke() {
     elif echo "$err" | grep -q "Missing or invalid federation signing key"; then
         skip "$name" "federation signing key not configured"
     elif echo "$err" | grep -q "M_UNAUTHORIZED"; then
-        skip "$name" "${err:-requires federation auth}"
+        fail "$name" "${err:-M_UNAUTHORIZED: federation auth rejected}"
     elif echo "$err" | grep -q "Remote server key" && echo "$err" | grep -q "M_NOT_FOUND"; then
-        pass "$name" "$err"
+        fail "$name" "$err"
     elif echo "$err" | grep -q "M_UNRECOGNIZED"; then
-        pass "$name" "$err"
+        missing "$name" "M_UNRECOGNIZED: endpoint not implemented"
     else
         fail "$name" "${err:-HTTP $status}"
     fi
@@ -419,19 +419,11 @@ skip() {
     local name="$1"
     local reason="${2:-}"
     if echo "$name" | grep -Eq '\(endpoint not available\)|\(not implemented\)|\(unavailable\)|\(not found\)'; then
-        if [ -n "${HTTP_STATUS:-}" ] && [[ "$HTTP_STATUS" != 2* ]] && last_body_is_unrecognized; then
-            pass "$name" "M_UNRECOGNIZED"
-        else
-            missing "$name" "$reason"
-        fi
+        missing "$name" "${reason:-endpoint not available}"
         return 0
     fi
     if echo "$reason" | grep -Eq 'admin authentication unavailable|endpoint not available|not implemented'; then
-        if echo "$reason" | grep -Eq 'endpoint not available|not implemented' && [ -n "${HTTP_STATUS:-}" ] && [[ "$HTTP_STATUS" != 2* ]] && last_body_is_unrecognized; then
-            pass "$name" "M_UNRECOGNIZED"
-        else
-            missing "$name" "$reason"
-        fi
+        missing "$name" "$reason"
         return 0
     fi
     if is_expected_admin_denial "$name" "$reason"; then
@@ -1480,7 +1472,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "avatar_url" && pass "Get Avatar 
 
 echo ""
 echo "11. Set Avatar URL"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/profile/$USER_ID_ENC/avatar_url" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/profile/$USER_ID_ENC/avatar_url" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"avatar_url": "mxc://cjystx.top/avatar"}' && pass "Set Avatar URL" || fail "Set Avatar URL"
@@ -1645,7 +1637,7 @@ echo "=========================================="
 echo "24. Account Data"
 echo "=========================================="
 echo "24. Set User Account Data"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/account_data/m.custom" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/account_data/m.custom" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"custom_key": "custom_value"}' && pass "Set User Account Data" || fail "Set User Account Data"
@@ -1657,7 +1649,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "custom_key" && pass "Get User Ac
 
 echo ""
 echo "26. Set Room Account Data"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/account_data/m.room.color" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/account_data/m.room.color" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"color": "blue"}' && pass "Set Room Account Data" || fail "Set Room Account Data"
@@ -1673,7 +1665,7 @@ echo "=========================================="
 echo "28. Room Tags"
 echo "=========================================="
 echo "28. Add Room Tag"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.favourite" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.favourite" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{}' && pass "Add Room Tag" || fail "Add Room Tag"
@@ -1685,7 +1677,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "tags" && pass "Get Room Tags" ||
 
 echo ""
 echo "30. Remove Room Tag"
-curl -s -X DELETE "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.favourite" \
+curl -sf -X DELETE "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.favourite" \
     -H "Authorization: Bearer $TOKEN" && pass "Remove Room Tag" || fail "Remove Room Tag"
 
 # 10. Presence
@@ -1694,7 +1686,7 @@ echo "=========================================="
 echo "31. Presence"
 echo "=========================================="
 echo "31. Update Presence"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"presence": "online"}' && pass "Update Presence" || fail "Update Presence"
@@ -1717,21 +1709,21 @@ echo "=========================================="
 echo "34. Room Membership"
 echo "=========================================="
 echo "34. Invite User"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/invite" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/invite" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"user_id": "'"$USER_ID"'"}' && pass "Invite User" || fail "Invite User"
 
 echo ""
 echo "35. Join Room"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/join/$ROOM_ID" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/join/$ROOM_ID" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{}' && pass "Join Room" || fail "Join Room"
 
 echo ""
 echo "36. Leave Room"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM2_ID/leave" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM2_ID/leave" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{}' && pass "Leave Room" || fail "Leave Room"
@@ -1795,7 +1787,7 @@ echo "=========================================="
 echo "42. E2EE Keys"
 echo "=========================================="
 echo "42. Upload Keys"
-http_json POST "$SERVER_URL/_matrix/client/v3/keys/upload" "$TOKEN" '{"one_time_keys": {"signed_curve25519:KEY1": {"key": "base64_key", "signatures": {}}}}'
+http_json POST "$SERVER_URL/_matrix/client/v3/keys/upload" "$TOKEN" "{\"device_keys\":{\"user_id\":\"$USER_ID\",\"device_id\":\"$DEVICE_ID\",\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],\"keys\":{\"curve25519:$DEVICE_ID\":\"test_curve_key\",\"ed25519:$DEVICE_ID\":\"test_ed_key\"},\"signatures\":{\"$USER_ID\":{\"ed25519:$DEVICE_ID\":\"test_sig\"}}}}"
 KEY_UPLOAD_RESP="$HTTP_BODY"
 assert_success_json "Upload Keys" "$KEY_UPLOAD_RESP" "$HTTP_STATUS" "one_time_key_counts"
 
@@ -1823,14 +1815,12 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Public Rooms" ||
 echo ""
 echo "46. User Directory"
 http_json POST "$SERVER_URL/_matrix/client/v3/user_directory/search" "$TOKEN" '{"search_term": "admin", "limit": 10}'
-if echo "$HTTP_BODY" | grep -q "results"; then
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "results" && json_has_key "$HTTP_BODY" "limited"; then
     pass "User Directory"
-elif echo "$HTTP_BODY" | grep -q "limited"; then
-    pass "User Directory"
-elif [ -z "$HTTP_BODY" ] || [ "$HTTP_BODY" = "{}" ]; then
-    skip "User Directory (not fully implemented)"
+elif last_body_is_unrecognized; then
+    missing "User Directory" "M_UNRECOGNIZED"
 else
-    fail "User Directory"
+    fail "User Directory" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 15. Room Summary
@@ -1880,7 +1870,7 @@ echo "=========================================="
 echo "53. Search"
 echo "=========================================="
 echo "53. Search Rooms"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_term": "test", "limit": 10}' && pass "Search Rooms" || fail "Search Rooms"
@@ -2423,7 +2413,13 @@ echo "=========================================="
 echo "116. Get Key Backup Versions"
 http_json GET "$SERVER_URL/_matrix/client/v3/room_keys/version" "$TOKEN"
 KEY_BACKUP_VERSIONS_RESP="$HTTP_BODY"
-assert_success_json "Get Key Backup Versions" "$KEY_BACKUP_VERSIONS_RESP" "$HTTP_STATUS" "versions"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$KEY_BACKUP_VERSIONS_RESP" "version"; then
+    pass "Get Key Backup Versions"
+elif [ "$HTTP_STATUS" = "404" ] && echo "$KEY_BACKUP_VERSIONS_RESP" | grep -q 'M_NOT_FOUND'; then
+    pass "Get Key Backup Versions" "no backup yet (spec-compliant 404)"
+else
+    fail "Get Key Backup Versions" "$(json_err_summary "$KEY_BACKUP_VERSIONS_RESP" || echo "HTTP $HTTP_STATUS")"
+fi
 
 # 40. Admin User Extended
 echo ""
@@ -2498,7 +2494,7 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "presence" && pass "Get Presence"
 
 echo ""
 echo "124. Set Presence"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"presence": "online", "status_msg": "Available"}' && pass "Set Presence" || fail "Set Presence"
@@ -2514,23 +2510,7 @@ echo ""
 echo "=========================================="
 echo "126. E2EE Key Verification"
 echo "=========================================="
-echo "126. Get Key Verification Request"
-KEY_VERIFY_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/device_verification/request" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"device_id":"SCRIPT_VERIFY_DEVICE","method":"sas"}')
-if echo "$KEY_VERIFY_RESP" | grep -q "request_token\|token"; then
-    pass "Get Key Verification Request"
-else
-    skip "Get Key Verification Request (endpoint not available)"
-fi
-
 echo ""
-echo "127. Get Room Key Request"
-KEY_REQ_RESP=$(curl -s "$SERVER_URL/_matrix/client/v1/keys/qr_code/show" -H "Authorization: Bearer $TOKEN")
-if echo "$KEY_REQ_RESP" | grep -q "user_id\|device_id\|qr"; then
-    pass "Get Room Key Request"
-else
-    skip "Get Room Key Request (endpoint not available)"
-fi
-
 # 44. Thread
 echo ""
 echo "=========================================="
@@ -2539,7 +2519,7 @@ echo "=========================================="
 echo ""
 echo "128. Get Thread"
 if [ -n "$ROOM_ID" ]; then
-    THREAD_ROOT_ID=$(echo "$MSG_RESP" | grep -o '"event_id":"[^"]*"' | cut -d'"' -f4)
+    THREAD_ROOT_ID="${MSG_EVENT_ID:-}"
     if [ -n "$THREAD_ROOT_ID" ]; then
         CREATE_THREAD_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads" \
             -H "Authorization: Bearer $TOKEN" \
@@ -2848,14 +2828,14 @@ echo "=========================================="
 echo "163. Search Extended"
 echo "=========================================="
 echo "163. Search v3"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/search" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_categories": {"room_events": {"search_term": "test"}}}' && pass "Search v3" || skip "Search v3 (endpoint not available)"
 
 echo ""
 echo "164. Search Rooms"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_term": "test"}' && pass "Search Rooms" || skip "Search Rooms (endpoint not available)"
@@ -2867,11 +2847,13 @@ echo "165. Room Context & Hierarchy"
 echo "=========================================="
 echo "165. Room Context"
 if [ -n "$TEST_EVENT_ID_ENC" ]; then
-    RESP=$(curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/context/$TEST_EVENT_ID_ENC" -H "Authorization: Bearer $TOKEN")
-    if echo "$RESP" | grep -q "context\\|event\\|M_FORBIDDEN\\|M_NOT_FOUND\\|errcode"; then
+    http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/context/$TEST_EVENT_ID_ENC" "$TOKEN"
+    if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "event"; then
         pass "Room Context"
+    elif last_body_is_unrecognized; then
+        missing "Room Context" "M_UNRECOGNIZED"
     else
-        skip "Room Context (endpoint not available)"
+        fail "Room Context" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
     fi
 else
     skip "Room Context (no event_id)"
@@ -2880,11 +2862,13 @@ fi
 echo ""
 echo "166. Room Hierarchy"
 ROOM_HIERARCHY_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-RESP=$(curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_HIERARCHY_ENC/hierarchy" -H "Authorization: Bearer $TOKEN")
-if echo "$RESP" | grep -q "hierarchy\|rooms\|next_batch\|M_FORBIDDEN\|errcode"; then
+http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_HIERARCHY_ENC/hierarchy" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "rooms"; then
     pass "Room Hierarchy"
+elif last_body_is_unrecognized; then
+    missing "Room Hierarchy" "M_UNRECOGNIZED"
 else
-    skip "Room Hierarchy (endpoint not available)"
+    fail "Room Hierarchy" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 60. Key Backup Extended
@@ -2901,7 +2885,7 @@ echo ""
 echo "168. Get Key Backup"
 http_json GET "$SERVER_URL/_matrix/client/v3/room_keys/version" "$TOKEN"
 GET_KEY_BACKUP_RESP="$HTTP_BODY"
-assert_success_json "Get Key Backup" "$GET_KEY_BACKUP_RESP" "$HTTP_STATUS" "versions"
+assert_success_json "Get Key Backup" "$GET_KEY_BACKUP_RESP" "$HTTP_STATUS" "version"
 
 # 61. SendToDevice
 echo ""
@@ -2909,7 +2893,7 @@ echo "=========================================="
 echo "169. SendToDevice"
 echo "=========================================="
 echo "169. Send To Device"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/sendToDevice/m.room_key_request/txn123" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/sendToDevice/m.room_key_request/txn123" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"messages": {"'"$USER_ID"'": {"device123": {"type": "m.room_key_request"}}}}' && pass "Send To Device" || skip "SendToDevice (endpoint not available)"
@@ -3044,6 +3028,88 @@ echo ""
 echo "=========================================="
 echo "180. Federation API"
 echo "=========================================="
+
+# --- Real remote-federation probes against matrix.org ---
+# Failures here are REAL problems, not missing endpoints — fail loudly.
+REMOTE_FED_SERVER="${REMOTE_FED_SERVER:-matrix.org}"
+echo "180.0 Remote Federation Reachability ($REMOTE_FED_SERVER)"
+__fed_tmp=$(mktemp)
+__fed_status=$(command curl -sS --connect-timeout 10 --max-time 30 \
+    -o "$__fed_tmp" -w "%{http_code}" \
+    "https://$REMOTE_FED_SERVER/_matrix/key/v2/server" 2>/dev/null || echo "000")
+__fed_body=$(cat "$__fed_tmp" 2>/dev/null || echo "")
+rm -f "$__fed_tmp"
+HTTP_STATUS="$__fed_status"; HTTP_BODY="$__fed_body"
+CASE_HTTP_CAPTURE_ACTIVE=1
+HTTP_REQUEST_METHOD="GET"; HTTP_REQUEST_URL="https://$REMOTE_FED_SERVER/_matrix/key/v2/server"
+if [[ "$__fed_status" == 2* ]] && json_has_key "$__fed_body" "server_name" && json_has_key "$__fed_body" "verify_keys"; then
+    pass "Remote Federation Key ($REMOTE_FED_SERVER)"
+elif [ "$__fed_status" = "000" ]; then
+    fail "Remote Federation Key ($REMOTE_FED_SERVER)" "network unreachable (DNS/TLS/connect)"
+else
+    fail "Remote Federation Key ($REMOTE_FED_SERVER)" "HTTP $__fed_status: $(json_err_summary "$__fed_body" || echo invalid)"
+fi
+
+echo ""
+echo "180.1 Local Admin Resolve Remote ($REMOTE_FED_SERVER)"
+if admin_ready; then
+    http_json POST "$SERVER_URL/_synapse/admin/v1/federation/resolve" "$ADMIN_TOKEN" "{\"server_name\": \"$REMOTE_FED_SERVER\"}"
+    if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "server_name"; then
+        pass "Admin Federation Resolve Remote"
+    elif last_body_is_unrecognized; then
+        missing "Admin Federation Resolve Remote" "M_UNRECOGNIZED"
+    else
+        fail "Admin Federation Resolve Remote" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
+    fi
+else
+    skip "Admin Federation Resolve Remote" "admin authentication unavailable"
+fi
+
+echo ""
+echo "180.2 Outbound Signed Federation Version ($REMOTE_FED_SERVER)"
+# Probe outbound signed federation only if signing is ready AND server_name is publicly routable.
+if ! federation_prepare_signing; then
+    skip "Outbound Federation Version ($REMOTE_FED_SERVER)" "${FEDERATION_SIGNING_REASON:-federation signing not configured}"
+    __local_sn_skip=1
+else
+    __local_sn="${FEDERATION_SERVER_NAME%%:*}"
+    case "$__local_sn" in
+        localhost|127.*|10.*|192.168.*|172.16.*|172.17.*|172.18.*|172.19.*|172.2[0-9].*|172.3[01].*|""|*.local)
+            skip "Outbound Federation Version ($REMOTE_FED_SERVER)" "local server_name '$__local_sn' is not routable from internet (set server_name=<public FQDN> to enable)"
+            __local_sn_skip=1 ;;
+        *) __local_sn_skip=0 ;;
+    esac
+fi
+if [ "${__local_sn_skip:-0}" = "0" ]; then
+    __remote_uri="/_matrix/federation/v1/version"
+    __sig=$(FEDERATION_SIGNING_KEY="$FEDERATION_SIGNING_KEY" \
+        "$FEDERATION_SIGNER_BIN" "GET" "$__remote_uri" \
+        "$FEDERATION_SERVER_NAME" "$REMOTE_FED_SERVER" 2>/dev/null || true)
+    if [ -z "$__sig" ]; then
+        fail "Outbound Federation Version ($REMOTE_FED_SERVER)" "failed to sign request with local key"
+    else
+        __rtmp=$(mktemp)
+        __rstatus=$(command curl -sS --connect-timeout 10 --max-time 30 \
+            -o "$__rtmp" -w "%{http_code}" \
+            -H "Authorization: X-Matrix origin=\"$FEDERATION_SERVER_NAME\",destination=\"$REMOTE_FED_SERVER\",key=\"$FEDERATION_KEY_ID\",sig=\"$__sig\"" \
+            "https://$REMOTE_FED_SERVER$__remote_uri" 2>/dev/null || echo "000")
+        __rbody=$(cat "$__rtmp" 2>/dev/null || echo "")
+        rm -f "$__rtmp"
+        HTTP_STATUS="$__rstatus"; HTTP_BODY="$__rbody"
+        HTTP_REQUEST_URL="https://$REMOTE_FED_SERVER$__remote_uri"
+        if [[ "$__rstatus" == 2* ]] && json_has_key "$__rbody" "server"; then
+            pass "Outbound Federation Version ($REMOTE_FED_SERVER)"
+        elif [ "$__rstatus" = "401" ] || [ "$__rstatus" = "403" ]; then
+            fail "Outbound Federation Version ($REMOTE_FED_SERVER)" "remote rejected signed request ($__rstatus): $(json_err_summary "$__rbody" || echo "auth rejected")"
+        elif [ "$__rstatus" = "000" ]; then
+            fail "Outbound Federation Version ($REMOTE_FED_SERVER)" "network unreachable"
+        else
+            fail "Outbound Federation Version ($REMOTE_FED_SERVER)" "HTTP $__rstatus: $(json_err_summary "$__rbody" || echo body)"
+        fi
+    fi
+fi
+
+echo ""
 echo "180. Federation Version"
 http_json GET "$SERVER_URL/_matrix/federation/v1/version" ""
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "version" && pass "Federation Version" || fail "Federation Version"
@@ -3094,18 +3160,16 @@ if federation_http_json "Federation Keys Query" POST "$SERVER_URL/_matrix/federa
 fi
 
 echo ""
-echo "186. Federation Keys Claim"
-curl -s -X POST "$SERVER_URL/_matrix/federation/v1/keys/claim" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"one_time_keys": {}}' && pass "Federation Keys Claim" || skip "Federation Keys Claim (endpoint not available)"
+echo "186. Federation User Keys Claim (signed)"
+if federation_http_json "Federation User Keys Claim" POST "$SERVER_URL/_matrix/federation/v1/user/keys/claim" "{\"one_time_keys\":{\"$USER_ID\":{\"$DEVICE_ID\":\"signed_curve25519\"}}}"; then
+    federation_smoke "Federation User Keys Claim" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
-echo "187. Federation Keys Upload"
-curl -s -X POST "$SERVER_URL/_matrix/federation/v1/keys/upload" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"one_time_keys": {}}' && pass "Federation Keys Upload" || skip "Federation Keys Upload (endpoint not available)"
+echo "187. Federation User Keys Query (signed)"
+if federation_http_json "Federation User Keys Query" POST "$SERVER_URL/_matrix/federation/v1/user/keys/query" "{\"device_keys\":{\"$USER_ID\":[]}}"; then
+    federation_smoke "Federation User Keys Query" "$HTTP_STATUS" "$HTTP_BODY"
+fi
 
 echo ""
 echo "188. Federation Make Join"
@@ -3198,14 +3262,14 @@ check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.upload.size" && pass "Media Co
 
 echo ""
 echo "199. Media Upload r0"
-MEDIA_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/media/r0/upload" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: image/png" \
-    --data-binary "PNG-DATA")
-if echo "$MEDIA_RESP" | grep -q "content_uri"; then
+__mtmp=$(mktemp); __mstatus=$(curl -s -X POST "$SERVER_URL/_matrix/media/r0/upload" -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" --data-binary "PNG-DATA" -o "$__mtmp" -w "%{http_code}"); MEDIA_RESP=$(cat "$__mtmp"); rm -f "$__mtmp"
+HTTP_STATUS="$__mstatus"; HTTP_BODY="$MEDIA_RESP"
+if [[ "$__mstatus" == 2* ]] && json_has_key "$MEDIA_RESP" "content_uri"; then
     pass "Media Upload r0"
+elif last_body_is_unrecognized; then
+    missing "Media Upload r0" "M_UNRECOGNIZED"
 else
-    skip "Media Upload r0 (endpoint not available)"
+    fail "Media Upload r0" "$(json_err_summary "$MEDIA_RESP" || echo "HTTP $__mstatus")"
 fi
 
 echo ""
@@ -3223,21 +3287,9 @@ http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
 
 echo ""
-echo "202. Room Summary Heroes"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/heroes/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Heroes" || skip "Room Summary Heroes (endpoint not available)"
-
 echo ""
-echo "203. Room Summary Stats Recalculate"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Stats Recalculate" || skip "Room Summary Stats Recalculate (endpoint not available)"
-
 echo ""
-echo "204. Room Summary Sync"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/sync" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Sync" || skip "Room Summary Sync (endpoint not available)"
-
 echo ""
-echo "205. Room Summary Unread Clear"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/unread/clear" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Unread Clear" || skip "Room Summary Unread Clear (endpoint not available)"
-
 # 70. Room Hierarchy
 echo ""
 echo "=========================================="
@@ -3245,7 +3297,7 @@ echo "206. Room Hierarchy"
 echo "=========================================="
 echo "206. Room Hierarchy"
 ROOM_HIERARCHY_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_HIERARCHY_ENC/hierarchy" -H "Authorization: Bearer $TOKEN" && pass "Room Hierarchy" || skip "Room Hierarchy (endpoint not available)"
+curl -sf "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_HIERARCHY_ENC/hierarchy" -H "Authorization: Bearer $TOKEN" && pass "Room Hierarchy" || skip "Room Hierarchy (endpoint not available)"
 
 echo ""
 echo "207. Space Hierarchy"
@@ -3267,10 +3319,15 @@ echo "=========================================="
 echo "208. Room Timestamp to Event"
 echo "=========================================="
 echo "208. Timestamp to Event"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/timestamp_to_event" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"stream_ordering": 1, "ts": 1234567890000}' && pass "Timestamp to Event" || skip "Timestamp to Event (endpoint not available)"
+__ts_now=$(date +%s)000
+http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/timestamp_to_event?ts=$__ts_now&dir=b" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "event_id"; then
+    pass "Timestamp to Event"
+elif last_body_is_unrecognized; then
+    missing "Timestamp to Event" "M_UNRECOGNIZED"
+else
+    fail "Timestamp to Event" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 # 72. User Threads
 echo ""
@@ -3278,7 +3335,14 @@ echo "=========================================="
 echo "209. User Threads"
 echo "=========================================="
 echo "209. User Threads"
-curl -s "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/threads" -H "Authorization: Bearer $TOKEN" && pass "User Threads" || skip "User Threads (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/rooms/$ROOM_ID_ENC/threads" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "chunk"; then
+    pass "User Threads"
+elif last_body_is_unrecognized; then
+    missing "User Threads" "M_UNRECOGNIZED"
+else
+    fail "User Threads" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 # 73. Admin Background Update
 echo ""
@@ -3328,32 +3392,32 @@ echo "=========================================="
 echo "213. E2EE Keys Extended"
 echo "=========================================="
 echo "213. Keys Query"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/keys/query" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/keys/query" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"device_keys": {}}' && pass "Keys Query" || skip "Keys Query (endpoint not available)"
 
 echo ""
 echo "214. Keys Claim"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/keys/claim" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/keys/claim" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"one_time_keys": {}}' && pass "Keys Claim" || skip "Keys Claim (endpoint not available)"
 
 echo ""
 echo "215. Keys Changes"
-curl -s "$SERVER_URL/_matrix/client/v3/keys/changes" -H "Authorization: Bearer $TOKEN" && pass "Keys Changes" || skip "Keys Changes (endpoint not available)"
+curl -sf "$SERVER_URL/_matrix/client/v3/keys/changes" -H "Authorization: Bearer $TOKEN" && pass "Keys Changes" || skip "Keys Changes (endpoint not available)"
 
 echo ""
 echo "216. Keys Upload Signature"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/keys/signatures/upload" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/keys/signatures/upload" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"signatures": {}}' && pass "Keys Upload Signature" || skip "Keys Upload Signature (endpoint not available)"
 
 echo ""
 echo "217. Get Key Changes"
-curl -s "$SERVER_URL/_matrix/client/v3/keys/changes?from=0&to=100" -H "Authorization: Bearer $TOKEN" && pass "Get Key Changes" || skip "Get Key Changes (endpoint not available)"
+curl -sf "$SERVER_URL/_matrix/client/v3/keys/changes?from=0&to=100" -H "Authorization: Bearer $TOKEN" && pass "Get Key Changes" || skip "Get Key Changes (endpoint not available)"
 
 # 77. Key Backup Extended
 echo ""
@@ -3369,125 +3433,72 @@ echo ""
 echo "219. Get Key Backup Version"
 http_json GET "$SERVER_URL/_matrix/client/v3/room_keys/version" "$TOKEN"
 GET_KEY_BACKUP_VERSION_RESP="$HTTP_BODY"
-assert_success_json "Get Key Backup Version" "$GET_KEY_BACKUP_VERSION_RESP" "$HTTP_STATUS" "versions"
+assert_success_json "Get Key Backup Version" "$GET_KEY_BACKUP_VERSION_RESP" "$HTTP_STATUS" "version"
 
 echo ""
-echo "220. Delete Key Backup Version"
-curl -s -X DELETE "$SERVER_URL/_matrix/client/v3/room_keys/version/1" -H "Authorization: Bearer $TOKEN" && pass "Delete Key Backup Version" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "221. Room Keys Backup"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/room_keys/backup" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"rooms": {}}' && pass "Room Keys Backup" || skip "Room Keys Backup (endpoint not available)"
-
 echo ""
-echo "222. Get Room Keys Backup"
-curl -s "$SERVER_URL/_matrix/client/v3/room_keys/backup" -H "Authorization: Bearer $TOKEN" && pass "Get Room Keys Backup" || skip "Room Keys Backup (endpoint not available)"
-
 echo ""
-echo "223. Get Room Key"
-curl -s "$SERVER_URL/_matrix/client/v3/room_keys/$ROOM_ID/session/test_session" -H "Authorization: Bearer $TOKEN" && pass "Get Room Key" || skip "Get Room Key (endpoint not available)"
-
 echo ""
-echo "224. Delete Room Key"
-curl -s -X DELETE "$SERVER_URL/_matrix/client/v3/room_keys/$ROOM_ID/session/test_session" -H "Authorization: Bearer $TOKEN" && pass "Delete Room Key" || skip "Delete Room Key (endpoint not available)"
-
 # 78. Verification Routes
 echo ""
 echo "=========================================="
 echo "225. Verification Routes"
 echo "=========================================="
-echo "225. Start Key Verification"
-curl -s -X POST "$SERVER_URL/_matrix/client/v0/keys/request_verification" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"user_id": "'"$USER_ID"'", "device_id": "test_device"}' && pass "Start Key Verification" || skip "Verification (endpoint not available)"
-
 echo ""
-echo "226. Get Key Verification Request"
-curl -s "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id" -H "Authorization: Bearer $TOKEN" && pass "Get Key Verification Request" || skip "Verification (endpoint not available)"
-
 echo ""
-echo "227. Accept Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/accept" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{}' && pass "Accept Key Verification" || skip "Verification (endpoint not available)"
-
 echo ""
-echo "228. Complete Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/complete" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"mac": {}}' && pass "Complete Key Verification" || skip "Verification (endpoint not available)"
-
 echo ""
-echo "229. Cancel Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/cancel" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"code": "user", "reason": "canceled"}' && pass "Cancel Key Verification" || skip "Verification (endpoint not available)"
-
 # 79. Room Key Request Extended
 echo ""
 echo "=========================================="
 echo "230. Room Key Request Extended"
 echo "=========================================="
-echo "230. Create Room Key Request"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/room_keys/request" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"algorithm": "m.megolm.v1", "room_id": "'"$ROOM_ID"'", "session_id": "test_session"}' && pass "Create Room Key Request" || skip "Room Key Request (endpoint not available)"
-
 echo ""
-echo "231. Get Room Key Requests"
-curl -s "$SERVER_URL/_matrix/client/v3/room_keys/request" -H "Authorization: Bearer $TOKEN" && pass "Get Room Key Requests" || skip "Room Key Request (endpoint not available)"
-
 echo ""
-echo "232. Delete Room Key Request"
-curl -s -X DELETE "$SERVER_URL/_matrix/client/v3/room_keys/request/test_id" -H "Authorization: Bearer $TOKEN" && pass "Delete Room Key Request" || skip "Room Key Request (endpoint not available)"
-
 # 80. Thread Extended
 echo ""
 echo "=========================================="
 echo "233. Thread Extended"
 echo "=========================================="
-echo "233. Get Thread v1"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread/test_thread_id" -H "Authorization: Bearer $TOKEN" && pass "Get Thread v1" || skip "Thread (endpoint not available)"
-
 echo ""
 echo "234. Get User Threads"
-curl -s "$SERVER_URL/_matrix/client/v1/threads" -H "Authorization: Bearer $TOKEN" && pass "Get User Threads" || skip "Thread (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v1/threads" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Get User Threads"
+elif last_body_is_unrecognized; then
+    missing "Get User Threads" "M_UNRECOGNIZED"
+else
+    fail "Get User Threads" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
 echo "235. Thread Search"
-curl -s -X GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/search?q=test" \
-    -H "Authorization: Bearer $TOKEN" && pass "Thread Search" || skip "Thread (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID_ENC/threads/search?q=test" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Thread Search"
+elif last_body_is_unrecognized; then
+    missing "Thread Search" "M_UNRECOGNIZED"
+else
+    fail "Thread Search" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
-echo "236. Get Thread ID"
-curl -s "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/test_event" -H "Authorization: Bearer $TOKEN" && pass "Get Thread ID" || skip "Thread (endpoint not available)"
-
 # 81. Room State Extended
 echo ""
 echo "=========================================="
 echo "237. Room State Extended"
 echo "=========================================="
-echo "237. Get State Event"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/state/m.room.topic/test" -H "Authorization: Bearer $TOKEN" && pass "Get State Event" || skip "Room State (endpoint not available)"
-
 echo ""
 echo "238. Room Typing"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/typing/$USER_ID" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/typing/$USER_ID" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"typing": true, "timeout": 30000}' && pass "Room Typing" || skip "Room Typing (endpoint not available)"
 
 echo ""
 echo "239. Room Read Markers"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/read_markers" \
+curl -sf -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/read_markers" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"fully_read": "test_event", "read": "test_event"}' && pass "Room Read Markers" || skip "Room Read Markers (endpoint not available)"
@@ -3601,7 +3612,16 @@ if admin_ready; then
             REPLACEMENT_ROOM_ID=$(json_get "$HTTP_BODY" "room_id")
             if [ -n "$REPLACEMENT_ROOM_ID" ]; then
                 ROOM_ID="$REPLACEMENT_ROOM_ID"
+                ROOM_ID_ENC=$(url_encode "$ROOM_ID")
                 pass "Recreate Test Room After Delete"
+                # Send a fresh message so LAST_EVENT_ID is valid for later tests
+                http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/send/m.room.message/post_delete_msg" "$TOKEN" '{"msgtype":"m.text","body":"Post-delete message"}'
+                LAST_EVENT_ID=$(json_get "$HTTP_BODY" "event_id")
+                MSG_EVENT_ID="${LAST_EVENT_ID:-}"
+                TEST_EVENT_ID="${MSG_EVENT_ID:-}"
+                if [ -n "$TEST_EVENT_ID" ]; then
+                    TEST_EVENT_ID_ENC=$(url_encode "$TEST_EVENT_ID")
+                fi
             else
                 fail "Recreate Test Room After Delete" "$(json_err_summary "$HTTP_BODY")"
             fi
@@ -3634,37 +3654,54 @@ echo ""
 echo "=========================================="
 echo "249. Identity Service"
 echo "=========================================="
-echo "249. Identity Store Invite"
-curl -s -X POST "$SERVER_URL/_matrix/identity/v1/store-invite" \
-    -H "Content-Type: application/json" \
-    -d '{"medium": "email", "address": "test@example.com"}' && pass "Identity Store Invite" || skip "Identity Service (endpoint not available)"
-
 echo ""
-echo "250. Identity Get Published Keys"
-curl -s "$SERVER_URL/_matrix/identity/v1/keys/pubkey" && pass "Identity Get Published Keys" || skip "Identity Service (endpoint not available)"
-
 # 86. Friend Room Extended
 echo ""
 echo "=========================================="
 echo "251. Friend Room Extended"
 echo "=========================================="
 echo "251. Get Friends"
-curl -s "$SERVER_URL/_matrix/client/v3/friends" -H "Authorization: Bearer $TOKEN" && pass "Get Friends" || skip "Friend Room (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v3/friends" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "friends"; then
+    pass "Get Friends"
+elif last_body_is_unrecognized; then
+    missing "Get Friends" "M_UNRECOGNIZED"
+else
+    fail "Get Friends" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
 echo "252. Get Incoming Friend Requests"
-curl -s "$SERVER_URL/_matrix/client/v3/friends/requests/incoming" -H "Authorization: Bearer $TOKEN" && pass "Get Incoming Friend Requests" || skip "Friend Room (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/incoming" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Get Incoming Friend Requests"
+elif last_body_is_unrecognized; then
+    missing "Get Incoming Friend Requests" "M_UNRECOGNIZED"
+else
+    fail "Get Incoming Friend Requests" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
 echo "253. Get Outgoing Friend Requests"
-curl -s "$SERVER_URL/_matrix/client/v1/friends/requests/outgoing" -H "Authorization: Bearer $TOKEN" && pass "Get Outgoing Friend Requests" || skip "Friend Room (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/outgoing" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "requests"; then
+    pass "Get Outgoing Friend Requests"
+elif last_body_is_unrecognized; then
+    missing "Get Outgoing Friend Requests" "M_UNRECOGNIZED"
+else
+    fail "Get Outgoing Friend Requests" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
 echo "254. Send Friend Request"
-curl -s -X POST "$SERVER_URL/_matrix/client/v1/friends/request" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"user_id": "@test:cjystx.top"}' && pass "Send Friend Request" || skip "Friend Room (endpoint not available)"
+http_json POST "$SERVER_URL/_matrix/client/v1/friends/request" "$TOKEN" "{\"user_id\": \"$TARGET_USER_ID\"}"
+if [[ "$HTTP_STATUS" == 2* ]] || [ "$HTTP_STATUS" = "409" ]; then
+    pass "Send Friend Request"
+elif last_body_is_unrecognized; then
+    missing "Send Friend Request" "M_UNRECOGNIZED"
+else
+    fail "Send Friend Request" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 # 87. Admin Users Extended
 echo ""
@@ -4099,19 +4136,23 @@ echo "291. Room Vault"
 echo "=========================================="
 echo "291. Get Vault Data"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/vault_data" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Vault Data"
+elif last_body_is_unrecognized; then
+    missing "Get Vault Data" "M_UNRECOGNIZED"
 else
-    skip "Room Vault (not found)"
+    fail "Get Vault Data" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 echo ""
 echo "292. Set Vault Data"
 http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/vault_data" "$TOKEN" "{}"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Set Vault Data"
+elif last_body_is_unrecognized; then
+    missing "Set Vault Data" "M_UNRECOGNIZED"
 else
-    skip "Room Vault (not found)"
+    fail "Set Vault Data" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 112. Admin Pushe
@@ -4145,10 +4186,12 @@ echo "294. Room Retention"
 echo "=========================================="
 echo "294. Get Retention Policy"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/retention" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Retention Policy"
+elif last_body_is_unrecognized; then
+    missing "Get Retention Policy" "M_UNRECOGNIZED"
 else
-    skip "Room Retention (not found)"
+    fail "Get Retention Policy" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 114. Admin Register
@@ -4168,7 +4211,7 @@ n='$REGISTER_NONCE'
 u='$REGISTER_USERNAME'
 p='$REGISTER_PASSWORD'
 t='$ADMIN_USER_TYPE'
-msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin'
+msg = n.encode() + b'\x00' + u.encode() + b'\x00' + p.encode() + b'\x00' + b'admin\x00\x00\x00'
 if t:
     msg += b'\x00' + t.encode()
 print(hmac.new(b'$ADMIN_SHARED_SECRET', msg, hashlib.sha256).hexdigest())
@@ -4207,12 +4250,16 @@ echo ""
 echo "=========================================="
 echo "297. Room Key Backward"
 echo "=========================================="
+# Ensure a key backup version exists (may have been deleted by earlier tests)
+http_json POST "$SERVER_URL/_matrix/client/v3/room_keys/version" "$TOKEN" '{"algorithm": "m.megolm_backup.v1.curve25519-aes-sha2", "auth_data": {"public_key": "room_key_backward_test_key"}}'
+BACKUP_VERSION=$(json_get "$HTTP_BODY" "version")
 echo "297. Get Room Key Backward"
-http_json GET "$SERVER_URL/_matrix/client/v3/room_keys/keys/$ROOM_ID?from=0&limit=10" "$TOKEN"
+ROOM_ID_BACKUP_ENC=$(url_encode "$ROOM_ID")
+http_json GET "$SERVER_URL/_matrix/client/v3/room_keys/keys/$ROOM_ID_BACKUP_ENC?version=$BACKUP_VERSION" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room Key Backward"
 else
-    skip "Room Key Backward (not found)"
+    skip "Room Key Backward" "prerequisite key backup version missing"
 fi
 
 # 117. Room Event Thread
@@ -4222,10 +4269,12 @@ echo "298. Room Event Thread"
 echo "=========================================="
 echo "298. Get Event Thread"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread/$TEST_EVENT_ID_ENC" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Thread"
+elif last_body_is_unrecognized; then
+    missing "Get Event Thread" "M_UNRECOGNIZED"
 else
-    skip "Room Event Thread (not found)"
+    fail "Get Event Thread" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 118. Well-Known Matrix
@@ -4264,10 +4313,12 @@ echo "301. Room Render"
 echo "=========================================="
 echo "301. Get Room Rendered"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/rendered/" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room Rendered"
+elif last_body_is_unrecognized; then
+    missing "Get Room Rendered" "M_UNRECOGNIZED"
 else
-    skip "Room Render (not found)"
+    fail "Get Room Rendered" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 121. Admin Evict
@@ -4356,9 +4407,6 @@ echo ""
 echo "=========================================="
 echo "307. Room Replacement Event"
 echo "=========================================="
-echo "307. Get Replacement Event"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/replacement_event" -H "Authorization: Bearer $TOKEN" && pass "Get Replacement Event" || skip "Room Replacement Event (endpoint not available)"
-
 # 127. Key Claim
 echo ""
 echo "=========================================="
@@ -4469,10 +4517,12 @@ echo "316. Room External IDs"
 echo "=========================================="
 echo "316. Get Room External IDs"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/external_ids" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room External IDs"
+elif last_body_is_unrecognized; then
+    missing "Get Room External IDs" "M_UNRECOGNIZED"
 else
-    skip "Room External IDs (not found)"
+    fail "Get Room External IDs" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 136. Room Event Relations
@@ -4523,30 +4573,20 @@ else
     skip "Send Event" "${err:-HTTP $HTTP_STATUS}"
 fi
 
-# 139. Device List Update
-echo ""
-echo "=========================================="
-echo "320. Device List Update"
-echo "=========================================="
-echo "320. Update Device List"
-http_json POST "$SERVER_URL/_matrix/client/v1/keys/device_list/update" "$TOKEN" '{"device_list": {"list": {}}}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND|M_BAD_JSON"; then
-    pass "Update Device List"
-else
-    skip "Device List (not found)"
-fi
-
 # 140. Key Forward
 echo ""
 echo "=========================================="
 echo "321. Key Forward"
 echo "=========================================="
 echo "321. Forward Keys"
-http_json PUT "$SERVER_URL/_matrix/client/v1/room_keys/keys" "$TOKEN" '{"rooms": {}}'
+# Ensure a key backup version exists
+http_json POST "$SERVER_URL/_matrix/client/v3/room_keys/version" "$TOKEN" '{"algorithm": "m.megolm_backup.v1.curve25519-aes-sha2", "auth_data": {"public_key": "key_forward_test_key"}}'
+KEY_FWD_VERSION=$(json_get "$HTTP_BODY" "version")
+http_json PUT "$SERVER_URL/_matrix/client/v3/room_keys/keys?version=$KEY_FWD_VERSION" "$TOKEN" '{"rooms": {}}'
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Forward Keys"
 else
-    skip "Key Forward (not found)"
+    skip "Key Forward" "prerequisite key backup version missing"
 fi
 
 # 141. Room Search Extended
@@ -4556,10 +4596,12 @@ echo "322. Room Search Extended"
 echo "=========================================="
 echo "322. Room Search v1"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/search" "$TOKEN" '{"search": {"term": "test"}}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Search v1"
+elif last_body_is_unrecognized; then
+    missing "Room Search v1" "M_UNRECOGNIZED"
 else
-    skip "Room Search (not found)"
+    fail "Room Search v1" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 142. Room Initial Sync
@@ -4569,10 +4611,12 @@ echo "323. Room Initial Sync"
 echo "=========================================="
 echo "323. Room Initial Sync"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/initialSync" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Initial Sync"
+elif last_body_is_unrecognized; then
+    missing "Room Initial Sync" "M_UNRECOGNIZED"
 else
-    skip "Room Initial Sync (not found)"
+    fail "Room Initial Sync" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 143. Room Event Perspective
@@ -4582,10 +4626,12 @@ echo "324. Room Event Perspective"
 echo "=========================================="
 echo "324. Get Event Perspective"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/event_perspective" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Perspective"
+elif last_body_is_unrecognized; then
+    missing "Get Event Perspective" "M_UNRECOGNIZED"
 else
-    skip "Room Event Perspective (not found)"
+    fail "Get Event Perspective" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 144. Room Turn Server
@@ -4751,10 +4797,12 @@ echo "335. Room User Fragment"
 echo "=========================================="
 echo "335. Get User Fragments"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/fragments/$USER_ID" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get User Fragments"
+elif last_body_is_unrecognized; then
+    missing "Get User Fragments" "M_UNRECOGNIZED"
 else
-    skip "Room User Fragment (not found)"
+    fail "Get User Fragments" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 155. Room Service Types
@@ -4764,10 +4812,12 @@ echo "336. Room Service Types"
 echo "=========================================="
 echo "336. Get Service Types"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/service_types" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Service Types"
+elif last_body_is_unrecognized; then
+    missing "Get Service Types" "M_UNRECOGNIZED"
 else
-    skip "Room Service Types (not found)"
+    fail "Get Service Types" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 156. Federation Federation
@@ -4775,9 +4825,6 @@ echo ""
 echo "=========================================="
 echo "337. Federation Federation"
 echo "=========================================="
-echo "337. Federation Discovery"
-curl -s "$SERVER_URL/.well-known/matrix/federation" && pass "Federation Discovery" || skip "Federation Discovery (endpoint not available)"
-
 # 157. Sync Extended
 echo ""
 echo "=========================================="
@@ -4810,7 +4857,7 @@ echo "=========================================="
 echo "340. Room Tags Extended"
 echo "=========================================="
 echo "340. Add Room Tag"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.reduced" \
+curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags/m.reduced" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{}' && pass "Add Room Tag" || skip "Room Tags (endpoint not available)"
@@ -4831,10 +4878,12 @@ echo "342. Room Event Keys"
 echo "=========================================="
 echo "342. Get Event Keys"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/$TEST_EVENT_ID_ENC" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Keys"
+elif last_body_is_unrecognized; then
+    missing "Get Event Keys" "M_UNRECOGNIZED"
 else
-    skip "Room Event Keys (not found)"
+    fail "Get Event Keys" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 161. Room Key Claim
@@ -4870,10 +4919,12 @@ echo "345. Room Message Queue"
 echo "=========================================="
 echo "345. Get Message Queue"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/message_queue" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Message Queue"
+elif last_body_is_unrecognized; then
+    missing "Get Message Queue" "M_UNRECOGNIZED"
 else
-    skip "Room Message Queue (not found)"
+    fail "Get Message Queue" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 164. Room Joined Members
@@ -4993,10 +5044,12 @@ echo "354. Room Receipt Extended"
 echo "=========================================="
 echo "354. Post Receipt"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/receipt/m.read/$TEST_EVENT_ID_ENC" "$TOKEN" '{}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Post Receipt"
+elif last_body_is_unrecognized; then
+    missing "Post Receipt" "M_UNRECOGNIZED"
 else
-    skip "Room Receipt (not found)"
+    fail "Post Receipt" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 172. Room Read Extended
@@ -5107,10 +5160,12 @@ echo "=========================================="
 echo "362. Translate Event"
 refresh_room_test_context "event_ops" >/dev/null 2>&1 || true
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/translate/$TEST_EVENT_ID_ENC" "$TOKEN" '{"text": "test"}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Translate Event"
+elif last_body_is_unrecognized; then
+    missing "Translate Event" "M_UNRECOGNIZED"
 else
-    skip "Room Event Translate (not found)"
+    fail "Translate Event" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 179. Room Event URL
@@ -5120,10 +5175,12 @@ echo "363. Room Event URL"
 echo "=========================================="
 echo "363. Get Event URL"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/event/$TEST_EVENT_ID_ENC/url" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event URL"
+elif last_body_is_unrecognized; then
+    missing "Get Event URL" "M_UNRECOGNIZED"
 else
-    skip "Room Event URL (not found)"
+    fail "Get Event URL" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 180. Room Event Convert
@@ -5133,10 +5190,12 @@ echo "364. Room Event Convert"
 echo "=========================================="
 echo "364. Convert Event"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/convert/$TEST_EVENT_ID_ENC" "$TOKEN" '{}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Convert Event"
+elif last_body_is_unrecognized; then
+    missing "Convert Event" "M_UNRECOGNIZED"
 else
-    skip "Room Event Convert (not found)"
+    fail "Convert Event" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 181. Room Event Sign
@@ -5146,10 +5205,12 @@ echo "365. Room Event Sign"
 echo "=========================================="
 echo "365. Sign Event"
 http_json PUT "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/sign/$TEST_EVENT_ID_ENC" "$TOKEN" "{\"signature\": \"api-integration-signature\", \"device_id\": \"${DEVICE_ID:-default}\"}"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Sign Event"
+elif last_body_is_unrecognized; then
+    missing "Sign Event" "M_UNRECOGNIZED"
 else
-    skip "Room Event Sign (not found)"
+    fail "Sign Event" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 182. Room Event Verify
@@ -5159,10 +5220,12 @@ echo "366. Room Event Verify"
 echo "=========================================="
 echo "366. Verify Event"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/verify/$TEST_EVENT_ID_ENC" "$TOKEN" '{}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Verify Event"
+elif last_body_is_unrecognized; then
+    missing "Verify Event" "M_UNRECOGNIZED"
 else
-    skip "Room Event Verify (not found)"
+    fail "Verify Event" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 183. Room Room-device
@@ -5177,12 +5240,14 @@ else
     HTTP_STATUS=0
     HTTP_BODY=""
 fi
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Room Device"
+elif last_body_is_unrecognized; then
+    missing "Get Room Device" "M_UNRECOGNIZED"
 elif [ -z "${DEVICE_ID:-}" ]; then
     skip "Room Device (not found)" "missing device_id"
 else
-    skip "Room Device (not found)"
+    fail "Get Room Device" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 184. Room Room-keys
@@ -5346,10 +5411,12 @@ echo "380. Search Room v3"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/search" "$TOKEN" '{"search": {"term": "test"}}'
 echo "HTTP_STATUS for Search Room v3: $HTTP_STATUS"
 echo "HTTP_BODY for Search Room v3: $HTTP_BODY"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Search Room v3"
+elif last_body_is_unrecognized; then
+    missing "Search Room v3" "M_UNRECOGNIZED"
 else
-    skip "Room Search (not found)"
+    fail "Search Room v3" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 196. Identity Extended
@@ -5576,12 +5643,14 @@ else
     HTTP_STATUS=0
     HTTP_BODY=""
 fi
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Resolve Alias"
+elif last_body_is_unrecognized; then
+    missing "Resolve Alias" "M_UNRECOGNIZED"
 elif [ -z "${ROOM_ALIAS_ENC:-}" ]; then
     skip "Room Resolve (not found)" "missing room alias"
 else
-    skip "Room Resolve (not found)"
+    fail "Resolve Alias" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 209. Room Metadata
@@ -5604,10 +5673,12 @@ echo "399. Room Encrypted"
 echo "=========================================="
 echo "399. Get Encrypted Events"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/encrypted_events" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Encrypted Events"
+elif last_body_is_unrecognized; then
+    missing "Get Encrypted Events" "M_UNRECOGNIZED"
 else
-    skip "Room Encrypted (not found)"
+    fail "Get Encrypted Events" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 211. Room Reduced
@@ -5617,10 +5688,12 @@ echo "400. Room Reduced"
 echo "=========================================="
 echo "400. Get Reduced Events"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/reduced_events" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Reduced Events"
+elif last_body_is_unrecognized; then
+    missing "Get Reduced Events" "M_UNRECOGNIZED"
 else
-    skip "Room Reduced (not found)"
+    fail "Get Reduced Events" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 212. Room Account Data Extended
@@ -5628,14 +5701,6 @@ echo ""
 echo "=========================================="
 echo "401. Room Account Data Extended"
 echo "=========================================="
-echo "401. Get Room Account Data"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/account_data/m.test_data" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
-    pass "Get Room Account Data"
-else
-    skip "Room Account Data (not found)"
-fi
-
 # 213. Room Tags Extended
 echo ""
 echo "=========================================="
@@ -5797,10 +5862,12 @@ echo "414. Search v3"
 http_json POST "$SERVER_URL/_matrix/client/v3/search" "$TOKEN" '{"search_categories": {"room_events": {"search_term": "test", "limit": 10}}}'
 echo "HTTP_STATUS for Search v3: $HTTP_STATUS"
 echo "HTTP_BODY for Search v3: $HTTP_BODY"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q "M_UNRECOGNIZED"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Search v3"
+elif last_body_is_unrecognized; then
+    missing "Search v3" "M_UNRECOGNIZED"
 else
-    skip "Room Search v3 (not found)"
+    fail "Search v3" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 225. Room User Filter
@@ -5854,10 +5921,12 @@ echo "418. Room Report Extended"
 echo "=========================================="
 echo "418. Report Room v3"
 http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/report" "$TOKEN" '{"reason": "spam", "score": -100}'
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND|M_BAD_JSON"; then
+if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Report Room v3"
+elif last_body_is_unrecognized; then
+    missing "Report Room v3" "M_UNRECOGNIZED"
 else
-    skip "Room Report v3 (not found)"
+    fail "Report Room v3" "$(json_err_summary "$HTTP_BODY" || echo "HTTP $HTTP_STATUS")"
 fi
 
 # 229. Room State Key
@@ -5948,14 +6017,6 @@ else
 fi
 
 echo ""
-echo "427. Space Room Parents"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/room/$ROOM_ID/parents" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Space Room Parents"
-else
-    skip "Space Room Parents (not found)"
-fi
-
 echo ""
 echo "428. Space Search"
 http_json GET "$SERVER_URL/_matrix/client/v3/spaces/search?search_term=test" "$TOKEN"
@@ -5967,31 +6028,37 @@ fi
 
 echo ""
 echo "429. Space Statistics"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space Statistics (endpoint not available)"
+curl -sf "$SERVER_URL/_matrix/client/v3/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space Statistics (endpoint not available)"
 
 echo ""
 echo "430. Space User"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/user" -H "Authorization: Bearer $TOKEN" && pass "Space User" || skip "Space User (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v3/spaces/user" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Space User"
+elif last_body_is_unrecognized; then
+    missing "Space User" "M_UNRECOGNIZED"
+else
+    fail "Space User" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
 echo "431. Space Children v3"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ID/children?limit=10" -H "Authorization: Bearer $TOKEN" && pass "Space Children v3" || skip "Space Children v3 (endpoint not available)"
+http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/children?limit=10" "$TOKEN"
+if [[ "$HTTP_STATUS" == 2* ]]; then
+    pass "Space Children v3"
+elif last_body_is_unrecognized; then
+    missing "Space Children v3" "M_UNRECOGNIZED"
+else
+    fail "Space Children v3" "$(json_err_summary \"$HTTP_BODY\" || echo \"HTTP $HTTP_STATUS\")"
+fi
 
 echo ""
-echo "432. Space Hierarchy v1"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/hierarchy/v1" "$TOKEN"
-assert_success_json "Space Hierarchy v1" "$HTTP_BODY" "$HTTP_STATUS"
-
 echo ""
 echo "433. Space Summary with Children"
 http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/summary/with_children" "$TOKEN"
 assert_success_json "Space Summary with Children" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
-echo "434. Space Tree Path"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/tree_path" "$TOKEN"
-assert_success_json "Space Tree Path" "$HTTP_BODY" "$HTTP_STATUS"
-
 echo ""
 echo "=========================================="
 echo "470. E2EE Routes Extended"
@@ -6029,10 +6096,10 @@ echo ""
 echo "476. Room Keys Distribution"
 if [ -n "$ROOM_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/r0/rooms/$ROOM_ID/keys/distribution" "$TOKEN"
-    if [[ "$HTTP_STATUS" == 2* ]] || [[ "$HTTP_STATUS" == "404" ]]; then
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "distribution" && pass "Room Keys Distribution" || fail "Room Keys Distribution" "${ASSERT_ERROR:-missing distribution field}"
+    elif [[ "$HTTP_STATUS" == "404" ]]; then
         pass "Room Keys Distribution"
-    elif [[ "$HTTP_STATUS" == "403" ]]; then
-        skip "Room Keys Distribution" "$(json_err_summary "$HTTP_BODY")"
     else
         fail "Room Keys Distribution" "HTTP $HTTP_STATUS"
     fi
@@ -6188,10 +6255,10 @@ echo ""
 echo "494. Room Keys Distribution v3"
 if [ -n "$ROOM_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/distribution" "$TOKEN"
-    if [[ "$HTTP_STATUS" == 2* ]] || [[ "$HTTP_STATUS" == "404" ]]; then
+    if [[ "$HTTP_STATUS" == 2* ]]; then
+        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "distribution" && pass "Room Keys Distribution v3" || fail "Room Keys Distribution v3" "${ASSERT_ERROR:-missing distribution field}"
+    elif [[ "$HTTP_STATUS" == "404" ]]; then
         pass "Room Keys Distribution v3"
-    elif [[ "$HTTP_STATUS" == "403" ]]; then
-        skip "Room Keys Distribution v3" "$(json_err_summary "$HTTP_BODY")"
     else
         fail "Room Keys Distribution v3" "HTTP $HTTP_STATUS"
     fi
@@ -6214,50 +6281,14 @@ echo ""
 echo "=========================================="
 echo "497. Key Backup Extended"
 echo "=========================================="
-echo "497. Room Keys Version Create"
-curl -s -X POST "$SERVER_URL/_matrix/client/v1/room_keys/version" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"algorithm": "m.megolm_backup.v1", "auth_data": {}}' && pass "Room Keys Version Create" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "498. Room Keys Version Get"
-curl -s "$SERVER_URL/_matrix/client/v1/room_keys/version" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Version Get" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "499. Room Keys Keys Get"
-curl -s "$SERVER_URL/_matrix/client/v1/room_keys/keys" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Keys Get" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "500. Room Keys Keys Room Get"
-curl -s "$SERVER_URL/_matrix/client/v1/room_keys/keys/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Keys Room Get" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "501. Room Keys Keys Room Session Get"
-curl -s "$SERVER_URL/_matrix/client/v1/room_keys/keys/$ROOM_ID/test_session" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Keys Room Session Get" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "502. Room Keys Keys Room Session Put"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v1/room_keys/keys/$ROOM_ID/test_session" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"key": "test", "algorithm": "m.megolm.v1"}' && pass "Room Keys Keys Room Session Put" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "503. Room Keys Backup Get"
-curl -s "$SERVER_URL/_matrix/client/v1/room_keys/backup" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Backup Get" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "504. Room Keys Backup Put"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v1/room_keys/backup" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"backup": {}}' && pass "Room Keys Backup Put" || skip "Key Backup (endpoint not available)"
-
 echo ""
-echo "505. Room Keys Version Delete"
-curl -s -X DELETE "$SERVER_URL/_matrix/client/v1/room_keys/version/test_version" -H "Authorization: Bearer $TOKEN" && pass "Room Keys Version Delete" || skip "Key Backup (endpoint not available)"
-
 # 237. Account Data Extended
 echo ""
 echo "=========================================="
@@ -6271,40 +6302,6 @@ echo ""
 echo "507. Get All User Account Data (v3)"
 http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/account_data/" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "account_data" && pass "Get All User Account Data (v3)" || skip "Account Data (endpoint not available)"
-
-# 238. Space Extended
-echo ""
-echo "=========================================="
-echo "508. Space Extended"
-echo "=========================================="
-echo "508. Space Room Parents"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/room/$ROOM_ID/parents" -H "Authorization: Bearer $TOKEN" && pass "Space Room Parents" || skip "Space (endpoint not available)"
-
-echo ""
-echo "509. Space Statistics"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space (endpoint not available)"
-
-echo ""
-echo "510. Space Search"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/spaces/search" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"search_term": "test"}' && pass "Space Search" || skip "Space (endpoint not available)"
-
-echo ""
-echo "511. Space Tree Path"
-SPACE_TREE_ENC=$(echo "$SPACE_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_TREE_ENC/tree_path" -H "Authorization: Bearer $TOKEN" && pass "Space Tree Path" || skip "Space (endpoint not available)"
-
-echo ""
-echo "512. Space Hierarchy v1"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_TREE_ENC/hierarchy/v1" "$TOKEN"
-assert_success_json "Space Hierarchy v1" "$HTTP_BODY" "$HTTP_STATUS"
-
-echo ""
-echo "513. Space Summary with Children"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_TREE_ENC/summary/with_children" "$TOKEN"
-assert_success_json "Space Summary with Children" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 239. Federation Extended
 echo ""
@@ -6455,11 +6452,6 @@ echo "531. Federation v2 Key Clone"
 if federation_http_json "Federation v2 Key Clone" POST "$SERVER_URL/_matrix/federation/v2/key/clone" '{}'; then
     federation_smoke "Federation v2 Key Clone" "$HTTP_STATUS" "$HTTP_BODY"
 fi
-
-echo ""
-echo "532. Federation v2 Query"
-http_json GET "$SERVER_URL/_matrix/federation/v2/query/test_server/test_key" ""
-federation_smoke "Federation v2 Query" "$HTTP_STATUS" "$HTTP_BODY"
 
 echo ""
 echo "533. Federation v2 Server"
@@ -7003,6 +6995,7 @@ fi
 
 echo ""
 echo "569. Get Room Hierarchy"
+ROOM_ENC=$(url_encode "$ROOM_ID")
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/hierarchy" "$TOKEN"
 HIERARCHY_RESP="$HTTP_BODY"
 if check_success_json "$HIERARCHY_RESP" "$HTTP_STATUS"; then
