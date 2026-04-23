@@ -63,8 +63,8 @@ pub struct RefreshTokenRotation {
 pub struct TokenBlacklistEntry {
     pub id: i64,
     pub token_hash: String,
-    pub token_type: String,
-    pub user_id: String,
+    pub token_type: Option<String>,
+    pub user_id: Option<String>,
     pub is_revoked: bool,
     pub expires_at: Option<i64>,
     pub reason: Option<String>,

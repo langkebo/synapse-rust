@@ -563,7 +563,8 @@ impl SamlService {
         use x509_cert::der::{Decode, Encode};
 
         let cert_der_bytes = if cert_der.starts_with(b"-----BEGIN") {
-            let pem_str = std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+            let pem_str =
+                std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
             let b64_content = pem_str
                 .lines()
                 .filter(|line| !line.starts_with("-----"))
@@ -581,11 +582,7 @@ impl SamlService {
             Err(e) => return Err(format!("Failed to parse X.509 certificate: {}", e)),
         };
 
-        let spki_der = match cert
-            .tbs_certificate
-            .subject_public_key_info
-            .to_der()
-        {
+        let spki_der = match cert.tbs_certificate.subject_public_key_info.to_der() {
             Ok(der) => der,
             Err(e) => return Err(format!("Failed to encode SPKI: {}", e)),
         };
@@ -1124,11 +1121,7 @@ mod tests {
                 .expect("valid lazy postgres url"),
         );
         let storage = Arc::new(SamlStorage::new(&pool));
-        let service = SamlService::new(
-            Arc::new(config),
-            storage,
-            "localhost".to_string(),
-        );
+        let service = SamlService::new(Arc::new(config), storage, "localhost".to_string());
 
         let acs_url = service.config.get_sp_acs_url(&service.server_name);
         let xml = format!(
@@ -1155,8 +1148,7 @@ mod tests {
             acs_url
         );
 
-        let result = service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"));
+        let result = service.validate_response("https://idp.example.com", &xml, Some("id_123"));
         if let Err(e) = &result {
             eprintln!("Validation failed: {:?}", e);
         }

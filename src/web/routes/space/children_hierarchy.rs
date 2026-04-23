@@ -13,15 +13,20 @@ pub(super) async fn get_space_children(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let children = state
-            .services
-            .space_service
-            .get_space_children(&space.space_id)
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, _auth_user| async move {
+            let children = state
+                .services
+                .space_service
+                .get_space_children(&space.space_id)
+                .await?;
 
-        Ok(json_vec_from::<_, SpaceChildResponse>(children))
-    })
+            Ok(json_vec_from::<_, SpaceChildResponse>(children))
+        },
+    )
     .await
 }
 
@@ -68,21 +73,26 @@ pub(super) async fn get_space_hierarchy(
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1);
 
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let hierarchy = state
-            .services
-            .space_service
-            .get_space_hierarchy(&space.space_id, max_depth)
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, _auth_user| async move {
+            let hierarchy = state
+                .services
+                .space_service
+                .get_space_hierarchy(&space.space_id, max_depth)
+                .await?;
 
-        let response = SpaceHierarchyResponse {
-            space: SpaceResponse::from(hierarchy.space),
-            children: json_vec_from::<_, SpaceChildResponse>(hierarchy.children).0,
-            members: json_vec_from::<_, SpaceMemberResponse>(hierarchy.members).0,
-        };
+            let response = SpaceHierarchyResponse {
+                space: SpaceResponse::from(hierarchy.space),
+                children: json_vec_from::<_, SpaceChildResponse>(hierarchy.children).0,
+                members: json_vec_from::<_, SpaceMemberResponse>(hierarchy.members).0,
+            };
 
-        Ok(Json(response))
-    })
+            Ok(Json(response))
+        },
+    )
     .await
 }
 
@@ -95,22 +105,27 @@ pub(super) async fn get_space_hierarchy_v1(
     let max_depth = query.max_depth.unwrap_or(1);
     let suggested_only = query.suggested_only.unwrap_or(false);
 
-    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
-        let response = state
-            .services
-            .space_service
-            .get_space_hierarchy_v1(
-                &space.space_id,
-                max_depth,
-                suggested_only,
-                query.limit,
-                query.from.as_deref(),
-                auth_user.user_id.as_deref(),
-            )
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, auth_user| async move {
+            let response = state
+                .services
+                .space_service
+                .get_space_hierarchy_v1(
+                    &space.space_id,
+                    max_depth,
+                    suggested_only,
+                    query.limit,
+                    query.from.as_deref(),
+                    auth_user.user_id.as_deref(),
+                )
+                .await?;
 
-        Ok(Json(response))
-    })
+            Ok(Json(response))
+        },
+    )
     .await
 }
 
@@ -140,22 +155,27 @@ pub(super) async fn get_space_tree_path(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
-        let path = state
-            .services
-            .space_service
-            .get_space_tree_path(&space.space_id)
-            .await?;
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |state, space, auth_user| async move {
+            let path = state
+                .services
+                .space_service
+                .get_space_tree_path(&space.space_id)
+                .await?;
 
-        let mut visible_path = Vec::new();
-        for ancestor in path {
-            if can_user_view_space(&state, &ancestor, &auth_user).await? {
-                visible_path.push(ancestor);
+            let mut visible_path = Vec::new();
+            for ancestor in path {
+                if can_user_view_space(&state, &ancestor, &auth_user).await? {
+                    visible_path.push(ancestor);
+                }
             }
-        }
 
-        Ok(json_vec_from::<_, SpaceResponse>(visible_path))
-    })
+            Ok(json_vec_from::<_, SpaceResponse>(visible_path))
+        },
+    )
     .await
 }
 

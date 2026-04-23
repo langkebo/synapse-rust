@@ -10,6 +10,7 @@ pub struct CrossSigningKey {
     pub public_key: String,
     pub usage: Vec<String>,
     pub signatures: serde_json::Value,
+    pub key_json: Option<serde_json::Value>,
     pub created_ts: DateTime<Utc>,
     pub updated_ts: DateTime<Utc>,
 }
@@ -140,6 +141,7 @@ mod tests {
             public_key: "public_key_value".to_string(),
             usage: vec!["master_key".to_string()],
             signatures: serde_json::json!({}),
+            key_json: None,
             created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
@@ -199,6 +201,7 @@ mod tests {
             public_key: "pk1".to_string(),
             usage: vec!["master_key".to_string()],
             signatures: serde_json::json!({}),
+            key_json: None,
             created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
@@ -210,6 +213,7 @@ mod tests {
             public_key: "pk2".to_string(),
             usage: vec!["self_signing_key".to_string()],
             signatures: serde_json::json!({}),
+            key_json: None,
             created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
@@ -221,6 +225,7 @@ mod tests {
             public_key: "pk3".to_string(),
             usage: vec!["user_signing_key".to_string()],
             signatures: serde_json::json!({}),
+            key_json: None,
             created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };
@@ -241,6 +246,7 @@ mod tests {
             signatures: serde_json::json!({
                 "@test:example.com": {"ed25519:DEVICE": "signature"}
             }),
+            key_json: None,
             created_ts: chrono::Utc::now(),
             updated_ts: chrono::Utc::now(),
         };

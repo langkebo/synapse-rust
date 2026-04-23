@@ -112,7 +112,10 @@ fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &str) -> Vec<
             value
                 .as_array()
                 .and_then(|rooms| {
-                    rooms.iter().any(|room| room.as_str() == Some(room_id)).then_some(user_id)
+                    rooms
+                        .iter()
+                        .any(|room| room.as_str() == Some(room_id))
+                        .then_some(user_id)
                 })
                 .cloned()
         })

@@ -1,4 +1,16 @@
 #!/bin/sh
+# =============================================================================
+# container-migrate.sh — Database migration runner
+# =============================================================================
+# Supports selective extension migrations via ENABLED_EXTENSIONS env var.
+# Core migrations are always applied. Extension migrations are skipped
+# unless their feature is listed in ENABLED_EXTENSIONS.
+#
+# Examples:
+#   ENABLED_EXTENSIONS=all              — apply everything (default)
+#   ENABLED_EXTENSIONS=none             — core only, skip all extensions
+#   ENABLED_EXTENSIONS=openclaw-routes,friends  — only named extensions
+# =============================================================================
 
 set -eu
 
@@ -8,6 +20,8 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-synapse}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-}"
+ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-all}"
+EXTENSION_MAP="${MIGRATIONS_DIR}/extension_map.conf"
 
 if [ -n "$DB_PASSWORD" ]; then
     export PGPASSWORD="$DB_PASSWORD"
@@ -78,6 +92,62 @@ table_exists() {
 is_migration_applied() {
     version="$1"
     psql_db -tAc "SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
+}
+
+# ---------------------------------------------------------------------------
+# Extension filtering
+# ---------------------------------------------------------------------------
+
+# Check if a migration file is an extension migration and whether it should
+# be applied given the current ENABLED_EXTENSIONS setting.
+should_apply_migration() {
+    filename="$(basename "$1")"
+
+    # Always apply if extensions are not filtered
+    if [ "$ENABLED_EXTENSIONS" = "all" ]; then
+        return 0
+    fi
+
+    # If no extension map exists, apply everything
+    if [ ! -f "$EXTENSION_MAP" ]; then
+        return 0
+    fi
+
+    # Look up the file in the extension map
+    required_feature=""
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        case "$line" in
+            \#*|"") continue ;;
+        esac
+        map_file="${line%%=*}"
+        map_feature="${line#*=}"
+        if [ "$map_file" = "$filename" ]; then
+            required_feature="$map_feature"
+            break
+        fi
+    done < "$EXTENSION_MAP"
+
+    # Not in the map — it's a core migration, always apply
+    if [ -z "$required_feature" ]; then
+        return 0
+    fi
+
+    # In the map — check if the feature is enabled
+    if [ "$ENABLED_EXTENSIONS" = "none" ]; then
+        log INFO "跳过扩展迁移 (feature=$required_feature): $filename"
+        return 1
+    fi
+
+    # Check comma-separated list
+    case ",$ENABLED_EXTENSIONS," in
+        *",$required_feature,"*)
+            return 0
+            ;;
+    esac
+
+    log INFO "跳过扩展迁移 (feature=$required_feature 未启用): $filename"
+    return 1
 }
 
 apply_sql_file() {
@@ -172,7 +242,12 @@ apply_pending_migrations() {
     ensure_schema_migrations_table
     init_database
 
-    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort | while IFS= read -r file; do
+    log INFO "扩展模式: ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS"
+
+    skipped=0
+    applied=0
+
+    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' ! -name '*.conf' | sort | while IFS= read -r file; do
         baseline_file="$(latest_baseline_file)"
         if [ -n "$baseline_file" ] && [ "$file" = "$baseline_file" ]; then
             continue
@@ -183,8 +258,16 @@ apply_pending_migrations() {
             continue
         fi
 
+        if ! should_apply_migration "$file"; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
         apply_sql_file "$file"
+        applied=$((applied + 1))
     done
+
+    log INFO "迁移完成: applied=$applied, skipped=$skipped (extension filtered)"
 }
 
 validate_schema() {
@@ -192,7 +275,8 @@ validate_schema() {
     ensure_schema_migrations_table
 
     missing=0
-    for table in users devices access_tokens refresh_tokens rooms events event_relations rate_limits server_notices user_notification_settings widgets secure_key_backups secure_backup_session_keys schema_migrations; do
+    # Core tables — always required
+    for table in users devices access_tokens refresh_tokens rooms events event_relations rate_limits schema_migrations; do
         if table_exists "$table"; then
             log INFO "表存在: $table"
         else
@@ -200,6 +284,40 @@ validate_schema() {
             missing=$((missing + 1))
         fi
     done
+
+    # Extension tables — only validate if their feature is enabled
+    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",widgets,"; then
+        for table in widgets; do
+            if table_exists "$table"; then
+                log INFO "表存在 (widgets): $table"
+            else
+                log ERROR "表缺失 (widgets): $table"
+                missing=$((missing + 1))
+            fi
+        done
+    fi
+
+    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",server-notifications,"; then
+        for table in server_notifications user_notification_status; do
+            if table_exists "$table"; then
+                log INFO "表存在 (server-notifications): $table"
+            else
+                log ERROR "表缺失 (server-notifications): $table"
+                missing=$((missing + 1))
+            fi
+        done
+    fi
+
+    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",openclaw-routes,"; then
+        for table in openclaw_connections ai_conversations ai_connections; do
+            if table_exists "$table"; then
+                log INFO "表存在 (openclaw): $table"
+            else
+                log ERROR "表缺失 (openclaw): $table"
+                missing=$((missing + 1))
+            fi
+        done
+    fi
 
     if [ "$missing" -gt 0 ]; then
         log ERROR "数据库架构验证失败，缺失 $missing 个表"
@@ -224,9 +342,19 @@ show_help() {
 用法: container-migrate.sh <命令>
 
 命令:
-  migrate
-  validate
-  status
+  migrate    应用待执行的迁移（根据 ENABLED_EXTENSIONS 过滤扩展迁移）
+  validate   验证数据库 schema 完整性
+  status     显示已执行的迁移记录
+
+环境变量:
+  ENABLED_EXTENSIONS   控制扩展迁移范围（默认: all）
+    all                应用所有迁移（默认行为）
+    none               仅应用核心迁移，跳过所有扩展
+    <feature,...>      逗号分隔的功能列表，如: openclaw-routes,friends
+
+  可用功能: openclaw-routes, friends, voice-extended, saml-sso, cas-sso,
+           beacons, voip-tracking, widgets, server-notifications,
+           burn-after-read, privacy-ext, external-services
 EOF
 }
 

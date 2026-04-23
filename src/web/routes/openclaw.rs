@@ -296,7 +296,10 @@ pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
         .nest(
             OPENCLAW_UNSTABLE_PREFIX,
             Router::new()
-                .route("/connections", get(list_connections).post(create_connection))
+                .route(
+                    "/connections",
+                    get(list_connections).post(create_connection),
+                )
                 .route(
                     "/connections/{id}",
                     get(get_connection)
@@ -319,7 +322,10 @@ pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
                     get(list_messages).post(send_message),
                 )
                 .route("/messages/{id}", delete(delete_message))
-                .route("/generations", get(list_generations).post(create_generation))
+                .route(
+                    "/generations",
+                    get(list_generations).post(create_generation),
+                )
                 .route(
                     "/generations/{id}",
                     get(get_generation).delete(delete_generation),
@@ -362,8 +368,8 @@ fn ensure_openclaw_resource_owner(
 }
 
 fn validate_openclaw_base_url(base_url: &str) -> Result<(), ApiError> {
-    let url =
-        Url::parse(base_url).map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
+    let url = Url::parse(base_url)
+        .map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
 
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err(ApiError::bad_request(
@@ -371,9 +377,9 @@ fn validate_openclaw_base_url(base_url: &str) -> Result<(), ApiError> {
         ));
     }
 
-    let host = url
-        .host_str()
-        .ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
+    let host = url.host_str().ok_or_else(|| {
+        ApiError::bad_request("OpenClaw base_url must include a host".to_string())
+    })?;
 
     let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
         || host.eq_ignore_ascii_case("localhost.")
@@ -447,7 +453,7 @@ fn encrypt_optional_api_key(
             let key = api_key_encryption_key.ok_or_else(|| {
                 ApiError::internal("OpenClaw API key encryption is not configured".to_string())
             })?;
-            Ok(Some(encrypt_api_key(&api_key, key)))
+            Ok(Some(encrypt_api_key(&api_key, key)?))
         }
         None => Ok(None),
     }
@@ -1077,25 +1083,26 @@ async fn delete_chat_role(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> String {
+fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiError> {
     use aes_gcm::aead::Aead;
     use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
     use rand::RngCore;
 
-    let cipher = Aes256Gcm::new_from_slice(encryption_key).expect("Valid key length");
+    let cipher = Aes256Gcm::new_from_slice(encryption_key)
+        .map_err(|_| ApiError::internal("Invalid encryption key length".to_string()))?;
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
         .encrypt(nonce, key.as_bytes())
-        .expect("Encryption failed");
+        .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
 
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);
 
-    BASE64_STANDARD.encode(&combined)
+    Ok(BASE64_STANDARD.encode(&combined))
 }
 
 #[cfg(test)]

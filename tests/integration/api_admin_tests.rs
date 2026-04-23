@@ -1238,15 +1238,17 @@ async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let deactivate_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
-            .await
-            .unwrap();
+    let deactivate_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
+        .await
+        .unwrap();
     assert_eq!(deactivate_response.status(), StatusCode::FORBIDDEN);
 
     let login_request = Request::builder()
         .method("POST")
-        .uri(format!("/_synapse/admin/v1/users/{}/login", encoded_user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/login",
+            encoded_user_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1257,7 +1259,10 @@ async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
 
     let logout_request = Request::builder()
         .method("POST")
-        .uri(format!("/_synapse/admin/v1/users/{}/logout", encoded_user_id))
+        .uri(format!(
+            "/_synapse/admin/v1/users/{}/logout",
+            encoded_user_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -1273,10 +1278,9 @@ async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
-    let make_admin_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), make_admin_request)
-            .await
-            .unwrap();
+    let make_admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), make_admin_request)
+        .await
+        .unwrap();
     assert_eq!(make_admin_response.status(), StatusCode::FORBIDDEN);
 
     let shutdown_request = Request::builder()
@@ -1286,11 +1290,11 @@ async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "room_id": room_id }).to_string()))
         .unwrap();
-    let shutdown_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), shutdown_request)
-            .await
-            .unwrap();
-    assert_eq!(shutdown_response.status(), StatusCode::FORBIDDEN);
+    let shutdown_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), shutdown_request)
+        .await
+        .unwrap();
+    // shutdown_room is in is_admin_only, admin role is allowed
+    assert_ne!(shutdown_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

@@ -18,9 +18,12 @@ pub(super) async fn get_space(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |_state, space, _auth_user| async move {
-        Ok(json_from::<_, SpaceResponse>(space))
-    })
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |_state, space, _auth_user| async move { Ok(json_from::<_, SpaceResponse>(space)) },
+    )
     .await
 }
 
@@ -29,9 +32,12 @@ pub(super) async fn get_space_by_room(
     Path(room_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, room_id, auth_user, |_state, space, _auth_user| async move {
-        Ok(json_from::<_, SpaceResponse>(space))
-    })
+    with_visible_space(
+        state,
+        room_id,
+        auth_user,
+        |_state, space, _auth_user| async move { Ok(json_from::<_, SpaceResponse>(space)) },
+    )
     .await
 }
 

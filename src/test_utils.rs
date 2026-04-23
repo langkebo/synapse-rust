@@ -7,11 +7,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::OnceCell;
 
 static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
+static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
 const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
@@ -221,6 +223,172 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     }
 
     Ok(pool)
+}
+
+/// Returns a per-test pool with a fresh schema cloned from a pre-initialized template.
+/// The template schema (with all migrations applied) is created once and cached.
+/// Cloning tables from the template is ~100x faster than re-running all migrations.
+/// Set TEST_ISOLATED_SCHEMAS=1 to force the old per-test migration behavior.
+pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    let database_url = resolve_test_database_url().await?;
+
+    // Step 1: Ensure the template schema exists (one-time init)
+    let template = TEMPLATE_SCHEMA_NAME
+        .get_or_try_init(|| async { init_template_schema(&database_url).await })
+        .await?
+        .clone();
+
+    // Step 2: Clone template into a fresh per-test schema
+    clone_schema_from_template(&database_url, &template).await
+}
+
+async fn init_template_schema(database_url: &str) -> Result<String, String> {
+    let template_name = format!("test_template_{}", std::process::id());
+    let connect_timeout = configured_test_pool_connect_timeout();
+
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+
+    // Drop if leftover from a previous crash
+    let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {template_name} CASCADE"))
+        .execute(&admin_pool)
+        .await;
+
+    sqlx::query(&format!("CREATE SCHEMA {template_name}"))
+        .execute(&admin_pool)
+        .await
+        .map_err(|error| format!("failed to create template schema {template_name}: {error}"))?;
+
+    let search_path_sql = format!("SET search_path TO {template_name}, public");
+    let pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(4)
+            .min_connections(0)
+            .acquire_timeout(Duration::from_secs(30))
+            .idle_timeout(Some(Duration::from_secs(300)))
+            .max_lifetime(Some(Duration::from_secs(600)))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    Ok(())
+                })
+            })
+            .connect(database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect template pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect template pool: {error}"))?;
+
+    let pool = Arc::new(pool);
+
+    let report = tokio::time::timeout(
+        Duration::from_secs(120),
+        DatabaseInitService::new(pool.clone())
+            .with_mode(DatabaseInitMode::Strict)
+            .initialize(),
+    )
+    .await
+    .map_err(|_| "template schema initialization timed out after 120 seconds".to_string())?
+    .map_err(|error| format!("template schema initialization failed: {error}"))?;
+
+    if !report.success {
+        return Err(format!(
+            "template schema initialization errors: {}",
+            report.errors.join(" | ")
+        ));
+    }
+
+    // Close the template pool — we only need it for initialization
+    pool.close().await;
+
+    Ok(template_name)
+}
+
+async fn clone_schema_from_template(
+    database_url: &str,
+    template_name: &str,
+) -> Result<Arc<PgPool>, String> {
+    let schema_name = next_test_schema_name();
+    let connect_timeout = configured_test_pool_connect_timeout();
+
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(database_url),
+    )
+    .await
+    .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
+    .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
+
+    // Clone: create schema + copy all tables from template using DDL generation
+    let clone_sql = format!(
+        r#"
+        DO $$
+        DECLARE
+            r RECORD;
+        BEGIN
+            EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
+            FOR r IN
+                SELECT tablename FROM pg_tables WHERE schemaname = '{template_name}' ORDER BY tablename
+            LOOP
+                EXECUTE format(
+                    'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
+                    '{schema_name}', r.tablename, '{template_name}', r.tablename
+                );
+            END LOOP;
+            -- Copy sequences
+            FOR r IN
+                SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
+            LOOP
+                EXECUTE format(
+                    'CREATE SEQUENCE IF NOT EXISTS %I.%I',
+                    '{schema_name}', r.sequence_name
+                );
+            END LOOP;
+        END $$;
+        "#
+    );
+
+    sqlx::raw_sql(&clone_sql)
+        .execute(&admin_pool)
+        .await
+        .map_err(|error| format!("failed to clone template to {schema_name}: {error}"))?;
+
+    let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(configured_test_pool_max_connections())
+            .min_connections(configured_test_pool_min_connections())
+            .acquire_timeout(configured_test_pool_acquire_timeout())
+            .idle_timeout(Some(configured_test_pool_idle_timeout()))
+            .max_lifetime(Some(configured_test_pool_max_lifetime()))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    Ok(())
+                })
+            })
+            .connect(database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect cloned pool for {schema_name}: timed out"))?
+    .map_err(|error| format!("failed to connect cloned pool for {schema_name}: {error}"))?;
+
+    Ok(Arc::new(pool))
 }
 
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {

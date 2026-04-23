@@ -14,8 +14,11 @@ pub struct RegistrationCaptcha {
     pub target: String,
     pub code: String,
     pub created_ts: i64,
+    #[sqlx(rename = "expires_ts")]
     pub expires_at: i64,
+    #[sqlx(rename = "used_at")]
     pub used_ts: Option<i64>,
+    #[sqlx(rename = "verified_at")]
     pub verified_ts: Option<i64>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
@@ -123,7 +126,7 @@ impl CaptchaStorage {
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
             r#"
             INSERT INTO registration_captcha (
-                captcha_id, captcha_type, target, code, created_ts, expires_at,
+                captcha_id, captcha_type, target, code, created_ts, expires_ts,
                 ip_address, user_agent, max_attempts, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -175,7 +178,7 @@ impl CaptchaStorage {
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
             r#"
             SELECT * FROM registration_captcha
-            WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_at > $3
+            WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_ts > $3
             ORDER BY created_ts DESC
             LIMIT 1
             "#,
@@ -236,7 +239,7 @@ impl CaptchaStorage {
             sqlx::query(
                 r#"
                 UPDATE registration_captcha 
-                SET status = 'verified', verified_ts = $1, used_ts = $1
+                SET status = 'verified', verified_at = $1, used_at = $1
                 WHERE captcha_id = $2
                 "#,
             )
@@ -257,7 +260,7 @@ impl CaptchaStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            "UPDATE registration_captcha SET status = 'used', used_ts = $1 WHERE captcha_id = $2",
+            "UPDATE registration_captcha SET status = 'used', used_at = $1 WHERE captcha_id = $2",
         )
         .bind(now)
         .bind(captcha_id)
@@ -352,7 +355,7 @@ impl CaptchaStorage {
         template_name: &str,
     ) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
-            "SELECT * FROM captcha_template WHERE template_name = $1 AND enabled = true",
+            "SELECT * FROM captcha_template WHERE template_name = $1 AND is_enabled = true",
         )
         .bind(template_name)
         .fetch_optional(&*self.pool)
@@ -400,7 +403,7 @@ impl CaptchaStorage {
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'",
+            "DELETE FROM registration_captcha WHERE expires_ts < $1 AND status = 'pending'",
         )
         .bind(now)
         .execute(&*self.pool)

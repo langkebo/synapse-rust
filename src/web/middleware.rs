@@ -9,7 +9,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response, Json};
-use base64::Engine; // Required for decode in module-level functions
+use base64::Engine;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::json;
@@ -1110,6 +1110,57 @@ pub async fn federation_auth_middleware(
         return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
     }
 
+    let origin_server = &params.origin;
+
+    if state.services.config.federation.admission_mode {
+        let server_status = sqlx::query_scalar::<_, String>(
+            "SELECT status FROM federation_servers WHERE server_name = $1"
+        )
+        .bind(origin_server)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .ok()
+        .flatten();
+
+        match server_status {
+            Some(status) if status != "active" => {
+                tracing::warn!(
+                    "Federation request rejected from server '{}' with status '{}'",
+                    origin_server,
+                    status
+                );
+                return ApiError::forbidden(format!(
+                    "Server '{}' is not authorized for federation (status: {})",
+                    origin_server, status
+                ))
+                .into_response();
+            }
+            None => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let _ = sqlx::query(
+                    "INSERT INTO federation_servers (server_name, status, updated_ts) \
+                     VALUES ($1, 'pending', $2) \
+                     ON CONFLICT (server_name) DO NOTHING"
+                )
+                .bind(origin_server)
+                .bind(now)
+                .execute(&*state.services.user_storage.pool)
+                .await;
+
+                tracing::info!(
+                    "New federation server '{}' registered as pending",
+                    origin_server
+                );
+                return ApiError::forbidden(format!(
+                    "Server '{}' is pending federation admission approval",
+                    origin_server
+                ))
+                .into_response();
+            }
+            _ => {}
+        }
+    }
+
     let mut parts = parts;
     parts.extensions.insert(FederationRequestAuth {
         origin: params.origin,
@@ -1446,7 +1497,7 @@ async fn fetch_federation_verify_key(
         .clone()
         .acquire_owned()
         .await
-        .expect("semaphore closed");
+        .map_err(|_| ApiError::internal("Rate limit semaphore closed".to_string()))?;
 
     let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()

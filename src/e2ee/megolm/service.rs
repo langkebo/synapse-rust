@@ -8,6 +8,19 @@ use crate::e2ee::crypto::CryptoError;
 use crate::error::ApiError;
 use chrono::Utc;
 use std::sync::Arc;
+use std::sync::OnceLock;
+
+static MEGOLM_SESSION_MAX_AGE_DAYS: OnceLock<i64> = OnceLock::new();
+
+fn get_session_max_age_days() -> i64 {
+    *MEGOLM_SESSION_MAX_AGE_DAYS.get_or_init(|| {
+        std::env::var("MEGOLM_SESSION_MAX_AGE_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|d: &i64| *d > 0)
+            .unwrap_or(7)
+    })
+}
 
 #[derive(Clone)]
 pub struct MegolmService {
@@ -49,7 +62,7 @@ impl MegolmService {
             message_index: 0,
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
-            expires_at: Some(Utc::now() + chrono::Duration::days(7)),
+            expires_at: Some(Utc::now() + chrono::Duration::days(get_session_max_age_days())),
         };
 
         self.storage.create_session(&session).await?;

@@ -938,6 +938,7 @@ mod tests {
     #[test]
     fn test_space_summary_structure() {
         let summary = crate::storage::space::SpaceSummary {
+            id: 1,
             space_id: "space_123".to_string(),
             summary: serde_json::json!({"key": "value"}),
             children_count: 5,

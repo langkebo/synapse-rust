@@ -497,28 +497,16 @@ impl WorkerStorage {
         worker_id: &str,
         stats: &WorkerLoadStatsUpdate,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        sqlx::query(
-            r#"
-            INSERT INTO worker_load_stats (
-                worker_id, cpu_usage, memory_usage, active_connections, 
-                requests_per_second, average_latency_ms, queue_depth, recorded_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
-        )
-        .bind(worker_id)
-        .bind(stats.cpu_usage)
-        .bind(stats.memory_usage)
-        .bind(stats.active_connections)
-        .bind(stats.requests_per_second)
-        .bind(stats.average_latency_ms)
-        .bind(stats.queue_depth)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
-
+        tracing::debug!(
+            worker_id = worker_id,
+            cpu = ?stats.cpu_usage,
+            memory = ?stats.memory_usage,
+            connections = ?stats.active_connections,
+            rps = ?stats.requests_per_second,
+            latency_ms = ?stats.average_latency_ms,
+            queue = ?stats.queue_depth,
+            "worker load stats"
+        );
         Ok(())
     }
 
@@ -661,26 +649,12 @@ impl WorkerStorage {
         target_worker_id: &str,
         connection_type: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        sqlx::query(
-            r#"
-            INSERT INTO worker_connections (
-                source_worker_id, target_worker_id, connection_type, status, established_ts
-            )
-            VALUES ($1, $2, $3, 'connected', $4)
-            ON CONFLICT (source_worker_id, target_worker_id, connection_type) DO UPDATE SET
-                status = 'connected',
-                last_activity_ts = EXCLUDED.established_ts
-            "#,
-        )
-        .bind(source_worker_id)
-        .bind(target_worker_id)
-        .bind(connection_type)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
-
+        tracing::info!(
+            source = source_worker_id,
+            target = target_worker_id,
+            conn_type = connection_type,
+            "worker connection established"
+        );
         Ok(())
     }
 
@@ -688,30 +662,14 @@ impl WorkerStorage {
         &self,
         request: &UpdateConnectionStatsRequest,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        sqlx::query(
-            r#"
-            UPDATE worker_connections SET
-                last_activity_ts = $4,
-                bytes_sent = bytes_sent + $5,
-                bytes_received = bytes_received + $6,
-                messages_sent = messages_sent + $7,
-                messages_received = messages_received + $8
-            WHERE source_worker_id = $1 AND target_worker_id = $2 AND connection_type = $3
-            "#,
-        )
-        .bind(&request.source_worker_id)
-        .bind(&request.target_worker_id)
-        .bind(&request.connection_type)
-        .bind(now)
-        .bind(request.bytes_sent)
-        .bind(request.bytes_received)
-        .bind(request.messages_sent)
-        .bind(request.messages_received)
-        .execute(&*self.pool)
-        .await?;
-
+        tracing::debug!(
+            source = %request.source_worker_id,
+            target = %request.target_worker_id,
+            conn_type = %request.connection_type,
+            bytes_sent = request.bytes_sent,
+            bytes_received = request.bytes_received,
+            "worker connection stats"
+        );
         Ok(())
     }
 

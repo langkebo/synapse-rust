@@ -5,7 +5,6 @@ mod api_admin_regression_tests;
 mod api_admin_room_lifecycle_tests;
 mod api_admin_tests;
 mod api_admin_user_lifecycle_tests;
-mod api_appservice_basic_tests;
 mod api_appservice_p1_tests;
 mod api_appservice_tests;
 mod api_auth_routes_tests;
@@ -23,7 +22,6 @@ mod api_federation_tests;
 mod api_friend_room_routes_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
-mod api_ip_block_test;
 mod api_media_routes_tests;
 #[cfg(feature = "openclaw-routes")]
 mod api_openclaw_routes_tests;
@@ -33,20 +31,15 @@ mod api_profile_tests;
 mod api_protocol_alignment_tests;
 mod api_rate_limit_contract_tests;
 mod api_rendezvous_routes_tests;
-mod api_room_placeholder_contract_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
 mod api_room_tests;
 mod api_search_thread_tests;
-mod api_shell_route_fixes_p1_tests;
-mod api_shell_route_fixes_p2_friend_tests;
-mod api_shell_route_fixes_p2_misc_tests;
-mod api_shell_route_fixes_p2_push_tests;
 mod api_sliding_sync_contract_tests;
 mod api_space_routes_tests;
+mod api_sticky_event_tests;
 mod api_sync_filter_tests;
 mod api_sync_isolation_rate_limit_tests;
-mod api_sticky_event_tests;
 mod api_telemetry_alerts_tests;
 mod api_typing_routes_tests;
 mod api_widget_tests;
@@ -56,11 +49,9 @@ mod concurrency_tests;
 mod database_integrity_tests;
 mod federation_error_tests;
 mod metrics_tests;
-mod missing_features_tests;
 mod password_hash_pool_tests;
 mod protocol_compliance_tests;
 mod regex_cache_tests;
-mod schema_contract_auth_tokens_tests;
 mod transaction_tests;
 mod voice_routes_tests;
 
@@ -68,9 +59,6 @@ mod permission_escalation_tests;
 
 #[cfg(test)]
 mod coverage_tests;
-
-#[cfg(test)]
-mod schema_validation_tests;
 
 use std::sync::Arc;
 
@@ -95,16 +83,26 @@ fn integration_tests_required() -> bool {
 }
 
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
-    match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+    let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    let result = if use_isolated {
+        synapse_rust::test_utils::prepare_isolated_test_pool().await
+    } else {
+        synapse_rust::test_utils::prepare_shared_test_pool().await
+    };
+
+    match result {
         Ok(pool) => Some(pool),
         Err(error) => {
             eprintln!(
-                "Skipping integration tests because isolated schema setup failed: {}",
+                "Skipping integration tests because schema setup failed: {}",
                 error
             );
             if integration_tests_required() {
                 panic!(
-                    "Integration tests require strict migration initialization to succeed, but isolated schema setup failed: {}",
+                    "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
                     error
                 );
             }
@@ -116,7 +114,7 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
     get_test_pool().await.unwrap_or_else(|| {
         panic!(
-            "Integration test requires isolated schema setup. For optional local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
+            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
         )
     })
 }

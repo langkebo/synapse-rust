@@ -136,10 +136,9 @@ async fn test_typing_read_routes_reject_non_members() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_room_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_room_request)
-            .await
-            .unwrap();
+    let admin_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_room_request)
+        .await
+        .unwrap();
     assert_eq!(admin_room_response.status(), StatusCode::FORBIDDEN);
 
     let admin_user_request = Request::builder()
@@ -151,10 +150,9 @@ async fn test_typing_read_routes_reject_non_members() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_user_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_user_request)
-            .await
-            .unwrap();
+    let admin_user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_user_request)
+        .await
+        .unwrap();
     assert_eq!(admin_user_response.status(), StatusCode::FORBIDDEN);
 }
 

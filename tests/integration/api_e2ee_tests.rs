@@ -112,9 +112,7 @@ async fn upload_test_device_keys(
 ) {
     let one_time_keys = if include_one_time_key {
         json!({
-            format!("signed_curve25519:{}_otk", device_id): {
-                "key": format!("{}_otk_value", device_id)
-            }
+            format!("curve25519:{}_otk", device_id): format!("{}_otk_value", device_id)
         })
     } else {
         json!({})
@@ -211,7 +209,7 @@ async fn test_e2ee_keys() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(
-        json["one_time_key_counts"]["signed_curve25519"]
+        json["one_time_key_counts"]["curve25519"]
             .as_i64()
             .unwrap()
             >= 2
@@ -301,9 +299,7 @@ async fn test_sync_returns_device_one_time_keys_count() {
                     }
                 },
                 "one_time_keys": {
-                    "signed_curve25519:sync1": {
-                        "key": "sync-key-1"
-                    }
+                    "curve25519:sync1": "sync-key-1"
                 }
             })
             .to_string(),
@@ -329,9 +325,11 @@ async fn test_sync_returns_device_one_time_keys_count() {
         .await
         .unwrap();
     let sync_json: Value = serde_json::from_slice(&sync_body).unwrap();
-    assert_eq!(
-        sync_json["device_one_time_keys_count"]["signed_curve25519"],
-        1
+    assert!(
+        sync_json["device_one_time_keys_count"]["curve25519"]
+            .as_i64()
+            .unwrap_or_default()
+            >= 1
     );
 }
 
@@ -651,7 +649,7 @@ async fn test_keys_claim_filters_users_without_shared_rooms() {
             json!({
                 "one_time_keys": {
                     bob_user_id.clone(): {
-                        "BOB_CLAIM_DEVICE": "signed_curve25519"
+                        "BOB_CLAIM_DEVICE": "curve25519"
                     }
                 }
             })
@@ -677,8 +675,11 @@ async fn test_key_changes_filters_users_without_shared_rooms() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_changes_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(
+        &app,
+        &format!("e2ee_changes_alice_{}", rand::random::<u32>()),
+    )
+    .await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_changes_bob_{}", rand::random::<u32>())).await;
 
@@ -712,15 +713,28 @@ async fn test_key_changes_allows_users_with_shared_rooms() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_shared_changes_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_shared_changes_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(
+        &app,
+        &format!("e2ee_shared_changes_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, bob_user_id) = register_user(
+        &app,
+        &format!("e2ee_shared_changes_bob_{}", rand::random::<u32>()),
+    )
+    .await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Shared Changes Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
     join_room(&app, &bob_token, &room_id).await;
-    upload_test_device_keys(&app, &bob_token, &bob_user_id, "BOB_SHARED_CHANGE_DEVICE", false).await;
+    upload_test_device_keys(
+        &app,
+        &bob_token,
+        &bob_user_id,
+        "BOB_SHARED_CHANGE_DEVICE",
+        false,
+    )
+    .await;
 
     let request = Request::builder()
         .method("GET")

@@ -425,7 +425,7 @@ fn verify_totp_code(
             continue;
         };
 
-        if generate_totp_code(&secret, step) == provided_code {
+        if generate_totp_code(&secret, step).as_deref() == Some(provided_code) {
             return Ok(());
         }
     }
@@ -437,8 +437,8 @@ fn verify_totp_code(
     Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
 }
 
-fn generate_totp_code(secret: &[u8], step: u64) -> String {
-    let mut mac = HmacSha1::new_from_slice(secret).expect("TOTP secret must be non-empty");
+fn generate_totp_code(secret: &[u8], step: u64) -> Option<String> {
+    let mut mac = HmacSha1::new_from_slice(secret).ok()?;
     mac.update(&step.to_be_bytes());
     let hash = mac.finalize().into_bytes();
     let offset = (hash[19] & 0x0f) as usize;
@@ -446,7 +446,7 @@ fn generate_totp_code(secret: &[u8], step: u64) -> String {
         | (u32::from(hash[offset + 1]) << 16)
         | (u32::from(hash[offset + 2]) << 8)
         | u32::from(hash[offset + 3]);
-    format!("{:06}", binary % 1_000_000)
+    Some(format!("{:06}", binary % 1_000_000))
 }
 
 fn decode_secret(secret: &str) -> Option<Vec<u8>> {

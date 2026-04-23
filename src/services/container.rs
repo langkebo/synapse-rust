@@ -16,11 +16,9 @@ use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::megolm::MegolmService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
-use crate::federation::{
-    DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager,
-};
 #[cfg(feature = "friends")]
 use crate::federation::FriendFederation;
+use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager};
 #[cfg(feature = "burn-after-read")]
 use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
 use crate::storage::email_verification::EmailVerificationStorage;
@@ -184,15 +182,19 @@ impl ServiceContainer {
             &config.server.name,
         );
         let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
-        let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone());
+        let device_key_storage_for_cs = Arc::new(device_key_storage.clone());
+        let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
+        let cross_signing_storage_arc = Arc::new(cross_signing_storage.clone());
+        let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone())
+            .with_cross_signing_storage(cross_signing_storage_arc);
         let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
         let encryption_key = generate_encryption_key();
         let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
         let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
         let key_request_service =
             KeyRequestService::new(key_request_storage, megolm_service.clone());
-        let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
-        let cross_signing_service = CrossSigningService::new(cross_signing_storage);
+        let cross_signing_service = CrossSigningService::new(cross_signing_storage)
+            .with_device_keys_storage(device_key_storage_for_cs);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
         let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
@@ -212,16 +214,6 @@ impl ServiceContainer {
             std::sync::Arc::new(device_keys_service.clone()),
         );
         let presence_service = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        #[cfg(feature = "voice-extended")]
-        let voice_service = {
-            let voice_path =
-                env::var("SYNAPSE_VOICE_PATH").unwrap_or_else(|_| format!("{}/voice", media_path));
-            crate::services::voice_service::VoiceService::new(
-                pool,
-                cache.clone(),
-                voice_path.as_str(),
-            )
-        };
         let search_service = Arc::new(
             crate::services::search_service::SearchService::with_postgres(
                 &config.search.elasticsearch_url,
@@ -242,7 +234,7 @@ impl ServiceContainer {
         let server_name_for_storage = config.server.get_server_name().to_string();
         let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
         let room_storage = RoomStorage::new(pool);
-        let event_storage = EventStorage::new(pool, server_name_for_storage.clone());
+        let event_storage = EventStorage::new(pool, server_name_for_storage);
         let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
         let room_summary_service = Arc::new(
             crate::services::room_summary_service::RoomSummaryService::new(
@@ -251,7 +243,7 @@ impl ServiceContainer {
                 Some(Arc::new(member_storage.clone())),
             ),
         );
-        let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
+        let presence_storage = PresenceStorage::new(presence_pool, cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
@@ -304,7 +296,7 @@ impl ServiceContainer {
             crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
         let sliding_sync_service = Arc::new(
             crate::services::sliding_sync_service::SlidingSyncService::new(
-                sliding_sync_storage.clone(),
+                sliding_sync_storage,
                 cache.clone(),
                 event_storage.clone(),
                 typing_service.clone(),
@@ -313,6 +305,11 @@ impl ServiceContainer {
         let media_service = crate::services::media_service::MediaService::new(
             media_path.as_str(),
             task_queue.clone(),
+            &config.server.name,
+        );
+        #[cfg(feature = "voice-extended")]
+        let voice_service = crate::services::voice_service::VoiceService::new(
+            media_service.clone(),
             &config.server.name,
         );
         let admin_registration_service =
@@ -335,7 +332,7 @@ impl ServiceContainer {
             config.server.signing_key_path.clone(),
         );
         let federation_client = Arc::new(FederationClient::new(
-            server_name.clone(),
+            server_name,
             Arc::new(key_rotation_manager.clone()),
         ));
         let device_sync_manager =
@@ -682,10 +679,7 @@ impl ServiceContainer {
         Self::new(&pool, cache, config, None)
     }
 
-    pub fn new_test_with_pool_and_cache(
-        pool: Arc<sqlx::PgPool>,
-        cache: Arc<CacheManager>,
-    ) -> Self {
+    pub fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = build_test_config();
         Self::new(&pool, cache, config, None)
     }
@@ -789,6 +783,7 @@ fn build_test_config() -> Config {
             inbound_presence_backoff_ms: 3000,
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
+            admission_mode: false,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

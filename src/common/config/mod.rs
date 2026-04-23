@@ -1555,6 +1555,9 @@ pub struct FederationConfig {
 
     #[serde(default = "default_federation_join_acquire_timeout_ms")]
     pub join_acquire_timeout_ms: u64,
+
+    #[serde(default)]
+    pub admission_mode: bool,
 }
 
 /// 信任的密钥服务器配置
@@ -2256,18 +2259,18 @@ impl Config {
 }
 
 fn resolve_env_in_string(value: &str) -> Result<String, String> {
-    let re =
-        Regex::new(r"\$\{([^}]+)\}").expect("Invalid regex pattern for env variable substitution");
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"\$\{([^}]+)\}").expect("static regex is valid"));
     let mut result = value.to_string();
 
     for cap in re.captures_iter(value) {
         let full_match = cap
             .get(0)
-            .expect("Regex capture group 0 should always exist")
+            .expect("capture group 0 always exists in captures_iter")
             .as_str();
         let inner = cap
             .get(1)
-            .expect("Regex capture group 1 should always exist")
+            .expect("capture group 1 always exists for this regex")
             .as_str();
 
         let replacement = if inner.contains(":-") {
@@ -2419,6 +2422,7 @@ mod tests {
                 inbound_presence_backoff_ms: 3000,
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
+                admission_mode: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2557,6 +2561,7 @@ mod tests {
                 inbound_presence_backoff_ms: 3000,
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
+                admission_mode: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2795,6 +2800,7 @@ mod tests {
                 inbound_presence_backoff_ms: 3000,
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
+                admission_mode: false,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2906,6 +2912,7 @@ mod tests {
             inbound_presence_backoff_ms: 3000,
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
+            admission_mode: false,
         };
 
         assert!(config.enabled);

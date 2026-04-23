@@ -329,7 +329,7 @@ mod tests {
     async fn test_create_key() {
         let pool = sqlx::PgPool::connect("postgres://synapse:synapse@localhost:5432/synapse_test")
             .await
-            .unwrap();
+            .expect("Failed to connect to test database");
         let storage = SecretStorage::new(&pool);
         let service = SecretStorageService::new(storage);
 

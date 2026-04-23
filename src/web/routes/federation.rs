@@ -528,16 +528,22 @@ async fn validate_federation_origin_shares_user_room(
     user_id: &str,
     origin: &str,
 ) -> ApiResult<()> {
-    if origin == state.services.server_name.as_str() {
-        return Ok(());
-    }
-
     let joined_room_ids = state
         .services
         .room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to load user rooms: {}", e)))?;
+
+    if joined_room_ids.is_empty() {
+        return Err(ApiError::forbidden(
+            "User does not share any rooms with the requesting server".to_string(),
+        ));
+    }
+
+    if origin == state.services.server_name.as_str() {
+        return Ok(());
+    }
 
     for room_id in joined_room_ids {
         let joined_members = state
@@ -939,6 +945,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/keys/claim", post(legacy_keys_claim))
         .route("/_matrix/federation/v1/keys/query", post(legacy_keys_query))
         .route("/_matrix/federation/v1/keys/upload", post(keys_upload))
+        .route("/_matrix/federation/v1/user/keys/upload", post(keys_upload))
         .route("/_matrix/federation/v1/user/keys/claim", post(keys_claim))
         .route("/_matrix/federation/v1/user/keys/query", post(keys_query))
         .route("/_matrix/federation/v2/user/keys/query", post(keys_query))
@@ -2732,106 +2739,32 @@ async fn keys_upload(
         target: "security_audit",
         event = "federation_keys_upload",
         origin = ?auth.origin,
-        "Federation keys upload request"
+        "Federation keys upload request rejected: use user/keys endpoints instead"
     );
 
-    Ok(Json(json!({
-        "one_time_key_counts": {}
-    })))
+    Err(ApiError::unrecognized(
+        "Federation keys upload is not supported. Use client-side user/keys endpoints instead.",
+    ))
 }
 
 async fn legacy_keys_claim(
-    State(state): State<AppState>,
-    Extension(auth): Extension<FederationRequestAuth>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Extension(_auth): Extension<FederationRequestAuth>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {}", e)))?;
-
-    if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
-        let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
-        let mut allowed_local_users = std::collections::HashSet::new();
-
-        for user_id in requested_users {
-            if !user_matches_origin(&user_id, &state.services.server_name) {
-                continue;
-            }
-
-            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
-                .await
-                .is_ok()
-            {
-                allowed_local_users.insert(user_id);
-            }
-        }
-
-        one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
-    }
-
-    ::tracing::info!(
-        target: "security_audit",
-        event = "legacy_federation_keys_claim",
-        origin = ?auth.origin,
-        "Legacy federation keys claim request"
-    );
-
-    let response = state
-        .services
-        .device_keys_service
-        .claim_keys_for_federation(request, &state.services.server_name)
-        .await?;
-
-    Ok(Json(json!({
-        "one_time_keys": response.one_time_keys,
-        "failures": response.failures
-    })))
+    Err(ApiError::unrecognized(
+        "Legacy federation keys claim endpoint is not supported. Please use /_matrix/federation/v1/user/keys/claim instead.",
+    ))
 }
 
 async fn legacy_keys_query(
-    State(state): State<AppState>,
-    Extension(auth): Extension<FederationRequestAuth>,
-    Json(body): Json<Value>,
+    State(_state): State<AppState>,
+    Extension(_auth): Extension<FederationRequestAuth>,
+    Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {}", e)))?;
-
-    if let Some(device_keys) = request.device_keys.as_object_mut() {
-        let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
-        let mut allowed_local_users = std::collections::HashSet::new();
-
-        for user_id in requested_users {
-            if !user_matches_origin(&user_id, &state.services.server_name) {
-                continue;
-            }
-
-            if validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
-                .await
-                .is_ok()
-            {
-                allowed_local_users.insert(user_id);
-            }
-        }
-
-        device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
-    }
-
-    ::tracing::info!(
-        target: "security_audit",
-        event = "legacy_federation_keys_query",
-        origin = ?auth.origin,
-        "Legacy federation keys query request"
-    );
-
-    let response = state
-        .services
-        .device_keys_service
-        .query_keys_for_federation(request, &state.services.server_name)
-        .await?;
-
-    Ok(Json(json!({
-        "device_keys": response.device_keys,
-        "failures": response.failures
-    })))
+    Err(ApiError::unrecognized(
+        "Legacy federation keys query endpoint is not supported. Please use /_matrix/federation/v1/user/keys/query instead.",
+    ))
 }
 
 async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
@@ -3385,7 +3318,7 @@ async fn fetch_remote_server_keys_response(
         .clone()
         .acquire_owned()
         .await
-        .expect("semaphore closed");
+        .map_err(|_| ApiError::internal("Federation key fetch semaphore closed".to_string()))?;
 
     let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()

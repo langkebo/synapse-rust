@@ -4,7 +4,7 @@ use crate::services::thread_service::{
     SubscribeRequest, SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse,
     UnreadThreadsResponse,
 };
-use crate::web::routes::{ensure_room_member, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_strict, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -239,7 +239,7 @@ async fn ensure_thread_room_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -253,7 +253,7 @@ async fn ensure_thread_management_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -711,9 +711,13 @@ async fn list_threads_global(
     auth_user: AuthenticatedUser,
     query: Query<ListQuery>,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
-    let response =
-        list_visible_threads(&state, &auth_user.user_id, query.limit, query.from.as_deref())
-            .await?;
+    let response = list_visible_threads(
+        &state,
+        &auth_user.user_id,
+        query.limit,
+        query.from.as_deref(),
+    )
+    .await?;
     Ok(Json(response))
 }
 

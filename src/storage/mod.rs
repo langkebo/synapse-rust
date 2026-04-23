@@ -25,7 +25,6 @@ pub mod module;
 pub mod monitoring;
 pub mod openid_token;
 pub mod performance;
-pub mod pool_monitor;
 pub mod presence;
 pub mod push_notification;
 pub mod qr_login;
@@ -88,8 +87,8 @@ pub mod privacy;
 // Captcha is used by registration flow — keep unconditional
 pub mod captcha;
 
-pub use self::user::*;
 pub use self::threepid::UserThreepid;
+pub use self::user::*;
 
 pub use self::application_service::*;
 pub use self::audit::*;
@@ -107,14 +106,10 @@ pub use self::moderation::*;
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,
     DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
-    PerformanceMetrics, VacuumStats,
+    PerformanceMetrics,
 };
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
-pub use self::pool_monitor::{
-    create_pool_with_monitoring, set_query_timeout, set_transaction_timeout, DatabasePoolConfig,
-    DatabasePoolMonitor, PoolHealthStatus, PoolStats, QueryTimeoutConfig,
-};
 pub use self::presence::*;
 pub use self::push_notification::*;
 pub use self::qr_login::*;
@@ -137,9 +132,6 @@ pub use self::openclaw::*;
 
 #[cfg(feature = "friends")]
 pub use self::friend_room::*;
-
-#[cfg(feature = "voice-extended")]
-pub use self::voice::*;
 
 #[cfg(feature = "saml-sso")]
 pub use self::saml::*;
@@ -227,7 +219,7 @@ impl Database {
     /// 成功时返回 `Ok(DatabaseHealthStatus)`，包含详细健康信息
     /// 失败时返回 `Err(sqlx::Error)`
     pub async fn health_check(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
-        self.monitor.write().await.get_full_health_status().await
+        self.monitor.read().await.get_full_health_status().await
     }
 
     /// 获取性能指标。
@@ -239,7 +231,8 @@ impl Database {
     /// 成功时返回 `Ok(PerformanceMetrics)`，包含性能数据
     /// 失败时返回 `Err(sqlx::Error)`
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
-        self.monitor.write().await.get_performance_metrics().await
+        let health = self.monitor.read().await.get_full_health_status().await?;
+        Ok(health.performance_metrics)
     }
 
     /// 验证数据完整性。
@@ -251,7 +244,7 @@ impl Database {
     /// 成功时返回 `Ok(DataIntegrityReport)`，包含完整性检查报告
     /// 失败时返回 `Err(sqlx::Error)`
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
-        self.monitor.write().await.verify_data_integrity().await
+        self.monitor.read().await.verify_data_integrity().await
     }
 }
 
@@ -334,6 +327,7 @@ mod tests {
             created_ts: 1234567890000,
             device_key: None,
             ignored_user_list: None,
+            user_agent: None,
             appservice_id: None,
             first_seen_ts: 1234567890000,
         };

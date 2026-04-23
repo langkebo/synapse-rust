@@ -7,7 +7,7 @@ pub struct MediaMetadata {
     pub server_name: String,
     pub content_type: String,
     pub file_name: Option<String>,
-    pub size: u64,
+    pub size: i64,
     pub uploader_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub last_accessed_at: Option<DateTime<Utc>>,
@@ -17,11 +17,11 @@ pub struct MediaMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThumbnailMetadata {
     pub media_id: String,
-    pub width: u32,
-    pub height: u32,
+    pub width: i32,
+    pub height: i32,
     pub method: String,
     pub content_type: String,
-    pub size: u64,
+    pub size: i64,
     pub created_at: DateTime<Utc>,
 }
 

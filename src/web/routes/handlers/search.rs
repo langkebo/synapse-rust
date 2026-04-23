@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester, ensure_room_member, AppState,
-    AuthenticatedUser,
+    account_compat::can_view_profile_for_requester,
+    ensure_room_member_strict, AppState, AuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -554,7 +554,7 @@ async fn timestamp_to_event(
 
     let dir = params.get("dir").map(|v| v.as_str()).unwrap_or("f");
 
-    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
+    ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let event = if dir == "b" {
         sqlx::query(
@@ -603,7 +603,7 @@ async fn get_event_context(
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
 
-    ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
+    ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let target_event = state
         .services

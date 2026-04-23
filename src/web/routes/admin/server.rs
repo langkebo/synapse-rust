@@ -54,8 +54,11 @@ pub async fn get_admin_info(State(state): State<AppState>) -> Result<Json<Value>
 pub async fn get_backups(
     _admin: AdminUser,
     State(_state): State<AppState>,
+    axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(unsupported_admin_server_feature("backups"))
+    Err(ApiError::unrecognized(
+        "Admin server endpoint 'backups' is not implemented in this deployment",
+    ))
 }
 
 fn unsupported_admin_server_feature(feature: &str) -> ApiError {
@@ -80,15 +83,24 @@ pub async fn get_server_version(
 #[axum::debug_handler]
 pub async fn purge_media_cache(
     _admin: AdminUser,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _before_ts = body
+    let before_ts = body
         .get("before_ts")
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
-    Err(unsupported_admin_server_feature("purge_media_cache"))
+    let deleted = state
+        .services
+        .media_service
+        .purge_media_cache(before_ts)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to purge media cache: {}", e)))?;
+
+    Ok(Json(json!({
+        "deleted": deleted
+    })))
 }
 
 #[axum::debug_handler]
@@ -262,7 +274,9 @@ pub async fn get_experimental_features(
     _admin: AdminUser,
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(unsupported_admin_server_feature("experimental_features"))
+    Err(ApiError::unrecognized(
+        "Admin server endpoint 'experimental_features' is not implemented in this deployment",
+    ))
 }
 
 #[axum::debug_handler]

@@ -12,6 +12,7 @@ pub struct Device {
     pub last_seen_ip: Option<String>,
     pub created_ts: i64,
     pub first_seen_ts: i64,
+    pub user_agent: Option<String>,
     pub appservice_id: Option<String>,
     pub ignored_user_list: Option<String>,
 }
@@ -199,7 +200,7 @@ impl DeviceStorage {
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             "#,
         )
         .bind(device_id)
@@ -234,7 +235,7 @@ impl DeviceStorage {
             r#"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             "#,
         )
         .bind(device_id)
@@ -280,7 +281,7 @@ impl DeviceStorage {
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices WHERE device_id = $1
             "#,
         )
@@ -292,7 +293,7 @@ impl DeviceStorage {
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
             "#,
         )
@@ -547,7 +548,7 @@ impl DeviceStorage {
 
         sqlx::query_as::<_, Device>(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices WHERE device_id = ANY($1)
             ORDER BY last_seen_ts DESC
             "#,
@@ -567,7 +568,7 @@ impl DeviceStorage {
 
         let devices: Vec<Device> = sqlx::query_as(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices WHERE user_id = ANY($1)
             ORDER BY user_id, last_seen_ts DESC
             "#,
@@ -601,7 +602,7 @@ impl DeviceStorage {
 
         let devices: Vec<Device> = sqlx::query_as(
             r#"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, appservice_id, ignored_user_list
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices 
             WHERE user_id = ANY($1) AND device_key IS NOT NULL
             "#,
@@ -666,6 +667,7 @@ mod tests {
             last_seen_ip: Some("192.168.1.1".to_string()),
             created_ts: 1234567890000,
             first_seen_ts: 1234567890000,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -686,6 +688,7 @@ mod tests {
             last_seen_ip: None,
             created_ts: 0,
             first_seen_ts: 0,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -706,6 +709,7 @@ mod tests {
             last_seen_ip: None,
             created_ts: 1234567890000,
             first_seen_ts: 1234567890000,
+            user_agent: None,
             appservice_id: Some("my_appservice".to_string()),
             ignored_user_list: None,
         };
@@ -730,6 +734,7 @@ mod tests {
             last_seen_ip: None,
             created_ts: 0,
             first_seen_ts: 0,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -750,6 +755,7 @@ mod tests {
             last_seen_ip: Some("192.168.1.1".to_string()),
             created_ts: 1234567800,
             first_seen_ts: 1234567800,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -770,6 +776,7 @@ mod tests {
             last_seen_ip: None,
             created_ts: 0,
             first_seen_ts: 0,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -789,6 +796,7 @@ mod tests {
             last_seen_ip: Some("10.0.0.1".to_string()),
             created_ts: 1234567800,
             first_seen_ts: 1234567800,
+            user_agent: None,
             appservice_id: Some("irc-bridge".to_string()),
             ignored_user_list: None,
         };
@@ -808,6 +816,7 @@ mod tests {
             last_seen_ip: None,
             created_ts: 0,
             first_seen_ts: 0,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: Some("[\"@baduser:example.com\"]".to_string()),
         };
@@ -826,6 +835,7 @@ mod tests {
             last_seen_ip: Some("203.0.113.1".to_string()),
             created_ts: 1234567800,
             first_seen_ts: 1234567800,
+            user_agent: None,
             appservice_id: None,
             ignored_user_list: None,
         };
@@ -871,6 +881,7 @@ mod tests {
                 last_seen_ip TEXT,
                 created_ts BIGINT NOT NULL,
                 first_seen_ts BIGINT NOT NULL,
+                user_agent TEXT,
                 appservice_id TEXT,
                 ignored_user_list TEXT
             )

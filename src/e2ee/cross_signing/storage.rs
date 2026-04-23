@@ -15,18 +15,26 @@ impl CrossSigningStorage {
 
     pub async fn create_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
+        let key_json_str = key
+            .key_json
+            .as_ref()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+
         sqlx::query(
             r#"
-            INSERT INTO cross_signing_keys (user_id, key_type, key_data, added_ts)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO cross_signing_keys (user_id, key_type, key_data, signatures, added_ts)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (user_id, key_type) DO UPDATE
             SET key_data = EXCLUDED.key_data,
+                signatures = EXCLUDED.signatures,
                 added_ts = EXCLUDED.added_ts
             "#,
         )
         .bind(&key.user_id)
         .bind(&key.key_type)
-        .bind(&key.public_key)
+        .bind(&key_json_str)
+        .bind(&key.signatures)
         .bind(added_ts)
         .execute(&*self.pool)
         .await?;
@@ -41,7 +49,7 @@ impl CrossSigningStorage {
     ) -> Result<Option<CrossSigningKey>, ApiError> {
         let row = sqlx::query(
             r#"
-            SELECT user_id, key_type, key_data, added_ts
+            SELECT user_id, key_type, key_data, signatures, added_ts
             FROM cross_signing_keys
             WHERE user_id = $1 AND key_type = $2
             "#,
@@ -51,21 +59,49 @@ impl CrossSigningStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|row| CrossSigningKey {
-            id: uuid::Uuid::new_v4(),
-            user_id: row.get("user_id"),
-            key_type: row.get("key_type"),
-            public_key: row.get("key_data"),
-            usage: vec![],
-            signatures: serde_json::json!({}),
-            created_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("added_ts") / 1000,
-            )
-            .unwrap_or_default(),
-            updated_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("added_ts") / 1000,
-            )
-            .unwrap_or_default(),
+        Ok(row.map(|row| {
+            let key_data: String = row.get("key_data");
+            let signatures: serde_json::Value =
+                row.try_get("signatures").unwrap_or(serde_json::json!({}));
+            let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
+
+            let public_key = key_json
+                .as_ref()
+                .and_then(|j| j.get("keys"))
+                .and_then(|k| k.as_object())
+                .and_then(|obj| obj.values().next())
+                .and_then(|v| v.as_str())
+                .unwrap_or(&key_data)
+                .to_string();
+
+            let usage = key_json
+                .as_ref()
+                .and_then(|j| j.get("usage"))
+                .and_then(|u| u.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            CrossSigningKey {
+                id: uuid::Uuid::new_v4(),
+                user_id: row.get("user_id"),
+                key_type: row.get("key_type"),
+                public_key,
+                usage,
+                signatures,
+                key_json,
+                created_ts: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("added_ts") / 1000,
+                )
+                .unwrap_or_default(),
+                updated_ts: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("added_ts") / 1000,
+                )
+                .unwrap_or_default(),
+            }
         }))
     }
 
@@ -75,7 +111,7 @@ impl CrossSigningStorage {
     ) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows = sqlx::query(
             r#"
-            SELECT user_id, key_type, key_data, added_ts
+            SELECT user_id, key_type, key_data, signatures, added_ts
             FROM cross_signing_keys
             WHERE user_id = $1
             "#,
@@ -86,34 +122,69 @@ impl CrossSigningStorage {
 
         Ok(rows
             .into_iter()
-            .map(|row| CrossSigningKey {
-                id: uuid::Uuid::new_v4(),
-                user_id: row.get("user_id"),
-                key_type: row.get("key_type"),
-                public_key: row.get("key_data"),
-                usage: vec![],
-                signatures: serde_json::json!({}),
-                created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts") / 1000,
-                )
-                .unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts") / 1000,
-                )
-                .unwrap_or_default(),
+            .map(|row| {
+                let key_data: String = row.get("key_data");
+                let signatures: serde_json::Value =
+                    row.try_get("signatures").unwrap_or(serde_json::json!({}));
+                let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
+
+                let public_key = key_json
+                    .as_ref()
+                    .and_then(|j| j.get("keys"))
+                    .and_then(|k| k.as_object())
+                    .and_then(|obj| obj.values().next())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&key_data)
+                    .to_string();
+
+                let usage = key_json
+                    .as_ref()
+                    .and_then(|j| j.get("usage"))
+                    .and_then(|u| u.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                CrossSigningKey {
+                    id: uuid::Uuid::new_v4(),
+                    user_id: row.get("user_id"),
+                    key_type: row.get("key_type"),
+                    public_key,
+                    usage,
+                    signatures,
+                    key_json,
+                    created_ts: chrono::DateTime::from_timestamp_millis(
+                        row.get::<i64, _>("added_ts") / 1000,
+                    )
+                    .unwrap_or_default(),
+                    updated_ts: chrono::DateTime::from_timestamp_millis(
+                        row.get::<i64, _>("added_ts") / 1000,
+                    )
+                    .unwrap_or_default(),
+                }
             })
             .collect())
     }
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
+        let key_json_str = key
+            .key_json
+            .as_ref()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| key.public_key.clone());
+
         sqlx::query(
             r#"
-            UPDATE cross_signing_keys SET key_data = $1, added_ts = $2
-            WHERE user_id = $3 AND key_type = $4
+            UPDATE cross_signing_keys SET key_data = $1, signatures = $2, added_ts = $3
+            WHERE user_id = $4 AND key_type = $5
             "#,
         )
-        .bind(&key.public_key)
+        .bind(&key_json_str)
+        .bind(&key.signatures)
         .bind(added_ts)
         .bind(&key.user_id)
         .bind(&key.key_type)
@@ -172,7 +243,7 @@ impl CrossSigningStorage {
         .bind(&sig.device_id)
         .bind(&sig.target_user_id)
         .bind(&sig.target_device_id)
-        .bind(&sig.target_key_id)
+        .bind(&sig.signing_key_id)
         .bind(&sig.signature)
         .bind(created_ts)
         .execute(&*self.pool)
@@ -322,6 +393,7 @@ mod tests {
             public_key: "base64_encoded_public_key".to_string(),
             usage: vec!["master".to_string()],
             signatures: serde_json::json!({}),
+            key_json: None,
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         }
@@ -357,6 +429,7 @@ mod tests {
                 public_key: "key_data".to_string(),
                 usage: vec![key_type.to_string()],
                 signatures: serde_json::json!({}),
+                key_json: None,
                 created_ts: Utc::now(),
                 updated_ts: Utc::now(),
             };
@@ -394,6 +467,7 @@ mod tests {
             public_key: "key_data".to_string(),
             usage: vec!["master".to_string()],
             signatures,
+            key_json: None,
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
@@ -429,6 +503,7 @@ mod tests {
             "public_key": "test_key",
             "usage": ["self_signing"],
             "signatures": {},
+            "key_json": null,
             "created_ts": "2024-01-01T00:00:00Z",
             "updated_ts": "2024-01-01T00:00:00Z"
         }"#;
@@ -455,6 +530,7 @@ mod tests {
                 public_key: "key".to_string(),
                 usage: usage.iter().map(|s| s.to_string()).collect(),
                 signatures: serde_json::json!({}),
+                key_json: None,
                 created_ts: Utc::now(),
                 updated_ts: Utc::now(),
             };

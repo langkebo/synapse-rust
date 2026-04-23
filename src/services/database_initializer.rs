@@ -202,9 +202,7 @@ impl DatabaseInitService {
                 }
                 Err(e) => {
                     report.success = false;
-                    report
-                        .errors
-                        .push(format!("运行时列修复失败: {}", e));
+                    report.errors.push(format!("运行时列修复失败: {}", e));
                 }
             }
 
@@ -217,9 +215,7 @@ impl DatabaseInitService {
                 }
                 Err(e) => {
                     report.success = false;
-                    report
-                        .errors
-                        .push(format!("运行时索引修复失败: {}", e));
+                    report.errors.push(format!("运行时索引修复失败: {}", e));
                 }
             }
 
@@ -257,7 +253,9 @@ impl DatabaseInitService {
                 Ok(status) => report.schema_status = Some(status),
                 Err(e) => {
                     report.success = false;
-                    report.errors.push(format!("运行时修复后 Schema 复检失败: {}", e));
+                    report
+                        .errors
+                        .push(format!("运行时修复后 Schema 复检失败: {}", e));
                 }
             }
         }
@@ -790,6 +788,7 @@ impl DatabaseInitService {
                 ts_updated_ms BIGINT,
                 is_verified BOOLEAN DEFAULT FALSE,
                 is_blocked BOOLEAN DEFAULT FALSE,
+                is_fallback BOOLEAN DEFAULT FALSE,
                 display_name TEXT,
                 CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
             )
@@ -1182,6 +1181,12 @@ impl DatabaseInitService {
             .execute(&*self.pool)
             .await?;
 
+        sqlx::query(
+            "ALTER TABLE device_keys ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN DEFAULT FALSE",
+        )
+        .execute(&*self.pool)
+        .await?;
+
         // Ensure room_tags table exists
         sqlx::query(
             r#"
@@ -1274,6 +1279,21 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_to_device_stream ON to_device_messages(recipient_user_id, stream_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS to_device_transactions (
+                id SERIAL PRIMARY KEY,
+                sender_user_id VARCHAR(255) NOT NULL,
+                sender_device_id VARCHAR(255) NOT NULL,
+                message_id VARCHAR(255) NOT NULL,
+                created_ts BIGINT NOT NULL,
+                UNIQUE (sender_user_id, sender_device_id, message_id)
+            )
             "#,
         )
         .execute(&*self.pool)

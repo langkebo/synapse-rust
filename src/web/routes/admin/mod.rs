@@ -50,7 +50,9 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_server_router(state.clone()))
         .merge(create_security_router(state.clone()));
     #[cfg(feature = "server-notifications")]
-    { admin_router = admin_router.merge(create_notification_router(state.clone())); }
+    {
+        admin_router = admin_router.merge(create_notification_router(state.clone()));
+    }
     let protected = admin_router
         .merge(create_token_router(state.clone()))
         .merge(create_federation_router(state.clone()))
@@ -68,5 +70,5 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
             axum::routing::get(server::get_admin_info),
         )
         .merge(protected)
-        .merge(create_register_router(state.clone()))
+        .merge(create_register_router(state))
 }

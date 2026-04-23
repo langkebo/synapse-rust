@@ -206,110 +206,6 @@ impl DatabaseIntegrityChecker {
                     LIMIT 5
                 "#,
             },
-            OrphanDiagnosticSpec {
-                key: "room_children",
-                count_query: r#"
-                    SELECT COUNT(*) FROM room_children rc
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id)
-                       OR NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id)
-                "#,
-                sample_query: r#"
-                    SELECT jsonb_build_object(
-                        'id', rc.id,
-                        'parent_room_id', rc.parent_room_id,
-                        'child_room_id', rc.child_room_id,
-                        'parent_missing', NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id),
-                        'child_missing', NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id),
-                        'updated_ts', rc.updated_ts
-                    ) AS sample
-                    FROM room_children rc
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms parent WHERE parent.room_id = rc.parent_room_id)
-                       OR NOT EXISTS (SELECT 1 FROM rooms child WHERE child.room_id = rc.child_room_id)
-                    ORDER BY rc.updated_ts DESC NULLS LAST, rc.id DESC
-                    LIMIT 5
-                "#,
-            },
-            OrphanDiagnosticSpec {
-                key: "retention_cleanup_queue",
-                count_query: r#"
-                    SELECT COUNT(*) FROM retention_cleanup_queue rcq
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcq.room_id)
-                "#,
-                sample_query: r#"
-                    SELECT jsonb_build_object(
-                        'id', rcq.id,
-                        'room_id', rcq.room_id,
-                        'event_id', rcq.event_id,
-                        'event_type', rcq.event_type,
-                        'status', rcq.status,
-                        'origin_server_ts', rcq.origin_server_ts
-                    ) AS sample
-                    FROM retention_cleanup_queue rcq
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcq.room_id)
-                    ORDER BY rcq.origin_server_ts DESC, rcq.id DESC
-                    LIMIT 5
-                "#,
-            },
-            OrphanDiagnosticSpec {
-                key: "retention_cleanup_logs",
-                count_query: r#"
-                    SELECT COUNT(*) FROM retention_cleanup_logs rcl
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcl.room_id)
-                "#,
-                sample_query: r#"
-                    SELECT jsonb_build_object(
-                        'id', rcl.id,
-                        'room_id', rcl.room_id,
-                        'status', rcl.status,
-                        'started_ts', rcl.started_ts,
-                        'completed_ts', rcl.completed_ts
-                    ) AS sample
-                    FROM retention_cleanup_logs rcl
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rcl.room_id)
-                    ORDER BY rcl.started_ts DESC, rcl.id DESC
-                    LIMIT 5
-                "#,
-            },
-            OrphanDiagnosticSpec {
-                key: "retention_stats",
-                count_query: r#"
-                    SELECT COUNT(*) FROM retention_stats rs
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rs.room_id)
-                "#,
-                sample_query: r#"
-                    SELECT jsonb_build_object(
-                        'id', rs.id,
-                        'room_id', rs.room_id,
-                        'total_events', rs.total_events,
-                        'events_expired', rs.events_expired,
-                        'next_cleanup_ts', rs.next_cleanup_ts
-                    ) AS sample
-                    FROM retention_stats rs
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = rs.room_id)
-                    ORDER BY rs.next_cleanup_ts DESC NULLS LAST, rs.id DESC
-                    LIMIT 5
-                "#,
-            },
-            OrphanDiagnosticSpec {
-                key: "deleted_events_index",
-                count_query: r#"
-                    SELECT COUNT(*) FROM deleted_events_index dei
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = dei.room_id)
-                "#,
-                sample_query: r#"
-                    SELECT jsonb_build_object(
-                        'id', dei.id,
-                        'room_id', dei.room_id,
-                        'event_id', dei.event_id,
-                        'deletion_ts', dei.deletion_ts,
-                        'reason', dei.reason
-                    ) AS sample
-                    FROM deleted_events_index dei
-                    WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = dei.room_id)
-                    ORDER BY dei.deletion_ts DESC, dei.id DESC
-                    LIMIT 5
-                "#,
-            },
         ];
 
         let mut room_contract_orphans = serde_json::Map::new();
@@ -502,11 +398,6 @@ impl DatabaseIntegrityChecker {
         let critical_indexes = vec![
             "idx_room_summary_state_room",
             "idx_room_summary_update_queue_status_priority_created",
-            "idx_room_children_parent_suggested",
-            "idx_room_children_child",
-            "idx_retention_cleanup_queue_status_origin",
-            "idx_retention_cleanup_logs_room_started",
-            "idx_deleted_events_index_room_ts",
             "idx_device_trust_status_user_level",
             "idx_cross_signing_trust_user_trusted",
             "idx_device_verification_request_user_device_pending",
@@ -548,18 +439,6 @@ impl DatabaseIntegrityChecker {
                 "room_summary_update_queue",
                 "fk_room_summary_update_queue_room",
             ),
-            ("room_children", "uq_room_children_parent_child"),
-            ("room_children", "fk_room_children_parent"),
-            ("room_children", "fk_room_children_child"),
-            (
-                "retention_cleanup_queue",
-                "uq_retention_cleanup_queue_room_event",
-            ),
-            ("retention_cleanup_queue", "fk_retention_cleanup_queue_room"),
-            ("retention_cleanup_logs", "fk_retention_cleanup_logs_room"),
-            ("retention_stats", "fk_retention_stats_room"),
-            ("deleted_events_index", "uq_deleted_events_index_room_event"),
-            ("deleted_events_index", "fk_deleted_events_index_room"),
             ("device_trust_status", "uq_device_trust_status_user_device"),
             ("cross_signing_trust", "uq_cross_signing_trust_user_target"),
         ];
@@ -620,10 +499,10 @@ mod tests {
     use super::*;
 
     const REPORT_RATE_LIMITS_MIGRATION_SQL: &str = include_str!(
-        "../../migrations/20260413000001_align_report_rate_limits_schema_contract.sql"
+        "../../migrations/archive/pre-consolidation-2026-04-22/20260413000001_align_report_rate_limits_schema_contract.sql"
     );
     const TO_DEVICE_STREAM_ID_SEQ_MIGRATION_SQL: &str =
-        include_str!("../../migrations/20260409090000_to_device_stream_id_seq.sql");
+        include_str!("../../migrations/archive/pre-consolidation-2026-04-22/20260409090000_to_device_stream_id_seq.sql");
 
     async fn ensure_public_schema_contract_repairs(
         pool: &Pool<Postgres>,
@@ -685,48 +564,6 @@ mod tests {
             "room_summary_update_queue",
             "fk_room_summary_update_queue_room",
             "ALTER TABLE room_summary_update_queue ADD CONSTRAINT fk_room_summary_update_queue_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "room_children",
-            "fk_room_children_parent",
-            "ALTER TABLE room_children ADD CONSTRAINT fk_room_children_parent FOREIGN KEY (parent_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "room_children",
-            "fk_room_children_child",
-            "ALTER TABLE room_children ADD CONSTRAINT fk_room_children_child FOREIGN KEY (child_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "retention_cleanup_queue",
-            "fk_retention_cleanup_queue_room",
-            "ALTER TABLE retention_cleanup_queue ADD CONSTRAINT fk_retention_cleanup_queue_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "retention_cleanup_logs",
-            "fk_retention_cleanup_logs_room",
-            "ALTER TABLE retention_cleanup_logs ADD CONSTRAINT fk_retention_cleanup_logs_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "retention_stats",
-            "fk_retention_stats_room",
-            "ALTER TABLE retention_stats ADD CONSTRAINT fk_retention_stats_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
-        )
-        .await?;
-        ensure_constraint(
-            pool,
-            "deleted_events_index",
-            "fk_deleted_events_index_room",
-            "ALTER TABLE deleted_events_index ADD CONSTRAINT fk_deleted_events_index_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE",
         )
         .await?;
 
