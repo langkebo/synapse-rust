@@ -632,6 +632,8 @@ async fn test_global_threads_only_include_joined_rooms() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let threads = json["threads"].as_array().unwrap();
-    assert!(!threads.iter().any(|thread| thread["thread_id"] == thread_id));
+    assert!(!threads
+        .iter()
+        .any(|thread| thread["thread_id"] == thread_id));
     assert_eq!(json["total"], 0);
 }

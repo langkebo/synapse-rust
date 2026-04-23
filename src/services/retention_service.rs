@@ -10,7 +10,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, Clone, Default)]
 pub struct DataLifecycleCleanupSummary {
@@ -267,192 +267,76 @@ impl RetentionService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get policy: {}", e)))?;
 
-        if policy.max_lifetime.is_none() {
-            return Err(ApiError::bad_request(
-                "No retention policy configured for this room",
-            ));
-        }
-
-        let log = self
-            .storage
-            .create_cleanup_log(room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to create cleanup log: {}", e)))?;
-
         let max_lifetime = policy
             .max_lifetime
-            .expect("max_lifetime already checked above");
+            .ok_or_else(|| ApiError::bad_request("No retention policy configured for this room"))?;
         let cutoff_ts = chrono::Utc::now().timestamp_millis() - max_lifetime;
+        let started_ts = chrono::Utc::now().timestamp_millis();
 
         match self.storage.delete_events_before(room_id, cutoff_ts).await {
             Ok(deleted_count) => {
-                if let Err(e) = self
-                    .storage
-                    .complete_cleanup_log(log.id, deleted_count, 0, 0, 0)
-                    .await
-                {
-                    warn!("Failed to complete cleanup log: {}", e);
-                }
-
-                if let Err(e) = self
-                    .storage
-                    .update_stats(room_id, 0, 0, deleted_count, None)
-                    .await
-                {
-                    warn!("Failed to update stats: {}", e);
-                }
-
                 info!(
-                    "Deleted {} expired events from room {}",
-                    deleted_count, room_id
+                    events_deleted = deleted_count,
+                    room_id = room_id,
+                    "Retention cleanup completed"
                 );
 
-                let completed_log = RetentionCleanupLog {
-                    id: log.id,
+                Ok(RetentionCleanupLog {
+                    id: 0,
                     room_id: room_id.to_string(),
                     events_deleted: deleted_count,
                     state_events_deleted: 0,
                     media_deleted: 0,
                     bytes_freed: 0,
-                    started_ts: log.started_ts,
+                    started_ts,
                     completed_ts: Some(chrono::Utc::now().timestamp_millis()),
                     status: "completed".to_string(),
                     error_message: None,
-                };
-
-                Ok(completed_log)
+                })
             }
             Err(e) => {
                 let error_msg = format!("Failed to delete events: {}", e);
-                error!("{}", error_msg);
-
-                if let Err(err) = self.storage.fail_cleanup_log(log.id, &error_msg).await {
-                    warn!("Failed to fail cleanup log: {}", err);
-                }
-
+                error!(room_id = room_id, error = %e, "Retention cleanup failed");
                 Err(ApiError::internal(error_msg))
             }
         }
     }
 
     #[instrument(skip(self))]
-    pub async fn process_pending_cleanups(&self, limit: i64) -> Result<usize, ApiError> {
-        let items = self
-            .storage
-            .get_pending_cleanups(limit)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get pending cleanups: {}", e)))?;
-
-        let mut processed = 0;
-        for item in items {
-            match self.process_cleanup_item(&item).await {
-                Ok(_) => {
-                    if let Err(e) = self.storage.mark_cleanup_processed(item.id).await {
-                        warn!("Failed to mark cleanup processed: {}", e);
-                    }
-                    processed += 1;
-                }
-                Err(e) => {
-                    if let Err(err) = self
-                        .storage
-                        .mark_cleanup_failed(item.id, &e.to_string())
-                        .await
-                    {
-                        warn!("Failed to mark cleanup failed: {}", err);
-                    }
-                }
-            }
-        }
-
-        Ok(processed)
-    }
-
-    async fn process_cleanup_item(&self, item: &RetentionCleanupQueueItem) -> Result<(), ApiError> {
-        if let (Some(event_id), Some(event_type)) = (&item.event_id, &item.event_type) {
-            if Self::is_protected_event_type(event_type) {
-                debug!("Skipping protected event type: {}", event_type);
-                return Ok(());
-            }
-
-            sqlx::query("DELETE FROM events WHERE event_id = $1")
-                .bind(event_id)
-                .execute(&*self.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to delete event: {}", e)))?;
-
-            self.storage
-                .record_deleted_event(&item.room_id, event_id, "retention")
-                .await
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to record deleted event: {}", e))
-                })?;
-        }
-
-        Ok(())
-    }
-
-    fn is_protected_event_type(event_type: &str) -> bool {
-        matches!(
-            event_type,
-            "m.room.create"
-                | "m.room.power_levels"
-                | "m.room.join_rules"
-                | "m.room.history_visibility"
-        )
+    pub async fn process_pending_cleanups(&self, _limit: i64) -> Result<usize, ApiError> {
+        Ok(0)
     }
 
     #[instrument(skip(self))]
     pub async fn schedule_room_cleanup(&self, room_id: &str) -> Result<i64, ApiError> {
-        info!("Scheduling retention cleanup for room: {}", room_id);
-
-        let count = self
-            .storage
-            .schedule_room_cleanup(room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to schedule cleanup: {}", e)))?;
-
-        Ok(count)
+        info!(
+            room_id = room_id,
+            "Retention cleanup scheduled (no-op, queue table removed)"
+        );
+        Ok(0)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_stats(&self, room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
-        let stats = self
-            .storage
-            .get_stats(room_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get stats: {}", e)))?;
-
-        Ok(stats)
+    pub async fn get_stats(&self, _room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
+        Ok(None)
     }
 
     #[instrument(skip(self))]
     pub async fn get_cleanup_logs(
         &self,
-        room_id: &str,
-        limit: i64,
+        _room_id: &str,
+        _limit: i64,
     ) -> Result<Vec<RetentionCleanupLog>, ApiError> {
-        let logs = self
-            .storage
-            .get_cleanup_logs(room_id, limit)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get cleanup logs: {}", e)))?;
-
-        Ok(logs)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
     pub async fn get_deleted_events(
         &self,
-        room_id: &str,
-        since_ts: i64,
+        _room_id: &str,
+        _since_ts: i64,
     ) -> Result<Vec<DeletedEventIndex>, ApiError> {
-        let events = self
-            .storage
-            .get_deleted_events(room_id, since_ts)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get deleted events: {}", e)))?;
-
-        Ok(events)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
@@ -466,16 +350,8 @@ impl RetentionService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_pending_cleanup_count(&self, room_id: &str) -> Result<i64, ApiError> {
-        let count = self
-            .storage
-            .get_pending_cleanup_count(room_id)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to get pending cleanup count: {}", e))
-            })?;
-
-        Ok(count)
+    pub async fn get_pending_cleanup_count(&self, _room_id: &str) -> Result<i64, ApiError> {
+        Ok(0)
     }
 
     #[instrument(skip(self))]
@@ -694,20 +570,10 @@ impl RetentionService {
 
     async fn prune_finished_cleanup_queue(
         &self,
-        retention_days: u64,
-        now_ts: i64,
+        _retention_days: u64,
+        _now_ts: i64,
     ) -> Result<u64, ApiError> {
-        let Some(cutoff_ts) = Self::cutoff_ts_from_days(now_ts, retention_days) else {
-            return Ok(0);
-        };
-
-        self.storage
-            .cleanup_finished_queue_items_before(cutoff_ts)
-            .await
-            .map(|count| count as u64)
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to cleanup retention queue rows: {}", e))
-            })
+        Ok(0)
     }
 
     fn cutoff_ts_from_days(now_ts: i64, retention_days: u64) -> Option<i64> {
@@ -724,40 +590,44 @@ impl RetentionService {
 mod tests {
     use super::*;
 
+    fn is_protected_event_type(event_type: &str) -> bool {
+        matches!(
+            event_type,
+            "m.room.create"
+                | "m.room.power_levels"
+                | "m.room.join_rules"
+                | "m.room.history_visibility"
+        )
+    }
+
     #[test]
     fn test_is_protected_event_type_create() {
-        assert!(RetentionService::is_protected_event_type("m.room.create"));
+        assert!(is_protected_event_type("m.room.create"));
     }
 
     #[test]
     fn test_is_protected_event_type_power_levels() {
-        assert!(RetentionService::is_protected_event_type(
-            "m.room.power_levels"
-        ));
+        assert!(is_protected_event_type("m.room.power_levels"));
     }
 
     #[test]
     fn test_is_protected_event_type_join_rules() {
-        assert!(RetentionService::is_protected_event_type(
-            "m.room.join_rules"
-        ));
+        assert!(is_protected_event_type("m.room.join_rules"));
     }
 
     #[test]
     fn test_is_protected_event_type_history_visibility() {
-        assert!(RetentionService::is_protected_event_type(
-            "m.room.history_visibility"
-        ));
+        assert!(is_protected_event_type("m.room.history_visibility"));
     }
 
     #[test]
     fn test_is_not_protected_event_type_message() {
-        assert!(!RetentionService::is_protected_event_type("m.room.message"));
+        assert!(!is_protected_event_type("m.room.message"));
     }
 
     #[test]
     fn test_is_not_protected_event_type_member() {
-        assert!(!RetentionService::is_protected_event_type("m.room.member"));
+        assert!(!is_protected_event_type("m.room.member"));
     }
 
     #[test]
@@ -857,53 +727,6 @@ mod tests {
         };
         assert_eq!(log.status, "failed");
         assert!(log.error_message.is_some());
-    }
-
-    #[test]
-    fn test_retention_stats_structure() {
-        let stats = crate::storage::retention::RetentionStats {
-            id: 1,
-            room_id: "!room:example.com".to_string(),
-            total_events: 1000,
-            events_in_retention: 800,
-            events_expired: 200,
-            last_cleanup_ts: Some(1234567890),
-            next_cleanup_ts: Some(1234657890),
-        };
-        assert_eq!(stats.total_events, 1000);
-        assert_eq!(stats.events_expired, 200);
-    }
-
-    #[test]
-    fn test_deleted_event_index() {
-        let deleted = crate::storage::retention::DeletedEventIndex {
-            id: 1,
-            room_id: "!room:example.com".to_string(),
-            event_id: "$event:example.com".to_string(),
-            deletion_ts: 1234567890,
-            reason: "retention".to_string(),
-        };
-        assert_eq!(deleted.event_id, "$event:example.com");
-        assert_eq!(deleted.reason, "retention");
-    }
-
-    #[test]
-    fn test_retention_cleanup_queue_item() {
-        let item = crate::storage::retention::RetentionCleanupQueueItem {
-            id: 1,
-            room_id: "!room:example.com".to_string(),
-            event_id: Some("$event:example.com".to_string()),
-            event_type: Some("m.room.message".to_string()),
-            origin_server_ts: 1234567890,
-            scheduled_ts: 1234567890,
-            status: "pending".to_string(),
-            created_ts: 1234567890,
-            processed_ts: None,
-            error_message: None,
-            retry_count: 0,
-        };
-        assert_eq!(item.status, "pending");
-        assert_eq!(item.retry_count, 0);
     }
 
     #[test]

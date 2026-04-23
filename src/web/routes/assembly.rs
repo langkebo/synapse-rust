@@ -154,7 +154,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_device_router())
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
-        .merge(create_key_backup_router(state.clone()))
         .merge(create_key_rotation_router(state.clone()))
         .merge(create_verification_router(state.clone()))
         .merge(create_relations_router(state.clone()))
@@ -226,19 +225,33 @@ pub fn create_router(state: AppState) -> Router {
 
     // Feature-gated extension routers
     #[cfg(feature = "friends")]
-    { router = router.merge(create_friend_router(state.clone())); }
+    {
+        router = router.merge(create_friend_router(state.clone()));
+    }
     #[cfg(feature = "voice-extended")]
-    { router = router.merge(create_voice_router(state.clone())); }
+    {
+        router = router.merge(create_voice_router(state.clone()));
+    }
     #[cfg(feature = "cas-sso")]
-    { router = router.merge(cas_routes(state.clone())); }
+    {
+        router = router.merge(cas_routes(state.clone()));
+    }
     #[cfg(feature = "external-services")]
-    { router = router.merge(create_external_service_router(state.clone())); }
+    {
+        router = router.merge(create_external_service_router(state.clone()));
+    }
     #[cfg(feature = "burn-after-read")]
-    { router = router.merge(create_burn_after_read_router(state.clone())); }
+    {
+        router = router.merge(create_burn_after_read_router(state.clone()));
+    }
     #[cfg(feature = "widgets")]
-    { router = router.merge(create_widget_router()); }
+    {
+        router = router.merge(create_widget_router());
+    }
     #[cfg(feature = "openclaw-routes")]
-    { router = router.merge(create_ai_connection_router()); }
+    {
+        router = router.merge(create_ai_connection_router());
+    }
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))

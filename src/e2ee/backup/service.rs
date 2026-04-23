@@ -268,8 +268,9 @@ impl KeyBackupService {
         let row = sqlx::query(
             r#"
             SELECT COALESCE(COUNT(*), 0) as count
-            FROM backup_keys
-            WHERE user_id = $1
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
             "#,
         )
         .bind(user_id)
@@ -282,10 +283,18 @@ impl KeyBackupService {
     pub async fn get_all_backup_keys(&self, user_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
-            SELECT user_id, backup_id, room_id, session_id, first_message_index,
-                   forwarded_count, is_verified, session_data
-            FROM backup_keys
-            WHERE user_id = $1
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                0::BIGINT AS first_message_index,
+                0::BIGINT AS forwarded_count,
+                FALSE AS is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
             "#,
         )
         .bind(user_id)
@@ -307,12 +316,15 @@ impl KeyBackupService {
 
         let rows = sqlx::query(
             r#"
-            SELECT room_id, COALESCE(COUNT(*), 0) as count
-            FROM backup_keys
-            WHERE backup_id = $1
-            GROUP BY room_id
+            SELECT bk.room_id, COALESCE(COUNT(*), 0) as count
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            GROUP BY bk.room_id
             "#,
         )
+        .bind(user_id)
         .bind(&backup.backup_id)
         .fetch_all(&*self.storage.pool)
         .await?;

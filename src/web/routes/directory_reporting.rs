@@ -2,8 +2,8 @@ use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
-    ensure_room_member, extract_token_from_headers, validate_event_id,
-    validate_room_alias, validate_room_id, validate_user_id, AppState,
+    ensure_room_member, extract_token_from_headers, validate_event_id, validate_room_alias,
+    validate_room_id, validate_user_id, AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},

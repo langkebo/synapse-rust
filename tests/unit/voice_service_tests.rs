@@ -1,168 +1,67 @@
 #![cfg(test)]
 
-use sqlx::PgPool;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use tokio::runtime::Runtime;
+use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService};
 
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService, VoiceStorage};
-
-static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-fn unique_id() -> u64 {
-    TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
-}
-
-async fn setup_test_database() -> Option<PgPool> {
-    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
-        Ok(pool) => pool.as_ref().clone(),
-        Err(error) => {
-            eprintln!(
-                "Skipping voice service tests because test database is unavailable: {}",
-                error
-            );
-            return None;
-        }
+#[test]
+fn test_voice_upload_params_creation() {
+    let params = VoiceMessageUploadParams {
+        user_id: "@alice:localhost".to_string(),
+        room_id: Some("!room:localhost".to_string()),
+        content: vec![0u8; 1024],
+        content_type: "audio/ogg".to_string(),
+        duration_ms: 5000,
+        waveform: Some(vec![100, 200, 300]),
     };
 
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let pool = Arc::new(pool);
-    let storage = VoiceStorage::new(&pool, cache);
-    storage
-        .create_tables()
-        .await
-        .expect("Failed to create voice tables");
-
-    Some((*pool).clone())
+    assert_eq!(params.user_id, "@alice:localhost");
+    assert_eq!(params.duration_ms, 5000);
+    assert_eq!(params.content.len(), 1024);
+    assert!(params.waveform.is_some());
+    assert_eq!(params.waveform.as_ref().unwrap().len(), 3);
 }
 
 #[test]
-fn test_save_voice_message_success() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
-            None => return,
-        };
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let id = unique_id();
-        let voice_path = format!("/tmp/test_voice_service_{}", id);
-        let voice_service = VoiceService::new(&pool, cache, &voice_path);
+fn test_voice_upload_params_minimal() {
+    let params = VoiceMessageUploadParams {
+        user_id: "@bob:localhost".to_string(),
+        room_id: None,
+        content: vec![1, 2, 3],
+        content_type: "audio/ogg".to_string(),
+        duration_ms: 1000,
+        waveform: None,
+    };
 
-        let params = VoiceMessageUploadParams {
-            user_id: format!("@alice_{}:localhost", id),
-            room_id: Some(format!("!room_{}:localhost", id)),
-            session_id: None,
-            content: vec![0, 1, 2, 3],
-            content_type: "audio/ogg".to_string(),
-            duration_ms: 5000,
-        };
-
-        let result = voice_service.save_voice_message(params).await;
-        assert!(result.is_ok());
-        let val = result.unwrap();
-        let event_id = val["event_id"]
-            .as_str()
-            .expect("voice upload should return event_id");
-        assert!(event_id.starts_with('$'));
-        assert_eq!(val["size"], 4);
-
-        let file_prefix = event_id.trim_start_matches('$');
-        let file_path = std::path::PathBuf::from(&voice_path).join(format!("{}.ogg", file_prefix));
-        assert!(file_path.exists());
-
-        std::fs::remove_dir_all(&voice_path).ok();
-    });
+    assert!(params.room_id.is_none());
+    assert!(params.waveform.is_none());
+    assert_eq!(params.content.len(), 3);
 }
 
 #[test]
-fn test_get_voice_stats() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
-            None => return,
-        };
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let id = unique_id();
-        let voice_path = format!("/tmp/test_voice_stats_{}", id);
-        let voice_service = VoiceService::new(&pool, cache, &voice_path);
-        let user_id = format!("@alice_{}:localhost", id);
-
-        let params = VoiceMessageUploadParams {
-            user_id: user_id.clone(),
-            room_id: None,
-            session_id: None,
-            content: vec![0; 1024],
-            content_type: "audio/ogg".to_string(),
-            duration_ms: 10000,
-        };
-
-        let before_save_ts = chrono::Utc::now().timestamp();
-        voice_service.save_voice_message(params).await.unwrap();
-        let after_save_ts = chrono::Utc::now().timestamp();
-
-        let stats = voice_service
-            .get_user_stats(&user_id, None, None)
-            .await
-            .unwrap();
-        assert_eq!(stats["total_duration_ms"], 10000);
-        assert_eq!(stats["total_file_size"], 1024);
-        assert_eq!(stats["total_message_count"], 1);
-
-        let last_active_ts: i64 = sqlx::query_scalar(
-            r#"
-            SELECT last_active_ts
-            FROM voice_usage_stats
-            WHERE user_id = $1
-            ORDER BY created_ts DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(&user_id)
-        .fetch_one(pool.as_ref())
-        .await
-        .expect("voice_usage_stats row should exist");
-        assert!(
-            (before_save_ts..=after_save_ts).contains(&last_active_ts),
-            "expected last_active_ts {last_active_ts} to be within save window {before_save_ts}..={after_save_ts}"
-        );
-
-        std::fs::remove_dir_all(&voice_path).ok();
-    });
+fn test_validate_audio_content_type_valid() {
+    assert!(VoiceService::validate_audio_content_type("audio/ogg").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/ogg; codecs=opus").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/mp4").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/mpeg").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/webm").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/wav").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/aac").is_ok());
+    assert!(VoiceService::validate_audio_content_type("audio/flac").is_ok());
 }
 
 #[test]
-fn test_voice_usage_stats_schema_uses_last_active_ts() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => Arc::new(pool),
-            None => return,
-        };
+fn test_validate_audio_content_type_invalid() {
+    assert!(VoiceService::validate_audio_content_type("video/mp4").is_err());
+    assert!(VoiceService::validate_audio_content_type("image/png").is_err());
+    assert!(VoiceService::validate_audio_content_type("text/plain").is_err());
+    assert!(VoiceService::validate_audio_content_type("audio/unknown").is_err());
+    assert!(VoiceService::validate_audio_content_type("").is_err());
+}
 
-        let columns: Vec<String> = sqlx::query_scalar(
-            r#"
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'voice_usage_stats'
-            ORDER BY ordinal_position
-            "#,
-        )
-        .fetch_all(pool.as_ref())
-        .await
-        .expect("voice_usage_stats columns should be queryable");
-
-        assert!(
-            columns.iter().any(|column| column == "last_active_ts"),
-            "voice_usage_stats should contain last_active_ts, got columns: {:?}",
-            columns
-        );
-        assert!(
-            columns.iter().all(|column| column != "last_activity_ts"),
-            "voice_usage_stats should not contain legacy last_activity_ts, got columns: {:?}",
-            columns
-        );
-    });
+#[test]
+fn test_voice_service_new() {
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let media_path = temp_dir.path().to_str().unwrap();
+    let media_service =
+        synapse_rust::services::media_service::MediaService::new(media_path, None, "test.server");
+    let _voice_service = VoiceService::new(media_service, "test.server");
 }

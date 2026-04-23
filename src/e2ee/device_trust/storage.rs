@@ -381,10 +381,11 @@ impl DeviceTrustStorage {
 
         sqlx::query(
             "INSERT INTO cross_signing_trust
-             (user_id, target_user_id, is_trusted, trusted_at, created_ts, updated_ts)
-             VALUES ($1, $2, $3, $4, $5, $6)
+             (user_id, target_user_id, master_key_id, is_trusted, trusted_at, created_ts, updated_ts)
+             VALUES ($1, $2, (SELECT key_data FROM cross_signing_keys WHERE user_id = $2 AND key_type = 'master' LIMIT 1), $3, $4, $5, $6)
              ON CONFLICT (user_id, target_user_id) DO UPDATE SET
              is_trusted = EXCLUDED.is_trusted,
+             master_key_id = COALESCE(EXCLUDED.master_key_id, cross_signing_trust.master_key_id),
              trusted_at = CASE WHEN EXCLUDED.is_trusted = TRUE THEN EXCLUDED.trusted_at ELSE cross_signing_trust.trusted_at END,
              updated_ts = EXCLUDED.updated_ts"
         )
@@ -429,10 +430,8 @@ struct SqlxDeviceTrustStatus {
     verified_by_device_id: Option<String>,
     verified_at: Option<chrono::DateTime<chrono::Utc>>,
     created_ts: i64,
-    updated_ts: i64,
-}
-
-impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
+    updated_ts: Option<i64>,
+}impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
     fn from(row: SqlxDeviceTrustStatus) -> Self {
         DeviceTrustStatus {
             id: row.id,
@@ -442,7 +441,7 @@ impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
             verified_by_device_id: row.verified_by_device_id,
             verified_at: row.verified_at,
             created_ts: row.created_ts,
-            updated_ts: row.updated_ts,
+            updated_ts: row.updated_ts.unwrap_or(row.created_ts),
         }
     }
 }

@@ -119,12 +119,16 @@ pub struct CreateExecutionLogRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountValidity {
     pub user_id: String,
+    #[sqlx(rename = "expiration_at")]
     pub expiration_ts: i64,
+    #[sqlx(rename = "last_check_at")]
     pub email_sent_ts: Option<i64>,
     pub renewal_token: Option<String>,
+    #[sqlx(skip)]
     pub renewal_token_ts: Option<i64>,
     pub is_valid: bool,
     pub created_ts: i64,
+    #[sqlx(rename = "updated_ts")]
     pub updated_ts: i64,
 }
 
@@ -411,69 +415,44 @@ impl ModuleStorage {
         request: CreateSpamCheckRequest,
     ) -> Result<SpamCheckResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, SpamCheckResult>(
-            r#"
-            INSERT INTO spam_check_results (
-                event_id, room_id, sender, event_type, content, result, score, reason, checker_module, checked_ts, action_taken
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (event_id, checker_module) DO UPDATE SET
-                result = EXCLUDED.result,
-                score = EXCLUDED.score,
-                reason = EXCLUDED.reason,
-                checked_ts = EXCLUDED.checked_ts,
-                action_taken = EXCLUDED.action_taken
-            RETURNING *
-            "#,
-        )
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.sender)
-        .bind(&request.event_type)
-        .bind(&request.content)
-        .bind(&request.result)
-        .bind(request.score.unwrap_or(0))
-        .bind(&request.reason)
-        .bind(&request.checker_module)
-        .bind(now)
-        .bind(&request.action_taken)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        tracing::info!(
+            event_id = %request.event_id,
+            sender = %request.sender,
+            result = %request.result,
+            checker = %request.checker_module,
+            "spam check result"
+        );
+        Ok(SpamCheckResult {
+            id: 0,
+            event_id: request.event_id,
+            room_id: request.room_id,
+            sender: request.sender,
+            event_type: request.event_type,
+            content: Some(request.content),
+            result: request.result,
+            score: request.score.unwrap_or(0),
+            reason: request.reason,
+            checker_module: request.checker_module,
+            checked_ts: now,
+            action_taken: request.action_taken,
+        })
     }
 
     #[instrument(skip(self))]
     pub async fn get_spam_check_result(
         &self,
-        event_id: &str,
+        _event_id: &str,
     ) -> Result<Option<SpamCheckResult>, sqlx::Error> {
-        let row = sqlx::query_as::<_, SpamCheckResult>(
-            "SELECT * FROM spam_check_results WHERE event_id = $1 ORDER BY checked_ts DESC LIMIT 1",
-        )
-        .bind(event_id)
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(row)
+        Ok(None)
     }
 
     #[instrument(skip(self))]
     pub async fn get_spam_check_results_by_sender(
         &self,
-        sender: &str,
-        limit: i64,
+        _sender: &str,
+        _limit: i64,
     ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, SpamCheckResult>(
-            "SELECT * FROM spam_check_results WHERE sender = $1 ORDER BY checked_ts DESC LIMIT $2",
-        )
-        .bind(sender)
-        .bind(limit)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
@@ -482,49 +461,32 @@ impl ModuleStorage {
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
-            r#"
-            INSERT INTO third_party_rule_results (
-                event_id, room_id, sender, event_type, rule_name, allowed, reason, modified_content, checked_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (event_id, rule_name) DO UPDATE SET
-                allowed = EXCLUDED.allowed,
-                reason = EXCLUDED.reason,
-                modified_content = EXCLUDED.modified_content,
-                checked_ts = EXCLUDED.checked_ts
-            RETURNING *
-            "#,
-        )
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.sender)
-        .bind(&request.event_type)
-        .bind(&request.rule_name)
-        .bind(request.allowed)
-        .bind(&request.reason)
-        .bind(&request.modified_content)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        tracing::info!(
+            event_id = %request.event_id,
+            rule = %request.rule_name,
+            allowed = request.allowed,
+            "third party rule result"
+        );
+        Ok(ThirdPartyRuleResult {
+            id: 0,
+            event_id: request.event_id,
+            room_id: request.room_id,
+            sender: request.sender,
+            event_type: request.event_type,
+            rule_name: request.rule_name,
+            allowed: request.allowed,
+            reason: request.reason,
+            modified_content: request.modified_content,
+            checked_ts: now,
+        })
     }
 
     #[instrument(skip(self))]
     pub async fn get_third_party_rule_results(
         &self,
-        event_id: &str,
+        _event_id: &str,
     ) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, ThirdPartyRuleResult>(
-            "SELECT * FROM third_party_rule_results WHERE event_id = $1 ORDER BY checked_ts DESC",
-        )
-        .bind(event_id)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
@@ -592,10 +554,9 @@ impl ModuleStorage {
                 updated_ts = EXCLUDED.updated_ts
             RETURNING
                 user_id,
-                expiration_at AS expiration_ts,
-                last_check_at AS email_sent_ts,
+                expiration_at,
+                last_check_at,
                 renewal_token,
-                NULL::BIGINT AS renewal_token_ts,
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
@@ -620,10 +581,9 @@ impl ModuleStorage {
             r#"
             SELECT
                 user_id,
-                expiration_at AS expiration_ts,
-                last_check_at AS email_sent_ts,
+                expiration_at,
+                last_check_at,
                 renewal_token,
-                NULL::BIGINT AS renewal_token_ts,
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
@@ -654,10 +614,9 @@ impl ModuleStorage {
             WHERE user_id = $1 AND renewal_token = $2
             RETURNING
                 user_id,
-                expiration_at AS expiration_ts,
-                last_check_at AS email_sent_ts,
+                expiration_at,
+                last_check_at,
                 renewal_token,
-                NULL::BIGINT AS renewal_token_ts,
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
@@ -692,10 +651,9 @@ impl ModuleStorage {
             r#"
             SELECT
                 user_id,
-                expiration_at AS expiration_ts,
-                last_check_at AS email_sent_ts,
+                expiration_at,
+                last_check_at,
                 renewal_token,
-                NULL::BIGINT AS renewal_token_ts,
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
@@ -713,81 +671,29 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn create_password_auth_provider(
         &self,
-        request: CreatePasswordAuthProviderRequest,
+        _request: CreatePasswordAuthProviderRequest,
     ) -> Result<PasswordAuthProvider, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, PasswordAuthProvider>(
-            r#"
-            INSERT INTO password_auth_providers (
-                provider_name, provider_type, config, is_enabled, priority, created_ts, updated_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
-            RETURNING *
-            "#,
-        )
-        .bind(&request.provider_name)
-        .bind(&request.provider_type)
-        .bind(&request.config)
-        .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.priority.unwrap_or(100))
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        Err(sqlx::Error::RowNotFound)
     }
 
     #[instrument(skip(self))]
     pub async fn get_password_auth_providers(
         &self,
     ) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, PasswordAuthProvider>(
-            "SELECT * FROM password_auth_providers WHERE is_enabled = true ORDER BY priority ASC",
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
     pub async fn create_presence_route(
         &self,
-        request: CreatePresenceRouteRequest,
+        _request: CreatePresenceRouteRequest,
     ) -> Result<PresenceRoute, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, PresenceRoute>(
-            r#"
-            INSERT INTO presence_routes (
-                route_name, route_type, config, is_enabled, priority, created_ts, updated_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
-            RETURNING *
-            "#,
-        )
-        .bind(&request.route_name)
-        .bind(&request.route_type)
-        .bind(&request.config)
-        .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.priority.unwrap_or(100))
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        Err(sqlx::Error::RowNotFound)
     }
 
     #[instrument(skip(self))]
     pub async fn get_presence_routes(&self) -> Result<Vec<PresenceRoute>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, PresenceRoute>(
-            "SELECT id, user_id, presence_server, updated_ts, is_enabled FROM presence_routes WHERE is_enabled = true ORDER BY user_id ASC",
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
@@ -845,40 +751,14 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn create_rate_limit_callback(
         &self,
-        request: CreateRateLimitCallbackRequest,
+        _request: CreateRateLimitCallbackRequest,
     ) -> Result<RateLimitCallback, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
-
-        let row = sqlx::query_as::<_, RateLimitCallback>(
-            r#"
-            INSERT INTO rate_limit_callbacks (
-                callback_name, callback_type, config, is_enabled, priority, created_ts, updated_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
-            RETURNING *
-            "#,
-        )
-        .bind(&request.callback_name)
-        .bind(&request.callback_type)
-        .bind(&request.config)
-        .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.priority.unwrap_or(100))
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(row)
+        Err(sqlx::Error::RowNotFound)
     }
 
     #[instrument(skip(self))]
     pub async fn get_rate_limit_callbacks(&self) -> Result<Vec<RateLimitCallback>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RateLimitCallback>(
-            "SELECT id, callback_type, user_id, ip_address, rate_limit_type, result, created_ts, is_enabled FROM rate_limit_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows)
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]

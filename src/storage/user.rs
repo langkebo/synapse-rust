@@ -212,7 +212,9 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_at, migration_state
+                   appservice_id, user_type, invalid_update_at, migration_state,
+                   email, phone, password_changed_ts, is_password_change_required,
+                   password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1
@@ -484,7 +486,9 @@ impl UserStorage {
             r#"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
-                   appservice_id, user_type, invalid_update_at, migration_state
+                   appservice_id, user_type, invalid_update_at, migration_state,
+                   email, phone, password_changed_ts, is_password_change_required,
+                   password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE user_id = ANY($1)
             "#,

@@ -3,9 +3,7 @@ use crate::services::widget_service::{
     CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse,
     SetPermissionRequest, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };
-use crate::web::routes::{
-    ensure_room_member, is_joined_room_member, AppState, AuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},
@@ -415,7 +413,7 @@ async fn ensure_room_widget_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -429,7 +427,7 @@ async fn ensure_room_widget_manage_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -437,7 +435,6 @@ async fn ensure_room_widget_manage_access(
     )
     .await?;
 
-    // 为了兼容测试，暂时允许普通成员创建 Widget，或者改为验证 PL >= 50
     let is_moderator = state
         .services
         .auth_service
@@ -445,22 +442,24 @@ async fn ensure_room_widget_manage_access(
         .await
         .is_ok();
 
-    if !is_moderator {
-        // 如果不是 moderator，检查是否是 room creator (作为 fallback)
-        let is_creator = state
-            .services
-            .room_service
-            .is_room_creator(room_id, &auth_user.user_id)
-            .await
-            .unwrap_or(false);
-        
-        if !is_creator {
-            // 如果还是不行，记录警告但允许通过 (仅用于修复测试缺陷)
-            ::tracing::warn!("User {} is not moderator/creator in room {}, but allowing widget management for testing", auth_user.user_id, room_id);
-        }
+    if is_moderator {
+        return Ok(());
     }
 
-    Ok(())
+    let is_creator = state
+        .services
+        .room_service
+        .is_room_creator(room_id, &auth_user.user_id)
+        .await
+        .unwrap_or(false);
+
+    if is_creator {
+        return Ok(());
+    }
+
+    Err(ApiError::forbidden(
+        "You must be a moderator or room creator to manage widgets".to_string(),
+    ))
 }
 
 async fn get_widget_with_access(
@@ -536,7 +535,7 @@ async fn get_room_widget_capabilities(
     auth_user: AuthenticatedUser,
     Path((room_id, widget_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         &state,
         &auth_user,
         &room_id,
@@ -570,7 +569,7 @@ async fn set_room_widget_capabilities(
     Path((room_id, widget_id)): Path<(String, String)>,
     Json(body): Json<WidgetCapabilitiesBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         &state,
         &auth_user,
         &room_id,
@@ -620,7 +619,7 @@ async fn send_room_widget_message(
     Path((room_id, widget_id)): Path<(String, String)>,
     Json(body): Json<SendWidgetMessageBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         &state,
         &auth_user,
         &room_id,

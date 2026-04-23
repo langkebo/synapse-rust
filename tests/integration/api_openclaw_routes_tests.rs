@@ -165,12 +165,8 @@ async fn test_openclaw_routes_mount_only_under_unstable_prefix_when_enabled() {
 
     let user_token = super::create_test_user(&app).await;
 
-    let (stable_status, _) = get_json_response(
-        &app,
-        "/_matrix/client/v3/openclaw/connections",
-        &user_token,
-    )
-    .await;
+    let (stable_status, _) =
+        get_json_response(&app, "/_matrix/client/v3/openclaw/connections", &user_token).await;
     assert_eq!(stable_status, StatusCode::NOT_FOUND);
 
     let (unstable_status, unstable_json) = get_json_response(
@@ -233,10 +229,7 @@ async fn test_openclaw_create_connection_rejects_localhost_base_url() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["errcode"], "M_BAD_JSON");
-    assert_eq!(
-        body["error"],
-        "OpenClaw base_url cannot target localhost"
-    );
+    assert_eq!(body["error"], "OpenClaw base_url cannot target localhost");
 }
 
 #[tokio::test]
@@ -288,12 +281,14 @@ async fn test_openclaw_private_connection_returns_not_found_to_other_users() {
         return;
     };
 
-    let (owner_token, _) = register_user(&app, &format!("openclaw_owner_{}", rand::random::<u32>()))
-        .await
-        .unwrap();
-    let (other_token, _) = register_user(&app, &format!("openclaw_other_{}", rand::random::<u32>()))
-        .await
-        .unwrap();
+    let (owner_token, _) =
+        register_user(&app, &format!("openclaw_owner_{}", rand::random::<u32>()))
+            .await
+            .unwrap();
+    let (other_token, _) =
+        register_user(&app, &format!("openclaw_other_{}", rand::random::<u32>()))
+            .await
+            .unwrap();
 
     let (create_status, create_body) = json_response(
         &app,
@@ -332,12 +327,18 @@ async fn test_openclaw_private_role_is_hidden_but_public_role_remains_readable()
         return;
     };
 
-    let (owner_token, _) = register_user(&app, &format!("openclaw_role_owner_{}", rand::random::<u32>()))
-        .await
-        .unwrap();
-    let (other_token, _) = register_user(&app, &format!("openclaw_role_other_{}", rand::random::<u32>()))
-        .await
-        .unwrap();
+    let (owner_token, _) = register_user(
+        &app,
+        &format!("openclaw_role_owner_{}", rand::random::<u32>()),
+    )
+    .await
+    .unwrap();
+    let (other_token, _) = register_user(
+        &app,
+        &format!("openclaw_role_other_{}", rand::random::<u32>()),
+    )
+    .await
+    .unwrap();
 
     let (private_status, private_body) = json_response(
         &app,

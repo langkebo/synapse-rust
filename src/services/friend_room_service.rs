@@ -1,6 +1,6 @@
 use crate::common::{generate_event_id, ApiError, ApiResult};
-use crate::federation::KeyRotationManager;
 use crate::federation::friend::FriendFederationClient;
+use crate::federation::KeyRotationManager;
 use crate::services::RoomService;
 use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage};
 use serde_json::json;
@@ -115,10 +115,10 @@ impl FriendRoomService {
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
-                if error_msg.contains("foreign key") {
-                    ApiError::database(format!(
-                        "Failed to create friend request: user not found - {}",
-                        error_msg
+                if error_msg.contains("foreign key") || error_msg.contains("no rows returned") {
+                    ApiError::not_found(format!(
+                        "Cannot send friend request: user not found - {}",
+                        receiver_id
                     ))
                 } else {
                     ApiError::database(format!("Failed to create friend request: {}", error_msg))

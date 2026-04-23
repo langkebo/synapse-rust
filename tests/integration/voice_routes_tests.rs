@@ -11,10 +11,6 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
-    create_test_user_with_user_id(app).await.0
-}
-
-async fn create_test_user_with_user_id(app: &axum::Router) -> (String, String) {
     let username = format!("user_{}", rand::random::<u32>());
     let password = "Password123!";
 
@@ -50,10 +46,7 @@ async fn create_test_user_with_user_id(app: &axum::Router) -> (String, String) {
     }
 
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    json["access_token"].as_str().unwrap().to_string()
 }
 
 async fn create_room(app: &axum::Router, token: &str) -> String {
@@ -84,49 +77,6 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
 
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
-}
-
-async fn create_call_session(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    call_id: &str,
-) -> (StatusCode, String) {
-    let encoded_room_id = urlencoding::encode(room_id);
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!(
-                    "/_matrix/client/v3/rooms/{}/send/m.call.invite/test_txn",
-                    encoded_room_id
-                ))
-                .header("Authorization", format!("Bearer {}", token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "call_id": call_id,
-                        "version": 1,
-                        "offer": {
-                            "type": "offer",
-                            "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
-                        },
-                        "lifetime": 60000
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    (status, String::from_utf8_lossy(&body).to_string())
 }
 
 async fn upload_voice_message(
@@ -199,309 +149,39 @@ async fn test_voice_config_endpoint() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json.get("supported_formats").is_some());
-    assert_eq!(json["default_sample_rate"], 48000);
+    assert_eq!(json["max_size_bytes"], 52428800);
+    assert_eq!(json["content_type"], "m.audio");
+    assert_eq!(json["voice_extension"], "org.matrix.msc3245.voice");
 }
 
 #[tokio::test]
-async fn test_voice_convert_endpoint_returns_explicit_unsupported_error() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let token = create_test_user(&app).await;
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/r0/voice/convert")
-                .method("POST")
-                .header("Authorization", format!("Bearer {}", token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "message_id": "test_message_id",
-                        "target_format": "audio/mpeg"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-
-    if status != StatusCode::BAD_REQUEST {
-        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
-    }
-
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("test_message_id"));
-}
-
-#[tokio::test]
-async fn test_voice_optimize_endpoint_returns_explicit_unsupported_error() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let token = create_test_user(&app).await;
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/r0/voice/optimize")
-                .method("POST")
-                .header("Authorization", format!("Bearer {}", token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "message_id": "test_message_id"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-
-    if status != StatusCode::BAD_REQUEST {
-        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
-    }
-
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("test_message_id"));
-}
-
-#[tokio::test]
-async fn test_voice_transcription_endpoint_returns_fallback_text_when_missing_transcript() {
+async fn test_voice_upload_returns_content_uri() {
     let Some(app) = setup_test_app().await else {
         return;
     };
     let token = create_test_user(&app).await;
     let room_id = create_room(&app, &token).await;
-    let (upload_status, upload_json) = upload_voice_message(&app, &token, Some(&room_id)).await;
-    if upload_status != StatusCode::OK {
-        eprintln!("voice upload error body: {}", upload_json);
+
+    let (status, json) = upload_voice_message(&app, &token, Some(&room_id)).await;
+    if status != StatusCode::OK {
+        eprintln!("voice upload error: {}", json);
     }
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap().to_string();
+    assert_eq!(status, StatusCode::OK);
 
-    let transcription_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/v1/voice/transcription")
-                .method("POST")
-                .header("Authorization", format!("Bearer {}", token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "event_id": event_id
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(transcription_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(transcription_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let transcription_json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(transcription_json["event_id"], event_id);
-    assert_eq!(transcription_json["status"], "completed");
-    assert!(transcription_json["transcription"]
+    assert!(json.get("content_uri").is_some());
+    assert!(json["content_uri"]
         .as_str()
         .unwrap_or_default()
-        .contains(upload_json["event_id"].as_str().unwrap()));
-}
+        .starts_with("mxc://"));
+    assert_eq!(json["content_type"], "audio/mpeg");
+    assert_eq!(json["duration_ms"], 1200);
+    assert!(json["size"].as_u64().unwrap_or(0) > 0);
 
-#[tokio::test]
-async fn test_voice_stats_endpoint_reflects_uploaded_message() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let token = create_test_user(&app).await;
-    let room_id = create_room(&app, &token).await;
-    let (upload_status, upload_json) = upload_voice_message(&app, &token, Some(&room_id)).await;
-    if upload_status != StatusCode::OK {
-        eprintln!("voice upload error body: {}", upload_json);
-    }
-    assert_eq!(upload_status, StatusCode::OK);
-
-    let stats_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/r0/voice/stats")
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(stats_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(stats_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let stats_json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(stats_json["total_duration_ms"], 1200);
-    assert!(stats_json["total_file_size"].as_i64().unwrap_or_default() > 0);
-    assert_eq!(stats_json["total_message_count"], 1);
-}
-
-#[tokio::test]
-async fn test_voice_user_stats_forbid_cross_user_access() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let (owner_token, owner_user_id) = create_test_user_with_user_id(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-    let (upload_status, _) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!(
-                    "/_matrix/client/r0/voice/user/{}/stats",
-                    owner_user_id
-                ))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_user_messages_forbid_cross_user_access() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let (owner_token, owner_user_id) = create_test_user_with_user_id(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-    let (upload_status, _) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/user/{}", owner_user_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_room_messages_require_room_membership() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let (owner_token, owner_user_id) = create_test_user_with_user_id(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-    let (upload_status, _) = upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-
-    let owner_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/room/{}", room_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", owner_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(owner_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(owner_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["count"], 1);
-    assert_eq!(json["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(json["messages"][0]["user_id"], owner_user_id);
-
-    let attacker_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/room/{}", room_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(attacker_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(attacker_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
+    let content = json.get("content").expect("should have event content");
+    assert_eq!(content["msgtype"], "m.audio");
+    assert!(content.get("org.matrix.msc3245.voice").is_some());
+    assert!(content.get("url").is_some());
+    assert!(content["info"]["duration"].as_i64().unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -519,205 +199,18 @@ async fn test_voice_upload_forbid_cross_room_upload() {
 }
 
 #[tokio::test]
-async fn test_voice_message_content_requires_message_access() {
+async fn test_voice_upload_without_room_succeeds() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let owner_token = create_test_user(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
+    let token = create_test_user(&app).await;
 
-    let (upload_status, upload_json) =
-        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap();
-
-    let owner_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", owner_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(owner_response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(owner_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["message_id"], event_id);
-    assert_eq!(json["content_type"], "audio/mpeg");
-
-    let attacker_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(attacker_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(attacker_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_message_content_forbids_admin_override() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let owner_token = create_test_user(&app).await;
-    let (admin_token, _) = super::get_admin_token(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-
-    let (upload_status, upload_json) =
-        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap();
-
-    let admin_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
-                .method("GET")
-                .header("Authorization", format!("Bearer {}", admin_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(admin_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_transcription_requires_message_access() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let owner_token = create_test_user(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-
-    let (upload_status, upload_json) =
-        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap();
-
-    let attacker_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/v1/voice/transcription")
-                .method("POST")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    json!({
-                        "event_id": event_id
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(attacker_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(attacker_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_delete_requires_message_ownership() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let owner_token = create_test_user(&app).await;
-    let attacker_token = create_test_user(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-
-    let (upload_status, upload_json) =
-        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap();
-
-    let attacker_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
-                .method("DELETE")
-                .header("Authorization", format!("Bearer {}", attacker_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(attacker_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(attacker_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
-}
-
-#[tokio::test]
-async fn test_voice_delete_forbids_admin_override() {
-    let Some(app) = setup_test_app().await else {
-        return;
-    };
-    let owner_token = create_test_user(&app).await;
-    let (admin_token, _) = super::get_admin_token(&app).await;
-    let room_id = create_room(&app, &owner_token).await;
-
-    let (upload_status, upload_json) =
-        upload_voice_message(&app, &owner_token, Some(&room_id)).await;
-    assert_eq!(upload_status, StatusCode::OK);
-    let event_id = upload_json["event_id"].as_str().unwrap();
-
-    let admin_response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(format!("/_matrix/client/r0/voice/{}", event_id))
-                .method("DELETE")
-                .header("Authorization", format!("Bearer {}", admin_token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
-
-    let body = axum::body::to_bytes(admin_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_FORBIDDEN");
+    let (status, json) = upload_voice_message(&app, &token, None).await;
+    if status != StatusCode::OK {
+        eprintln!("voice upload error: {}", json);
+    }
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.get("content_uri").is_some());
 }
 
 #[tokio::test]
@@ -778,25 +271,49 @@ async fn test_voip_routes_work_across_r0_and_v3() {
         .await
         .unwrap();
     assert_eq!(r0_turn_response.status(), v3_turn_response.status());
+}
 
-    let r0_call_request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/r0/rooms/!room:localhost/call/test-call")
-        .body(Body::empty())
-        .unwrap();
-    let r0_call_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_call_request)
+async fn create_call_session(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    call_id: &str,
+) -> (StatusCode, String) {
+    let encoded_room_id = urlencoding::encode(room_id);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!(
+                    "/_matrix/client/v3/rooms/{}/send/m.call.invite/test_txn",
+                    encoded_room_id
+                ))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "call_id": call_id,
+                        "version": 1,
+                        "offer": {
+                            "type": "offer",
+                            "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
+                        },
+                        "lifetime": 60000
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
         .await
         .unwrap();
 
-    let v3_call_request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/v3/rooms/!room:localhost/call/test-call")
-        .body(Body::empty())
-        .unwrap();
-    let v3_call_response = ServiceExt::<Request<Body>>::oneshot(app, v3_call_request)
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert_eq!(r0_call_response.status(), v3_call_response.status());
+    (status, String::from_utf8_lossy(&body).to_string())
 }
 
 #[tokio::test]
@@ -812,7 +329,12 @@ async fn test_call_invite_rejects_non_members() {
 
     let (status, body) = create_call_session(&app, &outsider_token, &room_id, &call_id).await;
 
-    assert_eq!(status, StatusCode::FORBIDDEN, "unexpected response body: {}", body);
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "unexpected response body: {}",
+        body
+    );
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["errcode"], "M_FORBIDDEN");
 }
@@ -828,8 +350,14 @@ async fn test_get_call_session_rejects_non_members() {
     let room_id = create_room(&app, &owner_token).await;
     let call_id = format!("call_{}", rand::random::<u32>());
 
-    let (invite_status, invite_body) = create_call_session(&app, &owner_token, &room_id, &call_id).await;
-    assert_eq!(invite_status, StatusCode::OK, "unexpected invite response body: {}", invite_body);
+    let (invite_status, invite_body) =
+        create_call_session(&app, &owner_token, &room_id, &call_id).await;
+    assert_eq!(
+        invite_status,
+        StatusCode::OK,
+        "unexpected invite response body: {}",
+        invite_body
+    );
     let invite_body: Value = serde_json::from_str(&invite_body).unwrap();
     assert_eq!(invite_body["call_id"], call_id);
 

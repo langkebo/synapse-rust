@@ -42,6 +42,7 @@ struct RoomRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
+    #[sqlx(rename = "join_rules")]
     join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
@@ -59,6 +60,7 @@ struct RoomWithMembersRecord {
     topic: Option<String>,
     avatar_url: Option<String>,
     canonical_alias: Option<String>,
+    #[sqlx(rename = "join_rules")]
     join_rule: Option<String>,
     creator: Option<String>,
     room_version: Option<String>,
@@ -170,7 +172,7 @@ impl RoomStorage {
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRecord>(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
                   COALESCE(rs.member_count, joined.joined_members, 0) as member_count, rs.is_encrypted as is_encrypted, r.is_public, r.history_visibility, r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
@@ -221,7 +223,7 @@ impl RoomStorage {
 
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
                   r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
@@ -276,7 +278,7 @@ impl RoomStorage {
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
                   r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
@@ -324,7 +326,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, i64)>, sqlx::Error> {
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
                    r.room_version, r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
@@ -752,20 +754,23 @@ impl RoomStorage {
     pub async fn set_room_account_data(
         &self,
         room_id: &str,
+        user_id: &str,
         event_type: &str,
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            INSERT INTO room_account_data (room_id, event_type, content, created_ts)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (room_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts
+            INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
             "#,
         )
+        .bind(user_id)
         .bind(room_id)
         .bind(event_type)
         .bind(content)
-        .bind(chrono::Utc::now().timestamp())
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -945,7 +950,7 @@ impl RoomStorage {
 
         let rows: Vec<RoomWithMembersRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
                    r.room_version, r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility,
                    r.created_ts, COUNT(rm.user_id) as joined_members
             FROM rooms r
@@ -1018,7 +1023,7 @@ impl RoomStorage {
     ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules as join_rule, r.creator, r.room_version,
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
                   r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id

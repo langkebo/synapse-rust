@@ -578,6 +578,63 @@ impl MediaService {
 
         result.map_err(ApiError::not_found)
     }
+
+    pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
+        let media_path = self.media_path.clone();
+        let thumbnail_path = self.thumbnail_path.clone();
+        let before_time = std::time::UNIX_EPOCH + std::time::Duration::from_millis(before_ts as u64);
+        let mut deleted_count = 0u64;
+
+        let media_deleted = tokio::task::spawn_blocking(move || {
+            let mut count = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&media_path) {
+                for entry in entries.flatten() {
+                    if let Ok(metadata) = entry.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            if modified < before_time {
+                                if let Err(e) = std::fs::remove_file(entry.path()) {
+                                    ::tracing::warn!("Failed to delete cached media: {}", e);
+                                } else {
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            count
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+
+        deleted_count += media_deleted;
+
+        let thumb_deleted = tokio::task::spawn_blocking(move || {
+            let mut count = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&thumbnail_path) {
+                for entry in entries.flatten() {
+                    if let Ok(metadata) = entry.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            if modified < before_time {
+                                if let Err(e) = std::fs::remove_file(entry.path()) {
+                                    ::tracing::warn!("Failed to delete cached thumbnail: {}", e);
+                                } else {
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            count
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+
+        deleted_count += thumb_deleted;
+        ::tracing::info!("Purged {} media files older than timestamp {}", deleted_count, before_ts);
+        Ok(deleted_count)
+    }
 }
 
 fn media_file_matches_id(file_name: &str, media_id: &str) -> bool {

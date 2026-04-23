@@ -103,6 +103,7 @@ fn create_test_config() -> Config {
             inbound_presence_backoff_ms: 3000,
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
+            admission_mode: false,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),
@@ -159,7 +160,8 @@ async fn setup_test_app() -> Option<axum::Router> {
     Some(app)
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
+{
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
@@ -283,7 +285,9 @@ async fn send_message_event(
         .await
         .ok()?;
     let json: Value = serde_json::from_slice(&body).ok()?;
-    json.get("event_id")?.as_str().map(|value| value.to_string())
+    json.get("event_id")?
+        .as_str()
+        .map(|value| value.to_string())
 }
 
 #[tokio::test]
@@ -297,8 +301,12 @@ async fn test_user_rooms_rejects_admin_access_to_other_users_scope() {
     let owner_user_id = format!("@{}:localhost", owner_name);
     let admin_user_id = format!("@{}:localhost", admin_name);
 
-    let owner_token = register_user(&app, &owner_name).await.expect("owner should register");
-    let admin_token = register_user(&app, &admin_name).await.expect("admin should register");
+    let owner_token = register_user(&app, &owner_name)
+        .await
+        .expect("owner should register");
+    let admin_token = register_user(&app, &admin_name)
+        .await
+        .expect("admin should register");
     promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = create_room(&app, &owner_token, "owner room")
@@ -521,14 +529,16 @@ async fn test_private_room_member_endpoints_reject_invited_user() {
     assert_eq!(members_response.status(), StatusCode::FORBIDDEN);
 
     let joined_members_request = Request::builder()
-        .uri(format!("/_matrix/client/r0/rooms/{}/joined_members", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/joined_members",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", bob_token))
         .body(Body::empty())
         .unwrap();
-    let joined_members_response =
-        ServiceExt::<Request<Body>>::oneshot(app, joined_members_request)
-            .await
-            .unwrap();
+    let joined_members_response = ServiceExt::<Request<Body>>::oneshot(app, joined_members_request)
+        .await
+        .unwrap();
     assert_eq!(joined_members_response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -560,7 +570,10 @@ async fn test_private_room_aliases_reject_non_member() {
 
     let outsider_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/directory/room/{}/alias", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();
@@ -571,7 +584,10 @@ async fn test_private_room_aliases_reject_non_member() {
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/directory/room/{}/alias", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/room/{}/alias",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -1123,9 +1139,7 @@ async fn test_room_write_routes_reject_admin_non_member() {
         .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "user_id": member_user_id }).to_string(),
-        ))
+        .body(Body::from(json!({ "user_id": member_user_id }).to_string()))
         .unwrap();
     let invite_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), invite_request)
         .await
@@ -1193,7 +1207,9 @@ async fn test_room_write_routes_reject_admin_non_member() {
         ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "topic": "admin outsider topic" }).to_string()))
+        .body(Body::from(
+            json!({ "topic": "admin outsider topic" }).to_string(),
+        ))
         .unwrap();
     let state_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), state_request)
         .await
@@ -1429,9 +1445,7 @@ async fn test_upgrade_room_requires_tombstone_permission() {
         .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "user_id": member_user_id }).to_string(),
-        ))
+        .body(Body::from(json!({ "user_id": member_user_id }).to_string()))
         .unwrap();
     let invite_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), invite_request)
         .await
@@ -1686,7 +1700,10 @@ async fn test_room_visibility_route_rejects_admin_non_creator() {
 
     let admin_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/directory/list/room/{}", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/list/room/{}",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "visibility": "public" }).to_string()))
@@ -1698,7 +1715,10 @@ async fn test_room_visibility_route_rejects_admin_non_creator() {
 
     let owner_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/directory/list/room/{}", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/list/room/{}",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "visibility": "public" }).to_string()))
@@ -1735,9 +1755,7 @@ async fn test_knock_rejects_invite_only_room() {
         .uri(format!("/_matrix/client/v3/knock/{}", room_id))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "reason": "let me in" }).to_string(),
-        ))
+        .body(Body::from(json!({ "reason": "let me in" }).to_string()))
         .unwrap();
     let knock_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), knock_request)
         .await
@@ -1768,7 +1786,10 @@ async fn test_room_visibility_route_rejects_outsider_private_update() {
 
     let outsider_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/directory/list/room/{}", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/list/room/{}",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "visibility": "private" }).to_string()))
@@ -1780,7 +1801,10 @@ async fn test_room_visibility_route_rejects_outsider_private_update() {
 
     let owner_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/directory/list/room/{}", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/list/room/{}",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "visibility": "private" }).to_string()))
@@ -1847,10 +1871,12 @@ async fn test_get_receipts_requires_room_view_access() {
     let owner_token = register_user(&app, &format!("receipts_owner_{}", rand::random::<u32>()))
         .await
         .expect("owner should register");
-    let outsider_token =
-        register_user(&app, &format!("receipts_outsider_{}", rand::random::<u32>()))
-            .await
-            .expect("outsider should register");
+    let outsider_token = register_user(
+        &app,
+        &format!("receipts_outsider_{}", rand::random::<u32>()),
+    )
+    .await
+    .expect("outsider should register");
 
     let room_id = create_room(&app, &owner_token, "Receipts View Guard")
         .await
@@ -1874,10 +1900,9 @@ async fn test_get_receipts_requires_room_view_access() {
         ))
         .body(Body::empty())
         .unwrap();
-    let anonymous_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request)
-            .await
-            .unwrap();
+    let anonymous_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request)
+        .await
+        .unwrap();
     assert_eq!(anonymous_response.status(), StatusCode::UNAUTHORIZED);
 
     let outsider_request = Request::builder()
@@ -1969,7 +1994,10 @@ async fn test_room_visibility_route_rejects_creator_after_leaving_room() {
 
     let update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/directory/list/room/{}", room_id))
+        .uri(format!(
+            "/_matrix/client/r0/directory/list/room/{}",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "visibility": "public" }).to_string()))
@@ -2484,14 +2512,20 @@ async fn test_report_event_forbidden_for_non_member() {
         return;
     };
 
-    let Some(owner_token) =
-        register_user(&app, &format!("report_event_owner_{}", rand::random::<u32>())).await
+    let Some(owner_token) = register_user(
+        &app,
+        &format!("report_event_owner_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register owner");
         return;
     };
-    let Some(outsider_token) =
-        register_user(&app, &format!("report_event_outsider_{}", rand::random::<u32>())).await
+    let Some(outsider_token) = register_user(
+        &app,
+        &format!("report_event_outsider_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register outsider");
         return;
@@ -2527,7 +2561,10 @@ async fn test_report_event_forbidden_for_non_member() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/report/{}", room_id, event_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/report/{}",
+            room_id, event_id
+        ))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -2553,14 +2590,20 @@ async fn test_report_room_forbidden_for_non_member() {
         return;
     };
 
-    let Some(owner_token) =
-        register_user(&app, &format!("report_room_owner_{}", rand::random::<u32>())).await
+    let Some(owner_token) = register_user(
+        &app,
+        &format!("report_room_owner_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register owner");
         return;
     };
-    let Some(outsider_token) =
-        register_user(&app, &format!("report_room_outsider_{}", rand::random::<u32>())).await
+    let Some(outsider_token) = register_user(
+        &app,
+        &format!("report_room_outsider_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register outsider");
         return;
@@ -2599,8 +2642,11 @@ async fn test_report_event_rejects_event_from_other_room() {
         return;
     };
 
-    let Some(access_token) =
-        register_user(&app, &format!("report_event_mismatch_{}", rand::random::<u32>())).await
+    let Some(access_token) = register_user(
+        &app,
+        &format!("report_event_mismatch_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register user");
         return;
@@ -2669,8 +2715,11 @@ async fn test_scanner_info_rejects_event_from_other_room() {
         return;
     };
 
-    let Some(access_token) =
-        register_user(&app, &format!("scanner_info_mismatch_{}", rand::random::<u32>())).await
+    let Some(access_token) = register_user(
+        &app,
+        &format!("scanner_info_mismatch_{}", rand::random::<u32>()),
+    )
+    .await
     else {
         eprintln!("Skipping test: failed to register user");
         return;
@@ -3449,10 +3498,7 @@ async fn test_room_spaces_route_returns_child_rooms_and_parent_spaces() {
 
     let add_child_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v3/spaces/{}/children",
-            space_id
-        ))
+        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

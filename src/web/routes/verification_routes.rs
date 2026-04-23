@@ -521,7 +521,7 @@ mod tests {
             method: crate::e2ee::verification::VerificationMethod::Sas,
             state: crate::e2ee::verification::VerificationState::Requested,
             created_ts: 1,
-            updated_ts: 2,
+            updated_ts: Some(2),
         };
 
         let json = super::serialize_verification_request(request);

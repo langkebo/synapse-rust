@@ -89,8 +89,7 @@ async fn test_admin_input_validation() {
         .await
         .unwrap();
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::FORBIDDEN,
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::FORBIDDEN,
         "Expected NOT_FOUND or FORBIDDEN for non-existent user admin set, got: {}",
         response.status()
     );

@@ -1097,14 +1097,17 @@ impl SyncService {
         };
 
         let device_key_storage = DeviceKeyStorage::new(&self.device_storage.pool);
-        let count = device_key_storage
-            .get_one_time_keys_count(user_id, device_id)
+        let counts = device_key_storage
+            .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to load one-time key count: {}", e)))?;
 
-        Ok(json!({
-            "signed_curve25519": count
-        }))
+        let mut result = serde_json::Map::new();
+        for (algo, count) in counts {
+            result.insert(algo, json!(count));
+        }
+
+        Ok(Value::Object(result))
     }
 
     async fn build_room_sync(
@@ -1474,11 +1477,14 @@ impl SyncService {
                 return;
             };
 
-            current_target = current_target
+            let inserted = current_target
                 .entry(segment.to_string())
-                .or_insert_with(|| Value::Object(Map::new()))
-                .as_object_mut()
-                .expect("nested object inserted above");
+                .or_insert_with(|| Value::Object(Map::new()));
+            let Some(obj) = inserted.as_object_mut() else {
+                ::tracing::error!("merge_json_nested: expected object for segment {}", segment);
+                return;
+            };
+            current_target = obj;
             current_source = next_source;
         }
 

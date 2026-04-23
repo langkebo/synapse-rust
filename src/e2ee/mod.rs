@@ -1,14 +1,14 @@
-pub mod api;
 pub mod backup;
 pub mod cross_signing;
 pub mod crypto;
 pub mod device_keys;
-pub mod device_trust; // E2EE Phase 1: Device trust and verification
+pub mod device_trust;
 pub mod key_request;
 pub mod megolm;
 pub mod olm;
-pub mod secure_backup; // E2EE Phase 3: Secure backup with passphrase
+pub mod secure_backup;
 pub mod signature;
+pub mod signed_json;
 pub mod ssss;
 pub mod to_device;
 

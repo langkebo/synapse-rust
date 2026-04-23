@@ -9,6 +9,7 @@ description = "Matrix Homeserver implemented in Rust"
 [features]
 default = ["server", "all-extensions"]
 server = ["dep:axum", "dep:tower-http"]
+openclaw = ["openclaw-routes"]
 openclaw-routes = []
 runtime-ddl = []
 performance-tests = []
@@ -29,7 +30,7 @@ external-services = []
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
 all-extensions = [
-    "openclaw-routes", "friends", "voice-extended", "saml-sso", "cas-sso",
+    "openclaw", "friends", "voice-extended", "saml-sso", "cas-sso",
     "beacons", "voip-tracking", "widgets", "server-notifications",
     "burn-after-read", "privacy-ext", "external-services"
 ]
@@ -163,78 +164,6 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
-
-[[test]]
-name = "schema_contract_room_core_tests"
-path = "tests/integration/schema_contract_room_core_tests.rs"
-
-[[test]]
-name = "schema_contract_room_summary_tests"
-path = "tests/integration/schema_contract_room_summary_tests.rs"
-
-[[test]]
-name = "schema_contract_space_tests"
-path = "tests/integration/schema_contract_space_tests.rs"
-
-[[test]]
-name = "schema_contract_account_data_tests"
-path = "tests/integration/schema_contract_account_data_tests.rs"
-
-[[test]]
-name = "schema_contract_search_tests"
-path = "tests/integration/schema_contract_search_tests.rs"
-
-[[test]]
-name = "schema_contract_e2ee_verification_tests"
-path = "tests/integration/schema_contract_e2ee_verification_tests.rs"
-
-[[test]]
-name = "schema_contract_thread_tests"
-path = "tests/integration/schema_contract_thread_tests.rs"
-
-[[test]]
-name = "schema_contract_retention_tests"
-path = "tests/integration/schema_contract_retention_tests.rs"
-
-[[test]]
-name = "schema_contract_invite_restrictions_tests"
-path = "tests/integration/schema_contract_invite_restrictions_tests.rs"
-
-[[test]]
-name = "schema_contract_auth_tokens_tests"
-path = "tests/integration/schema_contract_auth_tokens_tests.rs"
-
-[[test]]
-name = "schema_contract_presence_tests"
-path = "tests/integration/schema_contract_presence_tests.rs"
-
-[[test]]
-name = "schema_contract_openid_token_tests"
-path = "tests/integration/schema_contract_openid_token_tests.rs"
-
-[[test]]
-name = "schema_contract_media_quota_tests"
-path = "tests/integration/schema_contract_media_quota_tests.rs"
-
-[[test]]
-name = "schema_contract_receipts_tests"
-path = "tests/integration/schema_contract_receipts_tests.rs"
-
-[[test]]
-name = "schema_contract_sync_unread_tests"
-path = "tests/integration/schema_contract_sync_unread_tests.rs"
-
-[[test]]
-name = "schema_contract_receipts_aggregation_tests"
-path = "tests/integration/schema_contract_receipts_aggregation_tests.rs"
-
-[[test]]
-name = "schema_contract_read_markers_handler_tests"
-path = "tests/integration/schema_contract_read_markers_handler_tests.rs"
-
-[[test]]
-name = "schema_contract_sync_ephemeral_receipts_tests"
-path = "tests/integration/schema_contract_sync_ephemeral_receipts_tests.rs"
 
 [[test]]
 name = "unit"

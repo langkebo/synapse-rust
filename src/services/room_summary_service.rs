@@ -363,9 +363,7 @@ impl RoomSummaryService {
                     .map(|s| s.to_string());
             }
             Some("m.room.canonical_alias") => {
-                let canonical_alias = content
-                    .get("alias")
-                    .and_then(|v| v.as_str());
+                let canonical_alias = content.get("alias").and_then(|v| v.as_str());
                 self.storage
                     .set_canonical_alias(room_id, canonical_alias)
                     .await

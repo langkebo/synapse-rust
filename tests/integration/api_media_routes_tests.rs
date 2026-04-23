@@ -275,10 +275,9 @@ async fn test_media_delete_forbids_admin_override() {
         .body(Body::empty())
         .unwrap();
 
-    let owner_download_response =
-        ServiceExt::<Request<Body>>::oneshot(app, owner_download_request)
-            .await
-            .unwrap();
+    let owner_download_response = ServiceExt::<Request<Body>>::oneshot(app, owner_download_request)
+        .await
+        .unwrap();
     assert_eq!(owner_download_response.status(), StatusCode::OK);
 }
 
@@ -580,8 +579,7 @@ async fn test_named_media_upload_rejects_non_local_server_name() {
         .method("PUT")
         .uri(format!(
             "/_matrix/media/v3/upload/{}/{}?filename=bad.txt",
-            "remote.example.com",
-            media_id
+            "remote.example.com", media_id
         ))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "text/plain")
@@ -687,13 +685,15 @@ async fn test_media_delete_rejects_foreign_server_namespace() {
 
     let local_download_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/media/v3/download/{}/{}", server_name, media_id))
+        .uri(format!(
+            "/_matrix/media/v3/download/{}/{}",
+            server_name, media_id
+        ))
         .body(Body::empty())
         .unwrap();
-    let local_download_response =
-        ServiceExt::<Request<Body>>::oneshot(app, local_download_request)
-            .await
-            .unwrap();
+    let local_download_response = ServiceExt::<Request<Body>>::oneshot(app, local_download_request)
+        .await
+        .unwrap();
     assert_eq!(local_download_response.status(), StatusCode::OK);
 }
 

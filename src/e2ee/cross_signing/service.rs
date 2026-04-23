@@ -1,18 +1,28 @@
 use super::models::*;
 use super::storage::CrossSigningStorage;
-use crate::e2ee::crypto::ed25519::Ed25519PublicKey;
+use crate::e2ee::device_keys::DeviceKeyStorage;
+use crate::e2ee::signed_json::verify_signed_json;
 use crate::error::ApiError;
 use chrono::Utc;
-use ed25519_dalek::Verifier;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct CrossSigningService {
     storage: CrossSigningStorage,
+    device_keys_storage: Option<Arc<DeviceKeyStorage>>,
 }
 
 impl CrossSigningService {
     pub fn new(storage: CrossSigningStorage) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            device_keys_storage: None,
+        }
+    }
+
+    pub fn with_device_keys_storage(mut self, storage: Arc<DeviceKeyStorage>) -> Self {
+        self.device_keys_storage = Some(storage);
+        self
     }
 
     pub async fn upload_cross_signing_keys(
@@ -41,6 +51,7 @@ impl CrossSigningService {
             public_key: master_public_key.to_string(),
             usage: master_usage,
             signatures: upload.master_key["signatures"].clone(),
+            key_json: Some(upload.master_key.clone()),
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
@@ -64,6 +75,7 @@ impl CrossSigningService {
             public_key: self_signing_public_key.to_string(),
             usage: self_signing_usage,
             signatures: upload.self_signing_key["signatures"].clone(),
+            key_json: Some(upload.self_signing_key.clone()),
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
@@ -89,6 +101,7 @@ impl CrossSigningService {
             public_key: user_signing_public_key.to_string(),
             usage: user_signing_usage,
             signatures: upload.user_signing_key["signatures"].clone(),
+            key_json: Some(upload.user_signing_key.clone()),
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
@@ -217,6 +230,7 @@ impl CrossSigningService {
                 })
                 .unwrap_or_default(),
             signatures,
+            key_json: Some(key.clone()),
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
@@ -304,63 +318,17 @@ impl CrossSigningService {
             });
         };
 
-        let public_key = match Ed25519PublicKey::from_base64(&key.public_key) {
-            Ok(pk) => pk,
-            Err(_) => {
-                return Ok(SignatureVerificationResponse {
-                    valid: false,
-                    verified_at: Utc::now(),
-                });
-            }
-        };
-
-        let signature_bytes = match base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
+        let valid = verify_signed_json(
+            &request.user_id,
+            &request.signing_key_id,
+            &key.public_key,
             &request.signature,
-        ) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                return Ok(SignatureVerificationResponse {
-                    valid: false,
-                    verified_at: Utc::now(),
-                });
-            }
-        };
-
-        if signature_bytes.len() != 64 {
-            return Ok(SignatureVerificationResponse {
-                valid: false,
-                verified_at: Utc::now(),
-            });
-        }
-
-        let mut sig_array = [0u8; 64];
-        sig_array.copy_from_slice(&signature_bytes);
-
-        let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
-            Ok(s) => s,
-            Err(_) => {
-                return Ok(SignatureVerificationResponse {
-                    valid: false,
-                    verified_at: Utc::now(),
-                });
-            }
-        };
-
-        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
-            Ok(vk) => vk,
-            Err(_) => {
-                return Ok(SignatureVerificationResponse {
-                    valid: false,
-                    verified_at: Utc::now(),
-                });
-            }
-        };
-
-        let message = format!("{}:{}", request.user_id, request.key_id);
-        let valid = verifying_key
-            .verify(message.as_bytes(), &ed25519_sig)
-            .is_ok();
+            &serde_json::json!({
+                "user_id": request.user_id,
+                "key_id": request.key_id,
+            }),
+        )
+        .unwrap_or(false);
 
         Ok(SignatureVerificationResponse {
             valid,
@@ -500,89 +468,66 @@ impl CrossSigningService {
             .get_device_signatures(user_id, device_id)
             .await?;
 
-        let ssk_sig = signatures
-            .iter()
-            .find(|s| s.signing_key_id == "self_signing");
+        let ssk_sig = signatures.iter().find(|s| {
+            s.signing_key_id.starts_with("ed25519:") || s.signing_key_id == "self_signing"
+        });
 
         if let Some(sig) = ssk_sig {
-            let public_key = match Ed25519PublicKey::from_base64(&ssk.public_key) {
-                Ok(pk) => pk,
-                Err(_) => {
-                    return Ok(DeviceVerificationStatus {
-                        device_id: device_id.to_string(),
-                        is_verified: false,
-                        verified_by: None,
-                        verified_at: None,
+            let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
+                if let Ok(Some(device_key)) = dk_storage
+                    .get_device_key(user_id, device_id, "signed_curve25519")
+                    .await
+                {
+                    let mut json = serde_json::json!({
+                        "user_id": user_id,
+                        "device_id": device_id,
+                        "algorithms": device_key.algorithm,
+                        "keys": {
+                            format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
+                        },
                     });
+                    if let Some(obj) = json.as_object_mut() {
+                        obj.remove("signatures");
+                        obj.remove("unsigned");
+                    }
+                    json
+                } else {
+                    serde_json::json!({
+                        "user_id": user_id,
+                        "device_id": device_id,
+                    })
                 }
+            } else {
+                serde_json::json!({
+                    "user_id": user_id,
+                    "device_id": device_id,
+                })
             };
 
-            let signature_bytes = match base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
+            let signing_key_id = if sig.signing_key_id.starts_with("ed25519:") {
+                sig.signing_key_id.clone()
+            } else {
+                format!("ed25519:{}", ssk.key_type)
+            };
+
+            let valid = verify_signed_json(
+                user_id,
+                &signing_key_id,
+                &ssk.public_key,
                 &sig.signature,
-            ) {
-                Ok(bytes) => bytes,
-                Err(_) => {
-                    return Ok(DeviceVerificationStatus {
-                        device_id: device_id.to_string(),
-                        is_verified: false,
-                        verified_by: None,
-                        verified_at: None,
-                    });
-                }
-            };
-
-            if signature_bytes.len() != 64 {
-                return Ok(DeviceVerificationStatus {
-                    device_id: device_id.to_string(),
-                    is_verified: false,
-                    verified_by: None,
-                    verified_at: None,
-                });
-            }
-
-            let mut sig_array = [0u8; 64];
-            sig_array.copy_from_slice(&signature_bytes);
-
-            let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
-                Ok(s) => s,
-                Err(_) => {
-                    return Ok(DeviceVerificationStatus {
-                        device_id: device_id.to_string(),
-                        is_verified: false,
-                        verified_by: None,
-                        verified_at: None,
-                    });
-                }
-            };
-
-            let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes())
-            {
-                Ok(vk) => vk,
-                Err(_) => {
-                    return Ok(DeviceVerificationStatus {
-                        device_id: device_id.to_string(),
-                        is_verified: false,
-                        verified_by: None,
-                        verified_at: None,
-                    });
-                }
-            };
-
-            let message = format!("{}:{}", user_id, device_id);
-            let is_valid = verifying_key
-                .verify(message.as_bytes(), &ed25519_sig)
-                .is_ok();
+                &device_key_json,
+            )
+            .unwrap_or(false);
 
             Ok(DeviceVerificationStatus {
                 device_id: device_id.to_string(),
-                is_verified: is_valid,
-                verified_by: if is_valid {
+                is_verified: valid,
+                verified_by: if valid {
                     Some("self_signing".to_string())
                 } else {
                     None
                 },
-                verified_at: if is_valid { Some(Utc::now()) } else { None },
+                verified_at: if valid { Some(Utc::now()) } else { None },
             })
         } else {
             Ok(DeviceVerificationStatus {
@@ -620,13 +565,13 @@ impl CrossSigningService {
             let ssk_signature_valid = self.verify_cross_signing_signature(
                 &mk.public_key,
                 &mk.signatures,
-                &ssk.public_key,
+                ssk.key_json.as_ref(),
                 "self_signing",
             );
             let mk_signature_valid = self.verify_cross_signing_signature(
                 &ssk.public_key,
                 &ssk.signatures,
-                &mk.public_key,
+                mk.key_json.as_ref(),
                 "master",
             );
             is_verified = ssk_signature_valid || mk_signature_valid;
@@ -653,25 +598,28 @@ impl CrossSigningService {
         &self,
         signing_public_key: &str,
         signatures: &serde_json::Value,
-        target_key: &str,
+        target_key_json: Option<&serde_json::Value>,
         key_type: &str,
     ) -> bool {
-        let public_key = match Ed25519PublicKey::from_base64(signing_public_key) {
-            Ok(pk) => pk,
-            Err(_) => return false,
-        };
-
-        let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(public_key.as_bytes()) {
-            Ok(vk) => vk,
-            Err(_) => return false,
-        };
-
         let sig_obj = match signatures.as_object() {
             Some(obj) => obj,
             None => return false,
         };
 
-        for (_signer_id, key_sigs) in sig_obj {
+        let target_json = if let Some(json) = target_key_json {
+            let mut json = json.clone();
+            if let Some(obj) = json.as_object_mut() {
+                obj.remove("signatures");
+                obj.remove("unsigned");
+            }
+            json
+        } else {
+            serde_json::json!({
+                "key_type": key_type,
+            })
+        };
+
+        for (signer_id, key_sigs) in sig_obj {
             if let Some(key_sigs_obj) = key_sigs.as_object() {
                 for (signing_key_id, signature_value) in key_sigs_obj {
                     if !signing_key_id.starts_with("ed25519:") {
@@ -683,30 +631,14 @@ impl CrossSigningService {
                         None => continue,
                     };
 
-                    let signature_bytes = match base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
+                    if verify_signed_json(
+                        signer_id,
+                        signing_key_id,
+                        signing_public_key,
                         signature_str,
-                    ) {
-                        Ok(bytes) => bytes,
-                        Err(_) => continue,
-                    };
-
-                    if signature_bytes.len() != 64 {
-                        continue;
-                    }
-
-                    let mut sig_array = [0u8; 64];
-                    sig_array.copy_from_slice(&signature_bytes);
-
-                    let ed25519_sig = match ed25519_dalek::Signature::from_slice(&sig_array) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-
-                    let message = format!("{}:{}", key_type, target_key);
-                    if verifying_key
-                        .verify(message.as_bytes(), &ed25519_sig)
-                        .is_ok()
+                        &target_json,
+                    )
+                    .unwrap_or(false)
                     {
                         return true;
                     }

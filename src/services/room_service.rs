@@ -626,9 +626,7 @@ impl RoomService {
                     let uri = location
                         .get("uri")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            ApiError::bad_request("Missing m.location.uri".to_string())
-                        })?
+                        .ok_or_else(|| ApiError::bad_request("Missing m.location.uri".to_string()))?
                         .to_string();
 
                     let description = location
@@ -676,10 +674,7 @@ impl RoomService {
                         .check_room_backpressure(room_id, now)
                         .await
                         .map_err(|e| {
-                            ApiError::internal(format!(
-                                "Failed to check room backpressure: {}",
-                                e
-                            ))
+                            ApiError::internal(format!("Failed to check room backpressure: {}", e))
                         })?
                     {
                         return Err(ApiError::rate_limited_with_retry(retry_after_ms));
@@ -699,10 +694,7 @@ impl RoomService {
                         .get_latest_location(&beacon_info_id)
                         .await
                         .map_err(|e| {
-                            ApiError::internal(format!(
-                                "Failed to check beacon rate limit: {}",
-                                e
-                            ))
+                            ApiError::internal(format!("Failed to check beacon rate limit: {}", e))
                         })?;
                     if let Some(latest) = latest {
                         if ts <= latest.timestamp {
@@ -732,7 +724,9 @@ impl RoomService {
                 }
             }
             #[cfg(not(feature = "beacons"))]
-            { None::<()> }
+            {
+                None::<()>
+            }
         };
 
         self.event_storage
@@ -1193,9 +1187,7 @@ impl RoomService {
         }
 
         if join_rule != "knock" && join_rule != "knock_restricted" {
-            return Err(ApiError::forbidden(
-                "Room does not allow knock".to_string(),
-            ));
+            return Err(ApiError::forbidden("Room does not allow knock".to_string()));
         }
 
         self.member_storage

@@ -183,7 +183,10 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
 
     let set_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/sticky_events",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -203,14 +206,16 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
 
     let member_get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/sticky_events",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let member_get_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), member_get_request)
-            .await
-            .unwrap();
+    let member_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_get_request)
+        .await
+        .unwrap();
     assert_eq!(member_get_response.status(), StatusCode::OK);
     let member_json = read_json(member_get_response).await;
     assert_eq!(member_json["events"].as_array().unwrap().len(), 1);
@@ -218,7 +223,10 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
 
     let owner_get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
+        .uri(format!(
+            "/_matrix/client/v3/rooms/{}/sticky_events",
+            room_id
+        ))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();

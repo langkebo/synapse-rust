@@ -16,7 +16,7 @@ use crate::web::routes::response_helpers::{
     created_json, created_json_from, json_from, json_vec_from, require_found,
 };
 use crate::web::routes::AppState;
-use crate::web::routes::{ensure_room_member, AdminUser, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_strict, AdminUser, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -172,7 +172,7 @@ async fn ensure_room_summary_read_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -186,7 +186,7 @@ async fn ensure_room_summary_manage_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,

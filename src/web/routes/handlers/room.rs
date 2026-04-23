@@ -5,9 +5,10 @@ use crate::storage::event::{EventStorage, RoomEvent};
 use crate::storage::room::{Receipt, RoomStorage};
 use crate::storage::CreateEventParams;
 use crate::web::routes::{
-    ensure_room_member, extract_token_from_headers, is_joined_room_member,
-    is_joined_room_member_or_creator, validate_event_id, validate_receipt_type, validate_room_id,
-    validate_user_id, AppState, AuthenticatedUser, OptionalAuthenticatedUser,
+    ensure_room_member, ensure_room_member_strict, extract_token_from_headers,
+    is_joined_room_member, is_joined_room_member_or_creator, validate_event_id,
+    validate_receipt_type, validate_room_id, validate_user_id, AppState, AuthenticatedUser,
+    OptionalAuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -31,7 +32,7 @@ async fn ensure_room_view_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
+    ensure_room_member_strict(
         state,
         auth_user,
         room_id,
@@ -1513,19 +1514,24 @@ pub(crate) async fn send_state_event(
             .to_string();
 
         #[cfg(feature = "beacons")]
-        { Some(crate::storage::beacon::CreateBeaconInfoParams {
-            room_id: room_id.clone(),
-            event_id: new_event_id.clone(),
-            state_key: auth_user.user_id.clone(),
-            sender: auth_user.user_id.clone(),
-            description,
-            timeout,
-            is_live,
-            asset_type,
-            created_ts,
-        }) }
+        {
+            Some(crate::storage::beacon::CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: new_event_id.clone(),
+                state_key: auth_user.user_id.clone(),
+                sender: auth_user.user_id.clone(),
+                description,
+                timeout,
+                is_live,
+                asset_type,
+                created_ts,
+            })
+        }
         #[cfg(not(feature = "beacons"))]
-        { let _ = (timeout, is_live, description, created_ts, asset_type); None::<()> }
+        {
+            let _ = (timeout, is_live, description, created_ts, asset_type);
+            None::<()>
+        }
     } else {
         None
     };
@@ -1631,19 +1637,24 @@ pub(crate) async fn put_state_event(
             .to_string();
 
         #[cfg(feature = "beacons")]
-        { Some(crate::storage::beacon::CreateBeaconInfoParams {
-            room_id: room_id.clone(),
-            event_id: new_event_id.clone(),
-            state_key: state_key.clone(),
-            sender: auth_user.user_id.clone(),
-            description,
-            timeout,
-            is_live,
-            asset_type,
-            created_ts,
-        }) }
+        {
+            Some(crate::storage::beacon::CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: new_event_id.clone(),
+                state_key: state_key.clone(),
+                sender: auth_user.user_id.clone(),
+                description,
+                timeout,
+                is_live,
+                asset_type,
+                created_ts,
+            })
+        }
         #[cfg(not(feature = "beacons"))]
-        { let _ = (timeout, is_live, description, created_ts, asset_type); None::<()> }
+        {
+            let _ = (timeout, is_live, description, created_ts, asset_type);
+            None::<()>
+        }
     } else {
         None
     };
