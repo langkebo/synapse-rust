@@ -1,0 +1,22 @@
+# Security audit ignore list
+# This file documents known security advisories that have been reviewed and accepted
+
+[advisories]
+# RSA timing sidechannel - comes from sqlx-mysql dependency
+# Impact: Medium severity, only affects MySQL connections
+# Mitigation: Project primarily uses PostgreSQL; MySQL support is optional
+# Status: No fix available yet, tracking upstream sqlx updates
+ignore = ["RUSTSEC-2023-0071"]
+
+[warnings]
+# rand 0.8.5 unsound with custom logger
+# Impact: Only affects custom loggers using rand::rng()
+# Mitigation: Project does not use custom loggers with rand::rng()
+# Status: Monitoring for updates
+ignore = ["RUSTSEC-2026-0097"]
+
+# paste crate unmaintained
+# Impact: Transitive dependency through rav1e -> ravif -> image
+# Mitigation: Only used in image processing, not security-critical
+# Status: Waiting for image crate to update dependencies
+ignore = ["RUSTSEC-2024-0436"]

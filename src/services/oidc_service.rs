@@ -1,10 +1,12 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tracing::debug;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,10 +62,31 @@ pub struct OidcUser {
     pub email: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcJwks {
+    pub keys: Vec<OidcJwk>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcJwk {
+    pub kty: String,
+    #[serde(rename = "use")]
+    pub use_: Option<String>,
+    pub kid: Option<String>,
+    pub alg: Option<String>,
+    pub n: Option<String>,
+    pub e: Option<String>,
+    #[serde(rename = "crv")]
+    pub crv: Option<String>,
+    pub x: Option<String>,
+    pub y: Option<String>,
+}
+
 pub struct OidcService {
     config: Arc<OidcConfig>,
     http_client: reqwest::Client,
-    discovery: Option<OidcDiscoveryDocument>,
+    discovery: RwLock<Option<OidcDiscoveryDocument>>,
+    jwks: RwLock<Option<OidcJwks>>,
 }
 
 impl OidcService {
@@ -76,7 +99,8 @@ impl OidcService {
         Self {
             config,
             http_client,
-            discovery: None,
+            discovery: RwLock::new(None),
+            jwks: RwLock::new(None),
         }
     }
 
@@ -84,10 +108,12 @@ impl OidcService {
         self.config.is_enabled()
     }
 
-    pub async fn discover(&mut self) -> Result<OidcDiscoveryDocument, ApiError> {
-        let cached = self.discovery.clone();
-        if let Some(discovery) = cached {
-            return Ok(discovery);
+    pub async fn discover(&self) -> Result<OidcDiscoveryDocument, ApiError> {
+        {
+            let read = self.discovery.read().await;
+            if let Some(ref discovery) = *read {
+                return Ok(discovery.clone());
+            }
         }
 
         let discovery_url = format!("{}/.well-known/openid-configuration", self.config.issuer);
@@ -114,11 +140,14 @@ impl OidcService {
             ApiError::internal(format!("Failed to parse discovery document: {}", e))
         })?;
 
-        self.discovery = Some(discovery.clone());
+        {
+            let mut write = self.discovery.write().await;
+            *write = Some(discovery.clone());
+        }
         Ok(discovery)
     }
 
-    pub fn get_authorization_url(
+    pub async fn get_authorization_url(
         &self,
         state: &str,
         redirect_uri: &str,
@@ -128,15 +157,18 @@ impl OidcService {
         let scope = self.config.scopes.join(" ");
 
         let default_auth = format!("{}/authorize", self.config.issuer);
-        let auth_endpoint = self
-            .config
-            .authorization_endpoint
-            .as_ref()
-            .or_else(|| self.discovery.as_ref().map(|d| &d.authorization_endpoint))
-            .map(|s| s.as_str())
-            .unwrap_or(&default_auth);
+        let auth_endpoint = {
+            let read = self.discovery.read().await;
+            self.config
+                .authorization_endpoint
+                .as_ref()
+                .or_else(|| read.as_ref().map(|d| &d.authorization_endpoint))
+                .cloned()
+        };
 
-        let mut url = url::Url::parse(auth_endpoint).map_err(|e| {
+        let auth_url = auth_endpoint.unwrap_or(default_auth);
+
+        let mut url = url::Url::parse(&auth_url).map_err(|e| {
             ApiError::internal(format!("Invalid OIDC authorization endpoint: {}", e))
         })?;
         {
@@ -207,13 +239,15 @@ impl OidcService {
         code_verifier: Option<&str>,
     ) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
-        let token_endpoint = self
-            .config
-            .token_endpoint
-            .as_ref()
-            .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
-            .map(|s| s.as_str())
-            .unwrap_or(&default_token);
+        let token_endpoint = {
+            let read = self.discovery.read().await;
+            self.config
+                .token_endpoint
+                .as_ref()
+                .or_else(|| read.as_ref().map(|d| &d.token_endpoint))
+                .cloned()
+                .unwrap_or(default_token)
+        };
 
         let mut params = vec![
             ("grant_type", "authorization_code"),
@@ -250,7 +284,7 @@ impl OidcService {
             .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))?;
 
         if let Some(ref id_token) = token_response.id_token {
-            if let Err(e) = self.validate_id_token(id_token) {
+            if let Err(e) = self.validate_id_token(id_token).await {
                 tracing::warn!("OIDC ID token validation failed: {}", e);
             }
         }
@@ -258,7 +292,137 @@ impl OidcService {
         Ok(token_response)
     }
 
-    fn validate_id_token(&self, id_token: &str) -> Result<(), String> {
+    async fn fetch_jwks(&self) -> Result<OidcJwks, String> {
+        {
+            let read = self.jwks.read().await;
+            if let Some(ref jwks) = *read {
+                return Ok(jwks.clone());
+            }
+        }
+
+        let jwks_uri = if let Some(ref uri) = self.config.jwks_uri {
+            uri.clone()
+        } else {
+            let read = self.discovery.read().await;
+            match read.as_ref() {
+                Some(discovery) => discovery.jwks_uri.clone(),
+                None => return Err("No JWKS URI available: configure jwks_uri or run discovery first".to_string()),
+            }
+        };
+
+        debug!("Fetching OIDC JWKS from {}", jwks_uri);
+
+        let response = self
+            .http_client
+            .get(&jwks_uri)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch JWKS: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("JWKS request failed: {}", response.status()));
+        }
+
+        let jwks: OidcJwks = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse JWKS: {}", e))?;
+
+        {
+            let mut write = self.jwks.write().await;
+            *write = Some(jwks.clone());
+        }
+        Ok(jwks)
+    }
+
+    async fn validate_id_token(&self, id_token: &str) -> Result<(), String> {
+        let header_bytes = URL_SAFE_NO_PAD
+            .decode(id_token.split('.').next().unwrap_or(""))
+            .map_err(|e| format!("Invalid ID token header base64: {}", e))?;
+
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+            .map_err(|e| format!("Invalid ID token header JSON: {}", e))?;
+
+        let kid = header.get("kid").and_then(|v| v.as_str());
+        let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
+
+        let algorithm = match alg_str {
+            "RS256" => Algorithm::RS256,
+            "RS384" => Algorithm::RS384,
+            "RS512" => Algorithm::RS512,
+            "ES256" => Algorithm::ES256,
+            "ES384" => Algorithm::ES384,
+            "HS256" => Algorithm::HS256,
+            "HS384" => Algorithm::HS384,
+            "HS512" => Algorithm::HS512,
+            "EdDSA" => Algorithm::EdDSA,
+            _ => return Err(format!("Unsupported ID token algorithm: {}", alg_str)),
+        };
+
+        match self.fetch_jwks().await {
+            Ok(jwks) => {
+                let matching_key = jwks.keys.iter().find(|k| {
+                    if let Some(ref key_kid) = k.kid {
+                        kid == Some(key_kid.as_str())
+                    } else {
+                        true
+                    }
+                });
+
+                if let Some(key) = matching_key {
+                    let decoding_key = if key.kty == "RSA" {
+                        match (&key.n, &key.e) {
+                            (Some(n), Some(e)) => {
+                                DecodingKey::from_rsa_components(n, e)
+                                    .map_err(|e| format!("Invalid RSA key: {}", e))?
+                            }
+                            _ => return Err("RSA key missing n/e components".to_string()),
+                        }
+                    } else if key.kty == "EC" {
+                        match (&key.crv, &key.x, &key.y) {
+                            (Some(_), Some(x), Some(y)) => {
+                                DecodingKey::from_ec_components(x, y)
+                                    .map_err(|e| format!("Invalid EC key: {}", e))?
+                            }
+                            _ => return Err("EC key missing crv/x/y components".to_string()),
+                        }
+                    } else if key.kty == "OKP" {
+                        match (&key.crv, &key.x) {
+                            (Some(_), Some(x)) => {
+                                DecodingKey::from_ed_components(x)
+                                    .map_err(|e| format!("Invalid EdDSA key: {}", e))?
+                            }
+                            _ => return Err("OKP key missing crv/x components".to_string()),
+                        }
+                    } else {
+                        return Err(format!("Unsupported key type: {}", key.kty));
+                    };
+
+                    let mut validation = Validation::new(algorithm);
+                    validation.set_issuer(&[&self.config.issuer]);
+                    validation.set_audience(&[&self.config.client_id]);
+                    validation.validate_exp = true;
+                    validation.validate_nbf = false;
+
+                    decode::<serde_json::Value>(id_token, &decoding_key, &validation)
+                        .map_err(|e| format!("JWT signature verification failed: {}", e))?;
+
+                    debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
+                } else {
+                    tracing::warn!("No matching JWKS key found for kid={:?}, falling back to claim-only validation", kid);
+                    self.validate_id_token_claims(id_token)?;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch JWKS: {}, falling back to claim-only validation", e);
+                self.validate_id_token_claims(id_token)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_id_token_claims(&self, id_token: &str) -> Result<(), String> {
         let parts: Vec<&str> = id_token.split('.').collect();
         if parts.len() != 3 {
             return Err("Invalid ID token format: expected 3 parts".to_string());
@@ -326,13 +490,15 @@ impl OidcService {
 
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
-        let token_endpoint = self
-            .config
-            .token_endpoint
-            .as_ref()
-            .or_else(|| self.discovery.as_ref().map(|d| &d.token_endpoint))
-            .map(|s| s.as_str())
-            .unwrap_or(&default_token);
+        let token_endpoint = {
+            let read = self.discovery.read().await;
+            self.config
+                .token_endpoint
+                .as_ref()
+                .or_else(|| read.as_ref().map(|d| &d.token_endpoint))
+                .cloned()
+                .unwrap_or(default_token)
+        };
 
         let params = [
             ("grant_type", "refresh_token"),
@@ -367,17 +533,19 @@ impl OidcService {
 
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
         let default_userinfo = format!("{}/userinfo", self.config.issuer);
-        let userinfo_endpoint = self
-            .config
-            .userinfo_endpoint
-            .as_ref()
-            .or_else(|| self.discovery.as_ref().map(|d| &d.userinfo_endpoint))
-            .map(|s| s.as_str())
-            .unwrap_or(&default_userinfo);
+        let userinfo_endpoint = {
+            let read = self.discovery.read().await;
+            self.config
+                .userinfo_endpoint
+                .as_ref()
+                .or_else(|| read.as_ref().map(|d| &d.userinfo_endpoint))
+                .cloned()
+                .unwrap_or(default_userinfo)
+        };
 
         let response = self
             .http_client
-            .get(userinfo_endpoint)
+            .get(&userinfo_endpoint)
             .bearer_auth(access_token)
             .send()
             .await

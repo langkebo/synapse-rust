@@ -57,7 +57,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 
-rand = "0.8"
+rand = "0.8.5"
 sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"

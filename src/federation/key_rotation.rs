@@ -1,3 +1,4 @@
+use crate::federation::signing::sign_json;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use ed25519_dalek::Verifier;
@@ -507,7 +508,10 @@ impl KeyRotationManager {
             );
         }
 
-        Ok(json!({
+        let key_id_for_sign = current_key.key_id.clone();
+        let secret_key = current_key.secret_key.clone();
+
+        let mut response = json!({
             "server_name": self.server_name,
             "verify_keys": {
                 current_key.key_id: {
@@ -516,7 +520,12 @@ impl KeyRotationManager {
             },
             "old_verify_keys": old_verify_keys,
             "valid_until_ts": current_key.expires_at
-        }))
+        });
+
+        sign_json(&self.server_name, &key_id_for_sign, &secret_key, &mut response)
+            .map_err(|e| anyhow::Error::msg(format!("Failed to sign server keys: {}", e)))?;
+
+        Ok(response)
     }
 
     pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), anyhow::Error> {
