@@ -157,7 +157,7 @@ interface LoginResponse {
   "user_id": "@alice:cjystx.top",
   "well_known": {
     "m.homeserver": {
-      "base_url": "http://localhost:8008"
+      "base_url": "http://localhost:28008"
     }
   }
 }

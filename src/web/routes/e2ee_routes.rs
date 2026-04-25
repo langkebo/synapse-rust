@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
 fn parse_stream_id(value: &Value) -> Option<i64> {
@@ -82,7 +83,10 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
             "/keys/backup/secure/{backup_id}/verify",
             post(verify_secure_backup_passphrase),
         )
-        .route("/room_keys/version", get(get_room_keys_version).post(create_room_keys_version))
+        .route(
+            "/room_keys/version",
+            get(get_room_keys_version).post(create_room_keys_version),
+        )
         .route(
             "/room_keys/version/{version}",
             get(get_room_keys_version_by_id).delete(delete_room_keys_version),
@@ -490,13 +494,67 @@ async fn device_list_update(
 
 #[axum::debug_handler]
 async fn room_key_distribution(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    Err(crate::error::ApiError::forbidden(
-        "Room key distribution is not accessible via the client API".to_string(),
-    ))
+    let is_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join')"
+    )
+    .bind(&room_id)
+    .bind(&auth_user.user_id)
+    .fetch_one(&*state.services.user_storage.pool)
+    .await
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err(crate::error::ApiError::forbidden(
+            "You are not a member of this room".to_string(),
+        ));
+    }
+
+    let devices = sqlx::query(
+        "SELECT d.device_id, d.display_name, d.user_id FROM devices d \
+         INNER JOIN room_memberships rm ON d.user_id = rm.user_id \
+         WHERE rm.room_id = $1 AND rm.membership = 'join' \
+         ORDER BY d.user_id, d.device_id",
+    )
+    .bind(&room_id)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?;
+
+    let mut distribution = serde_json::Map::new();
+    let mut current_user: Option<String> = None;
+    let mut user_devices = Vec::new();
+
+    for row in &devices {
+        let user_id: String = row.get("user_id");
+        let device_id: String = row.get("device_id");
+        let display_name: Option<String> = row.get("display_name");
+
+        if current_user.as_ref() != Some(&user_id) {
+            if let Some(prev_user) = current_user.take() {
+                distribution.insert(prev_user, Value::Array(std::mem::take(&mut user_devices)));
+            }
+            current_user = Some(user_id);
+        }
+
+        user_devices.push(json!({
+            "device_id": device_id,
+            "display_name": display_name,
+        }));
+    }
+
+    if let Some(prev_user) = current_user.take() {
+        distribution.insert(prev_user, Value::Array(user_devices));
+    }
+
+    Ok(Json(json!({
+        "distribution": distribution,
+        "room_id": room_id,
+        "algorithm": "m.megolm.v1.aes-sha2"
+    })))
 }
 
 #[axum::debug_handler]

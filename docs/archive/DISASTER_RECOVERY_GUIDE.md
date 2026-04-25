@@ -221,7 +221,7 @@ bash scripts/validate_schema_all.sh
 systemctl start synapse-rust
 
 # 8. 验证服务
-curl http://localhost:8008/_matrix/client/versions
+curl http://localhost:28008/_matrix/client/versions
 ```
 
 ### 3.2 时间点恢复（PITR）
@@ -307,7 +307,7 @@ export DATABASE_URL="postgresql://synapse:password@prod-db-standby:5432/synapse"
 systemctl restart synapse-rust
 
 # 5. 验证服务
-curl http://localhost:8008/_matrix/client/versions
+curl http://localhost:28008/_matrix/client/versions
 
 # 6. 配置新的从库（可选）
 # 将旧主库修复后配置为新从库

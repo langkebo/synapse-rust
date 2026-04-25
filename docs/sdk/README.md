@@ -7,7 +7,7 @@
 ### 服务器信息
 
 ```
-BASE_URL: http://localhost:8008
+BASE_URL: http://localhost:28008
 测试域名: cjystx.top
 版本: 0.1.0
 协议: Matrix Client-Server API
@@ -354,7 +354,7 @@ class ApiClient {
 }
 
 // 使用
-const api = new ApiClient('http://localhost:8008');
+const api = new ApiClient('http://localhost:28008');
 
 // 登录
 const loginData = await api.post('/_matrix/client/r0/login', {
