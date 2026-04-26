@@ -212,6 +212,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         || path.contains("/make_admin")
         || path.contains("/server/version")
         || path.contains("/server_info")
+        || path == "/_synapse/admin/info"  // Server info endpoint
         || path.contains("/send_server_notice")
         || path.contains("/delete_devices")
         || path.contains("/shutdown")
@@ -223,7 +224,8 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         || path.contains("/purge")
         || path.contains("/reset_connection")
         || path.contains("/retention")
-        || path.contains("/registration_tokens");
+        || (path.contains("/registration_tokens") && !is_read)  // Allow read, deny write
+        || path.contains("/batch_users");  // Batch operations are super_admin only
 
     match role {
         "admin" => {
@@ -231,20 +233,96 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 return false;
             }
 
-            // 明确列出 admin 可访问的路径，移除宽泛的兜底规则
-            // admin 只能读取用户信息，不能修改关键设置
-            (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
-                && !path.contains("/deactivate")
-                && !path.contains("/login")
-                && !path.contains("/logout")
-                && !path.ends_with("/admin")
+            // admin 可访问的路径
+            let allowed =
+                // 用户信息（只读）
+                (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
+                    && is_read
+                    && !path.contains("/deactivate")
+                    && !path.contains("/login")
+                    && !path.contains("/logout")
+                    && !path.ends_with("/admin")
+
+                // 用户会话管理（只读）
+                || path.starts_with("/_synapse/admin/v1/user_sessions/")
+                || (path.contains("/users/") && path.contains("/sessions") && is_read)
+                || path.starts_with("/_synapse/admin/v1/whois")
+
+                // 用户统计
+                || path.starts_with("/_synapse/admin/v1/user_stats")
+
+                // 账户详情
+                || path.starts_with("/_synapse/admin/v1/account/")
+
+                // 通知管理
                 || path.starts_with("/_synapse/admin/v1/notifications")
+
+                // 媒体管理
                 || path.starts_with("/_synapse/admin/v1/media")
-                || path.starts_with("/_synapse/admin/v1/rooms") && !path.contains("/shutdown")
-                || path.starts_with("/_synapse/admin/v1/federation") && is_read
+
+                // 房间信息和管理
+                || (path.starts_with("/_synapse/admin/v1/rooms")
+                    && !path.contains("/shutdown")
+                    && !path.contains("/delete"))
+
+                // 房间统计
+                || path.starts_with("/_synapse/admin/v1/room_stats/")
+
+                // 房间封禁/解封
+                || path.contains("/rooms/") && (path.contains("/block") || path.contains("/unblock"))
+
+                // 房间成员管理（踢出、封禁）
+                || path.contains("/rooms/") && (path.contains("/kick") || path.contains("/ban"))
+                || path.contains("/rooms/") && path.contains("/members")
+
+                // 注册令牌（只读）
+                || (path.contains("/registration_tokens") && is_read)
+
+                // 系统统计
+                || path.starts_with("/_synapse/admin/v1/statistics")
+                || path.starts_with("/_synapse/admin/v1/stats")
+
+                // 后台任务
+                || path.starts_with("/_synapse/admin/v1/background_updates")
+
+                // 事件报告
+                || path.starts_with("/_synapse/admin/v1/event_reports")
+
+                // 空间管理
+                || path.starts_with("/_synapse/admin/v1/spaces")
+
+                // 功能标志
+                || path.starts_with("/_synapse/admin/v1/experimental_features")
+                || path.starts_with("/_synapse/admin/v1/feature_flags")
+                || path.starts_with("/_synapse/admin/v1/feature-flags")
+
+                // 应用服务
+                || path.starts_with("/_synapse/admin/v1/appservices")
+
+                // 审计日志（只读）
+                || (path.starts_with("/_synapse/admin/v1/audit") && is_read)
+
+                // 设备管理 - 允许查看和删除单个设备，禁止批量删除
+                || (path.contains("/users/") && path.contains("/devices/")
+                    && !path.contains("/delete_devices")
+                    && (is_read || *method == Method::DELETE))
+
+                // 联邦信息（只读，只允许查询端点）
+                || (path == "/_synapse/admin/v1/federation/destinations" && is_read)
+
+                // CAS 管理
                 || path.starts_with("/_synapse/admin/v1/cas")
+
+                // Worker 和房间摘要
                 || path.starts_with("/_synapse/worker/v1/")
                 || path.starts_with("/_synapse/room_summary/v1/")
+
+                // 服务器状态和健康检查
+                || path.starts_with("/_synapse/admin/v1/server_version")
+                || path.starts_with("/_synapse/admin/v1/health")
+                || path.starts_with("/_synapse/admin/v1/status");
+
+            allowed
         }
         "auditor" => {
             is_read
@@ -278,6 +356,7 @@ mod tests {
 
     #[test]
     fn admin_role_restricted_endpoints_denied() {
+        // Super admin only endpoints should be denied for admin role
         assert!(!is_role_allowed(
             "admin",
             &Method::POST,
@@ -288,7 +367,7 @@ mod tests {
             &Method::PUT,
             "/_synapse/admin/v1/users/@u:localhost/admin"
         ));
-        assert!(is_role_allowed(
+        assert!(!is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/federation/resolve"
@@ -298,30 +377,36 @@ mod tests {
             &Method::POST,
             "/_synapse/admin/v1/users/@u:localhost/login"
         ));
-        assert!(is_role_allowed(
+        assert!(!is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/registration_tokens"
         ));
-        assert!(is_role_allowed(
+        assert!(!is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/federation/blacklist/server.example.com"
         ));
-        assert!(is_role_allowed(
+        assert!(!is_role_allowed(
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/federation/cache/clear"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/info"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/batch"
         ));
     }
 
     #[test]
     fn admin_role_allowed_endpoints() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/shutdown_room"
-        ));
+        // Admin should be able to read registration tokens
         assert!(is_role_allowed(
             "admin",
             &Method::GET,
@@ -341,6 +426,35 @@ mod tests {
             "admin",
             &Method::GET,
             "/_synapse/admin/v1/rooms"
+        ));
+        // Admin should be able to access statistics
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/statistics"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/stats/users"
+        ));
+        // Admin should be able to access spaces
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/spaces"
+        ));
+        // Admin should be able to access event reports
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/event_reports"
+        ));
+        // Admin should be able to block/unblock rooms
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/rooms/!room:localhost/block"
         ));
     }
 
