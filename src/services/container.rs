@@ -155,6 +155,7 @@ pub struct ServiceContainer {
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
     pub builtin_oidc_provider:
         Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
+    pub identity_service: Arc<crate::services::identity::IdentityService>,
 }
 
 impl ServiceContainer {
@@ -528,6 +529,12 @@ impl ServiceContainer {
             None
         };
 
+        let identity_storage = crate::services::identity::IdentityStorage::new(pool);
+        let identity_service = Arc::new(crate::services::identity::IdentityService::new(
+            identity_storage,
+            config.identity.trusted_servers.clone(),
+        ));
+
         Self {
             user_storage,
             threepid_storage,
@@ -646,6 +653,7 @@ impl ServiceContainer {
             burn_after_read,
             oidc_service,
             builtin_oidc_provider,
+            identity_service,
         }
     }
 
@@ -701,7 +709,7 @@ fn build_test_config() -> Config {
         server: ServerConfig {
             name: "localhost".to_string(),
             host: "0.0.0.0".to_string(),
-            port: 8008,
+            port: 28008,
             public_baseurl: None,
             signing_key_path: None,
             macaroon_secret_key: None,
@@ -835,6 +843,7 @@ fn build_test_config() -> Config {
         prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
         performance: crate::common::config::PerformanceConfig::default(),
         experimental: crate::common::config::ExperimentalConfig::default(),
+        identity: crate::common::config::IdentityConfig::default(),
     }
 }
 

@@ -284,7 +284,7 @@ impl IdentityService {
         &self.trusted_servers
     }
 
-    fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
+    pub fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
         if id_server.is_empty() {
             return Err(ApiError::bad_request(
                 "id_server cannot be empty".to_string(),

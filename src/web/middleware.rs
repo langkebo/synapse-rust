@@ -366,17 +366,11 @@ fn is_safe_http_method(method: &Method) -> bool {
     )
 }
 
-fn extract_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
+fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     headers
         .get("cookie")
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string())
-        .or_else(|| {
-            headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .map(|value| value.to_string())
-        })
 }
 
 fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
@@ -435,7 +429,7 @@ pub async fn csrf_middleware(
     let csrf_manager = CsrfTokenManager::new(state.services.server_name.clone());
     let method = request.method().clone();
     let headers = request.headers().clone();
-    let session_id = extract_session_id_for_csrf(&headers);
+    let session_id = extract_cookie_session_id_for_csrf(&headers);
     let request_origin = extract_origin_candidate(&headers);
     let browser_authenticated_request = session_id.is_some() && request_origin.is_some();
 
@@ -1114,7 +1108,7 @@ pub async fn federation_auth_middleware(
 
     if state.services.config.federation.admission_mode {
         let server_status = sqlx::query_scalar::<_, String>(
-            "SELECT status FROM federation_servers WHERE server_name = $1"
+            "SELECT status FROM federation_servers WHERE server_name = $1",
         )
         .bind(origin_server)
         .fetch_optional(&*state.services.user_storage.pool)
@@ -1140,7 +1134,7 @@ pub async fn federation_auth_middleware(
                 let _ = sqlx::query(
                     "INSERT INTO federation_servers (server_name, status, updated_ts) \
                      VALUES ($1, 'pending', $2) \
-                     ON CONFLICT (server_name) DO NOTHING"
+                     ON CONFLICT (server_name) DO NOTHING",
                 )
                 .bind(origin_server)
                 .bind(now)
@@ -1531,7 +1525,14 @@ async fn fetch_federation_verify_key(
             Err(_) => continue,
         };
         if let Some(key) = extract_verify_key_from_server_keys(&json, origin, key_id) {
-            return Ok(key);
+            if verify_server_keys_signature(&json, origin, key_id, &key) {
+                return Ok(key);
+            }
+            tracing::warn!(
+                "Server keys signature verification failed for {} key_id={}",
+                origin,
+                key_id
+            );
         }
     }
 
@@ -1570,6 +1571,55 @@ fn extract_verify_key_from_server_keys_object(body: &Value, key_id: &str) -> Opt
         }
     }
     None
+}
+
+fn verify_server_keys_signature(
+    body: &Value,
+    origin: &str,
+    key_id: &str,
+    verify_key: &str,
+) -> bool {
+    let signature = match body
+        .get("signatures")
+        .and_then(|s| s.get(origin))
+        .and_then(|s| s.get(key_id))
+        .and_then(|s| s.as_str())
+    {
+        Some(sig) => sig,
+        None => {
+            tracing::debug!(
+                "No signature found in server keys response for {} key_id={}",
+                origin,
+                key_id
+            );
+            return true;
+        }
+    };
+
+    let pub_key_bytes = match decode_ed25519_public_key(verify_key) {
+        Ok(bytes) => bytes,
+        Err(()) => return false,
+    };
+
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes) {
+        Ok(key) => key,
+        Err(_) => return false,
+    };
+
+    let sig = match decode_ed25519_signature(signature) {
+        Ok(s) => s,
+        Err(()) => return false,
+    };
+
+    let mut unsigned = body.clone();
+    if let Some(obj) = unsigned.as_object_mut() {
+        obj.remove("signatures");
+        obj.remove("unsigned");
+    }
+    let canonical = crate::federation::signing::canonical_json_string(&unsigned);
+
+    use ed25519_dalek::Verifier;
+    verifying_key.verify(canonical.as_bytes(), &sig).is_ok()
 }
 
 fn decode_ed25519_public_key(key: &str) -> Result<[u8; 32], ()> {
@@ -1693,9 +1743,11 @@ mod tests {
     use crate::test_utils::{env_lock, EnvGuard};
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
+    use axum::{middleware, routing::post, Router};
     use ed25519_dalek::Signer;
     use std::sync::Arc;
     use std::time::Duration;
+    use tower::ServiceExt;
 
     #[test]
     fn test_extract_client_ip() {
@@ -2088,7 +2140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_session_id_for_csrf_prefers_cookie_over_authorization() {
+    fn test_extract_cookie_session_id_for_csrf_only_uses_cookie() {
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",
@@ -2100,7 +2152,7 @@ mod tests {
         );
 
         assert_eq!(
-            extract_session_id_for_csrf(&headers),
+            extract_cookie_session_id_for_csrf(&headers),
             Some("sid=session-cookie".to_string())
         );
 
@@ -2110,7 +2162,7 @@ mod tests {
             "sid=session-cookie".parse().expect("valid cookie header"),
         );
         assert_eq!(
-            extract_session_id_for_csrf(&cookie_only_headers),
+            extract_cookie_session_id_for_csrf(&cookie_only_headers),
             Some("sid=session-cookie".to_string())
         );
 
@@ -2119,10 +2171,129 @@ mod tests {
             "authorization",
             "Bearer access-token".parse().expect("valid auth header"),
         );
-        assert_eq!(
-            extract_session_id_for_csrf(&auth_only_headers),
-            Some("Bearer access-token".to_string())
-        );
+        assert_eq!(extract_cookie_session_id_for_csrf(&auth_only_headers), None);
+    }
+
+    #[tokio::test]
+    async fn test_csrf_middleware_rejects_cross_site_cookie_post_without_token() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test();
+        services.server_name = "matrix.example.com".to_string();
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/submit", post(ok_handler))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                csrf_middleware,
+            ))
+            .with_state(state);
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/submit")
+            .header("cookie", "sid=session-cookie")
+            .header("origin", "https://evil.example.com")
+            .header("x-forwarded-host", "matrix.example.com")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .expect("body should be readable");
+        let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json["error"], "Cross-site requests are not allowed");
+    }
+
+    #[tokio::test]
+    async fn test_csrf_middleware_rejects_same_origin_cookie_post_without_token() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test();
+        services.server_name = "matrix.example.com".to_string();
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/submit", post(ok_handler))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                csrf_middleware,
+            ))
+            .with_state(state);
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/submit")
+            .header("cookie", "sid=session-cookie")
+            .header("origin", "https://matrix.example.com")
+            .header("x-forwarded-host", "matrix.example.com")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .expect("body should be readable");
+        let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json["error"], "Missing or invalid CSRF token");
+    }
+
+    #[tokio::test]
+    async fn test_csrf_middleware_allows_same_origin_cookie_post_with_valid_token() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test();
+        services.server_name = "matrix.example.com".to_string();
+
+        let csrf_manager = CsrfTokenManager::new(services.server_name.clone());
+        let session_id = "sid=session-cookie";
+        let csrf_token = csrf_manager.generate_token(session_id);
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/submit", post(ok_handler))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                csrf_middleware,
+            ))
+            .with_state(state);
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/submit")
+            .header("cookie", session_id)
+            .header("origin", "https://matrix.example.com")
+            .header("x-forwarded-host", "matrix.example.com")
+            .header("x-forwarded-proto", "https")
+            .header("x-csrf-token", csrf_token)
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]

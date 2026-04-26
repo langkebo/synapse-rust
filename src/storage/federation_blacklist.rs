@@ -433,7 +433,11 @@ impl FederationBlacklistStorage {
         Ok(default)
     }
 
-    pub async fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
+    pub async fn get_config_as_int(
+        &self,
+        _config_key: &str,
+        default: i32,
+    ) -> Result<i32, ApiError> {
         Ok(default)
     }
 }

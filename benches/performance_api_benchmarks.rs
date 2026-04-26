@@ -20,7 +20,7 @@ fn create_client() -> reqwest::Client {
 }
 
 fn bench_base_url() -> String {
-    std::env::var("BENCH_BASE_URL").unwrap_or_else(|_| "http://localhost:8008".to_string())
+    std::env::var("BENCH_BASE_URL").unwrap_or_else(|_| "http://localhost:28008".to_string())
 }
 
 fn bench_admin_token() -> Option<String> {

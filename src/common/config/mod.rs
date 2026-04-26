@@ -226,7 +226,7 @@ fn default_server_host() -> String {
 }
 
 fn default_server_port() -> u16 {
-    8008
+    28008
 }
 
 fn default_max_upload_size_value() -> u64 {
@@ -875,6 +875,9 @@ pub struct Config {
     /// 实验性功能配置
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+    /// Identity Server 配置
+    #[serde(default)]
+    pub identity: IdentityConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -882,6 +885,25 @@ pub struct ExperimentalConfig {
     /// 是否在顶层路由中挂载 OpenClaw 用户路由
     #[serde(default)]
     pub openclaw_routes_enabled: bool,
+}
+
+fn default_trusted_identity_servers() -> Vec<String> {
+    vec!["vector.im".to_string(), "matrix.org".to_string()]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IdentityConfig {
+    /// 信任的 Identity Server 列表
+    #[serde(default = "default_trusted_identity_servers")]
+    pub trusted_servers: Vec<String>,
+}
+
+impl Default for IdentityConfig {
+    fn default() -> Self {
+        Self {
+            trusted_servers: default_trusted_identity_servers(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1144,7 +1166,7 @@ pub struct ServerConfig {
     pub host: String,
 
     /// 监听端口
-    /// 默认 8008 (HTTP) 或 8448 (HTTPS)
+    /// 默认 28008 (HTTP) 或 8448 (HTTPS)
     #[serde(default = "default_server_port")]
     pub port: u16,
 
@@ -2467,6 +2489,7 @@ mod tests {
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
+            identity: IdentityConfig::default(),
         };
 
         let url = config.database_url();
@@ -2605,6 +2628,7 @@ mod tests {
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
+            identity: IdentityConfig::default(),
             ..Config::default()
         };
 
@@ -2845,6 +2869,7 @@ mod tests {
             prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
+            identity: IdentityConfig::default(),
         };
 
         config.resolve_env_variables().unwrap();
@@ -3128,7 +3153,7 @@ pub struct StorageProviderConfig {
 /// ```yaml
 /// listeners:
 ///   - type: http
-///     port: 8008
+///     port: 28008
 ///     tls: false
 ///     x_forwarded: true
 ///     resources:

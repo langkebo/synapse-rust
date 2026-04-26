@@ -27,6 +27,19 @@ impl CasService {
         }
     }
 
+    /// 检查 CAS 服务是否已正确配置和初始化
+    pub async fn is_configured(&self) -> bool {
+        // 尝试查询一个简单的操作来检查数据库表是否存在
+        // 如果表不存在，查询会失败
+        match self.storage.list_services().await {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!("CAS service configuration check failed: {} - database tables may not exist", e);
+                false
+            }
+        }
+    }
+
     fn generate_ticket_id(&self, prefix: &str) -> String {
         let mut random_bytes = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut random_bytes);

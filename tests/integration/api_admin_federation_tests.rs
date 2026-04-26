@@ -777,7 +777,11 @@ async fn test_federation_admission_list_pending() {
     let pending_b = format!("pending-list-b-{}.example.com", suffix);
     let active_c = format!("pending-list-c-{}.example.com", suffix);
 
-    for (name, status) in [(&pending_a, "pending"), (&pending_b, "pending"), (&active_c, "active")] {
+    for (name, status) in [
+        (&pending_a, "pending"),
+        (&pending_b, "pending"),
+        (&active_c, "active"),
+    ] {
         sqlx::query(
             "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING",
         )
@@ -805,7 +809,10 @@ async fn test_federation_admission_list_pending() {
     assert!(list_json["total"].as_i64().unwrap() >= 2);
 
     let servers = list_json["servers"].as_array().unwrap();
-    let server_names: Vec<&str> = servers.iter().map(|s| s["server_name"].as_str().unwrap()).collect();
+    let server_names: Vec<&str> = servers
+        .iter()
+        .map(|s| s["server_name"].as_str().unwrap())
+        .collect();
     assert!(server_names.iter().any(|n| *n == pending_a));
     assert!(server_names.iter().any(|n| *n == pending_b));
     assert!(!server_names.iter().any(|n| *n == active_c));

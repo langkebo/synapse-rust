@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester,
-    ensure_room_member_strict, AppState, AuthenticatedUser,
+    account_compat::can_view_profile_for_requester, ensure_room_member_strict, AppState,
+    AuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},

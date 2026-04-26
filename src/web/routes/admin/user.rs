@@ -257,17 +257,57 @@ async fn delete_user(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ensure_super_admin_for_privilege_change(&admin)?;
 
     let user = resolve_user(&state, &user_id).await?;
+
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        "Admin deleting user"
+    );
 
     state
         .services
         .user_storage
         .delete_user(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(
+                admin_user = %admin.user_id,
+                target_user = %user.user_id,
+                error = %e,
+                "Failed to delete user"
+            );
+            ApiError::internal(format!("Database error: {}", e))
+        })?;
+
+    // 记录审计日志
+    let request_id = resolve_request_id(&headers);
+    if let Err(e) = record_audit_event(
+        &state,
+        &admin.user_id,
+        "delete_user",
+        "user",
+        &user.user_id,
+        request_id,
+        json!({
+            "admin_role": admin.role,
+            "target_user": user.user_id,
+        }),
+    )
+    .await
+    {
+        tracing::warn!("Failed to record audit event: {}", e);
+    }
+
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        "User deleted successfully"
+    );
 
     Ok(Json(json!({
         "user_id": user.user_id,
@@ -280,6 +320,7 @@ pub async fn set_admin(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_super_admin_for_privilege_change(&admin)?;
@@ -291,16 +332,58 @@ pub async fn set_admin(
 
     let user = resolve_user(&state, &user_id).await?;
 
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        admin_status = admin_status,
+        "Admin changing user admin status"
+    );
+
     state
         .services
         .user_storage
         .set_admin_status(&user.user_id, admin_status)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!(
+                admin_user = %admin.user_id,
+                target_user = %user.user_id,
+                error = %e,
+                "Failed to set admin status"
+            );
+            ApiError::internal(format!("Database error: {}", e))
+        })?;
     state
         .cache
         .set(&format!("user:admin:{}", user.user_id), admin_status, 3600)
         .await?;
+
+    // 记录审计日志
+    let request_id = resolve_request_id(&headers);
+    if let Err(e) = record_audit_event(
+        &state,
+        &admin.user_id,
+        "set_admin_status",
+        "user",
+        &user.user_id,
+        request_id,
+        json!({
+            "admin_role": admin.role,
+            "target_user": user.user_id,
+            "admin_status": admin_status,
+        }),
+    )
+    .await
+    {
+        tracing::warn!("Failed to record audit event: {}", e);
+    }
+
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        admin_status = admin_status,
+        "Admin status changed successfully"
+    );
 
     Ok(Json(json!({ "success": true })))
 }
@@ -310,16 +393,57 @@ pub async fn deactivate_user(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ensure_super_admin_for_privilege_change(&admin)?;
 
     let user = resolve_user(&state, &user_id).await?;
 
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        "Admin deactivating user"
+    );
+
     state
         .services
         .auth_service
         .deactivate_user(&user.user_id)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                admin_user = %admin.user_id,
+                target_user = %user.user_id,
+                error = %e,
+                "Failed to deactivate user"
+            );
+            e
+        })?;
+
+    // 记录审计日志
+    let request_id = resolve_request_id(&headers);
+    if let Err(e) = record_audit_event(
+        &state,
+        &admin.user_id,
+        "deactivate_user",
+        "user",
+        &user.user_id,
+        request_id,
+        json!({
+            "admin_role": admin.role,
+            "target_user": user.user_id,
+        }),
+    )
+    .await
+    {
+        tracing::warn!("Failed to record audit event: {}", e);
+    }
+
+    tracing::info!(
+        admin_user = %admin.user_id,
+        target_user = %user.user_id,
+        "User deactivated successfully"
+    );
 
     Ok(Json(json!({ "id_server_unbind_result": "success" })))
 }
@@ -406,10 +530,12 @@ pub async fn get_user_devices_admin(
 
 #[axum::debug_handler]
 pub async fn delete_user_device_admin(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_super_admin_for_privilege_change(&admin)?;
+
     let user = resolve_user(&state, &user_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = $2")
         .bind(&user.user_id)

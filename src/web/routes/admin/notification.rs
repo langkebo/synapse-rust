@@ -751,20 +751,40 @@ pub async fn delete_server_notice(
             .bind(&rid)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to clean server notice room: {}", e)))?;
-            
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to clean server notice room: {}", e))
+            })?;
+
         // Explicitly clean up other related tables to be sure, as the test checks them
-        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1").bind(&rid).execute(&mut *tx).await.ok();
-        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1").bind(&rid).execute(&mut *tx).await.ok();
-        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1").bind(&rid).execute(&mut *tx).await.ok();
-        sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&rid).execute(&mut *tx).await.ok();
+        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")
+            .bind(&rid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
+            .bind(&rid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")
+            .bind(&rid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&rid)
+            .execute(&mut *tx)
+            .await
+            .ok();
     } else if let Some(eid) = event_id {
         // If we only have event_id but no room_id was found in join, try to delete the event directly
         sqlx::query("DELETE FROM events WHERE event_id = $1")
             .bind(&eid)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to clean server notice event: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to clean server notice event: {}", e))
+            })?;
     }
 
     tx.commit()

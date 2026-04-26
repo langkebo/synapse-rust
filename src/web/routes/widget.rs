@@ -3,7 +3,9 @@ use crate::services::widget_service::{
     CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse,
     SetPermissionRequest, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };
-use crate::web::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
+use crate::web::routes::{
+    ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser,
+};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},

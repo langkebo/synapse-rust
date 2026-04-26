@@ -115,7 +115,7 @@ pub async fn get_destinations(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let destinations = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers ORDER BY server_name"
     )
     .fetch_all(&*state.services.user_storage.pool)
     .await
@@ -131,8 +131,8 @@ pub async fn get_destinations(
                 "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
                 "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
                 "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
-                "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
-                "updated_ts": row.get::<Option<i64>, _>("updated_ts")
+                "status": "active",
+                "updated_ts": Value::Null
             })
         })
         .collect();
@@ -149,7 +149,7 @@ pub async fn get_destination(
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let dest = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers WHERE server_name = $1"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
     )
     .bind(&destination)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -164,8 +164,8 @@ pub async fn get_destination(
             "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
             "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
             "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
-            "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
-            "updated_ts": row.get::<Option<i64>, _>("updated_ts")
+            "status": "active",
+            "updated_ts": Value::Null
         }))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
@@ -338,16 +338,15 @@ pub async fn confirm_federation(
     let now = chrono::Utc::now().timestamp_millis();
     let new_status = if body.accept { "active" } else { "rejected" };
 
-    let existing = sqlx::query(
-        "SELECT id, status FROM federation_servers WHERE server_name = $1"
-    )
-    .bind(&body.server_name)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let existing =
+        sqlx::query("SELECT id, is_blocked FROM federation_servers WHERE server_name = $1")
+            .bind(&body.server_name)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let old_status = match existing {
-        Some(row) => row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
+    let is_blocked = match existing {
+        Some(row) => row.get::<Option<bool>, _>("is_blocked").unwrap_or(false),
         None => {
             return Err(ApiError::not_found(format!(
                 "Server '{}' not found in federation registry",
@@ -356,35 +355,36 @@ pub async fn confirm_federation(
         }
     };
 
-    if old_status != "pending" {
+    if !is_blocked {
         return Err(ApiError::bad_request(format!(
-            "Server '{}' is not in pending state (current: {})",
-            body.server_name, old_status
+            "Server '{}' is not blocked",
+            body.server_name
         )));
     }
 
-    sqlx::query(
-        "UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3"
-    )
-    .bind(new_status)
-    .bind(now)
-    .bind(&body.server_name)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    if body.accept {
+        sqlx::query(
+            "UPDATE federation_servers SET is_blocked = false, blocked_at = NULL, blocked_reason = NULL WHERE server_name = $1",
+        )
+        .bind(&body.server_name)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    }
 
     if !body.accept {
-        if let Err(e) = state.services.federation_blacklist_storage.add_to_blacklist(
-            crate::storage::federation_blacklist::AddBlacklistRequest {
+        if let Err(e) = state
+            .services
+            .federation_blacklist_storage
+            .add_to_blacklist(crate::storage::federation_blacklist::AddBlacklistRequest {
                 server_name: body.server_name.clone(),
                 block_type: "blacklist".to_string(),
                 reason: Some("Rejected federation admission request".to_string()),
                 blocked_by: admin.user_id.clone(),
                 expires_at: None,
                 metadata: None,
-            },
-        )
-        .await
+            })
+            .await
         {
             tracing::warn!("Failed to add rejected server to blacklist: {}", e);
         }
@@ -400,7 +400,7 @@ pub async fn confirm_federation(
     Ok(Json(json!({
         "server_name": body.server_name,
         "status": new_status,
-        "previous_status": old_status,
+        "previous_status": if is_blocked { "blocked" } else { "active" },
         "updated_ts": now,
         "confirmed_by": admin.user_id
     })))
@@ -427,12 +427,11 @@ pub async fn list_pending_federation(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'"
-    )
-    .fetch_one(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
+            .fetch_one(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let list: Vec<Value> = pending
         .iter()

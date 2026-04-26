@@ -136,7 +136,7 @@ async fn handle_saml_callback(
         .await?
         .ok_or_else(|| ApiError::internal("User not found after SAML auth"))?;
 
-    let device_id = "SAML_DEVICE".to_string();
+    let device_id = format!("SAML_{}", uuid::Uuid::new_v4().as_simple());
 
     let access_token = state
         .services
@@ -146,12 +146,19 @@ async fn handle_saml_callback(
 
     let expires_in = 3600_i64;
 
+    let refresh_token = state
+        .services
+        .auth_service
+        .generate_refresh_token(&auth_result.user_id, &device_id)
+        .await
+        .ok();
+
     Ok(Json(SamlAuthResult {
         user_id: auth_result.user_id,
         access_token,
         device_id,
         expires_in,
-        refresh_token: None,
+        refresh_token,
     }))
 }
 

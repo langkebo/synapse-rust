@@ -522,8 +522,13 @@ impl KeyRotationManager {
             "valid_until_ts": current_key.expires_at
         });
 
-        sign_json(&self.server_name, &key_id_for_sign, &secret_key, &mut response)
-            .map_err(|e| anyhow::Error::msg(format!("Failed to sign server keys: {}", e)))?;
+        sign_json(
+            &self.server_name,
+            &key_id_for_sign,
+            &secret_key,
+            &mut response,
+        )
+        .map_err(|e| anyhow::Error::msg(format!("Failed to sign server keys: {}", e)))?;
 
         Ok(response)
     }

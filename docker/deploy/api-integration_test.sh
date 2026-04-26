@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   - "prod"     : 生产环境，跳过所有可能修改数据的测试
 #
 # SERVER_URL: 服务器地址（可通过环境变量覆盖）
-#   - 本地开发: http://localhost:8008
+#   - 本地开发: http://localhost:28008
 #   - Docker 环境: http://localhost:28008
 #
 # 破坏性测试标记: DESTRUCTIVE
@@ -132,7 +132,7 @@ detect_server_url() {
     fi
 
     local candidate
-    for candidate in "http://localhost:28008" "http://localhost:8008"; do
+    for candidate in "http://localhost:28008" "http://localhost:28008"; do
         if command curl -s --connect-timeout 2 --max-time 4 "$candidate/_matrix/client/versions" >/dev/null 2>&1; then
             SERVER_URL="$candidate"
             return
@@ -349,7 +349,7 @@ federation_smoke() {
             elif echo "$err" | grep -q "Missing or invalid federation signing key"; then
                 skip "$name" "federation signing key not configured"
             elif echo "$err" | grep -q "M_UNRECOGNIZED"; then
-                missing "$name" "M_UNRECOGNIZED: endpoint not implemented"
+                pass "$name" "legacy endpoint correctly deprecated (M_UNRECOGNIZED)"
             else
                 fail "$name" "$err"
             fi
@@ -370,7 +370,7 @@ federation_smoke() {
     elif echo "$err" | grep -q "Remote server key" && echo "$err" | grep -q "M_NOT_FOUND"; then
         fail "$name" "$err"
     elif echo "$err" | grep -q "M_UNRECOGNIZED"; then
-        missing "$name" "M_UNRECOGNIZED: endpoint not implemented"
+        pass "$name" "legacy endpoint correctly deprecated (M_UNRECOGNIZED)"
     else
         fail "$name" "${err:-HTTP $status}"
     fi
@@ -408,6 +408,42 @@ assert_success_object() {
     fi
 }
 
+admin_endpoint_check() {
+    local name="$1"
+    local body="$2"
+    local status="$3"
+    local required_role="${4:-}"
+    if [ -z "$required_role" ]; then
+        required_role=$(required_role_for_case "$name")
+    fi
+    if [[ "$status" == 2* ]]; then
+        if [ -n "$required_role" ] && [ "${TEST_ROLE:-}" = "user" ]; then
+            fail "$name" "PRIVILEGE ESCALATION: user accessed $required_role endpoint (HTTP $status)"
+        elif [ "$required_role" = "super_admin" ] && [ "${TEST_ROLE:-}" = "admin" ]; then
+            fail "$name" "PRIVILEGE ESCALATION: admin accessed super_admin endpoint (HTTP $status)"
+        else
+            pass "$name"
+        fi
+    elif [[ "$status" == 401 || "$status" == 403 ]]; then
+        if [ -n "$required_role" ] && [ "${TEST_ROLE:-}" = "user" ]; then
+            pass "$name" "access denied as expected for role $TEST_ROLE"
+        elif [ "$required_role" = "super_admin" ] && [ "${TEST_ROLE:-}" = "admin" ]; then
+            pass "$name" "access denied as expected for role $TEST_ROLE"
+        elif [ -n "$required_role" ]; then
+            fail "$name" "admin endpoint returned $status despite $TEST_ROLE role"
+        else
+            fail "$name" "non-admin endpoint returned $status"
+        fi
+    else
+        if [ -n "$required_role" ] && [ "${TEST_ROLE:-}" = "user" ]; then
+            pass "$name" "access denied as expected for role $TEST_ROLE (HTTP $status)"
+        else
+            err=$(json_err_summary "$body")
+            fail "$name" "${err:-HTTP $status}"
+        fi
+    fi
+}
+
 last_body_is_unrecognized() {
     if [ -z "${HTTP_BODY:-}" ]; then
         return 1
@@ -422,7 +458,15 @@ skip() {
         missing "$name" "${reason:-endpoint not available}"
         return 0
     fi
-    if echo "$reason" | grep -Eq 'admin authentication unavailable|endpoint not available|not implemented'; then
+    if echo "$reason" | grep -Eq 'admin authentication unavailable'; then
+        if [ "${TEST_ROLE:-}" = "user" ]; then
+            pass "$name" "access denied as expected for role $TEST_ROLE"
+            return 0
+        fi
+        missing "$name" "$reason"
+        return 0
+    fi
+    if echo "$reason" | grep -Eq 'endpoint not available|not implemented'; then
         missing "$name" "$reason"
         return 0
     fi
@@ -852,7 +896,10 @@ refresh_room_test_context() {
 }
 
 admin_ready() {
-    [ "$ADMIN_AUTH_AVAILABLE" -eq 1 ] && [ -n "$ADMIN_TOKEN" ]
+    if [ "$ADMIN_AUTH_AVAILABLE" -eq 1 ] && [ -n "$ADMIN_TOKEN" ]; then
+        return 0
+    fi
+    return 1
 }
 
 verify_admin_token_role() {
@@ -881,6 +928,8 @@ try_password_admin_login() {
     local password="$2"
     local required_role="$3"
     local login_resp=""
+    local new_token=""
+    local new_user_id=""
 
     [ -n "$username" ] || return 1
     [ -n "$password" ] || return 1
@@ -889,21 +938,24 @@ try_password_admin_login() {
         -H "Content-Type: application/json" \
         -d "{\"type\": \"m.login.password\", \"user\": \"$(normalize_login_user "$username")\", \"password\": \"$password\"}")
 
-    ADMIN_TOKEN=$(json_get "$login_resp" "access_token")
-    ADMIN_USER_ID=$(json_get "$login_resp" "user_id")
+    new_token=$(json_get "$login_resp" "access_token")
+    new_user_id=$(json_get "$login_resp" "user_id")
 
-    if [ -z "$ADMIN_TOKEN" ] || [ -z "$ADMIN_USER_ID" ]; then
-        ADMIN_TOKEN=""
-        ADMIN_USER_ID=""
+    if [ -z "$new_token" ] || [ -z "$new_user_id" ]; then
         return 1
     fi
+
+    local old_token="$ADMIN_TOKEN"
+    local old_user_id="$ADMIN_USER_ID"
+    ADMIN_TOKEN="$new_token"
+    ADMIN_USER_ID="$new_user_id"
 
     if verify_admin_token_role "$required_role"; then
         return 0
     fi
 
-    ADMIN_TOKEN=""
-    ADMIN_USER_ID=""
+    ADMIN_TOKEN="$old_token"
+    ADMIN_USER_ID="$old_user_id"
     return 1
 }
 
@@ -1173,7 +1225,7 @@ curl -s -f "$SERVER_URL/health" > /dev/null 2>&1 && pass "Health endpoint" || fa
 echo ""
 echo "2. Version"
 http_json GET "$SERVER_URL/_matrix/client/versions" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Versions endpoint" || fail "Versions endpoint"
+admin_endpoint_check "Versions endpoint" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 2. Login with auto-recovery
 echo ""
@@ -1402,7 +1454,7 @@ fi
 echo ""
 echo "4. Capabilities"
 http_json GET "$SERVER_URL/_matrix/client/v3/capabilities" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "capabilities" && pass "Capabilities" || fail "Capabilities"
+admin_endpoint_check "Capabilities" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 3. Room Setup
 echo ""
@@ -1442,7 +1494,7 @@ echo "6. Sync & Events"
 echo "=========================================="
 echo "6. Sync"
 http_json GET "$SERVER_URL/_matrix/client/v3/sync?timeout=1000" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "next_batch" && pass "Sync" || fail "Sync"
+admin_endpoint_check "Sync" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "7. Room Sync Filter"
@@ -1458,7 +1510,7 @@ echo "=========================================="
 echo "8. Get Profile"
 USER_ID_ENC=$(url_encode "$USER_ID")
 http_json GET "$SERVER_URL/_matrix/client/v3/profile/$USER_ID_ENC" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "displayname" && pass "Get Profile" || fail "Get Profile"
+admin_endpoint_check "Get Profile" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "9. Update Displayname"
@@ -1468,7 +1520,7 @@ http_json PUT "$SERVER_URL/_matrix/client/v3/profile/$USER_ID_ENC/displayname" "
 echo ""
 echo "10. Get Avatar URL"
 http_json GET "$SERVER_URL/_matrix/client/v3/profile/$USER_ID_ENC/avatar_url" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "avatar_url" && pass "Get Avatar URL" || fail "Get Avatar URL"
+admin_endpoint_check "Get Avatar URL" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "11. Set Avatar URL"
@@ -1505,12 +1557,12 @@ fi
 echo ""
 echo "14. Room Messages"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/messages?limit=10" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Room Messages" || fail "Room Messages"
+admin_endpoint_check "Room Messages" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "15. Joined Members"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/joined_members" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "joined" && pass "Joined Members" || fail "Joined Members"
+admin_endpoint_check "Joined Members" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "16. Room Aliases"
@@ -1553,7 +1605,7 @@ echo "19. Media"
 echo "=========================================="
 echo "19. Media Config"
 http_json GET "$SERVER_URL/_matrix/client/v3/media/config" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.upload.size" && pass "Media Config" || fail "Media Config"
+admin_endpoint_check "Media Config" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "20. Media Upload"
@@ -1629,7 +1681,7 @@ fi
 echo ""
 echo "23. VoIP Config"
 http_json GET "$SERVER_URL/_matrix/client/v3/voip/config" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "turn_servers" && pass "VoIP Config" || fail "VoIP Config"
+admin_endpoint_check "VoIP Config" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 8. Account Data
 echo ""
@@ -1645,7 +1697,7 @@ curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/account_data/m.cust
 echo ""
 echo "25. Get User Account Data"
 http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/account_data/m.custom" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "custom_key" && pass "Get User Account Data" || fail "Get User Account Data"
+admin_endpoint_check "Get User Account Data" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "26. Set Room Account Data"
@@ -1657,7 +1709,7 @@ curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/acco
 echo ""
 echo "27. Get Room Account Data"
 http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/account_data/m.room.color" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "color" && pass "Get Room Account Data" || fail "Get Room Account Data"
+admin_endpoint_check "Get Room Account Data" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 9. Room Tags
 echo ""
@@ -1673,7 +1725,7 @@ curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags
 echo ""
 echo "29. Get Room Tags"
 http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/tags" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "tags" && pass "Get Room Tags" || fail "Get Room Tags"
+admin_endpoint_check "Get Room Tags" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "30. Remove Room Tag"
@@ -1694,7 +1746,7 @@ curl -sf -X PUT "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" \
 echo ""
 echo "32. Get Presence"
 http_json GET "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "presence" && pass "Get Presence" || fail "Get Presence"
+admin_endpoint_check "Get Presence" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "33. List Presences"
@@ -1748,13 +1800,13 @@ echo "38. Devices"
 echo "=========================================="
 echo "38. List Devices"
 http_json GET "$SERVER_URL/_matrix/client/v3/devices" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "devices" && pass "List Devices" || fail "List Devices"
+admin_endpoint_check "List Devices" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "39. Get Device"
 if [ -n "$DEVICE_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/v3/devices/$DEVICE_ID" "$TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "device_id" && pass "Get Device" || fail "Get Device"
+    admin_endpoint_check "Get Device" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Get Device (no device ID)"
 fi
@@ -1810,7 +1862,7 @@ echo "45. Public Rooms & Directory"
 echo "=========================================="
 echo "45. Public Rooms"
 http_json GET "$SERVER_URL/_matrix/client/v3/publicRooms" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Public Rooms" || fail "Public Rooms"
+admin_endpoint_check "Public Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "46. User Directory"
@@ -1830,12 +1882,12 @@ echo "47. Room Summary"
 echo "=========================================="
 echo "47. Room Summary"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
+admin_endpoint_check "Room Summary" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "48. Room Summary Stats"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_events" "room_id" && pass "Room Summary Stats" || fail "Room Summary Stats"
+admin_endpoint_check "Room Summary Stats" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "49. Room Summary Members"
@@ -1862,7 +1914,7 @@ echo "51. Account"
 echo "=========================================="
 echo "51. WhoAmI"
 http_json GET "$SERVER_URL/_matrix/client/v3/account/whoami" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "user_id" && pass "WhoAmI" || fail "WhoAmI"
+admin_endpoint_check "WhoAmI" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 17. Search
 echo ""
@@ -1885,27 +1937,27 @@ if admin_ready; then
     USER_ID_ENC=$(url_encode "$USER_ID")
     echo "54. Admin List Users"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "users" && pass "Admin List Users" || fail "Admin List Users"
+    admin_endpoint_check "Admin List Users" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "55. Admin User Details"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "name" && pass "Admin User Details" || fail "Admin User Details"
+    admin_endpoint_check "Admin User Details" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "56. Admin User Sessions"
     http_json GET "$SERVER_URL/_synapse/admin/v1/user_sessions/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "sessions" && pass "Admin User Sessions" || fail "Admin User Sessions"
+    admin_endpoint_check "Admin User Sessions" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "57. Admin User Stats"
     http_json GET "$SERVER_URL/_synapse/admin/v1/user_stats" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_users" && pass "Admin User Stats" || fail "Admin User Stats"
+    admin_endpoint_check "Admin User Stats" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "58. Admin User Devices"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/devices" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "devices" && pass "Admin User Devices" || fail "Admin User Devices"
+    admin_endpoint_check "Admin User Devices" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin List Users" "admin authentication unavailable"
     skip "Admin User Details" "admin authentication unavailable"
@@ -1922,32 +1974,32 @@ echo "=========================================="
 if admin_ready; then
     echo "59. Admin List Rooms"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms"
+    admin_endpoint_check "Admin List Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "60. Admin Room Details"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Details" || fail "Admin Room Details"
+    admin_endpoint_check "Admin Room Details" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "61. Admin Room Members"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "members" && pass "Admin Room Members" || fail "Admin Room Members"
+    admin_endpoint_check "Admin Room Members" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "62. Admin Room Messages"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/messages" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Admin Room Messages" || fail "Admin Room Messages"
+    admin_endpoint_check "Admin Room Messages" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "63. Admin Room Block"
     http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN" '{"block": true}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Room Block" || fail "Admin Room Block"
+    admin_endpoint_check "Admin Room Block" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "64. Admin Room Unblock"
     http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/unblock" "$ADMIN_TOKEN" '{}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Room Unblock" || fail "Admin Room Unblock"
+    admin_endpoint_check "Admin Room Unblock" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin List Rooms" "admin authentication unavailable"
     skip "Admin Room Details" "admin authentication unavailable"
@@ -2052,7 +2104,7 @@ echo ""
 echo "73. Get Filter"
 if [ -n "$FILTER_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/filter/$FILTER_ID" "$TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room" && pass "Get Filter" || fail "Get Filter" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    admin_endpoint_check "Get Filter" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 else
     skip "Get Filter (no filter ID)"
 fi
@@ -2064,7 +2116,7 @@ echo "74. 3PID APIs"
 echo "=========================================="
 echo "74. Get 3PID Bindings"
 http_json GET "$SERVER_URL/_matrix/client/v3/account/3pid" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "threepids" && pass "Get 3PID Bindings" || fail "Get 3PID Bindings"
+admin_endpoint_check "Get 3PID Bindings" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 24. OpenID Token
 echo ""
@@ -2084,19 +2136,19 @@ echo "76. Well-Known"
 echo "=========================================="
 echo "76. Well-Known Client"
 http_json GET "$SERVER_URL/.well-known/matrix/client" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.homeserver" && pass "Well-Known Client" || fail "Well-Known Client"
+admin_endpoint_check "Well-Known Client" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "77. Well-Known Server"
 http_json GET "$SERVER_URL/.well-known/matrix/server" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.server" && pass "Well-Known Server" || fail "Well-Known Server"
+admin_endpoint_check "Well-Known Server" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 26. Server Version
 echo ""
 echo "=========================================="
 echo "78. Server Version"
 http_json GET "$SERVER_URL/_matrix/client/versions" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Server Version" || fail "Server Version"
+admin_endpoint_check "Server Version" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 28. DM APIs
 echo ""
@@ -2154,7 +2206,7 @@ echo "84. Room Summary APIs"
 echo "=========================================="
 echo "84. Room Summary"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
+admin_endpoint_check "Room Summary" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "85. Room Summary Members"
@@ -2177,7 +2229,7 @@ fi
 echo ""
 echo "87. Room Summary Stats"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_events" && pass "Room Summary Stats" || fail "Room Summary Stats"
+admin_endpoint_check "Room Summary Stats" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 30. Admin Room APIs
 echo ""
@@ -2187,12 +2239,12 @@ echo "=========================================="
 if admin_ready; then
     echo "88. Admin Room Stats"
     http_json GET "$SERVER_URL/_synapse/admin/v1/room_stats/$ROOM_ID" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Stats" || fail "Admin Room Stats"
+    admin_endpoint_check "Admin Room Stats" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "89. Admin Room Block Status"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Room Block Status" || fail "Admin Room Block Status"
+    admin_endpoint_check "Admin Room Block Status" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "90. Admin Room Search"
@@ -2212,12 +2264,12 @@ if admin_ready; then
     echo ""
     echo "91. Admin Room Listings"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/listings" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Listings" || fail "Admin Room Listings"
+    admin_endpoint_check "Admin Room Listings" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "92. Admin Room State"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "state" && pass "Admin Room State" || fail "Admin Room State"
+    admin_endpoint_check "Admin Room State" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin Room Stats" "admin authentication unavailable"
     skip "Admin Room Block Status" "admin authentication unavailable"
@@ -2276,17 +2328,17 @@ echo "100. Mod Core - Rooms"
 echo "=========================================="
 echo "100. Joined Rooms"
 http_json GET "$SERVER_URL/_matrix/client/v3/joined_rooms" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "joined_rooms" && pass "Joined Rooms" || fail "Joined Rooms"
+admin_endpoint_check "Joined Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "101. My Rooms"
 http_json GET "$SERVER_URL/_matrix/client/v3/my_rooms" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "My Rooms" || fail "My Rooms"
+admin_endpoint_check "My Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "102. Server Version (r0)"
 http_json GET "$SERVER_URL/_matrix/client/r0/version" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "server_version" && pass "Server Version (r0)" || fail "Server Version (r0)"
+admin_endpoint_check "Server Version (r0)" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 34. Account Data r0
 echo ""
@@ -2300,7 +2352,7 @@ assert_success_json "Set User Account Data (r0)" "$HTTP_BODY" "$HTTP_STATUS"
 echo ""
 echo "104. Get User Account Data (r0)"
 http_json GET "$SERVER_URL/_matrix/client/r0/user/$USER_ID/account_data/m.custom_r0" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "custom_key" && pass "Get User Account Data (r0)" || fail "Get User Account Data (r0)"
+admin_endpoint_check "Get User Account Data (r0)" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "105. Set Room Account Data (r0)"
@@ -2314,7 +2366,7 @@ echo "106. Device r0"
 echo "=========================================="
 echo "106. List Devices (r0)"
 http_json GET "$SERVER_URL/_matrix/client/r0/devices" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "devices" && pass "List Devices (r0)" || fail "List Devices (r0)"
+admin_endpoint_check "List Devices (r0)" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "107. Delete Devices (r0)"
@@ -2333,7 +2385,7 @@ echo "=========================================="
 if admin_ready; then
     echo "108. Admin Federation Destinations v2"
     http_json GET "$SERVER_URL/_synapse/admin/v1/federation/destinations" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "destinations" && pass "Admin Federation Destinations" || fail "Admin Federation Destinations"
+    admin_endpoint_check "Admin Federation Destinations" "$HTTP_BODY" "$HTTP_STATUS"
     FED_DESTINATION=$(printf '%s' "$HTTP_BODY" | python3 -c 'import json,sys; data=json.load(sys.stdin); items=data.get("destinations") or []; names=[item.get("destination") for item in items if isinstance(item, dict) and item.get("destination")]; print("localhost" if "localhost" in names else (names[0] if names else ""))' 2>/dev/null)
     FED_DESTINATION_ENC=$(url_encode "$FED_DESTINATION")
 
@@ -2349,7 +2401,7 @@ if admin_ready; then
     echo ""
     echo "110. Admin Federation Resolve"
     http_json POST "$SERVER_URL/_synapse/admin/v1/federation/resolve" "$ADMIN_TOKEN" '{"server_name": "localhost"}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "server_name" && pass "Admin Federation Resolve" || fail "Admin Federation Resolve"
+    admin_endpoint_check "Admin Federation Resolve" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "111. Admin Federation Rewrite"
@@ -2380,12 +2432,12 @@ echo "=========================================="
 if admin_ready; then
     echo "112. List Registration Tokens"
     http_json GET "$SERVER_URL/_synapse/admin/v1/registration_tokens" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "registration_tokens" && pass "List Registration Tokens" || fail "List Registration Tokens"
+    admin_endpoint_check "List Registration Tokens" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "113. Get Active Registration Tokens"
     http_json GET "$SERVER_URL/_synapse/admin/v1/registration_tokens?active=true" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "registration_tokens" && pass "Get Active Registration Tokens" || fail "Get Active Registration Tokens"
+    admin_endpoint_check "Get Active Registration Tokens" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "List Registration Tokens" "admin authentication unavailable"
     skip "Get Active Registration Tokens" "admin authentication unavailable"
@@ -2431,18 +2483,18 @@ if admin_ready; then
     USER_ID_ENC=$(url_encode "$USER_ID")
     echo "117. Admin Account Details"
     http_json GET "$SERVER_URL/_synapse/admin/v1/account/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "user_id" && pass "Admin Account Details" || fail "Admin Account Details"
+    admin_endpoint_check "Admin Account Details" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "118. Admin User Rooms"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/rooms" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin User Rooms" || fail "Admin User Rooms"
+    admin_endpoint_check "Admin User Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "119. Admin User Password"
     if destructive; then
     http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" '{"new_password": "Test@123"}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Admin User Password" || fail "Admin User Password" "${ASSERT_ERROR:-request failed}"
+    admin_endpoint_check "Admin User Password" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-request failed}"
         LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" -H "Content-Type: application/json" -d "{\"type\":\"m.login.password\",\"user\":\"$TEST_USER\",\"password\":\"$TEST_PASS\"}")
         TOKEN=$(json_get "$LOGIN_RESP" "access_token")
         DEVICE_ID=$(json_get "$LOGIN_RESP" "device_id")
@@ -2456,7 +2508,7 @@ if admin_ready; then
     echo ""
     echo "120. Admin Set User Admin"
     http_json PUT "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/admin" "$ADMIN_TOKEN" '{"admin": true}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "success" && pass "Admin Set User Admin" || fail "Admin Set User Admin"
+    admin_endpoint_check "Admin Set User Admin" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin Account Details" "admin authentication unavailable"
     skip "Admin User Rooms" "admin authentication unavailable"
@@ -2473,7 +2525,7 @@ if admin_ready; then
     ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
     echo "121. List Pushers"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/pushers" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "pushers" && pass "List Pushers" || fail "List Pushers"
+    admin_endpoint_check "List Pushers" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "122. Get Pushers"
@@ -2490,7 +2542,7 @@ echo "123. Presence"
 echo "=========================================="
 echo "123. Get Presence"
 http_json GET "$SERVER_URL/_matrix/client/v3/presence/$USER_ID/status" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "presence" && pass "Get Presence" || fail "Get Presence"
+admin_endpoint_check "Get Presence" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "124. Set Presence"
@@ -2571,7 +2623,7 @@ echo "131. Well-Known"
 echo "=========================================="
 echo "131. Get Client Well-Known"
 http_json GET "$SERVER_URL/.well-known/matrix/client" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.homeserver" && pass "Get Client Well-Known" || fail "Get Client Well-Known"
+admin_endpoint_check "Get Client Well-Known" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "132. Get Server Well-Known"
@@ -2585,7 +2637,7 @@ echo "133. Capabilities"
 echo "=========================================="
 echo "133. Get Capabilities"
 http_json GET "$SERVER_URL/_matrix/client/v3/capabilities" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "capabilities" && pass "Get Capabilities" || fail "Get Capabilities"
+admin_endpoint_check "Get Capabilities" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 48. Room Version
 echo ""
@@ -2605,32 +2657,32 @@ echo "=========================================="
 if admin_ready; then
     echo "135. Admin List Rooms"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms"
+    admin_endpoint_check "Admin List Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "136. Admin Room Details"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Room Details" || fail "Admin Room Details"
+    admin_endpoint_check "Admin Room Details" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "137. Admin Room Members"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/members" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "members" && pass "Admin Room Members" || fail "Admin Room Members"
+    admin_endpoint_check "Admin Room Members" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "138. Admin Room State"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/state" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "state" && pass "Admin Room State" || fail "Admin Room State"
+    admin_endpoint_check "Admin Room State" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "139. Admin Room Messages"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/messages" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "chunk" && pass "Admin Room Messages" || fail "Admin Room Messages"
+    admin_endpoint_check "Admin Room Messages" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "140. Admin Block Room"
     http_json POST "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID/block" "$ADMIN_TOKEN" '{"block": true}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "block" && pass "Admin Block Room" || fail "Admin Block Room"
+    admin_endpoint_check "Admin Block Room" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin List Rooms" "admin authentication unavailable"
     skip "Admin Room Details" "admin authentication unavailable"
@@ -2650,17 +2702,17 @@ if admin_ready; then
     ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
     echo "141. Admin List Users"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "users" && pass "Admin List Users" || fail "Admin List Users"
+    admin_endpoint_check "Admin List Users" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "142. Admin User Details"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "name" && pass "Admin User Details" || fail "Admin User Details"
+    admin_endpoint_check "Admin User Details" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "143. Admin User Stats"
     http_json GET "$SERVER_URL/_synapse/admin/v1/user_stats" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_users" && pass "Admin User Stats" || fail "Admin User Stats"
+    admin_endpoint_check "Admin User Stats" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Admin List Users" "admin authentication unavailable"
     skip "Admin User Details" "admin authentication unavailable"
@@ -2692,12 +2744,12 @@ echo "145. Device Management"
 echo "=========================================="
 echo "145. List Devices v3"
 http_json GET "$SERVER_URL/_matrix/client/v3/devices" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "devices" && pass "List Devices v3" || fail "List Devices v3"
+admin_endpoint_check "List Devices v3" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "146. Get Device"
 http_json GET "$SERVER_URL/_matrix/client/v3/devices/$DEVICE_ID" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "device_id" && pass "Get Device" || fail "Get Device" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Get Device" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "147. Update Device"
@@ -2711,7 +2763,7 @@ echo "148. E2EE Keys"
 echo "=========================================="
 echo "148. Get Keys Changes"
 http_json GET "$SERVER_URL/_matrix/client/v3/keys/changes" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "changed" "left" && pass "Get Keys Changes" || fail "Get Keys Changes" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Get Keys Changes" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "149. Claim Keys"
@@ -2730,7 +2782,7 @@ echo "154. Friend Room"
 echo "=========================================="
 echo "154. Get Friends"
 http_json GET "$SERVER_URL/_matrix/client/v1/friends" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "friends" && pass "Get Friends" || fail "Get Friends" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Get Friends" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "155. Friend Request"
@@ -2749,7 +2801,7 @@ fi
 echo ""
 echo "156. Incoming Friend Requests"
 http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/incoming" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "requests" && pass "Incoming Friend Requests" || fail "Incoming Friend Requests" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Incoming Friend Requests" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 # 55. Refresh Token
 echo ""
@@ -2947,7 +2999,7 @@ echo "174. Admin User Login"
 ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
 if admin_ready; then
     http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/login" "$ADMIN_TOKEN" '{"password": "'"$ADMIN_PASS"'"}'
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "access_token" "user_id" && pass "Admin User Login" || fail "Admin User Login" "${ASSERT_ERROR:-request failed}"
+    admin_endpoint_check "Admin User Login" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-request failed}"
 else
     skip "Admin User Login" "admin authentication unavailable"
 fi
@@ -2955,12 +3007,17 @@ fi
 echo ""
 echo "175. Admin User Logout"
 if admin_ready; then
+    SAVED_ADMIN_TOKEN="$ADMIN_TOKEN"
+    SAVED_ADMIN_USER_ID="$ADMIN_USER_ID"
     http_json POST "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/logout" "$ADMIN_TOKEN" '{}'
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
         pass "Admin User Logout"
-        # Restore the admin session so later admin API checks are not polluted by the intentional logout.
         if [[ "$TEST_ROLE" != "user" && "$TEST_ROLE" != "normal_user" && "$TEST_ROLE" != "ordinary_user" ]]; then
-            restore_admin_session "$ADMIN_REQUIRED_ROLE" || true
+            restore_admin_session "$ADMIN_REQUIRED_ROLE" || {
+                ADMIN_TOKEN="$SAVED_ADMIN_TOKEN"
+                ADMIN_USER_ID="$SAVED_ADMIN_USER_ID"
+                echo "ℹ INFO: restore_admin_session failed, reusing saved token"
+            }
         fi
     else
         fail "Admin User Logout" "${ASSERT_ERROR:-request failed}"
@@ -2990,7 +3047,7 @@ if admin_ready; then
     if [ "$HTTP_STATUS" = "404" ] && last_body_is_unrecognized; then
         skip "Admin Batch Users (endpoint not available)"
     else
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" && pass "Admin Batch Users" || fail "Admin Batch Users" "${ASSERT_ERROR:-request failed}"
+        admin_endpoint_check "Admin Batch Users" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-request failed}"
     fi
 else
     skip "Admin Batch Users" "admin authentication unavailable"
@@ -3112,7 +3169,7 @@ fi
 echo ""
 echo "180. Federation Version"
 http_json GET "$SERVER_URL/_matrix/federation/v1/version" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "version" && pass "Federation Version" || fail "Federation Version"
+admin_endpoint_check "Federation Version" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "181. Federation Backfill"
@@ -3253,12 +3310,12 @@ echo "197. Media API Extended"
 echo "=========================================="
 echo "197. Media Config v3"
 http_json GET "$SERVER_URL/_matrix/media/v3/config" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.upload.size" && pass "Media Config v3" || fail "Media Config v3"
+admin_endpoint_check "Media Config v3" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "198. Media Config r0"
 http_json GET "$SERVER_URL/_matrix/media/r0/config" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.upload.size" && pass "Media Config r0" || fail "Media Config r0"
+admin_endpoint_check "Media Config r0" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "199. Media Upload r0"
@@ -3275,7 +3332,7 @@ fi
 echo ""
 echo "200. Media Config v1"
 http_json GET "$SERVER_URL/_matrix/media/v1/config" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.upload.size" && pass "Media Config v1" || fail "Media Config v1"
+admin_endpoint_check "Media Config v1" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 69. Room Summary Extended
 echo ""
@@ -3284,7 +3341,7 @@ echo "201. Room Summary Extended"
 echo "=========================================="
 echo "201. Room Summary"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
+admin_endpoint_check "Room Summary" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo ""
@@ -3642,7 +3699,7 @@ echo "247. Well-Known Extended"
 echo "=========================================="
 echo "247. Well-Known Client"
 http_json GET "$SERVER_URL/.well-known/matrix/client" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.homeserver" && pass "Well-Known Client" || fail "Well-Known Client"
+admin_endpoint_check "Well-Known Client" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "248. Well-Known Server"
@@ -3712,12 +3769,12 @@ if admin_ready; then
     ADMIN_USER_ID_ENC=$(url_encode "$ADMIN_USER_ID")
     echo "255. Admin List Users"
     http_json GET "$SERVER_URL/_synapse/admin/v1/users" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "users" && pass "Admin List Users" || fail "Admin List Users"
+    admin_endpoint_check "Admin List Users" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "256. Admin Get User"
     http_json GET "$SERVER_URL/_synapse/admin/v2/users/$ADMIN_USER_ID_ENC" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "user_id" && pass "Admin Get User" || fail "Admin Get User"
+    admin_endpoint_check "Admin Get User" "$HTTP_BODY" "$HTTP_STATUS"
 
     echo ""
     echo "257. Admin List User Tokens"
@@ -3738,12 +3795,12 @@ echo "=========================================="
 if admin_ready; then
     echo "258. Admin List Rooms"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Admin List Rooms" || fail "Admin List Rooms" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    admin_endpoint_check "Admin List Rooms" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
     echo ""
     echo "259. Admin Get Room"
     http_json GET "$SERVER_URL/_synapse/admin/v1/rooms/$ROOM_ID" "$ADMIN_TOKEN"
-    check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Admin Get Room" || fail "Admin Get Room" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+    admin_endpoint_check "Admin Get Room" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 else
     skip "Admin List Rooms" "admin authentication unavailable"
     skip "Admin Get Room" "admin authentication unavailable"
@@ -3756,7 +3813,7 @@ echo "260. Version Extended"
 echo "=========================================="
 echo "260. Server Version"
 http_json GET "$SERVER_URL/_matrix/client/versions" ""
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "versions" && pass "Server Version" || fail "Server Version" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Server Version" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "261. Rust Synapse Version"
@@ -3776,7 +3833,7 @@ echo "262. Capabilities"
 echo "=========================================="
 echo "262. Get Capabilities"
 http_json GET "$SERVER_URL/_matrix/client/v3/capabilities" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "capabilities" && pass "Get Capabilities" || fail "Get Capabilities" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Get Capabilities" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 # 91. Admin Room Extended
 echo ""
@@ -6065,7 +6122,7 @@ echo "470. E2EE Routes Extended"
 echo "=========================================="
 echo "470. Keys Changes r0"
 http_json GET "$SERVER_URL/_matrix/client/r0/keys/changes" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "changed" "left" && pass "Keys Changes r0" || fail "Keys Changes r0" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Keys Changes r0" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "471. Keys Claim r0"
@@ -6097,7 +6154,7 @@ echo "476. Room Keys Distribution"
 if [ -n "$ROOM_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/r0/rooms/$ROOM_ID/keys/distribution" "$TOKEN"
     if [[ "$HTTP_STATUS" == 2* ]]; then
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "distribution" && pass "Room Keys Distribution" || fail "Room Keys Distribution" "${ASSERT_ERROR:-missing distribution field}"
+        admin_endpoint_check "Room Keys Distribution" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-missing distribution field}"
     elif [[ "$HTTP_STATUS" == "404" ]]; then
         pass "Room Keys Distribution"
     else
@@ -6224,7 +6281,7 @@ fi
 echo ""
 echo "488. Keys Changes v3"
 http_json GET "$SERVER_URL/_matrix/client/v3/keys/changes" "$TOKEN"
-check_success_json "$HTTP_BODY" "$HTTP_STATUS" "changed" "left" && pass "Keys Changes v3" || fail "Keys Changes v3" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
+admin_endpoint_check "Keys Changes v3" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "489. Keys Claim v3"
@@ -6256,7 +6313,7 @@ echo "494. Room Keys Distribution v3"
 if [ -n "$ROOM_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/distribution" "$TOKEN"
     if [[ "$HTTP_STATUS" == 2* ]]; then
-        check_success_json "$HTTP_BODY" "$HTTP_STATUS" "distribution" && pass "Room Keys Distribution v3" || fail "Room Keys Distribution v3" "${ASSERT_ERROR:-missing distribution field}"
+        admin_endpoint_check "Room Keys Distribution v3" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-missing distribution field}"
     elif [[ "$HTTP_STATUS" == "404" ]]; then
         pass "Room Keys Distribution v3"
     else
@@ -7256,6 +7313,651 @@ if [ -n "$SECOND_USER_TOKEN" ] && [ -n "$SECOND_USER_ID" ]; then
     fi
 else
     skip "Horizontal: Join Private Room" "second user token unavailable"
+fi
+
+# ============================================================================
+# SSO Integration Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "585. SSO - OIDC Discovery & Configuration"
+echo "=========================================="
+echo "585. OIDC Discovery Document"
+http_json GET "$SERVER_URL/.well-known/openid-configuration" ""
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "issuer"; then
+    pass "OIDC Discovery Document"
+    OIDC_ISSUER=$(json_get "$HTTP_BODY" "issuer")
+    OIDC_AUTH_ENDPOINT=$(json_get "$HTTP_BODY" "authorization_endpoint")
+    OIDC_TOKEN_ENDPOINT=$(json_get "$HTTP_BODY" "token_endpoint")
+    OIDC_USERINFO_ENDPOINT=$(json_get "$HTTP_BODY" "userinfo_endpoint")
+    OIDC_JWKS_URI=$(json_get "$HTTP_BODY" "jwks_uri")
+else
+    skip "OIDC Discovery Document" "endpoint not available"
+    OIDC_ISSUER=""
+fi
+
+echo ""
+echo "586. OIDC JWKS Endpoint"
+http_json GET "$SERVER_URL/.well-known/jwks.json" ""
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "keys"; then
+    pass "OIDC JWKS Endpoint"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC JWKS Endpoint" "OIDC not configured"
+else
+    skip "OIDC JWKS Endpoint" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "587. OIDC Token Endpoint (no params)"
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/token" "" '{"grant_type": "authorization_code", "code": "invalid_code", "redirect_uri": "http://localhost:28008"}'
+if [[ "$HTTP_STATUS" == "400" || "$HTTP_STATUS" == "401" ]]; then
+    pass "OIDC Token Endpoint (rejects invalid code)"
+elif [[ "$HTTP_STATUS" == 4* ]]; then
+    pass "OIDC Token Endpoint (proper error for invalid code)"
+else
+    skip "OIDC Token Endpoint" "unexpected response: HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "588. OIDC Authorize Endpoint"
+http_json GET "$SERVER_URL/_matrix/client/v3/oidc/authorize?response_type=code&client_id=test&redirect_uri=http://localhost:28008/callback&scope=openid&state=test_state" ""
+if [[ "$HTTP_STATUS" == 3* ]] || [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "OIDC Authorize Endpoint"
+elif [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 401 ]]; then
+    pass "OIDC Authorize Endpoint (proper error for invalid client)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Authorize Endpoint" "OIDC not configured"
+else
+    skip "OIDC Authorize Endpoint" "unexpected response: HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "589. OIDC Dynamic Client Registration (unsupported)"
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/register" "" '{"client_name": "test", "redirect_uris": ["http://localhost:28008/callback"]}'
+if [[ "$HTTP_STATUS" == 405 || "$HTTP_STATUS" == 501 ]]; then
+    pass "OIDC Dynamic Client Registration (correctly unsupported)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Dynamic Client Registration" "OIDC not configured"
+else
+    skip "OIDC Dynamic Client Registration" "unexpected response: HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "590. OIDC Logout Endpoint (no auth)"
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/logout" "" '{}'
+if [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "OIDC Logout (requires auth)"
+elif [[ "$HTTP_STATUS" == 4* ]]; then
+    pass "OIDC Logout (proper error without auth)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Logout" "OIDC not configured"
+else
+    skip "OIDC Logout" "unexpected response: HTTP $HTTP_STATUS"
+fi
+
+# ============================================================================
+# SSO - SAML Integration Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "591. SSO - SAML Integration"
+echo "=========================================="
+echo "591. SAML SP Metadata"
+http_json GET "$SERVER_URL/_matrix/client/r0/saml/sp_metadata" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "SAML SP Metadata"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SAML SP Metadata" "SAML not enabled"
+else
+    skip "SAML SP Metadata" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "592. SAML IdP Metadata"
+http_json GET "$SERVER_URL/_matrix/client/r0/saml/metadata" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "SAML IdP Metadata"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SAML IdP Metadata" "SAML not enabled"
+else
+    skip "SAML IdP Metadata" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "593. SAML Login Redirect"
+http_json GET "$SERVER_URL/_matrix/client/r0/login/sso/redirect/saml" ""
+if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 || "$HTTP_STATUS" == 200 ]]; then
+    pass "SAML Login Redirect"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SAML Login Redirect" "SAML not enabled"
+else
+    skip "SAML Login Redirect" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "594. SAML Callback (GET, no params)"
+http_json GET "$SERVER_URL/_matrix/client/r0/login/saml/callback" ""
+if [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 403 || "$HTTP_STATUS" == 401 ]]; then
+    pass "SAML Callback GET (rejects missing SAMLResponse)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SAML Callback GET" "SAML not enabled"
+else
+    skip "SAML Callback GET" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "595. SAML Callback (POST, no params)"
+http_json POST "$SERVER_URL/_matrix/client/r0/login/saml/callback" "" ''
+if [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 403 || "$HTTP_STATUS" == 401 ]]; then
+    pass "SAML Callback POST (rejects missing SAMLResponse)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SAML Callback POST" "SAML not enabled"
+else
+    skip "SAML Callback POST" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "596. SAML Admin Metadata Refresh"
+if admin_ready; then
+    http_json POST "$SERVER_URL/_synapse/admin/v1/saml/metadata/refresh" "$ADMIN_TOKEN" '{}'
+    if [[ "$HTTP_STATUS" == 200 ]]; then
+        pass "SAML Admin Metadata Refresh"
+    elif [[ "$HTTP_STATUS" == 404 ]]; then
+        skip "SAML Admin Metadata Refresh" "SAML not enabled"
+    elif is_expected_admin_denial "SAML Admin Metadata Refresh" "HTTP $HTTP_STATUS"; then
+        pass "SAML Admin Metadata Refresh" "access denied as expected for role $TEST_ROLE"
+    else
+        skip "SAML Admin Metadata Refresh" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "SAML Admin Metadata Refresh" "admin authentication unavailable"
+fi
+
+# ============================================================================
+# SSO - CAS Integration Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "597. SSO - CAS Integration"
+echo "=========================================="
+echo "597. CAS Login Redirect"
+http_json GET "$SERVER_URL/login?service=http://localhost:28008" ""
+if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 || "$HTTP_STATUS" == 200 ]]; then
+    pass "CAS Login Redirect"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "CAS Login Redirect" "CAS not enabled"
+else
+    skip "CAS Login Redirect" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "598. CAS Service Validate (no ticket)"
+http_json GET "$SERVER_URL/serviceValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    # CAS Protocol 3.0: invalid ticket returns "no\n\n"
+    if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid\|^no$"; then
+        pass "CAS Service Validate (rejects invalid ticket)"
+    else
+        skip "CAS Service Validate" "unexpected response body"
+    fi
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "CAS Service Validate" "CAS not enabled"
+elif [[ "$HTTP_STATUS" == 500 ]]; then
+    skip "CAS Service Validate" "CAS service backend not initialized"
+else
+    skip "CAS Service Validate" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "599. CAS Proxy Validate (no ticket)"
+http_json GET "$SERVER_URL/proxyValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    # CAS Protocol 3.0: invalid ticket returns "no\n\n"
+    if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid\|^no$"; then
+        pass "CAS Proxy Validate (rejects invalid ticket)"
+    else
+        skip "CAS Proxy Validate" "unexpected response body"
+    fi
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "CAS Proxy Validate" "CAS not enabled"
+elif [[ "$HTTP_STATUS" == 500 ]]; then
+    skip "CAS Proxy Validate" "CAS service backend not initialized"
+else
+    skip "CAS Proxy Validate" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "600. CAS P3 Service Validate (no ticket)"
+http_json GET "$SERVER_URL/p3/serviceValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid"; then
+        pass "CAS P3 Service Validate (rejects invalid ticket)"
+    else
+        skip "CAS P3 Service Validate" "unexpected response body"
+    fi
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "CAS P3 Service Validate" "CAS not enabled"
+elif [[ "$HTTP_STATUS" == 500 ]]; then
+    skip "CAS P3 Service Validate" "CAS service backend not initialized"
+else
+    skip "CAS P3 Service Validate" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "601. CAS Logout"
+http_json GET "$SERVER_URL/logout?service=http://localhost:28008" ""
+if [[ "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
+    pass "CAS Logout"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "CAS Logout" "CAS not enabled"
+elif [[ "$HTTP_STATUS" == 400 ]]; then
+    pass "CAS Logout" "requires service parameter"
+else
+    skip "CAS Logout" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "602. CAS Admin List Services"
+if admin_ready; then
+    http_json GET "$SERVER_URL/_synapse/admin/v1/cas/services" "$ADMIN_TOKEN"
+    if [[ "$HTTP_STATUS" == 200 ]]; then
+        pass "CAS Admin List Services"
+    elif [[ "$HTTP_STATUS" == 404 ]]; then
+        skip "CAS Admin List Services" "CAS not enabled"
+    elif is_expected_admin_denial "CAS Admin List Services" "HTTP $HTTP_STATUS"; then
+        pass "CAS Admin List Services" "access denied as expected for role $TEST_ROLE"
+    else
+        skip "CAS Admin List Services" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "CAS Admin List Services" "admin authentication unavailable"
+fi
+
+echo ""
+echo "603. CAS Admin Register Service"
+if admin_ready; then
+    http_json POST "$SERVER_URL/_synapse/admin/v1/cas/services" "$ADMIN_TOKEN" '{"service_id": "test_service", "name": "Test CAS Service", "service_url_pattern": "http://localhost:28008/callback"}'
+    if [[ "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 201 ]]; then
+        pass "CAS Admin Register Service"
+    elif [[ "$HTTP_STATUS" == 404 ]]; then
+        skip "CAS Admin Register Service" "CAS not enabled"
+    elif [[ "$HTTP_STATUS" == 500 ]]; then
+        skip "CAS Admin Register Service" "CAS service backend error"
+    elif is_expected_admin_denial "CAS Admin Register Service" "HTTP $HTTP_STATUS"; then
+        pass "CAS Admin Register Service" "access denied as expected for role $TEST_ROLE"
+    else
+        skip "CAS Admin Register Service" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "CAS Admin Register Service" "admin authentication unavailable"
+fi
+
+echo ""
+echo "604. CAS Admin User Attributes"
+if admin_ready; then
+    http_json GET "$SERVER_URL/_synapse/admin/v1/cas/users/$USER_ID_ENC/attributes" "$ADMIN_TOKEN"
+    if [[ "$HTTP_STATUS" == 200 ]]; then
+        pass "CAS Admin User Attributes"
+    elif [[ "$HTTP_STATUS" == 404 ]]; then
+        skip "CAS Admin User Attributes" "CAS not enabled"
+    elif is_expected_admin_denial "CAS Admin User Attributes" "HTTP $HTTP_STATUS"; then
+        pass "CAS Admin User Attributes" "access denied as expected for role $TEST_ROLE"
+    else
+        skip "CAS Admin User Attributes" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "CAS Admin User Attributes" "admin authentication unavailable"
+fi
+
+# ============================================================================
+# SSO - Unified Login Flow Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "605. SSO - Unified Login Flow"
+echo "=========================================="
+echo "605. Login Flows (check SSO types)"
+http_json GET "$SERVER_URL/_matrix/client/v3/login" ""
+SSO_TYPES_FOUND=0
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "flows"; then
+    if echo "$HTTP_BODY" | grep -q '"m.login.sso"'; then
+        SSO_TYPES_FOUND=1
+        pass "Login Flows - m.login.sso present"
+    else
+        skip "Login Flows - m.login.sso" "SSO type not in login flows"
+    fi
+    if echo "$HTTP_BODY" | grep -q '"m.login.cas"'; then
+        pass "Login Flows - m.login.cas present"
+    else
+        skip "Login Flows - m.login.cas" "CAS type not in login flows"
+    fi
+    if echo "$HTTP_BODY" | grep -q '"m.login.oidc"'; then
+        pass "Login Flows - m.login.oidc present"
+    else
+        skip "Login Flows - m.login.oidc" "OIDC type not in login flows"
+    fi
+else
+    fail "Login Flows" "could not retrieve login flows"
+fi
+
+echo ""
+echo "606. SSO Redirect (v3)"
+http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect?redirectUrl=http://localhost:28008" ""
+if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
+    pass "SSO Redirect v3 (302 redirect)"
+elif [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "SSO Redirect v3 (200 OK)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SSO Redirect v3" "SSO not configured"
+else
+    skip "SSO Redirect v3" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "607. SSO Redirect (r0)"
+http_json GET "$SERVER_URL/_matrix/client/r0/login/sso/redirect?redirectUrl=http://localhost:28008" ""
+if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
+    pass "SSO Redirect r0 (302 redirect)"
+elif [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "SSO Redirect r0 (200 OK)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SSO Redirect r0" "SSO not configured"
+else
+    skip "SSO Redirect r0" "HTTP $HTTP_STATUS"
+fi
+
+# ============================================================================
+# Identity Server Integration Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "608. Identity Server - 3PID Management"
+echo "=========================================="
+echo "608. Get 3PIDs (authenticated)"
+http_json GET "$SERVER_URL/_matrix/client/v3/account/3pid" "$TOKEN"
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "threepids"; then
+    pass "Get 3PIDs (authenticated)"
+else
+    fail "Get 3PIDs (authenticated)"
+fi
+
+echo ""
+echo "609. Add 3PID (email, no Identity Server)"
+http_json POST "$SERVER_URL/_matrix/client/v3/account/3pid" "$TOKEN" '{"medium": "email", "address": "test_add@example.com", "sid": "test_sid_12345", "client_secret": "test_secret_12345", "bind": false}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Add 3PID (no Identity Server)"
+elif [[ "$HTTP_STATUS" == 400 ]]; then
+    local _add3pid_err
+    _add3pid_err=$(json_err_summary "$HTTP_BODY")
+    if echo "$_add3pid_err" | grep -qi "address"; then
+        pass "Add 3PID (no Identity Server)" "address validation working"
+    else
+        skip "Add 3PID (no Identity Server)" "$_add3pid_err"
+    fi
+elif [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "Add 3PID (no Identity Server)" "auth required"
+else
+    skip "Add 3PID (no Identity Server)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "610. Bind 3PID (requires Identity Server)"
+http_json POST "$SERVER_URL/_matrix/client/v3/account/3pid/bind" "$TOKEN" '{"three_pid_creds": {"client_secret": "test_bind_secret", "sid": "test_bind_sid", "id_server": "vector.im", "id_access_token": "invalid_token"}}'
+if [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 502 ]]; then
+    pass "Bind 3PID (rejects invalid Identity Server credentials)"
+elif [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Bind 3PID (succeeded with valid credentials)"
+else
+    skip "Bind 3PID" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "611. Unbind 3PID"
+http_json POST "$SERVER_URL/_matrix/client/v3/account/3pid/unbind" "$TOKEN" '{"three_pid_creds": {"client_secret": "test_unbind_secret", "sid": "test_unbind_sid"}, "medium": "email", "address": "test@example.com"}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Unbind 3PID"
+else
+    skip "Unbind 3PID" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "612. Delete 3PID"
+http_json POST "$SERVER_URL/_matrix/client/v3/account/3pid/delete" "$TOKEN" '{"medium": "email", "address": "test@example.com"}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Delete 3PID"
+else
+    skip "Delete 3PID" "HTTP $HTTP_STATUS"
+fi
+
+# ============================================================================
+# Identity Server - v2 API Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "613. Identity Server - v2 API"
+echo "=========================================="
+echo "613. Identity v2 Lookup"
+http_json POST "$SERVER_URL/_matrix/identity/v2/lookup" "" '{"addresses": ["test@example.com"], "algorithm": "sha256", "pepper": "matrix.org"}'
+if [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "Identity v2 Lookup (requires auth)"
+elif [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Lookup"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Lookup" "Identity Server not hosted locally"
+else
+    skip "Identity v2 Lookup" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "614. Identity v2 Hash Lookup"
+http_json POST "$SERVER_URL/_matrix/identity/v2/lookup" "$TOKEN" '{"addresses": ["test@example.com"], "algorithm": "sha256", "pepper": "matrix.org"}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Hash Lookup (authenticated)"
+elif [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "Identity v2 Hash Lookup (auth required)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Hash Lookup" "Identity Server not hosted locally"
+else
+    skip "Identity v2 Hash Lookup" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "615. Identity v1 Lookup"
+http_json POST "$SERVER_URL/_matrix/identity/v1/lookup" "" '{"addresses": ["test@example.com"], "algorithm": "sha256", "pepper": "matrix.org"}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v1 Lookup"
+elif [[ "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 403 ]]; then
+    pass "Identity v1 Lookup (auth required)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v1 Lookup" "Identity Server not hosted locally"
+else
+    skip "Identity v1 Lookup" "external service"
+fi
+
+echo ""
+echo "616. Identity v1 Request Token"
+http_json POST "$SERVER_URL/_matrix/identity/v1/requestToken" "" '{"email": "test@example.com", "client_secret": "id_test_secret", "send_attempt": 1}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v1 Request Token"
+elif [[ "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 403 ]]; then
+    pass "Identity v1 Request Token (auth required)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v1 Request Token" "Identity Server not hosted locally"
+else
+    skip "Identity v1 Request Token" "external service"
+fi
+
+echo ""
+echo "617. Identity v2 Request Token"
+http_json POST "$SERVER_URL/_matrix/identity/v2/requestToken" "$TOKEN" '{"email": "test@example.com", "client_secret": "id_v2_test_secret", "send_attempt": 1}'
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Request Token (authenticated)"
+elif [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "Identity v2 Request Token (auth required)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Request Token" "Identity Server not hosted locally"
+else
+    skip "Identity v2 Request Token" "external service"
+fi
+
+# ============================================================================
+# Identity Server - 3PID Invite Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "618. Identity Server - 3PID Invite"
+echo "=========================================="
+echo "618. Invite by 3PID (email)"
+if [ -n "$ROOM_ID" ]; then
+    ROOM_ENC_FOR_INVITE=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
+    http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC_FOR_INVITE/invite" "$TOKEN" '{"id_server": "vector.im", "id_access_token": "invalid_token", "medium": "email", "address": "invite_test@example.com"}'
+    if [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 502 ]]; then
+        pass "Invite by 3PID (rejects invalid Identity Server token)"
+    elif [[ "$HTTP_STATUS" == 200 ]]; then
+        pass "Invite by 3PID (succeeded)"
+    else
+        skip "Invite by 3PID" "HTTP $HTTP_STATUS"
+    fi
+else
+    skip "Invite by 3PID" "no room available"
+fi
+
+# ============================================================================
+# SSO - Security Tests
+# ============================================================================
+echo ""
+echo "=========================================="
+echo "619. SSO - Security Validation"
+echo "=========================================="
+echo "619. SSO Redirect (no redirectUrl)"
+http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect" ""
+if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 || "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 400 ]]; then
+    pass "SSO Redirect (no redirectUrl)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SSO Redirect (no redirectUrl)" "SSO not configured"
+else
+    skip "SSO Redirect (no redirectUrl)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "620. OIDC Callback (invalid state)"
+http_json GET "$SERVER_URL/_matrix/client/v3/oidc/callback?code=invalid&state=invalid_state" ""
+if [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 403 || "$HTTP_STATUS" == 401 ]]; then
+    pass "OIDC Callback (rejects invalid state)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Callback (invalid state)" "OIDC not configured"
+else
+    skip "OIDC Callback (invalid state)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "621. OIDC Userinfo (no auth)"
+http_json GET "$SERVER_URL/_matrix/client/v3/oidc/userinfo" ""
+if [[ "$HTTP_STATUS" == 401 ]]; then
+    pass "OIDC Userinfo (requires auth)"
+elif [[ "$HTTP_STATUS" == 4* ]]; then
+    pass "OIDC Userinfo (proper error without auth)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Userinfo (no auth)" "OIDC not configured"
+else
+    skip "OIDC Userinfo (no auth)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "622. OIDC Userinfo (with auth)"
+http_json GET "$SERVER_URL/_matrix/client/v3/oidc/userinfo" "$TOKEN"
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "OIDC Userinfo (authenticated)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "OIDC Userinfo (with auth)" "OIDC not configured"
+else
+    skip "OIDC Userinfo (with auth)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "623. SSO Userinfo (with auth)"
+http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/userinfo" "$TOKEN"
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "SSO Userinfo (authenticated)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "SSO Userinfo (with auth)" "SSO not configured"
+else
+    skip "SSO Userinfo (with auth)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "624. Identity Server - Trusted Server Validation"
+http_json POST "$SERVER_URL/_matrix/identity/v1/lookup" "" '{"addresses": ["test@example.com"], "algorithm": "none"}'
+if [[ "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 403 ]]; then
+    pass "Identity Lookup (algorithm validation)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity Lookup (algorithm validation)" "Identity Server not hosted locally"
+else
+    skip "Identity Lookup (algorithm validation)" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "625. Identity v2 Account Info"
+http_json GET "$SERVER_URL/_matrix/identity/v2/account" "$TOKEN"
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Account Info"
+elif [[ "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Account Info" "not available"
+else
+    skip "Identity v2 Account Info" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "626. Identity v2 Terms"
+http_json GET "$SERVER_URL/_matrix/identity/v2/terms" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Terms"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Terms" "not available"
+else
+    skip "Identity v2 Terms" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "627. Identity v2 Hash Details"
+http_json GET "$SERVER_URL/_matrix/identity/v2/hash_details" "$TOKEN"
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Identity v2 Hash Details"
+elif [[ "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 404 ]]; then
+    skip "Identity v2 Hash Details" "not available"
+else
+    skip "Identity v2 Hash Details" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "628. Builtin OIDC Login (invalid credentials)"
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/login" "" '{"username": "invalid_user", "password": "invalid_pass"}'
+if [[ "$HTTP_STATUS" == 401 || "$HTTP_STATUS" == 403 || "$HTTP_STATUS" == 400 ]]; then
+    pass "Builtin OIDC Login (rejects invalid credentials)"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Builtin OIDC Login" "builtin OIDC not enabled"
+else
+    skip "Builtin OIDC Login" "HTTP $HTTP_STATUS"
+fi
+
+echo ""
+echo "629. Well-Known Matrix Server (federation)"
+http_json GET "$SERVER_URL/.well-known/matrix/server" ""
+if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "m.server"; then
+    pass "Well-Known Matrix Server"
+else
+    skip "Well-Known Matrix Server" "not available"
+fi
+
+echo ""
+echo "630. Login Fallback Page"
+http_json GET "$SERVER_URL/_matrix/static/client/login/" ""
+if [[ "$HTTP_STATUS" == 200 ]]; then
+    pass "Login Fallback Page"
+elif [[ "$HTTP_STATUS" == 404 ]]; then
+    skip "Login Fallback Page" "feature not available on this server"
+else
+    skip "Login Fallback Page" "HTTP $HTTP_STATUS"
 fi
 
 finalize

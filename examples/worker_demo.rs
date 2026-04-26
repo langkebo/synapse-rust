@@ -52,7 +52,7 @@ struct SendCommandRequest {
     max_retries: Option<i32>,
 }
 
-const BASE_URL: &str = "http://localhost:8008";
+const BASE_URL: &str = "http://localhost:28008";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         worker_name: "Frontend Worker 1".to_string(),
         worker_type: "frontend".to_string(),
         host: "localhost".to_string(),
-        port: 8008,
+        port: 28008,
         version: Some("1.0.0".to_string()),
     };
 
