@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: runtime
+      target: tools
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped
@@ -33,7 +33,6 @@ services:
       DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-2}
       MIGRATION_TIMEOUT: ${MIGRATION_TIMEOUT:-300}
       SYNAPSE_ENABLE_RUNTIME_DB_INIT: ${SYNAPSE_ENABLE_RUNTIME_DB_INIT:-false}
-      SYNAPSE_SKIP_DB_INIT: "true"
       RUST_LOG: ${RUST_LOG:-info}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
