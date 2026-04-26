@@ -658,7 +658,54 @@ impl SamlService {
                 query.append_pair("RelayState", state);
             }
         }
+
+        if self.config.sign_requests {
+            if let Some(ref key_pem) = self.config.sp_private_key {
+                match self.sign_redirect_url(&url, key_pem) {
+                    Ok(signed_url) => return Ok(signed_url),
+                    Err(e) => {
+                        tracing::warn!("Failed to sign SAML redirect request: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "SAML sign_requests is enabled but sp_private_key is not configured"
+                );
+            }
+        }
+
         Ok(url.to_string())
+    }
+
+    fn sign_redirect_url(&self, url: &url::Url, private_key_pem: &str) -> Result<String, String> {
+        let query = url.query().unwrap_or("");
+        let sig_alg = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+
+        let private_key = pem_to_rsa_private_key(private_key_pem)?;
+
+        let signing_key = ring::signature::RsaKeyPair::from_der(&private_key)
+            .map_err(|e| format!("Invalid RSA private key: {}", e))?;
+
+        let mut signature = vec![0u8; signing_key.public().modulus_len()];
+        signing_key
+            .sign(
+                &ring::signature::RSA_PKCS1_SHA256,
+                &ring::rand::SystemRandom::new(),
+                query.as_bytes(),
+                &mut signature,
+            )
+            .map_err(|e| format!("Failed to sign SAML request: {}", e))?;
+
+        let sig_b64 = general_purpose::STANDARD.encode(&signature);
+
+        let mut signed_url = url.clone();
+        {
+            let mut query = signed_url.query_pairs_mut();
+            query.append_pair("SigAlg", sig_alg);
+            query.append_pair("Signature", &sig_b64);
+        }
+
+        Ok(signed_url.to_string())
     }
 
     fn decode_saml_response(response: &str) -> Result<String, ApiError> {
@@ -977,6 +1024,19 @@ impl SamlIdpManager {
     pub async fn delete_idp(&self, entity_id: &str) -> Result<(), ApiError> {
         self.storage.delete_identity_provider(entity_id).await
     }
+}
+
+fn pem_to_rsa_private_key(pem: &str) -> Result<Vec<u8>, String> {
+    let der = pem.lines().filter(|line| !line.starts_with("-----")).fold(
+        String::new(),
+        |mut acc, line| {
+            acc.push_str(line.trim());
+            acc
+        },
+    );
+    general_purpose::STANDARD
+        .decode(&der)
+        .map_err(|e| format!("Failed to decode PEM base64: {}", e))
 }
 
 #[cfg(test)]

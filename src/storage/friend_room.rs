@@ -522,13 +522,12 @@ impl FriendRoomStorage {
             return Ok(row.get("id"));
         }
 
-        let fallback = sqlx::query(
-            "SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2",
-        )
-        .bind(sender_id)
-        .bind(receiver_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let fallback =
+            sqlx::query("SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2")
+                .bind(sender_id)
+                .bind(receiver_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         match fallback {
             Some(row) => Ok(row.get("id")),

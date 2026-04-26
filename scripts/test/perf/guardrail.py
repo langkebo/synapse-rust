@@ -141,7 +141,7 @@ def render_markdown(results: list[dict], base_url: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-dir", required=True)
-    parser.add_argument("--base-url", default="http://localhost:8008")
+    parser.add_argument("--base-url", default="http://localhost:28008")
     parser.add_argument("--fail-on-breach", action="store_true")
     parser.add_argument(
         "--scenarios",

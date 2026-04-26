@@ -152,12 +152,14 @@ async fn sso_redirect(
             &redirect_uri,
         )?;
 
-        let authorization_url = oidc_service.get_authorization_url(
-            &state_value,
-            &redirect_uri,
-            Some(&code_challenge),
-            Some("S256"),
-        )?;
+        let authorization_url = oidc_service
+            .get_authorization_url(
+                &state_value,
+                &redirect_uri,
+                Some(&code_challenge),
+                Some("S256"),
+            )
+            .await?;
 
         return Ok(Redirect::temporary(&authorization_url));
     }
@@ -265,6 +267,16 @@ async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, 
     Err(ApiError::bad_request(
         "Builtin OIDC provider is not enabled".to_string(),
     ))
+}
+
+/// JWKS fallback endpoint - 当没有启用 OIDC 时返回空的 JWKS
+pub async fn jwks_fallback(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // 返回空的 JWKS 集合，符合 JWKS 规范
+    Ok(Json(serde_json::json!({
+        "keys": []
+    })))
 }
 
 /// OIDC UserInfo Response
@@ -619,6 +631,7 @@ async fn oidc_authorize(
             Some(&code_challenge),
             Some("S256"),
         )
+        .await
         .map_err(|e| ApiError::internal(format!("Failed to generate authorization URL: {}", e)))?;
 
     tracing::info!(

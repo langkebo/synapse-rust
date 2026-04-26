@@ -273,11 +273,56 @@ pub(crate) async fn submit_email_token(
     })))
 }
 
-pub(crate) async fn get_login_flows(State(_state): State<AppState>) -> Json<Value> {
-    let flows = vec![
+pub(crate) async fn get_login_flows(State(state): State<AppState>) -> Json<Value> {
+    let mut flows = vec![
         json!({"type": "m.login.password"}),
         json!({"type": "m.login.token"}),
     ];
+
+    let mut sso_providers = Vec::new();
+
+    // 检查 SAML SSO
+    #[cfg(feature = "saml-sso")]
+    {
+        sso_providers.push(json!({
+            "id": "saml",
+            "name": "SAML",
+            "brand": "saml"
+        }));
+    }
+
+    // 检查 OIDC
+    if state.services.oidc_service.is_some() {
+        sso_providers.push(json!({
+            "id": "oidc",
+            "name": "OIDC",
+            "brand": "oidc"
+        }));
+    }
+
+    // 检查 CAS
+    #[cfg(feature = "cas-sso")]
+    {
+        sso_providers.push(json!({
+            "id": "cas",
+            "name": "CAS",
+            "brand": "cas"
+        }));
+        flows.push(json!({"type": "m.login.cas"}));
+    }
+
+    // 如果有任何 SSO 提供商，添加 m.login.sso 类型
+    if !sso_providers.is_empty() {
+        flows.push(json!({
+            "type": "m.login.sso",
+            "identity_providers": sso_providers
+        }));
+    }
+
+    // 检查内置 OIDC Provider
+    if state.services.builtin_oidc_provider.is_some() {
+        flows.push(json!({"type": "m.login.oidc"}));
+    }
 
     Json(json!({ "flows": flows }))
 }
@@ -401,4 +446,123 @@ pub(crate) async fn refresh_token(
         "expires_in": state.services.auth_service.token_expiry,
         "device_id": device_id
     })))
+}
+
+pub(crate) async fn login_fallback_page(
+    State(state): State<AppState>,
+) -> Result<axum::response::Html<String>, ApiError> {
+    let flows = get_login_flows(State(state)).await;
+    let empty_vec = vec![];
+    let flows_data = flows.0.get("flows").and_then(|f| f.as_array()).unwrap_or(&empty_vec);
+
+    let mut flows_html = String::new();
+
+    for flow in flows_data {
+        let flow_type = flow.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match flow_type {
+            "m.login.password" => {
+                flows_html.push_str(r#"
+                <div class="flow">
+                    <h3>Password Login</h3>
+                    <form method="POST" action="/_matrix/client/v3/login">
+                        <input type="hidden" name="type" value="m.login.password">
+                        <div>
+                            <label>Username:</label>
+                            <input type="text" name="identifier[user]" required>
+                        </div>
+                        <div>
+                            <label>Password:</label>
+                            <input type="password" name="password" required>
+                        </div>
+                        <button type="submit">Login</button>
+                    </form>
+                </div>
+                "#);
+            }
+            "m.login.sso" => {
+                if let Some(providers) = flow.get("identity_providers").and_then(|p| p.as_array()) {
+                    flows_html.push_str("<div class=\"flow\"><h3>SSO Login</h3>");
+                    for provider in providers {
+                        let id = provider.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                        let name = provider.get("name").and_then(|n| n.as_str()).unwrap_or(id);
+                        flows_html.push_str(&format!(
+                            r#"<a href="/_matrix/client/v3/login/sso/redirect?redirectUrl=/">Login with {}</a><br>"#,
+                            name
+                        ));
+                    }
+                    flows_html.push_str("</div>");
+                }
+            }
+            "m.login.cas" => {
+                flows_html.push_str(r#"
+                <div class="flow">
+                    <h3>CAS Login</h3>
+                    <a href="/cas/login?service=/">Login with CAS</a>
+                </div>
+                "#);
+            }
+            _ => {}
+        }
+    }
+
+    let html = format!(r#"<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Login - Matrix</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }}
+        h1 {{
+            color: #333;
+        }}
+        .flow {{
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }}
+        .flow h3 {{
+            margin-top: 0;
+        }}
+        form div {{
+            margin: 10px 0;
+        }}
+        label {{
+            display: inline-block;
+            width: 100px;
+        }}
+        input[type="text"], input[type="password"] {{
+            padding: 8px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }}
+        button, a {{
+            display: inline-block;
+            padding: 10px 20px;
+            background: #0066cc;
+            color: white;
+            text-decoration: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }}
+        button:hover, a:hover {{
+            background: #0052a3;
+        }}
+    </style>
+</head>
+<body>
+    <h1>Login to Matrix</h1>
+    {}
+</body>
+</html>"#, flows_html);
+
+    Ok(axum::response::Html(html))
 }

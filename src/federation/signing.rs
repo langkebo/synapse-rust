@@ -1,4 +1,5 @@
 use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::Value;
 
 const MAX_PDU_SIZE_BYTES: usize = 65536;
@@ -74,6 +75,51 @@ pub fn canonical_federation_request_bytes(
         obj.insert("content".to_string(), content.clone());
     }
     canonical_json_string(&Value::Object(obj)).into_bytes()
+}
+
+pub fn sign_json(
+    server_name: &str,
+    key_id: &str,
+    secret_key_base64: &str,
+    value: &mut Value,
+) -> Result<(), String> {
+    let unsigned = {
+        let mut copy = value.clone();
+        if let Some(obj) = copy.as_object_mut() {
+            obj.remove("signatures");
+            obj.remove("unsigned");
+        }
+        canonical_json_string(&copy)
+    };
+
+    let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(secret_key_base64)
+        .map_err(|e| format!("Invalid secret key base64: {}", e))?
+        .try_into()
+        .map_err(|_| "Secret key must be 32 bytes".to_string())?;
+
+    let signing_key = SigningKey::from_bytes(&secret_bytes);
+    let signature = signing_key.sign(unsigned.as_bytes());
+    let sig_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
+
+    let signatures = value
+        .as_object_mut()
+        .ok_or_else(|| "Value must be a JSON object".to_string())?
+        .entry("signatures")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+
+    let server_sigs = signatures
+        .as_object_mut()
+        .ok_or_else(|| "signatures must be a JSON object".to_string())?
+        .entry(server_name.to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+
+    server_sigs
+        .as_object_mut()
+        .ok_or_else(|| "Server signatures must be a JSON object".to_string())?
+        .insert(key_id.to_string(), Value::String(sig_b64));
+
+    Ok(())
 }
 
 pub fn compute_event_content_hash(event: &Value) -> Option<String> {

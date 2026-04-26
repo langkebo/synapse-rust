@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8008';
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:28008';
 const ADMIN_USER = __ENV.ADMIN_USER || 'admin';
 const ADMIN_PASS = __ENV.ADMIN_PASS || 'Admin@123';
 

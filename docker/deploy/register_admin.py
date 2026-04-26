@@ -14,7 +14,7 @@ import urllib.error
 import sys
 import os
 
-SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:8008")
+SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:28008")
 USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPLAYNAME = "System Administrator"

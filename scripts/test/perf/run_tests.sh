@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_URL="${BASE_URL:-http://localhost:8008}"
+BASE_URL="${BASE_URL:-http://localhost:28008}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 RESULTS_DIR="${RESULTS_DIR:-$SCRIPT_DIR/results}"

@@ -74,6 +74,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 USER synapse
 
+ENV RUST_LOG=info \
+    RUST_BACKTRACE=1 \
+    HOME=/app \
+    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml \
+    SYNAPSE_HEALTHCHECK_HOST=127.0.0.1 \
+    SYNAPSE_HEALTHCHECK_PORT=28008
+
+EXPOSE 8008 8448 9090
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
+ENTRYPOINT ["/app/synapse-rust"]
+
 FROM tools-base AS runtime-libs
 
 RUN set -eux; \
@@ -101,7 +112,7 @@ ENV RUST_LOG=info \
     HOME=/app \
     SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml \
     SYNAPSE_HEALTHCHECK_HOST=127.0.0.1 \
-    SYNAPSE_HEALTHCHECK_PORT=8008
+    SYNAPSE_HEALTHCHECK_PORT=28008
 
 COPY --from=runtime-libs /out/ /
 COPY --chown=1000:1000 --from=builder /out/app /app

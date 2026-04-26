@@ -431,7 +431,8 @@ struct SqlxDeviceTrustStatus {
     verified_at: Option<chrono::DateTime<chrono::Utc>>,
     created_ts: i64,
     updated_ts: Option<i64>,
-}impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
+}
+impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
     fn from(row: SqlxDeviceTrustStatus) -> Self {
         DeviceTrustStatus {
             id: row.id,

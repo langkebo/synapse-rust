@@ -208,12 +208,7 @@ async fn test_e2ee_keys() {
         .await
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert!(
-        json["one_time_key_counts"]["curve25519"]
-            .as_i64()
-            .unwrap()
-            >= 2
-    );
+    assert!(json["one_time_key_counts"]["curve25519"].as_i64().unwrap() >= 2);
 
     // 2. Query Keys
     let request = Request::builder()
