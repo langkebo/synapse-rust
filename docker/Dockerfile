@@ -37,17 +37,18 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && \
 COPY src ./src
 COPY migrations ./migrations
 COPY benches ./benches
-COPY docker/db_migrate.sh docker/deploy/scripts/container-migrate.sh docker/healthcheck.sh ./docker/
+COPY docker/db_migrate.sh docker/deploy/scripts/container-migrate.sh docker/healthcheck.sh docker/entrypoint.sh ./docker/
 
 # 编译真正的二进制文件
-# 注意：touch src/main.rs 确保 cargo 意识到源码已更新
-RUN touch src/main.rs src/bin/healthcheck.rs && \
+# 注意：删除 target 目录确保完全重新编译所有源码
+RUN rm -rf target && \
     cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh /out/app/scripts/db_migrate.sh && \
     install -Dm755 docker/container-migrate.sh /out/app/scripts/container-migrate.sh && \
     install -Dm755 docker/healthcheck.sh /out/app/scripts/healthcheck.sh && \
+    install -Dm755 docker/entrypoint.sh /out/app/entrypoint.sh && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
     cp -R migrations/. /out/app/migrations/
 
@@ -83,7 +84,8 @@ ENV RUST_LOG=info \
 
 EXPOSE 8008 8448 9090
 HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
-ENTRYPOINT ["/app/synapse-rust"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/app/synapse-rust"]
 
 FROM tools-base AS runtime-libs
 

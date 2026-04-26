@@ -42,7 +42,17 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
 }
 
 #[axum::debug_handler]
-pub async fn get_admin_info(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info(
+    admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    // Only super_admin can access server info
+    if admin.role != "super_admin" {
+        return Err(ApiError::forbidden(
+            "Only super_admin can access server information".to_string(),
+        ));
+    }
+
     Ok(Json(json!({
         "server_name": state.services.config.server.name,
         "server_version": env!("CARGO_PKG_VERSION"),

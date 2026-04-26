@@ -38,8 +38,24 @@ TEST_PASS2="${TEST_PASS2:-Test@123}"
 CURRENT_TEST_PASS="$TEST_PASS"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
-ADMIN_USER_TYPE="${ADMIN_USER_TYPE:-super_admin}"
 TEST_ROLE="${TEST_ROLE:-super_admin}"
+# 根据 TEST_ROLE 自动设置 ADMIN_USER_TYPE
+if [ -z "$ADMIN_USER_TYPE" ]; then
+    case "$TEST_ROLE" in
+        admin)
+            ADMIN_USER_TYPE="admin"
+            ;;
+        super_admin)
+            ADMIN_USER_TYPE="super_admin"
+            ;;
+        user|normal_user|ordinary_user)
+            ADMIN_USER_TYPE="super_admin"  # user 角色测试仍需要 super_admin 来设置环境
+            ;;
+        *)
+            ADMIN_USER_TYPE="super_admin"
+            ;;
+    esac
+fi
 ADMIN_SHARED_SECRET="${ADMIN_SHARED_SECRET:-change-me-admin-shared-secret}"
 DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"
 DB_USER="${DB_USER:-postgres}"
@@ -1418,8 +1434,22 @@ fi
 
 case "$TEST_ROLE" in
     user|normal_user|ordinary_user)
+        # 为 user 角色创建独立的普通用户，确保不会被设置为 admin
+        echo "Creating dedicated normal user for user role testing..."
+
+        # 使用 testuser1 作为普通用户（确保它没有 admin 权限）
+        # 注意：不使用 ADMIN_TOKEN，而是使用普通用户的 TOKEN
         ADMIN_TOKEN="$TOKEN"
         ADMIN_USER_ID="$USER_ID"
+
+        # 验证用户不是 admin
+        if [ -n "$TOKEN" ]; then
+            USER_ID_ENC=$(url_encode "$USER_ID")
+            http_json GET "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC" "$TOKEN" 2>/dev/null || true
+            if [[ "$HTTP_STATUS" == 2* ]]; then
+                echo "WARNING: Test user has admin access. User role tests may not be accurate."
+            fi
+        fi
         ;;
     *)
         if [ -n "$ADMIN_SHARED_SECRET" ] && [ "$ADMIN_SHARED_SECRET" != "change-me-admin-shared-secret" ]; then

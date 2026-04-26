@@ -59,16 +59,16 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_media_router(state.clone()))
         .merge(create_report_router(state.clone()))
         .merge(create_retention_router(state.clone()))
+        .route(
+            "/_synapse/admin/info",
+            axum::routing::get(server::get_admin_info),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
         ));
 
     Router::new()
-        .route(
-            "/_synapse/admin/info",
-            axum::routing::get(server::get_admin_info),
-        )
         .merge(protected)
         .merge(create_register_router(state))
 }

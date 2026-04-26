@@ -806,7 +806,7 @@ fn build_test_config() -> Config {
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,
-            admin_rbac_enabled: false,
+            admin_rbac_enabled: true,
         },
         search: SearchConfig {
             enabled: false,
