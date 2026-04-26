@@ -506,6 +506,24 @@ pub(crate) async fn add_threepid(
         return Err(ApiError::bad_request("Address is required".to_string()));
     }
 
+    let id_server = body.get("id_server").and_then(|v| v.as_str());
+    let sid = body.get("sid").and_then(|v| v.as_str());
+    let id_access_token = body.get("id_access_token").and_then(|v| v.as_str());
+    let client_secret = body.get("client_secret").and_then(|v| v.as_str());
+
+    if let (Some(id_server), Some(sid), Some(id_access_token), Some(client_secret)) =
+        (id_server, sid, id_access_token, client_secret)
+    {
+        if let Err(e) = state
+            .services
+            .identity_service
+            .bind_three_pid(id_server, id_access_token, sid, client_secret, user_id)
+            .await
+        {
+            ::tracing::warn!("Failed to bind 3PID via Identity Server: {}", e);
+        }
+    }
+
     sqlx::query(
         r#"
         INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts)

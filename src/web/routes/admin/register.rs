@@ -675,18 +675,18 @@ mod tests {
 
     #[test]
     fn test_is_local_registration_origin() {
-        assert!(is_local_registration_origin("http://localhost:8008"));
+        assert!(is_local_registration_origin("http://localhost:28008"));
         assert!(is_local_registration_origin("https://127.0.0.1:8448"));
-        assert!(is_local_registration_origin("http://[::1]:8008"));
+        assert!(is_local_registration_origin("http://[::1]:28008"));
         assert!(!is_local_registration_origin("https://example.com"));
         assert!(!is_local_registration_origin("null"));
     }
 
     #[test]
     fn test_is_local_registration_host() {
-        assert!(is_local_registration_host("localhost:8008"));
+        assert!(is_local_registration_host("localhost:28008"));
         assert!(is_local_registration_host("127.0.0.1:8448"));
-        assert!(is_local_registration_host("[::1]:8008"));
+        assert!(is_local_registration_host("[::1]:28008"));
         assert!(!is_local_registration_host("example.com"));
     }
 
@@ -694,7 +694,7 @@ mod tests {
     fn test_ensure_local_admin_registration_request_rejects_non_local_origin() {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "https://evil.example.com".parse().unwrap());
-        let connect_info = ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap());
+        let connect_info = ConnectInfo("127.0.0.1:28008".parse::<SocketAddr>().unwrap());
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_err());
@@ -705,7 +705,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "http://localhost:3000".parse().unwrap());
         headers.insert("referer", "http://127.0.0.1:3000/setup".parse().unwrap());
-        let connect_info = ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap());
+        let connect_info = ConnectInfo("127.0.0.1:28008".parse::<SocketAddr>().unwrap());
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_ok());
@@ -715,7 +715,7 @@ mod tests {
     fn test_ensure_local_admin_registration_request_accepts_local_proxy_host() {
         let mut headers = HeaderMap::new();
         headers.insert("host", "localhost:28008".parse().unwrap());
-        let connect_info = ConnectInfo("172.18.0.1:8008".parse::<SocketAddr>().unwrap());
+        let connect_info = ConnectInfo("172.18.0.1:28008".parse::<SocketAddr>().unwrap());
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_ok());
@@ -726,7 +726,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("host", "localhost:28008".parse().unwrap());
         headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
-        let connect_info = ConnectInfo("172.18.0.1:8008".parse::<SocketAddr>().unwrap());
+        let connect_info = ConnectInfo("172.18.0.1:28008".parse::<SocketAddr>().unwrap());
 
         let result = ensure_local_admin_registration_request(&headers, &connect_info, false);
         assert!(result.is_err());

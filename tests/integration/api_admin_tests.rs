@@ -112,29 +112,6 @@ async fn get_current_user_id(app: &axum::Router, access_token: &str) -> String {
     json["user_id"].as_str().unwrap().to_string()
 }
 
-async fn get_csrf_token(app: &axum::Router, access_token: &str) -> String {
-    let request = Request::builder()
-        .uri("/_synapse/admin/v1/telemetry/status")
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Origin", "https://localhost")
-        .header("X-Forwarded-Host", "localhost")
-        .header("X-Forwarded-Proto", "https")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    response
-        .headers()
-        .get("x-csrf-token")
-        .and_then(|value| value.to_str().ok())
-        .unwrap()
-        .to_string()
-}
-
 #[tokio::test]
 async fn test_admin_flow() {
     let Some(app) = setup_test_app().await else {
@@ -692,7 +669,7 @@ async fn test_telemetry_routes_require_admin_permissions() {
 }
 
 #[tokio::test]
-async fn test_csrf_protects_admin_post_routes() {
+async fn test_admin_bearer_post_routes_do_not_require_csrf() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -708,38 +685,6 @@ async fn test_csrf_protects_admin_post_routes() {
         .header("Origin", "https://localhost")
         .header("X-Forwarded-Host", "localhost")
         .header("X-Forwarded-Proto", "https")
-        .body(Body::from(
-            json!({
-                "worker_id": worker_id,
-                "worker_name": "CSRF Worker",
-                "worker_type": "frontend",
-                "host": "127.0.0.1",
-                "port": 9101
-            })
-            .to_string(),
-        ))
-        .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(json["error"], "Missing or invalid CSRF token");
-
-    let csrf_token = get_csrf_token(&app, &admin_token).await;
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/worker/v1/register")
-        .header("Authorization", format!("Bearer {}", admin_token))
-        .header("Content-Type", "application/json")
-        .header("Origin", "https://localhost")
-        .header("X-Forwarded-Host", "localhost")
-        .header("X-Forwarded-Proto", "https")
-        .header("X-CSRF-Token", csrf_token)
         .body(Body::from(
             json!({
                 "worker_id": worker_id,

@@ -341,10 +341,7 @@ impl DeviceKeyService {
                     .get_one_time_keys_count_by_algorithm(&user_id, &device_id)
                     .await?;
                 for (algo, count) in counts {
-                    one_time_key_counts.insert(
-                        algo,
-                        serde_json::Value::Number(count.into()),
-                    );
+                    one_time_key_counts.insert(algo, serde_json::Value::Number(count.into()));
                 }
             }
         }

@@ -190,10 +190,16 @@ pub fn create_router(state: AppState) -> Router {
     {
         router = router.merge(create_oidc_router(state.clone()));
     } else {
-        router = router.route(
-            "/.well-known/openid-configuration",
-            get(get_openid_configuration),
-        );
+        // 即使没有启用 OIDC，也需要提供基本的端点以符合规范
+        router = router
+            .route(
+                "/.well-known/openid-configuration",
+                get(get_openid_configuration),
+            )
+            .route(
+                "/.well-known/jwks.json",
+                get(oidc::jwks_fallback),
+            );
     }
     #[cfg(feature = "openclaw-routes")]
     if state.services.config.experimental.openclaw_routes_enabled {
@@ -291,6 +297,10 @@ fn create_auth_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/r0", create_auth_compat_router())
         .nest("/_matrix/client/v3", create_auth_compat_router())
+        .route(
+            "/_matrix/static/client/login/",
+            get(auth_compat::login_fallback_page),
+        )
         .route(
             "/_matrix/client/v1/login/get_qr_code",
             get(qr_login::get_qr_code),

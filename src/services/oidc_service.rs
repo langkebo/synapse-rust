@@ -1,7 +1,7 @@
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -306,7 +306,12 @@ impl OidcService {
             let read = self.discovery.read().await;
             match read.as_ref() {
                 Some(discovery) => discovery.jwks_uri.clone(),
-                None => return Err("No JWKS URI available: configure jwks_uri or run discovery first".to_string()),
+                None => {
+                    return Err(
+                        "No JWKS URI available: configure jwks_uri or run discovery first"
+                            .to_string(),
+                    )
+                }
             }
         };
 
@@ -344,7 +349,10 @@ impl OidcService {
             .map_err(|e| format!("Invalid ID token header JSON: {}", e))?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
-        let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
+        let alg_str = header
+            .get("alg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("RS256");
 
         let algorithm = match alg_str {
             "RS256" => Algorithm::RS256,
@@ -372,26 +380,20 @@ impl OidcService {
                 if let Some(key) = matching_key {
                     let decoding_key = if key.kty == "RSA" {
                         match (&key.n, &key.e) {
-                            (Some(n), Some(e)) => {
-                                DecodingKey::from_rsa_components(n, e)
-                                    .map_err(|e| format!("Invalid RSA key: {}", e))?
-                            }
+                            (Some(n), Some(e)) => DecodingKey::from_rsa_components(n, e)
+                                .map_err(|e| format!("Invalid RSA key: {}", e))?,
                             _ => return Err("RSA key missing n/e components".to_string()),
                         }
                     } else if key.kty == "EC" {
                         match (&key.crv, &key.x, &key.y) {
-                            (Some(_), Some(x), Some(y)) => {
-                                DecodingKey::from_ec_components(x, y)
-                                    .map_err(|e| format!("Invalid EC key: {}", e))?
-                            }
+                            (Some(_), Some(x), Some(y)) => DecodingKey::from_ec_components(x, y)
+                                .map_err(|e| format!("Invalid EC key: {}", e))?,
                             _ => return Err("EC key missing crv/x/y components".to_string()),
                         }
                     } else if key.kty == "OKP" {
                         match (&key.crv, &key.x) {
-                            (Some(_), Some(x)) => {
-                                DecodingKey::from_ed_components(x)
-                                    .map_err(|e| format!("Invalid EdDSA key: {}", e))?
-                            }
+                            (Some(_), Some(x)) => DecodingKey::from_ed_components(x)
+                                .map_err(|e| format!("Invalid EdDSA key: {}", e))?,
                             _ => return Err("OKP key missing crv/x components".to_string()),
                         }
                     } else {
@@ -407,14 +409,20 @@ impl OidcService {
                     decode::<serde_json::Value>(id_token, &decoding_key, &validation)
                         .map_err(|e| format!("JWT signature verification failed: {}", e))?;
 
-                    debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
+                    debug!(
+                        "OIDC ID token JWT signature verified successfully (kid={:?})",
+                        kid
+                    );
                 } else {
                     tracing::warn!("No matching JWKS key found for kid={:?}, falling back to claim-only validation", kid);
                     self.validate_id_token_claims(id_token)?;
                 }
             }
             Err(e) => {
-                tracing::warn!("Failed to fetch JWKS: {}, falling back to claim-only validation", e);
+                tracing::warn!(
+                    "Failed to fetch JWKS: {}, falling back to claim-only validation",
+                    e
+                );
                 self.validate_id_token_claims(id_token)?;
             }
         }
@@ -688,14 +696,15 @@ mod tests {
 
     #[test]
     fn test_get_authorization_url() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let service = create_test_service();
-        let url = service
-            .get_authorization_url(
+        let url = rt
+            .block_on(service.get_authorization_url(
                 "test-state",
                 "https://matrix.example.com/callback",
                 None,
                 None,
-            )
+            ))
             .unwrap();
 
         assert!(url.contains("client_id=test-client-id"));

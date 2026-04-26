@@ -21,7 +21,7 @@ fn create_test_config() -> Config {
         server: ServerConfig {
             name: "localhost".to_string(),
             host: "0.0.0.0".to_string(),
-            port: 8008,
+            port: 28008,
             public_baseurl: None,
             signing_key_path: None,
             macaroon_secret_key: None,
@@ -152,6 +152,7 @@ fn create_test_config() -> Config {
         prometheus: synapse_rust::common::telemetry_config::PrometheusConfig::default(),
         performance: synapse_rust::common::config::PerformanceConfig::default(),
         experimental: ExperimentalConfig::default(),
+        identity: synapse_rust::common::config::IdentityConfig::default(),
     }
 }
 

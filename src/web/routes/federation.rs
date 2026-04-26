@@ -2787,14 +2787,25 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to build server key response: {}", e)))
             .or_else(|_| {
-                Ok(json!({
+                let key_id_for_sign = current_key.key_id.clone();
+                let secret_key_for_sign = current_key.secret_key.clone();
+                let mut response = json!({
                     "server_name": config.server_name,
                     "verify_keys": {
                         current_key.key_id: { "key": current_key.public_key }
                     },
                     "old_verify_keys": {},
                     "valid_until_ts": current_key.expires_at
-                }))
+                });
+                if let Err(e) = crate::federation::signing::sign_json(
+                    &config.server_name,
+                    &key_id_for_sign,
+                    &secret_key_for_sign,
+                    &mut response,
+                ) {
+                    ::tracing::warn!("Failed to sign server keys response (fallback): {}", e);
+                }
+                Ok(response)
             });
     }
 
@@ -2821,14 +2832,31 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
 
     let valid_until = chrono::Utc::now().timestamp_millis() + 3600 * 1000;
 
-    Ok(json!({
+    let key_id_for_sign = key_id.clone();
+    let mut response = json!({
         "server_name": config.server_name,
         "verify_keys": {
             key_id: { "key": verify_key }
         },
         "old_verify_keys": {},
         "valid_until_ts": valid_until
-    }))
+    });
+
+    if let Some(secret_key) = config.signing_key.as_deref() {
+        if let Err(e) = crate::federation::signing::sign_json(
+            &config.server_name,
+            &key_id_for_sign,
+            secret_key,
+            &mut response,
+        ) {
+            ::tracing::warn!(
+                "Failed to sign server keys response (config fallback): {}",
+                e
+            );
+        }
+    }
+
+    Ok(response)
 }
 
 async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {

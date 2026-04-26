@@ -209,16 +209,21 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         || path.contains("/users/") && path.contains("/login") && !path.contains("/login/")
         || path.contains("/users/") && path.contains("/logout")
         || path.ends_with("/admin")
-        || path.contains("/make_admin");
-
-    let is_admin_only = path.contains("/shutdown")
+        || path.contains("/make_admin")
+        || path.contains("/server/version")
+        || path.contains("/server_info")
+        || path.contains("/send_server_notice")
+        || path.contains("/delete_devices")
+        || path.contains("/shutdown")
         || path.contains("/federation/resolve")
         || path.contains("/federation/blacklist")
         || path.contains("/federation/cache/clear")
         || path.contains("/federation/rewrite")
         || path.contains("/federation/confirm")
         || path.contains("/purge")
-        || path.contains("/reset_connection");
+        || path.contains("/reset_connection")
+        || path.contains("/retention")
+        || path.contains("/registration_tokens");
 
     match role {
         "admin" => {
@@ -226,20 +231,20 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 return false;
             }
 
-            if is_admin_only {
-                return true;
-            }
-
-            path.starts_with("/_synapse/admin/v1/users")
-                || path.starts_with("/_synapse/admin/v2/users")
+            // 明确列出 admin 可访问的路径，移除宽泛的兜底规则
+            // admin 只能读取用户信息，不能修改关键设置
+            (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
+                && !path.contains("/deactivate")
+                && !path.contains("/login")
+                && !path.contains("/logout")
+                && !path.ends_with("/admin")
                 || path.starts_with("/_synapse/admin/v1/notifications")
                 || path.starts_with("/_synapse/admin/v1/media")
-                || path.starts_with("/_synapse/admin/v1/rooms")
-                || path.starts_with("/_synapse/admin/v1/registration_tokens")
-                || path.starts_with("/_synapse/admin/v1/federation")
+                || path.starts_with("/_synapse/admin/v1/rooms") && !path.contains("/shutdown")
+                || path.starts_with("/_synapse/admin/v1/federation") && is_read
+                || path.starts_with("/_synapse/admin/v1/cas")
                 || path.starts_with("/_synapse/worker/v1/")
                 || path.starts_with("/_synapse/room_summary/v1/")
-                || (is_read && path.starts_with("/_synapse/admin/v1/"))
         }
         "auditor" => {
             is_read

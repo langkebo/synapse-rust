@@ -54,6 +54,10 @@ mod dm_service_tests;
 mod typing_service_tests;
 mod voice_service_tests;
 
+mod identity_service_tests;
+mod sso_cas_tests;
+mod sso_oidc_tests;
+
 mod security_critical_tests;
 mod security_signature_check_tests;
 

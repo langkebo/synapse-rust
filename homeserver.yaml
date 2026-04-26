@@ -3,8 +3,8 @@ server_name: "${SERVER_NAME:-cjystx.top}"
 server:
   name: "${SERVER_NAME:-cjystx.top}"
   host: "0.0.0.0"
-  port: 8008
-  http_port: 8008
+  port: 28008
+  http_port: 28008
   https_port: 8448
   bind_address: "0.0.0.0"
   public_baseurl: "${PUBLIC_BASEURL:-https://matrix.cjystx.top}"
@@ -88,9 +88,21 @@ cors:
     - "http://127.0.0.1:28008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
   allow_credentials: true
-  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  allowed_headers: ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
+    - "X-Matrix-Auth"
+  expose_headers:
+    - "X-Matrix-Error"
+    - "X-Ratelimit-Limit"
+    - "X-Ratelimit-Remaining"
   max_age_seconds: 3600
 
 smtp:
@@ -123,7 +135,7 @@ oidc:
     localpart: "preferred_username"
     displayname: "name"
     email: "email"
-  callback_url: "http://localhost:8008/_matrix/client/v3/oidc/callback"
+  callback_url: "http://localhost:28008/_matrix/client/v3/oidc/callback"
   allow_existing_users: true
   block_unknown_users: false
 

@@ -10,7 +10,7 @@ set +H
 #   - "prod"     : 生产环境，跳过所有可能修改数据的测试
 #
 # SERVER_URL: 服务器地址（可通过环境变量覆盖）
-#   - 本地开发: http://localhost:8008
+#   - 本地开发: http://localhost:28008
 #   - Docker 环境: http://localhost:28008
 #
 # 破坏性测试标记: DESTRUCTIVE
@@ -54,7 +54,7 @@ detect_server_url() {
     fi
 
     local candidate
-    for candidate in "http://localhost:28008" "http://localhost:8008"; do
+    for candidate in "http://localhost:28008" "http://localhost:28008"; do
         if command curl -s --connect-timeout 2 --max-time 4 "$candidate/_matrix/client/versions" >/dev/null 2>&1; then
             SERVER_URL="$candidate"
             return

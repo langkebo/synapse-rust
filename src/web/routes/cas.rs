@@ -5,13 +5,29 @@ use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
-    middleware::Next,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
+
+/// CAS 配置检查中间件
+async fn cas_config_check_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    // 检查 CAS 服务是否已配置
+    if !state.services.cas_service.is_configured().await {
+        tracing::error!("CAS service is not properly configured - database tables may not exist");
+        return Err(ApiError::internal(
+            "CAS service is not available. Please ensure database migrations have been run.".to_string()
+        ));
+    }
+    Ok(next.run(request).await)
+}
 
 #[derive(Debug, Deserialize)]
 struct ServiceTicketQuery {
@@ -20,6 +36,11 @@ struct ServiceTicketQuery {
     _renew: Option<bool>,
     #[serde(rename = "gateway")]
     _gateway: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LogoutQuery {
+    service: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,7 +121,11 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/proxyValidate", get(proxy_validate))
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
-        .route("/logout", get(logout));
+        .route("/logout", get(logout))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            cas_config_check_middleware,
+        ));
 
     let standard_admin_routes = Router::new()
         .route("/_synapse/admin/v1/cas/services", post(register_service))
@@ -120,6 +145,10 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            cas_config_check_middleware,
         ));
     let legacy_admin_routes = Router::new()
         .route("/admin/services", post(register_service))
@@ -196,7 +225,11 @@ async fn service_validate(
         .services
         .cas_service
         .validate_service_ticket(&query.ticket, &query.service)
-        .await?;
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("CAS service ticket validation error: {}", e);
+            None
+        });
 
     match result {
         Some(ticket) => {
@@ -215,7 +248,11 @@ async fn proxy_validate(
         .services
         .cas_service
         .validate_proxy_ticket(&query.ticket, &query.service)
-        .await?;
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("CAS proxy ticket validation error: {}", e);
+            None
+        });
 
     match result {
         Some(ticket) => {
@@ -287,13 +324,26 @@ async fn p3_service_validate(
 
 async fn logout(
     State(_state): State<AppState>,
-    Query(query): Query<ServiceTicketQuery>,
+    Query(query): Query<LogoutQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _ = query;
-    Ok((
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><h1>Logged out successfully</h1></body></html>",
-    ))
+    match query.service {
+        Some(service_url) => {
+            // 重定向到指定的 service URL
+            Ok((
+                StatusCode::FOUND,
+                [(header::LOCATION, service_url)],
+                "",
+            ))
+        }
+        None => {
+            // 显示登出成功页面
+            Ok((
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+                "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><h1>Logged out successfully</h1></body></html>",
+            ))
+        }
+    }
 }
 
 async fn register_service(

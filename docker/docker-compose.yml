@@ -16,7 +16,7 @@ services:
     networks:
       - synapse_network
     ports:
-      - "${SYNAPSE_PORT:-28008}:8008"
+      - "${SYNAPSE_PORT:-28008}:28008"
       - "${FEDERATION_PORT:-28448}:8448"
     environment:
       SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml

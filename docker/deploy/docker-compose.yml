@@ -124,12 +124,13 @@ services:
       - synapse-network
 
   synapse:
+    image: ${SYNAPSE_IMAGE:-synapse-rust:local}
     build:
       context: ../..
       dockerfile: docker/Dockerfile
       target: runtime
-    image: ${SYNAPSE_IMAGE:-synapse-rust:local}
-    pull_policy: ${SYNAPSE_PULL_POLICY:-missing}
+    pull_policy: ${SYNAPSE_PULL_POLICY:-never}
+    platform: linux/amd64
     container_name: synapse-app
     restart: unless-stopped
     init: true
@@ -162,7 +163,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       MACAROON_SECRET: ${MACAROON_SECRET:?MACAROON_SECRET must be set}
       FORM_SECRET: ${FORM_SECRET:?FORM_SECRET must be set}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:28008,http://127.0.0.1:28008,http://localhost:28080,http://127.0.0.1:28080,https://localhost:28443,https://127.0.0.1:28443}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:28008,http://127.0.0.1:28008,http://localhost:6130,http://127.0.0.1:6130,http://localhost:28080,http://127.0.0.1:28080,https://localhost:28443,https://127.0.0.1:28443,tauri://localhost,https://tauri.localhost}
       CORS_ORIGIN_PATTERN: ${CORS_ORIGIN_PATTERN:-^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$}
       SYNAPSE__DATABASE__POOL_SIZE: ${SYNAPSE__DATABASE__POOL_SIZE:-20}
       SYNAPSE__DATABASE__MAX_SIZE: ${SYNAPSE__DATABASE__MAX_SIZE:-50}
@@ -191,7 +192,7 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "${SYNAPSE_PORT:-8008}:8008"
+      - "${SYNAPSE_PORT:-8008}:28008"
       - "${PROMETHEUS_PORT:-9090}:9090"
     logging:
       driver: json-file

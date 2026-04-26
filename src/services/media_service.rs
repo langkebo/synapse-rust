@@ -582,7 +582,8 @@ impl MediaService {
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
         let media_path = self.media_path.clone();
         let thumbnail_path = self.thumbnail_path.clone();
-        let before_time = std::time::UNIX_EPOCH + std::time::Duration::from_millis(before_ts as u64);
+        let before_time =
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(before_ts as u64);
         let mut deleted_count = 0u64;
 
         let media_deleted = tokio::task::spawn_blocking(move || {
@@ -632,7 +633,11 @@ impl MediaService {
         .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
 
         deleted_count += thumb_deleted;
-        ::tracing::info!("Purged {} media files older than timestamp {}", deleted_count, before_ts);
+        ::tracing::info!(
+            "Purged {} media files older than timestamp {}",
+            deleted_count,
+            before_ts
+        );
         Ok(deleted_count)
     }
 }
