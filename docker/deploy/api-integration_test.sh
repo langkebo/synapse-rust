@@ -56,6 +56,58 @@ CASE_HTTP_CAPTURE_ACTIVE=0
 HTTP_REQUEST_METHOD=""
 HTTP_REQUEST_URL=""
 
+# ============================================================================
+# 功能检测函数
+# ============================================================================
+
+# 检测 OIDC 是否配置
+is_oidc_enabled() {
+    local response=$(curl -s --connect-timeout 3 --max-time 5 "$SERVER_URL/_matrix/client/r0/login" 2>/dev/null)
+    echo "$response" | grep -q "m.login.oidc"
+}
+
+# 检测 SAML 是否启用
+is_saml_enabled() {
+    local response=$(curl -s --connect-timeout 3 --max-time 5 "$SERVER_URL/_matrix/client/r0/login" 2>/dev/null)
+    echo "$response" | grep -q "m.login.saml2"
+}
+
+# 检测 CAS 是否启用
+is_cas_enabled() {
+    local response=$(curl -s --connect-timeout 3 --max-time 5 "$SERVER_URL/_matrix/client/r0/login" 2>/dev/null)
+    echo "$response" | grep -q "m.login.cas"
+}
+
+# 检测 SSO 是否配置
+is_sso_enabled() {
+    local response=$(curl -s --connect-timeout 3 --max-time 5 "$SERVER_URL/_matrix/client/r0/login" 2>/dev/null)
+    echo "$response" | grep -q "m.login.sso"
+}
+
+# 检测 Identity Server 是否可用
+is_identity_server_available() {
+    [ -n "${IDENTITY_SERVER_URL:-}" ] && curl -s -f --connect-timeout 3 --max-time 5 "$IDENTITY_SERVER_URL/_matrix/identity/v2" >/dev/null 2>&1
+}
+
+# 检测联邦是否可用（需要公网域名）
+is_federation_available() {
+    local server_name="${SERVER_NAME:-localhost}"
+    [ "$server_name" != "localhost" ] && [ "$server_name" != "127.0.0.1" ]
+}
+
+# 跳过原因常量
+SKIP_REASON_DESTRUCTIVE="destructive test (run with TEST_ENV=safe)"
+SKIP_REASON_FEDERATION="requires federation environment"
+SKIP_REASON_OIDC="OIDC not configured"
+SKIP_REASON_SAML="SAML not enabled"
+SKIP_REASON_CAS="CAS not enabled"
+SKIP_REASON_SSO="SSO not configured"
+SKIP_REASON_IDENTITY="Identity Server not available"
+SKIP_REASON_NOT_IMPLEMENTED="feature not implemented"
+SKIP_REASON_OPTIONAL="optional feature not enabled"
+
+# ============================================================================
+
 reset_http_capture() {
     CASE_HTTP_CAPTURE_ACTIVE=0
     HTTP_REQUEST_METHOD=""
