@@ -2,6 +2,66 @@
 
 用 Rust 实现的 Matrix Homeserver（当前处于能力收敛、测试语义校正与证据对齐阶段）。
 
+## 🚀 快速开始
+
+### 方式一：一键启动（推荐）
+
+```bash
+./scripts/dev_start.sh
+```
+
+该脚本会自动：
+- 检查并生成 `.env` 文件
+- 验证环境变量配置
+- 启动 Docker 服务
+
+### 方式二：Docker Compose
+
+```bash
+# 1. 生成环境变量
+./scripts/generate_env.sh > .env
+
+# 2. 启动服务
+cd docker
+docker compose up -d --build
+```
+
+### 验证服务
+
+```bash
+curl -f http://localhost:8008/_matrix/client/versions
+```
+
+## 📋 环境变量配置
+
+项目使用环境变量管理所有配置。详细说明请参考：
+
+- 📖 [环境变量配置指南](docs/ENVIRONMENT_VARIABLES.md)
+- 🔧 [配置验证脚本](scripts/validate_config.sh)
+- 🔑 [密钥生成脚本](scripts/generate_env.sh)
+
+### 必需的环境变量
+
+```bash
+# 加密密钥（生成：openssl rand -hex 32）
+OLM_PICKLE_KEY=<64位十六进制>
+
+# 数据库和服务密钥
+SYNAPSE_DB_PASSWORD=<强密码>
+SYNAPSE_JWT_SECRET=<至少32字符>
+SYNAPSE_MACAROON_SECRET=<至少32字符>
+SYNAPSE_FORM_SECRET=<至少32字符>
+SYNAPSE_REGISTRATION_SECRET=<至少32字符>
+SYNAPSE_SECURITY_SECRET=<至少32字符>
+```
+
+### 快速生成所有密钥
+
+```bash
+./scripts/generate_env.sh > .env
+# 编辑 .env 文件根据需要调整配置
+```
+
 ## 功能概览
 
 - Matrix / Synapse 相关能力已广泛铺设，当前以“代码证据 + 测试证据 + CI 语义”持续收敛
