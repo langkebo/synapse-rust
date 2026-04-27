@@ -620,7 +620,7 @@ mod tests {
     async fn test_is_device_key_expired_with_last_seen() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -645,7 +645,7 @@ mod tests {
     async fn test_is_device_key_expired_old_device() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -670,7 +670,7 @@ mod tests {
     async fn test_is_device_key_expired_no_last_seen() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -694,7 +694,7 @@ mod tests {
     async fn test_is_device_key_not_expired_for_federation_shape() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -719,7 +719,7 @@ mod tests {
     async fn test_verify_device_keys_signature_valid() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -751,7 +751,7 @@ mod tests {
     async fn test_verify_device_keys_signature_no_keys() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -777,7 +777,7 @@ mod tests {
     async fn test_verify_device_keys_signature_wrong_origin() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -809,7 +809,7 @@ mod tests {
     async fn test_verify_device_keys_signature_no_user_signatures() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -837,7 +837,7 @@ mod tests {
     async fn test_device_sync_manager_new() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
@@ -850,7 +850,7 @@ mod tests {
     async fn test_device_sync_manager_with_cache_manager() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
 
@@ -863,7 +863,7 @@ mod tests {
     async fn test_device_sync_manager_with_task_queue() {
         let pool = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
 

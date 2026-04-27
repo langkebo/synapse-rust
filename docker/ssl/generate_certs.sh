@@ -4,7 +4,8 @@
 # Domains: cjystx.top, matrix.cjystx.top
 # User Format: @user:cjystx.top
 
-SSL_DIR="/Users/ljf/Desktop/hu/synapse-rust/docker/ssl"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SSL_DIR="${SCRIPT_DIR}"
 BACKUP_DIR="$SSL_DIR/backup_$(date +%Y%m%d_%H%M%S)"
 
 # Create backup directory

@@ -82,7 +82,7 @@ ENV RUST_LOG=info \
     SYNAPSE_HEALTHCHECK_HOST=127.0.0.1 \
     SYNAPSE_HEALTHCHECK_PORT=28008
 
-EXPOSE 8008 8448 9090
+EXPOSE 28008 8448 9090
 HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/synapse-rust"]
@@ -121,6 +121,7 @@ COPY --chown=1000:1000 --from=builder /out/app /app
 
 WORKDIR /app
 USER 1000:1000
-EXPOSE 8008 8448 9090
+EXPOSE 28008 8448 9090
 HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
-ENTRYPOINT ["/app/synapse-rust"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/app/synapse-rust"]
