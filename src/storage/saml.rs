@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::collections::HashMap;
@@ -272,8 +272,8 @@ impl SamlStorage {
         &self,
         request: CreateSamlSessionRequest,
     ) -> Result<SamlSession, ApiError> {
-        let now = Utc::now();
-        let expires_at = now + chrono::Duration::seconds(request.expires_in_seconds);
+        let now = Utc::now().timestamp_millis();
+        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
         let attributes_json =
             serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
@@ -281,7 +281,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_sessions (
                 session_id, user_id, name_id, issuer, session_index, attributes,
-                created_ts, expires_at, last_used_ts, status
+                created_ts, expires_ts, last_used_ts, status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, 'active')
             RETURNING *
@@ -322,15 +322,17 @@ impl SamlStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<SamlSession>, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, SamlSession>(
             r#"
             SELECT * FROM saml_sessions 
-            WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
+            WHERE user_id = $1 AND status = 'active' AND expires_ts > $2
             ORDER BY created_ts DESC 
             LIMIT 1
             "#,
         )
         .bind(user_id)
+        .bind(now)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get SAML session by user: {}", e)))?;
@@ -362,9 +364,11 @@ impl SamlStorage {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "DELETE FROM saml_sessions WHERE expires_at < NOW() OR status = 'invalidated'",
+            "DELETE FROM saml_sessions WHERE expires_ts < $1 OR status = 'invalidated'",
         )
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to cleanup expired sessions: {}", e)))?;
@@ -380,7 +384,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlUserMappingRequest,
     ) -> Result<SamlUserMapping, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let attributes_json =
             serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
@@ -464,7 +468,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlIdentityProviderRequest,
     ) -> Result<SamlIdentityProvider, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let attribute_mapping = request.attribute_mapping.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlIdentityProvider>(
@@ -549,21 +553,23 @@ impl SamlStorage {
         &self,
         entity_id: &str,
         metadata_xml: &str,
-        valid_until: Option<DateTime<Utc>>,
+        valid_until: Option<i64>,
     ) -> Result<(), ApiError> {
+        let now = Utc::now().timestamp_millis();
         sqlx::query(
             r#"
             UPDATE saml_identity_providers 
             SET metadata_xml = $1, 
-                last_metadata_refresh_at = NOW(),
+                last_metadata_refresh_at = $4,
                 metadata_valid_until = $2,
-                updated_ts = NOW()
+                updated_ts = $4
             WHERE entity_id = $3
             "#,
         )
         .bind(metadata_xml)
         .bind(valid_until)
         .bind(entity_id)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update IdP metadata: {}", e)))?;
@@ -587,6 +593,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlAuthEventRequest,
     ) -> Result<SamlAuthEvent, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let attributes_json =
             serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
@@ -594,9 +601,9 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_auth_events (
                 session_id, user_id, name_id, issuer, event_type, status,
-                error_message, ip_address, user_agent, request_id, attributes
+                error_message, ip_address, user_agent, request_id, attributes, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             "#,
         )
@@ -611,6 +618,7 @@ impl SamlStorage {
         .bind(&request.user_agent)
         .bind(&request.request_id)
         .bind(&attributes_json)
+        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create SAML auth event: {}", e)))?;
@@ -648,12 +656,13 @@ impl SamlStorage {
         &self,
         request: CreateSamlLogoutRequestRequest,
     ) -> Result<SamlLogoutRequest, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, SamlLogoutRequest>(
             r#"
             INSERT INTO saml_logout_requests (
-                request_id, session_id, user_id, name_id, issuer, reason, status
+                request_id, session_id, user_id, name_id, issuer, reason, status, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
             RETURNING *
             "#,
         )
@@ -663,6 +672,7 @@ impl SamlStorage {
         .bind(&request.name_id)
         .bind(&request.issuer)
         .bind(&request.reason)
+        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create logout request: {}", e)))?;

@@ -121,15 +121,16 @@ impl ServerNotificationStorage {
     ) -> Result<ServerNotification, ApiError> {
         let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default())
             .unwrap_or(serde_json::json!([]));
+        let now = chrono::Utc::now().timestamp_millis();
 
         let notification = sqlx::query_as::<_, ServerNotification>(
             r#"
             INSERT INTO server_notifications (
                 title, content, notification_type, priority, target_audience,
                 target_user_ids, starts_at, expires_at, is_dismissable,
-                action_url, action_text, created_by
+                action_url, action_text, created_by, created_ts, updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
             RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
             "#,
         )
@@ -149,6 +150,7 @@ impl ServerNotificationStorage {
         .bind(&request.action_url)
         .bind(&request.action_text)
         .bind(&request.created_by)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create notification: {}", e)))?;
