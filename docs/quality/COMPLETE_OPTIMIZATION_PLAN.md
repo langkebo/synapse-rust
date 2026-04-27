@@ -161,13 +161,13 @@
 4. **手动测试端点**
    ```bash
    # 测试 claim_keys
-   curl -X POST http://localhost:28008/_matrix/client/v3/keys/claim \
+   curl -X POST http://localhost:8008/_matrix/client/v3/keys/claim \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"one_time_keys":{}}'
    
    # 测试 sendToDevice
-   curl -X PUT http://localhost:28008/_matrix/client/v3/sendToDevice/m.room.encrypted/txn1 \
+   curl -X PUT http://localhost:8008/_matrix/client/v3/sendToDevice/m.room.encrypted/txn1 \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"messages":{}}'
@@ -244,7 +244,7 @@ docker compose ps
 
 ### 步骤 3: 验证服务健康
 ```bash
-curl -s http://localhost:28008/_matrix/client/versions | jq .
+curl -s http://localhost:8008/_matrix/client/versions | jq .
 ```
 
 ### 步骤 4: 运行测试

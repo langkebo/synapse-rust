@@ -35,7 +35,7 @@ SYNAPSE_SECURITY_SECRET=<至少32字符>
 # 服务器域名（默认：localhost）
 SERVER_NAME=example.com
 
-# 公开访问 URL（默认：http://localhost:28008）
+# 公开访问 URL（默认：http://localhost:8008）
 PUBLIC_BASEURL=https://matrix.example.com
 
 # 联邦端口（默认：8448）
@@ -72,7 +72,7 @@ TEST_REDIS_URL=redis://localhost:6379
 DOMAIN_NAME=example.com
 
 # Synapse 后端地址
-SYNAPSE_UPSTREAM=synapse-rust:28008
+SYNAPSE_UPSTREAM=synapse-rust:8008
 ```
 
 ## 测试环境变量

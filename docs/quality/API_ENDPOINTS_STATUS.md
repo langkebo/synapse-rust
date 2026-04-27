@@ -127,7 +127,7 @@ async fn delete_room_account_data(...)
 SYNAPSE_CONFIG_PATH=homeserver.yaml cargo run --release
 
 # 2. 运行集成测试
-SERVER_URL=http://localhost:28008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
 
 # 3. 查看结果
 cat test-results/api-integration.missing.txt

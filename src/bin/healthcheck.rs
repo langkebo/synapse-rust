@@ -7,7 +7,7 @@ async fn main() {
         let host =
             std::env::var("SYNAPSE_HEALTHCHECK_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
         let port =
-            std::env::var("SYNAPSE_HEALTHCHECK_PORT").unwrap_or_else(|_| "28008".to_string());
+            std::env::var("SYNAPSE_HEALTHCHECK_PORT").unwrap_or_else(|_| "8008".to_string());
         format!("http://{host}:{port}")
     });
 

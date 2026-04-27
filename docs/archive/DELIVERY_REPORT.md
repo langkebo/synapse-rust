@@ -62,7 +62,7 @@ docker compose -f docker-compose.prod.yml stop synapse-main synapse-worker
 # 临时运行旧版镜像覆盖当前环境
 docker run -d --name synapse-main \
   --env-file .env \
-  -p 28008:28008 \
+  -p 8008:8008 \
   -v $(pwd)/config:/app/config \
   vmuser232922/synapse-rust:v1.0.0
 ```
@@ -78,6 +78,6 @@ docker exec -i db psql -U synapse -d synapse < backup_previous.sql
 确保服务正常重启后，执行：
 ```bash
 docker logs --tail=100 synapse-main
-curl -f http://localhost:28008/health || echo "Service Unhealthy"
+curl -f http://localhost:8008/health || echo "Service Unhealthy"
 ```
 确认无 `error` 或 `fatal` 日志，即可宣布回滚成功。

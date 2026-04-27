@@ -89,7 +89,7 @@ cd docker && docker compose up -d
 ### 3. 可移植性提升
 - ✅ 移除 3 处硬编码开发者路径
 - ✅ 默认配置适用于任意环境
-- ✅ Docker 端口配置正确（28008）
+- ✅ Docker 端口配置正确（8008）
 - ✅ 支持多环境部署
 
 ### 4. 开发体验提升
@@ -165,7 +165,7 @@ cd docker && docker compose down
 # 设置环境变量
 export DOMAIN_NAME=example.com
 export SERVER_NAME=example.com
-export SYNAPSE_UPSTREAM=synapse-rust:28008
+export SYNAPSE_UPSTREAM=synapse-rust:8008
 
 # 生成密钥
 ./scripts/generate_env.sh > .env.production

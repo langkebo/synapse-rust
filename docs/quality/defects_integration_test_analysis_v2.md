@@ -175,7 +175,7 @@
 cargo test admin_role_restricted_endpoints_denied
 
 # 运行三角色集成测试
-SERVER_URL=http://localhost:28008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
 
 # 预期：admin 失败数从 20 降为 0，user 失败数从 92 降为 0
 ```
@@ -184,7 +184,7 @@ SERVER_URL=http://localhost:28008 TEST_ENV=dev bash scripts/test/api-integration
 
 ```bash
 # 发送无效 ticket 请求
-curl "http://localhost:28008/serviceValidate?service=http://example.com&ticket=invalid"
+curl "http://localhost:8008/serviceValidate?service=http://example.com&ticket=invalid"
 
 # 预期：返回 HTTP 200 + "no\n\n"，而非 HTTP 500
 ```
@@ -193,11 +193,11 @@ curl "http://localhost:28008/serviceValidate?service=http://example.com&ticket=i
 
 ```bash
 # 无 service 参数
-curl "http://localhost:28008/logout"
+curl "http://localhost:8008/logout"
 # 预期：HTTP 200 + HTML 登出页面
 
 # 有 service 参数
-curl "http://localhost:28008/logout?service=http://localhost:28008"
+curl "http://localhost:8008/logout?service=http://localhost:8008"
 # 预期：HTTP 302 重定向
 ```
 
@@ -205,7 +205,7 @@ curl "http://localhost:28008/logout?service=http://localhost:28008"
 
 ```bash
 # 查询 login flows
-curl "http://localhost:28008/_matrix/client/v3/login"
+curl "http://localhost:8008/_matrix/client/v3/login"
 
 # 预期：flows 中包含 m.login.sso 和 identity_providers 数组
 ```

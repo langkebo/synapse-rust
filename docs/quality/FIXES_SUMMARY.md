@@ -120,7 +120,7 @@ async fn service_validate(
 
 **验证方法**：
 ```bash
-curl "http://localhost:28008/serviceValidate?service=http://example.com&ticket=invalid"
+curl "http://localhost:8008/serviceValidate?service=http://example.com&ticket=invalid"
 # 预期：HTTP 200 + "no\n\n"
 ```
 
@@ -173,11 +173,11 @@ async fn logout(
 **验证方法**：
 ```bash
 # 无 service 参数
-curl "http://localhost:28008/logout"
+curl "http://localhost:8008/logout"
 # 预期：HTTP 200 + HTML
 
 # 有 service 参数
-curl "http://localhost:28008/logout?service=http://localhost:28008"
+curl "http://localhost:8008/logout?service=http://localhost:8008"
 # 预期：HTTP 302
 ```
 
@@ -255,7 +255,7 @@ pub(crate) async fn get_login_flows(State(state): State<AppState>) -> Json<Value
 
 **验证方法**：
 ```bash
-curl "http://localhost:28008/_matrix/client/v3/login"
+curl "http://localhost:8008/_matrix/client/v3/login"
 # 预期：flows 中包含 m.login.sso 和 identity_providers
 ```
 

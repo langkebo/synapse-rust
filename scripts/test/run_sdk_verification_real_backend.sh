@@ -6,7 +6,7 @@ BACKEND_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKSPACE_ROOT="$(cd "$BACKEND_ROOT/.." && pwd)"
 SDK_ROOT="$WORKSPACE_ROOT/matrix-js-sdk"
 COMPOSE_FILE="${COMPOSE_FILE:-$BACKEND_ROOT/docker/docker-compose.yml}"
-BASE_URL="${BASE_URL:-http://localhost:28008}"
+BASE_URL="${BASE_URL:-http://localhost:8008}"
 WAIT_SECONDS="${WAIT_SECONDS:-60}"
 
 if [ ! -f "$COMPOSE_FILE" ]; then

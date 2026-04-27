@@ -16,7 +16,7 @@
    - 文件：`docker/docker-compose.federation-test.yml`
 
 3. **修复 Dockerfile EXPOSE 端口**
-   - 将 `EXPOSE 8008` 修改为 `EXPOSE 28008`
+   - 将 `EXPOSE 8008` 修改为 `EXPOSE 8008`
    - 两处修复（tools 和 runtime 阶段）
    - 文件：`docker/Dockerfile:85, 124`
 
@@ -99,7 +99,7 @@ cargo test
 ### 配置 nginx
 ```bash
 export DOMAIN_NAME=example.com
-export SYNAPSE_UPSTREAM=synapse-rust:28008
+export SYNAPSE_UPSTREAM=synapse-rust:8008
 docker-compose up nginx
 ```
 

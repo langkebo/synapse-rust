@@ -55,7 +55,7 @@ services:
     container_name: synapse-rust
     restart: unless-stopped
     ports:
-      - "28008:28008"  # Client API
+      - "8008:8008"  # Client API
       - "28448:8448"   # Federation API
     environment:
       # 数据库配置
@@ -243,7 +243,7 @@ docker exec -it synapse-rust bash
 使用共享密钥注册管理员：
 
 ```bash
-curl -X POST http://localhost:28008/_synapse/admin/v1/register \
+curl -X POST http://localhost:8008/_synapse/admin/v1/register \
   -H "Content-Type: application/json" \
   -d '{
     "nonce": "'"$(openssl rand -hex 16)"'",
@@ -263,10 +263,10 @@ curl -X POST http://localhost:28008/_synapse/admin/v1/register \
 
 ```bash
 # 应用健康检查
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 
 # 服务器版本
-curl http://localhost:28008/_synapse/admin/v1/server_version \
+curl http://localhost:8008/_synapse/admin/v1/server_version \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
 ```
 

@@ -251,9 +251,9 @@ sleep 30
 rm -rf test-results-matrix/*/
 
 # 运行测试
-SERVER_URL=http://localhost:28008 TEST_ENV=dev TEST_ROLE=super_admin RESULTS_DIR=test-results-matrix/super_admin bash api-integration_test.sh
-SERVER_URL=http://localhost:28008 TEST_ENV=dev TEST_ROLE=admin RESULTS_DIR=test-results-matrix/admin bash api-integration_test.sh
-SERVER_URL=http://localhost:28008 TEST_ENV=dev TEST_ROLE=user RESULTS_DIR=test-results-matrix/user bash api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev TEST_ROLE=super_admin RESULTS_DIR=test-results-matrix/super_admin bash api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev TEST_ROLE=admin RESULTS_DIR=test-results-matrix/admin bash api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev TEST_ROLE=user RESULTS_DIR=test-results-matrix/user bash api-integration_test.sh
 ```
 
 ---
