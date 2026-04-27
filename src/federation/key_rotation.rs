@@ -900,8 +900,10 @@ mod tests {
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
         let test_verifying_key = test_signing_key.verifying_key();
-        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
-        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+        let secret_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
 
         {
             let mut current = manager.current_key.write().await;
@@ -932,13 +934,17 @@ mod tests {
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
         let test_verifying_key = test_signing_key.verifying_key();
-        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
-        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+        let secret_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
 
         let old_signing_key = ed25519_dalek::SigningKey::from_bytes(&[99u8; 32]);
         let old_verifying_key = old_signing_key.verifying_key();
-        let old_secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_signing_key.as_bytes());
-        let old_public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_verifying_key.as_bytes());
+        let old_secret_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_signing_key.as_bytes());
+        let old_public_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_verifying_key.as_bytes());
 
         {
             let mut current = manager.current_key.write().await;

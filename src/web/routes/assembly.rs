@@ -196,10 +196,7 @@ pub fn create_router(state: AppState) -> Router {
                 "/.well-known/openid-configuration",
                 get(get_openid_configuration),
             )
-            .route(
-                "/.well-known/jwks.json",
-                get(oidc::jwks_fallback),
-            );
+            .route("/.well-known/jwks.json", get(oidc::jwks_fallback));
     }
     #[cfg(feature = "openclaw-routes")]
     if state.services.config.experimental.openclaw_routes_enabled {
