@@ -453,7 +453,11 @@ pub(crate) async fn login_fallback_page(
 ) -> Result<axum::response::Html<String>, ApiError> {
     let flows = get_login_flows(State(state)).await;
     let empty_vec = vec![];
-    let flows_data = flows.0.get("flows").and_then(|f| f.as_array()).unwrap_or(&empty_vec);
+    let flows_data = flows
+        .0
+        .get("flows")
+        .and_then(|f| f.as_array())
+        .unwrap_or(&empty_vec);
 
     let mut flows_html = String::new();
 
@@ -462,7 +466,8 @@ pub(crate) async fn login_fallback_page(
 
         match flow_type {
             "m.login.password" => {
-                flows_html.push_str(r#"
+                flows_html.push_str(
+                    r#"
                 <div class="flow">
                     <h3>Password Login</h3>
                     <form method="POST" action="/_matrix/client/v3/login">
@@ -478,7 +483,8 @@ pub(crate) async fn login_fallback_page(
                         <button type="submit">Login</button>
                     </form>
                 </div>
-                "#);
+                "#,
+                );
             }
             "m.login.sso" => {
                 if let Some(providers) = flow.get("identity_providers").and_then(|p| p.as_array()) {
@@ -495,18 +501,21 @@ pub(crate) async fn login_fallback_page(
                 }
             }
             "m.login.cas" => {
-                flows_html.push_str(r#"
+                flows_html.push_str(
+                    r#"
                 <div class="flow">
                     <h3>CAS Login</h3>
                     <a href="/cas/login?service=/">Login with CAS</a>
                 </div>
-                "#);
+                "#,
+                );
             }
             _ => {}
         }
     }
 
-    let html = format!(r#"<!doctype html>
+    let html = format!(
+        r#"<!doctype html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -562,7 +571,9 @@ pub(crate) async fn login_fallback_page(
     <h1>Login to Matrix</h1>
     {}
 </body>
-</html>"#, flows_html);
+</html>"#,
+        flows_html
+    );
 
     Ok(axum::response::Html(html))
 }

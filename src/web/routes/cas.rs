@@ -23,7 +23,8 @@ async fn cas_config_check_middleware(
     if !state.services.cas_service.is_configured().await {
         tracing::error!("CAS service is not properly configured - database tables may not exist");
         return Err(ApiError::internal(
-            "CAS service is not available. Please ensure database migrations have been run.".to_string()
+            "CAS service is not available. Please ensure database migrations have been run."
+                .to_string(),
         ));
     }
     Ok(next.run(request).await)
@@ -329,11 +330,7 @@ async fn logout(
     match query.service {
         Some(service_url) => {
             // 重定向到指定的 service URL
-            Ok((
-                StatusCode::FOUND,
-                [(header::LOCATION, service_url)],
-                "",
-            ))
+            Ok((StatusCode::FOUND, [(header::LOCATION, service_url)], ""))
         }
         None => {
             // 显示登出成功页面
