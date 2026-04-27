@@ -34,7 +34,10 @@ impl CasService {
         match self.storage.list_services().await {
             Ok(_) => true,
             Err(e) => {
-                tracing::warn!("CAS service configuration check failed: {} - database tables may not exist", e);
+                tracing::warn!(
+                    "CAS service configuration check failed: {} - database tables may not exist",
+                    e
+                );
                 false
             }
         }
