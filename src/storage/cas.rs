@@ -136,8 +136,8 @@ impl CasStorage {
     }
 
     pub async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError> {
-        let now = Utc::now();
-        let expires_at = now + chrono::Duration::seconds(request.expires_in_seconds);
+        let now = Utc::now().timestamp_millis();
+        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
         let ticket = sqlx::query_as::<_, CasTicket>(
             r#"
@@ -163,12 +163,12 @@ impl CasStorage {
         ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasTicket>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let ticket = sqlx::query_as::<_, CasTicket>(
             r#"
             UPDATE cas_tickets
-            SET consumed_at = $1, is_valid = FALSE
+            SET consumed_ts = $1, is_valid = FALSE
             WHERE ticket_id = $2 AND service_url = $3 AND is_valid = TRUE AND expires_at > $1
             RETURNING *
             "#,
@@ -205,7 +205,7 @@ impl CasStorage {
     }
 
     pub async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let result = sqlx::query(r#"DELETE FROM cas_tickets WHERE expires_at < $1"#)
             .bind(now)
             .execute(&self.pool)
@@ -219,8 +219,8 @@ impl CasStorage {
         &self,
         request: CreateProxyTicketRequest,
     ) -> Result<CasProxyTicket, ApiError> {
-        let now = Utc::now();
-        let expires_at = now + chrono::Duration::seconds(request.expires_in_seconds);
+        let now = Utc::now().timestamp_millis();
+        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
         let ticket = sqlx::query_as::<_, CasProxyTicket>(
             r#"
@@ -247,12 +247,12 @@ impl CasStorage {
         proxy_ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasProxyTicket>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let ticket = sqlx::query_as::<_, CasProxyTicket>(
             r#"
             UPDATE cas_proxy_tickets
-            SET consumed_at = $1, is_valid = FALSE
+            SET consumed_ts = $1, is_valid = FALSE
             WHERE proxy_ticket_id = $2 AND service_url = $3 AND is_valid = TRUE AND expires_at > $1
             RETURNING *
             "#,
@@ -271,8 +271,8 @@ impl CasStorage {
         &self,
         request: CreatePgtRequest,
     ) -> Result<CasProxyGrantingTicket, ApiError> {
-        let now = Utc::now();
-        let expires_at = now + chrono::Duration::seconds(request.expires_in_seconds);
+        let now = Utc::now().timestamp_millis();
+        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
         let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
             r#"
@@ -331,15 +331,16 @@ impl CasStorage {
         let allowed_proxy_callbacks =
             serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default())
                 .unwrap_or(serde_json::json!([]));
+        let now = Utc::now().timestamp_millis();
 
         let service = sqlx::query_as::<_, CasService>(
             r#"
             INSERT INTO cas_services (
                 service_id, name, description, service_url_pattern,
                 allowed_attributes, allowed_proxy_callbacks,
-                require_secure, single_logout
+                require_secure, single_logout, created_ts, updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING *
             "#,
         )
@@ -351,6 +352,7 @@ impl CasStorage {
         .bind(&allowed_proxy_callbacks)
         .bind(request.require_secure.unwrap_or(true))
         .bind(request.single_logout.unwrap_or(false))
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to register CAS service: {}", e)))?;
@@ -411,7 +413,7 @@ impl CasStorage {
         attribute_name: &str,
         attribute_value: &str,
     ) -> Result<CasUserAttribute, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let attr = sqlx::query_as::<_, CasUserAttribute>(
             r#"
@@ -455,10 +457,11 @@ impl CasStorage {
         service_url: &str,
         ticket_id: Option<&str>,
     ) -> Result<CasSloSession, ApiError> {
+        let now = Utc::now().timestamp_millis();
         let session = sqlx::query_as::<_, CasSloSession>(
             r#"
-            INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             "#,
         )
@@ -466,6 +469,7 @@ impl CasStorage {
         .bind(user_id)
         .bind(service_url)
         .bind(ticket_id)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to create CAS SLO session: {}", e)))?;
@@ -474,9 +478,9 @@ impl CasStorage {
     }
 
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let result =
-            sqlx::query(r#"UPDATE cas_slo_sessions SET logout_sent_at = $1 WHERE session_id = $2"#)
+            sqlx::query(r#"UPDATE cas_slo_sessions SET logout_sent_ts = $1 WHERE session_id = $2"#)
                 .bind(now)
                 .bind(session_id)
                 .execute(&self.pool)
@@ -491,7 +495,7 @@ impl CasStorage {
         user_id: &str,
     ) -> Result<Vec<CasSloSession>, ApiError> {
         let sessions = sqlx::query_as::<_, CasSloSession>(
-            r#"SELECT * FROM cas_slo_sessions WHERE user_id = $1 AND logout_sent_at IS NULL"#,
+            r#"SELECT * FROM cas_slo_sessions WHERE user_id = $1 AND logout_sent_ts IS NULL"#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)

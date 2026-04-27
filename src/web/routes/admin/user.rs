@@ -533,9 +533,8 @@ pub async fn delete_user_device_admin(
     admin: AdminUser,
     State(state): State<AppState>,
     Path((user_id, device_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let user = resolve_user(&state, &user_id).await?;
     let result = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = $2")
         .bind(&user.user_id)
@@ -548,6 +547,25 @@ pub async fn delete_user_device_admin(
         return Err(ApiError::not_found("Device not found".to_string()));
     }
 
+    let request_id = resolve_request_id(&headers);
+    if let Err(e) = record_audit_event(
+        &state,
+        &admin.user_id,
+        "admin.user.delete_device",
+        "device",
+        &device_id,
+        request_id,
+        json!({
+            "admin_role": admin.role,
+            "target_user": user.user_id,
+            "device_id": device_id,
+        }),
+    )
+    .await
+    {
+        tracing::warn!("Failed to record audit event: {}", e);
+    }
+
     Ok(Json(json!({})))
 }
 
@@ -556,8 +574,9 @@ pub async fn delete_user_device_admin_compat(
     admin: AdminUser,
     state: State<AppState>,
     path: Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    delete_user_device_admin(admin, state, path).await
+    delete_user_device_admin(admin, state, path, headers).await
 }
 
 #[axum::debug_handler]
