@@ -11,7 +11,6 @@ pub mod test_utils;
 pub mod web;
 pub mod worker;
 
-#[cfg(test)]
 pub mod test_config;
 
 #[allow(ambiguous_glob_reexports)]
