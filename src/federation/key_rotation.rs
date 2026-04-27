@@ -601,9 +601,7 @@ mod tests {
     use std::env;
 
     async fn create_test_pool() -> Arc<PgPool> {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
+        let database_url = crate::test_config::test_database_url();
         // Use connect_lazy to allow creating the pool without an immediate connection check
         match PgPool::connect_lazy(&database_url) {
             Ok(pool) => Arc::new(pool),
@@ -616,9 +614,7 @@ mod tests {
     async fn setup_test_database() -> Option<Arc<PgPool>> {
         let database_url = env::var("TEST_DATABASE_URL")
             .or_else(|_| env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| {
-                "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-            });
+            .unwrap_or_else(|_| crate::test_config::test_database_url());
 
         let pool = match sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
@@ -1063,7 +1059,7 @@ mod tests {
     async fn test_key_rotation_manager_clone() {
         let pool = std::sync::Arc::new(
             sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
+                .connect_lazy(&crate::test_config::test_database_url())
                 .unwrap(),
         );
         let manager = KeyRotationManager::new(&pool, "test.example.com");

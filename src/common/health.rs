@@ -271,9 +271,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_checker_add_check() {
         let mut checker = HealthChecker::default();
-        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()
-        });
+        let db_url = crate::test_config::test_database_url();
         if let Ok(pool) = sqlx::PgPool::connect(&db_url).await {
             let check = Box::new(DatabaseHealthCheck::new(pool));
             checker.add_check(check);

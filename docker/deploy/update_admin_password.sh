@@ -1,5 +1,6 @@
 #!/bin/bash
-cd /Users/ljf/Desktop/hu/synapse-rust/docker/deploy
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
 
 HASH=$(python3 -c "
 import argon2

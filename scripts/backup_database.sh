@@ -13,7 +13,8 @@
 #   REDIS_CONTAINER - Redis 容器名 (默认: synapse-redis)
 #
 # Crontab 示例 (每日凌晨 2 点执行):
-# 0 2 * * * /Users/ljf/Desktop/hu/synapse-rust/scripts/backup_database.sh >> /var/log/db_backup.log 2>&1
+# SCRIPT_DIR=/path/to/synapse-rust/scripts
+# 0 2 * * * ${SCRIPT_DIR}/backup_database.sh >> /var/log/db_backup.log 2>&1
 # ============================================================================
 
 set -e

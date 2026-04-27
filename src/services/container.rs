@@ -664,9 +664,7 @@ impl ServiceContainer {
         let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
             let db_url = std::env::var("TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
-                .unwrap_or_else(|_| {
-                    "postgres://synapse:synapse@localhost:5432/synapse".to_string()
-                });
+                .unwrap_or_else(|| crate::test_config::test_database_url());
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
                     .max_connections(crate::test_utils::configured_test_pool_max_connections())

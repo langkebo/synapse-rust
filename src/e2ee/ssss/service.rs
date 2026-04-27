@@ -327,7 +327,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_create_key() {
-        let pool = sqlx::PgPool::connect("postgres://synapse:synapse@localhost:5432/synapse_test")
+        let pool = sqlx::PgPool::connect(&crate::test_config::test_database_url())
             .await
             .expect("Failed to connect to test database");
         let storage = SecretStorage::new(&pool);

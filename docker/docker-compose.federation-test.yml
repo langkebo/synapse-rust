@@ -9,10 +9,10 @@ services:
     container_name: synapse-rust-server1
     environment:
       - SERVER_NAME=server1.test
-      - DATABASE_URL=postgresql://postgres:password@db1:5432/synapse1
+      - DATABASE_URL=postgresql://postgres:${FEDERATION_TEST_DB_PASSWORD:-test_password}@db1:5432/synapse1
       - REDIS_URL=redis://redis1:6379
       - FEDERATION_PORT=8448
-      - REGISTRATION_SHARED_SECRET=test_shared_secret_1
+      - REGISTRATION_SHARED_SECRET=${FEDERATION_TEST_SHARED_SECRET_1:-test_shared_secret_1}
       - RUST_LOG=info
     ports:
       - "8008:28008"
@@ -40,10 +40,10 @@ services:
     container_name: synapse-rust-server2
     environment:
       - SERVER_NAME=server2.test
-      - DATABASE_URL=postgresql://postgres:password@db2:5432/synapse2
+      - DATABASE_URL=postgresql://postgres:${FEDERATION_TEST_DB_PASSWORD:-test_password}@db2:5432/synapse2
       - REDIS_URL=redis://redis2:6379
       - FEDERATION_PORT=8448
-      - REGISTRATION_SHARED_SECRET=test_shared_secret_2
+      - REGISTRATION_SHARED_SECRET=${FEDERATION_TEST_SHARED_SECRET_2:-test_shared_secret_2}
       - RUST_LOG=info
     ports:
       - "8009:28008"
@@ -69,7 +69,7 @@ services:
     container_name: synapse-rust-db1
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=${FEDERATION_TEST_DB_PASSWORD:-test_password}
       - POSTGRES_DB=synapse1
     volumes:
       - db1_data:/var/lib/postgresql/data
@@ -87,7 +87,7 @@ services:
     container_name: synapse-rust-db2
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=${FEDERATION_TEST_DB_PASSWORD:-test_password}
       - POSTGRES_DB=synapse2
     volumes:
       - db2_data:/var/lib/postgresql/data
