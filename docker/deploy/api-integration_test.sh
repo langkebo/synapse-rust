@@ -1434,22 +1434,61 @@ fi
 
 case "$TEST_ROLE" in
     user|normal_user|ordinary_user)
-        # 为 user 角色创建独立的普通用户，确保不会被设置为 admin
         echo "Creating dedicated normal user for user role testing..."
 
-        # 使用 testuser1 作为普通用户（确保它没有 admin 权限）
-        # 注意：不使用 ADMIN_TOKEN，而是使用普通用户的 TOKEN
+        NORMAL_TEST_USER="normal_user_test_${RANDOM}"
+        NORMAL_TEST_PASS="Normal@123"
+
+        NORMAL_REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"$NORMAL_TEST_USER\", \"password\": \"$NORMAL_TEST_PASS\", \"auth\": {\"type\": \"m.login.dummy\"}}")
+        NORMAL_TOKEN=$(json_get "$NORMAL_REGISTER_RESP" "access_token")
+        NORMAL_USER_ID=$(json_get "$NORMAL_REGISTER_RESP" "user_id")
+
+        if [ -z "$NORMAL_TOKEN" ] || [ -z "$NORMAL_USER_ID" ]; then
+            NORMAL_TEST_USER="plain_user_${RANDOM}"
+            NORMAL_REGISTER_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/register" \
+                -H "Content-Type: application/json" \
+                -d "{\"username\": \"$NORMAL_TEST_USER\", \"password\": \"$NORMAL_TEST_PASS\", \"auth\": {\"type\": \"m.login.dummy\"}}")
+            NORMAL_TOKEN=$(json_get "$NORMAL_REGISTER_RESP" "access_token")
+            NORMAL_USER_ID=$(json_get "$NORMAL_REGISTER_RESP" "user_id")
+        fi
+
+        if [ -n "$NORMAL_TOKEN" ] && [ -n "$NORMAL_USER_ID" ]; then
+            echo "✓ Dedicated normal user created: $NORMAL_USER_ID"
+
+            NORMAL_USER_ID_ENC=$(url_encode "$NORMAL_USER_ID")
+            http_json GET "$SERVER_URL/_synapse/admin/v1/users/$NORMAL_USER_ID_ENC" "$NORMAL_TOKEN" 2>/dev/null || true
+            if [[ "$HTTP_STATUS" == 2* ]]; then
+                echo "WARNING: New user has admin access, revoking admin status..."
+                if admin_ready; then
+                    http_json PUT "$SERVER_URL/_synapse/admin/v1/users/$NORMAL_USER_ID_ENC/admin" "$ADMIN_TOKEN" '{"admin": false}' 2>/dev/null || true
+                fi
+            fi
+
+            TOKEN="$NORMAL_TOKEN"
+            USER_ID="$NORMAL_USER_ID"
+            CURRENT_TEST_PASS="$NORMAL_TEST_PASS"
+
+            NORMAL_DEVICE_ID=$(json_get "$NORMAL_REGISTER_RESP" "device_id")
+            if [ -n "$NORMAL_DEVICE_ID" ]; then
+                DEVICE_ID="$NORMAL_DEVICE_ID"
+            else
+                http_json GET "$SERVER_URL/_matrix/client/v3/devices" "$TOKEN"
+                DEVICE_ID=$(printf '%s' "$HTTP_BODY" | python3 -c 'import json,sys; d=json.load(sys.stdin); devs=d.get("devices") or []; print((devs[0].get("device_id") if devs else ""))' 2>/dev/null || echo "")
+            fi
+
+            if [ -n "$DEVICE_ID" ]; then
+                echo "✓ Normal user device: $DEVICE_ID"
+            else
+                echo "WARNING: No device ID found for normal user"
+            fi
+        else
+            echo "WARNING: Failed to create dedicated normal user, using testuser1 (may have admin access)"
+        fi
+
         ADMIN_TOKEN="$TOKEN"
         ADMIN_USER_ID="$USER_ID"
-
-        # 验证用户不是 admin
-        if [ -n "$TOKEN" ]; then
-            USER_ID_ENC=$(url_encode "$USER_ID")
-            http_json GET "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC" "$TOKEN" 2>/dev/null || true
-            if [[ "$HTTP_STATUS" == 2* ]]; then
-                echo "WARNING: Test user has admin access. User role tests may not be accurate."
-            fi
-        fi
         ;;
     *)
         if [ -n "$ADMIN_SHARED_SECRET" ] && [ "$ADMIN_SHARED_SECRET" != "change-me-admin-shared-secret" ]; then

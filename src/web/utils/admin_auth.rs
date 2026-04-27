@@ -225,7 +225,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         || path.contains("/reset_connection")
         || path.contains("/retention")
         || (path.contains("/registration_tokens") && !is_read)  // Allow read, deny write
-        || path.contains("/batch_users");  // Batch operations are super_admin only
+        || path.contains("/batch_users"); // Batch operations are super_admin only
 
     match role {
         "admin" => {
@@ -234,14 +234,22 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
             }
 
             // admin 可访问的路径
-            let allowed =
-                // 用户信息（只读）
-                (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
+            (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
                     && is_read
                     && !path.contains("/deactivate")
                     && !path.contains("/login")
                     && !path.contains("/logout")
                     && !path.ends_with("/admin")
+
+                // 用户管理操作（影子封禁）
+                || (path.contains("/users/") && path.contains("/shadow_ban"))
+
+                // 用户管理操作（驱逐用户）
+                || (path.contains("/users/") && path.contains("/evict"))
+
+                // 用户速率限制管理
+                || (path.contains("/users/") && path.contains("/rate_limit"))
+                || (path.contains("/users/") && path.contains("/override_ratelimit"))
 
                 // 用户会话管理（只读）
                 || path.starts_with("/_synapse/admin/v1/user_sessions/")
@@ -303,7 +311,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || (path.starts_with("/_synapse/admin/v1/audit") && is_read)
 
                 // 设备管理 - 允许查看和删除单个设备，禁止批量删除
-                || (path.contains("/users/") && path.contains("/devices/")
+                || (path.contains("/users/") && path.contains("/devices")
                     && !path.contains("/delete_devices")
                     && (is_read || *method == Method::DELETE))
 
@@ -320,9 +328,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 // 服务器状态和健康检查
                 || path.starts_with("/_synapse/admin/v1/server_version")
                 || path.starts_with("/_synapse/admin/v1/health")
-                || path.starts_with("/_synapse/admin/v1/status");
-
-            allowed
+                || path.starts_with("/_synapse/admin/v1/status")
         }
         "auditor" => {
             is_read
@@ -493,6 +499,71 @@ mod tests {
             "super_admin",
             &Method::POST,
             "/_synapse/admin/v1/shutdown_room"
+        ));
+    }
+
+    #[test]
+    fn admin_role_shadow_ban_allowed() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@user:localhost/shadow_ban"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::DELETE,
+            "/_synapse/admin/v1/users/@user:localhost/shadow_ban"
+        ));
+    }
+
+    #[test]
+    fn admin_role_delete_single_device_allowed() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::DELETE,
+            "/_synapse/admin/v1/users/@user:localhost/devices/DEVICEID"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/users/@user:localhost/devices"
+        ));
+    }
+
+    #[test]
+    fn admin_role_batch_delete_devices_denied() {
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@user:localhost/delete_devices"
+        ));
+    }
+
+    #[test]
+    fn admin_role_evict_user_allowed() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@user:localhost/evict"
+        ));
+    }
+
+    #[test]
+    fn admin_role_rate_limit_allowed() {
+        assert!(is_role_allowed(
+            "admin",
+            &Method::GET,
+            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::PUT,
+            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
+        ));
+        assert!(is_role_allowed(
+            "admin",
+            &Method::DELETE,
+            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
         ));
     }
 }

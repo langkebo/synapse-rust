@@ -898,14 +898,18 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Set a current key
+        let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+        let test_verifying_key = test_signing_key.verifying_key();
+        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
                 server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
-                secret_key: "test".to_string(),
-                public_key: "test_public_key".to_string(),
+                secret_key: secret_key_b64,
+                public_key: public_key_b64,
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
                 key_json: serde_json::json!({}),
@@ -918,6 +922,7 @@ mod tests {
         assert_eq!(result["server_name"], "test.example.com");
         assert!(result["verify_keys"].is_object());
         assert!(result["valid_until_ts"].is_number());
+        assert!(result["signatures"].is_object());
     }
 
     #[tokio::test]
@@ -925,14 +930,23 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        // Set current key
+        let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+        let test_verifying_key = test_signing_key.verifying_key();
+        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+
+        let old_signing_key = ed25519_dalek::SigningKey::from_bytes(&[99u8; 32]);
+        let old_verifying_key = old_signing_key.verifying_key();
+        let old_secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_signing_key.as_bytes());
+        let old_public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_verifying_key.as_bytes());
+
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
                 server_name: "test.example.com".to_string(),
                 key_id: "ed25519:current".to_string(),
-                secret_key: "test".to_string(),
-                public_key: "current_public".to_string(),
+                secret_key: secret_key_b64,
+                public_key: public_key_b64,
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(7)).timestamp_millis(),
                 key_json: serde_json::json!({}),
@@ -941,7 +955,6 @@ mod tests {
             });
         }
 
-        // Add historical key
         {
             let mut historical = manager.historical_keys.write().await;
             historical.insert(
@@ -949,8 +962,8 @@ mod tests {
                 SigningKey {
                     server_name: "test.example.com".to_string(),
                     key_id: "ed25519:old".to_string(),
-                    secret_key: "old_secret".to_string(),
-                    public_key: "old_public".to_string(),
+                    secret_key: old_secret_b64,
+                    public_key: old_public_b64,
                     created_ts: 0,
                     expires_at: Utc::now().timestamp_millis() - 1000,
                     key_json: serde_json::json!({}),
@@ -962,6 +975,7 @@ mod tests {
 
         let result = manager.get_server_keys_response().await.unwrap();
         assert!(result["old_verify_keys"].is_object());
+        assert!(result["signatures"].is_object());
     }
 
     #[tokio::test]
