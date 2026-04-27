@@ -146,7 +146,7 @@ services:
     environment:
       SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
       RATE_LIMIT_CONFIG_PATH: /app/config/rate_limit.yaml
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-synapse}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-synapse}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       SERVER_NAME: ${SERVER_NAME:?SERVER_NAME must be set}
       PUBLIC_BASEURL: ${PUBLIC_BASEURL:?PUBLIC_BASEURL must be set}
