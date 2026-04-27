@@ -17,8 +17,7 @@ pub fn test_database_url() -> String {
 /// Reads from TEST_REDIS_URL environment variable.
 /// Default: redis://localhost:6379
 pub fn test_redis_url() -> String {
-    std::env::var("TEST_REDIS_URL")
-        .unwrap_or_else(|_| "redis://localhost:6379".to_string())
+    std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
 }
 
 #[cfg(test)]
@@ -36,7 +35,10 @@ mod tests {
 
     #[test]
     fn test_database_url_from_env() {
-        std::env::set_var("TEST_DATABASE_URL", "postgres://custom:custom@localhost:5432/custom");
+        std::env::set_var(
+            "TEST_DATABASE_URL",
+            "postgres://custom:custom@localhost:5432/custom",
+        );
         assert_eq!(
             test_database_url(),
             "postgres://custom:custom@localhost:5432/custom"
