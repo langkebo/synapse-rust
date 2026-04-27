@@ -120,7 +120,7 @@ docker compose ps
 docker compose logs -f synapse
 
 # 健康检查
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 ```
 
 ---
@@ -300,7 +300,7 @@ media_retention:
 
 ```bash
 # Synapse 健康检查
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 
 # 数据库健康检查
 docker compose exec postgres pg_isready
@@ -504,7 +504,7 @@ docker compose up -d
 
 | 容器端口 | 主机端口 | 说明 |
 |---------|---------|------|
-| 28008 | 8008 | Synapse HTTP |
+| 8008 | 8008 | Synapse HTTP |
 | 9090 | 9090 | Prometheus |
 | 80 | 80 | Nginx HTTP |
 | 443 | 443 | Nginx HTTPS |

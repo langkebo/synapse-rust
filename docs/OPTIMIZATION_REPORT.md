@@ -24,8 +24,8 @@
 - **影响**: 提升安全性，符合最佳实践
 
 #### 3. 修复 Dockerfile EXPOSE 端口 ✅
-- **问题**: EXPOSE 8008 但应用实际监听 28008
-- **修复**: 两处修改为 EXPOSE 28008
+- **问题**: EXPOSE 8008 但应用实际监听 8008
+- **修复**: 两处修改为 EXPOSE 8008
 - **文件**: `docker/Dockerfile:85, 124`
 - **影响**: 修复 `docker run -P` 端口映射错误
 
@@ -143,7 +143,7 @@ A src/test_config.rs
 结果: 0
 
 ✅ **Docker 端口配置已修复**  
-验证: `docker/Dockerfile` 中 EXPOSE 28008
+验证: `docker/Dockerfile` 中 EXPOSE 8008
 
 ✅ **安全密钥配置已加固**  
 验证: `.env.example` 中无全零密钥
@@ -162,7 +162,7 @@ pub fn test_database_url() -> String {
 ### 2. Nginx 配置模板化
 ```bash
 export DOMAIN_NAME=example.com
-export SYNAPSE_UPSTREAM=synapse-rust:28008
+export SYNAPSE_UPSTREAM=synapse-rust:8008
 docker-compose up nginx
 ```
 
@@ -197,7 +197,7 @@ export DOMAIN_NAME=example.com
 export SERVER_NAME=example.com
 
 # 2. 配置 nginx
-export SYNAPSE_UPSTREAM=synapse-rust:28008
+export SYNAPSE_UPSTREAM=synapse-rust:8008
 
 # 3. 启动服务
 docker-compose up -d

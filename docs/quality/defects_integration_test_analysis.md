@@ -363,7 +363,7 @@ async fn logout(
 #### 验证步骤
 
 1. 发送 `GET /logout` (无 service 参数) → 预期 HTTP 200 + HTML 登出页面
-2. 发送 `GET /logout?service=http://localhost:28008` → 预期 HTTP 302 重定向
+2. 发送 `GET /logout?service=http://localhost:8008` → 预期 HTTP 302 重定向
 
 ---
 

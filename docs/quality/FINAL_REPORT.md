@@ -503,22 +503,22 @@ let result = operation()
 cargo test web::utils::admin_auth::tests --lib
 
 # 运行集成测试
-SERVER_URL=http://localhost:28008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
+SERVER_URL=http://localhost:8008 TEST_ENV=dev bash scripts/test/api-integration_test.sh
 ```
 
 ### 验证 CAS 修复
 
 ```bash
 # 测试 logout 无参数
-curl "http://localhost:28008/logout"
+curl "http://localhost:8008/logout"
 # 预期: HTTP 200 + HTML
 
 # 测试 logout 有参数
-curl "http://localhost:28008/logout?service=http://localhost:28008"
+curl "http://localhost:8008/logout?service=http://localhost:8008"
 # 预期: HTTP 302
 
 # 测试 service validate
-curl "http://localhost:28008/serviceValidate?service=http://example.com&ticket=invalid"
+curl "http://localhost:8008/serviceValidate?service=http://example.com&ticket=invalid"
 # 预期: HTTP 200 + "no\n\n"
 ```
 
@@ -526,11 +526,11 @@ curl "http://localhost:28008/serviceValidate?service=http://example.com&ticket=i
 
 ```bash
 # 查询 login flows
-curl "http://localhost:28008/_matrix/client/v3/login"
+curl "http://localhost:8008/_matrix/client/v3/login"
 # 预期: 包含 m.login.sso 和 identity_providers
 
 # 访问 login fallback page
-curl "http://localhost:28008/_matrix/static/client/login/"
+curl "http://localhost:8008/_matrix/static/client/login/"
 # 预期: HTML 登录页面
 ```
 
@@ -538,7 +538,7 @@ curl "http://localhost:28008/_matrix/static/client/login/"
 
 ```bash
 # 访问 JWKS 端点
-curl "http://localhost:28008/.well-known/jwks.json"
+curl "http://localhost:8008/.well-known/jwks.json"
 # 预期: HTTP 200 + {"keys": []}
 ```
 

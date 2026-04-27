@@ -10,7 +10,7 @@
 
 1. **获取 nonce**
    ```bash
-   curl -X GET http://localhost:28008/_synapse/admin/v1/register/nonce
+   curl -X GET http://localhost:8008/_synapse/admin/v1/register/nonce
    ```
 
    响应示例：
@@ -61,7 +61,7 @@
 
 3. **注册管理员账号**
    ```bash
-   curl -X POST http://localhost:28008/_synapse/admin/v1/register \
+   curl -X POST http://localhost:8008/_synapse/admin/v1/register \
      -H "Content-Type: application/json" \
      -d '{
        "nonce": "EvLl3H2_TaayB4kiG1rowvdokrG4qusJ-jXc1xnr5PmDUSgb3OURPUyRHDeY34PFKj9ps3CAsbgNhyRN5dDPkQ",
@@ -122,15 +122,15 @@ python3 docker/deploy/register_admin.py
 
 ```bash
 # 获取服务器状态
-curl -X GET http://localhost:28008/_synapse/admin/v1/status \
+curl -X GET http://localhost:8008/_synapse/admin/v1/status \
   -H "Authorization: Bearer {admin_access_token}"
 
 # 获取用户列表
-curl -X GET "http://localhost:28008/_synapse/admin/v1/users?limit=10&offset=0" \
+curl -X GET "http://localhost:8008/_synapse/admin/v1/users?limit=10&offset=0" \
   -H "Authorization: Bearer {admin_access_token}"
 
 # 获取房间列表
-curl -X GET "http://localhost:28008/_synapse/admin/v1/rooms?limit=10&offset=0" \
+curl -X GET "http://localhost:8008/_synapse/admin/v1/rooms?limit=10&offset=0" \
   -H "Authorization: Bearer {admin_access_token}"
 ```
 

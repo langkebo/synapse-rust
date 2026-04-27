@@ -9,7 +9,7 @@ mod e2e_tests {
     use tokio::runtime::Runtime;
 
     fn base_url() -> String {
-        std::env::var("E2E_BASE_URL").unwrap_or_else(|_| "http://localhost:28008".to_owned())
+        std::env::var("E2E_BASE_URL").unwrap_or_else(|_| "http://localhost:8008".to_owned())
     }
 
     fn unique_username(prefix: &str) -> String {

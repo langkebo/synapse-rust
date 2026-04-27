@@ -12,7 +12,7 @@ mkdir -p "$RESULTS_BASE_DIR"
 # 定义角色
 ROLES="super_admin admin user"
 
-export SERVER_URL="http://localhost:28008"
+export SERVER_URL="http://localhost:8008"
 export TEST_ENV="dev"
 
 for ROLE in $ROLES; do

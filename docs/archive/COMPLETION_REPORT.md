@@ -191,12 +191,12 @@
 |------|------|------|
 | docker-postgres | ✅ Healthy | 5432 |
 | docker-redis | ✅ Healthy | 6379 |
-| docker-rust | ✅ Healthy | 28008, 28448 |
+| docker-rust | ✅ Healthy | 8008, 28448 |
 
 ### API 验证
 
 ```bash
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 # 返回: {"versions":["r0.5.0","r0.6.0","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6"]}
 ```
 

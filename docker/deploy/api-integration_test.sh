@@ -12,8 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   - "prod"     : 生产环境，跳过所有可能修改数据的测试
 #
 # SERVER_URL: 服务器地址（可通过环境变量覆盖）
-#   - 本地开发: http://localhost:28008
-#   - Docker 环境: http://localhost:28008
+#   - 本地开发: http://localhost:8008
+#   - Docker 环境: http://localhost:8008
 #
 # 破坏性测试标记: DESTRUCTIVE
 #   - 用户删除、数据清除、数据库修改等不可逆操作
@@ -200,14 +200,14 @@ detect_server_url() {
     fi
 
     local candidate
-    for candidate in "http://localhost:28008" "http://localhost:28008"; do
+    for candidate in "http://localhost:8008" "http://localhost:8008"; do
         if command curl -s --connect-timeout 2 --max-time 4 "$candidate/_matrix/client/versions" >/dev/null 2>&1; then
             SERVER_URL="$candidate"
             return
         fi
     done
 
-    SERVER_URL="http://localhost:28008"
+    SERVER_URL="http://localhost:8008"
 }
 
 http_json_extra_header() {
@@ -7470,7 +7470,7 @@ fi
 
 echo ""
 echo "587. OIDC Token Endpoint (no params)"
-http_json POST "$SERVER_URL/_matrix/client/v3/oidc/token" "" '{"grant_type": "authorization_code", "code": "invalid_code", "redirect_uri": "http://localhost:28008"}'
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/token" "" '{"grant_type": "authorization_code", "code": "invalid_code", "redirect_uri": "http://localhost:8008"}'
 if [[ "$HTTP_STATUS" == "400" || "$HTTP_STATUS" == "401" ]]; then
     pass "OIDC Token Endpoint (rejects invalid code)"
 elif [[ "$HTTP_STATUS" == 4* ]]; then
@@ -7481,7 +7481,7 @@ fi
 
 echo ""
 echo "588. OIDC Authorize Endpoint"
-http_json GET "$SERVER_URL/_matrix/client/v3/oidc/authorize?response_type=code&client_id=test&redirect_uri=http://localhost:28008/callback&scope=openid&state=test_state" ""
+http_json GET "$SERVER_URL/_matrix/client/v3/oidc/authorize?response_type=code&client_id=test&redirect_uri=http://localhost:8008/callback&scope=openid&state=test_state" ""
 if [[ "$HTTP_STATUS" == 3* ]] || [[ "$HTTP_STATUS" == 200 ]]; then
     pass "OIDC Authorize Endpoint"
 elif [[ "$HTTP_STATUS" == 400 || "$HTTP_STATUS" == 401 ]]; then
@@ -7494,7 +7494,7 @@ fi
 
 echo ""
 echo "589. OIDC Dynamic Client Registration (unsupported)"
-http_json POST "$SERVER_URL/_matrix/client/v3/oidc/register" "" '{"client_name": "test", "redirect_uris": ["http://localhost:28008/callback"]}'
+http_json POST "$SERVER_URL/_matrix/client/v3/oidc/register" "" '{"client_name": "test", "redirect_uris": ["http://localhost:8008/callback"]}'
 if [[ "$HTTP_STATUS" == 405 || "$HTTP_STATUS" == 501 ]]; then
     pass "OIDC Dynamic Client Registration (correctly unsupported)"
 elif [[ "$HTTP_STATUS" == 404 ]]; then
@@ -7602,7 +7602,7 @@ echo "=========================================="
 echo "597. SSO - CAS Integration"
 echo "=========================================="
 echo "597. CAS Login Redirect"
-http_json GET "$SERVER_URL/login?service=http://localhost:28008" ""
+http_json GET "$SERVER_URL/login?service=http://localhost:8008" ""
 if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 || "$HTTP_STATUS" == 200 ]]; then
     pass "CAS Login Redirect"
 elif [[ "$HTTP_STATUS" == 404 ]]; then
@@ -7613,7 +7613,7 @@ fi
 
 echo ""
 echo "598. CAS Service Validate (no ticket)"
-http_json GET "$SERVER_URL/serviceValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+http_json GET "$SERVER_URL/serviceValidate?service=http://localhost:8008&ticket=invalid_ticket" ""
 if [[ "$HTTP_STATUS" == 200 ]]; then
     # CAS Protocol 3.0: invalid ticket returns "no\n\n"
     if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid\|^no$"; then
@@ -7631,7 +7631,7 @@ fi
 
 echo ""
 echo "599. CAS Proxy Validate (no ticket)"
-http_json GET "$SERVER_URL/proxyValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+http_json GET "$SERVER_URL/proxyValidate?service=http://localhost:8008&ticket=invalid_ticket" ""
 if [[ "$HTTP_STATUS" == 200 ]]; then
     # CAS Protocol 3.0: invalid ticket returns "no\n\n"
     if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid\|^no$"; then
@@ -7649,7 +7649,7 @@ fi
 
 echo ""
 echo "600. CAS P3 Service Validate (no ticket)"
-http_json GET "$SERVER_URL/p3/serviceValidate?service=http://localhost:28008&ticket=invalid_ticket" ""
+http_json GET "$SERVER_URL/p3/serviceValidate?service=http://localhost:8008&ticket=invalid_ticket" ""
 if [[ "$HTTP_STATUS" == 200 ]]; then
     if echo "$HTTP_BODY" | grep -qi "failure\|error\|invalid"; then
         pass "CAS P3 Service Validate (rejects invalid ticket)"
@@ -7666,7 +7666,7 @@ fi
 
 echo ""
 echo "601. CAS Logout"
-http_json GET "$SERVER_URL/logout?service=http://localhost:28008" ""
+http_json GET "$SERVER_URL/logout?service=http://localhost:8008" ""
 if [[ "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
     pass "CAS Logout"
 elif [[ "$HTTP_STATUS" == 404 ]]; then
@@ -7697,7 +7697,7 @@ fi
 echo ""
 echo "603. CAS Admin Register Service"
 if admin_ready; then
-    http_json POST "$SERVER_URL/_synapse/admin/v1/cas/services" "$ADMIN_TOKEN" '{"service_id": "test_service", "name": "Test CAS Service", "service_url_pattern": "http://localhost:28008/callback"}'
+    http_json POST "$SERVER_URL/_synapse/admin/v1/cas/services" "$ADMIN_TOKEN" '{"service_id": "test_service", "name": "Test CAS Service", "service_url_pattern": "http://localhost:8008/callback"}'
     if [[ "$HTTP_STATUS" == 200 || "$HTTP_STATUS" == 201 ]]; then
         pass "CAS Admin Register Service"
     elif [[ "$HTTP_STATUS" == 404 ]]; then
@@ -7763,7 +7763,7 @@ fi
 
 echo ""
 echo "606. SSO Redirect (v3)"
-http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect?redirectUrl=http://localhost:28008" ""
+http_json GET "$SERVER_URL/_matrix/client/v3/login/sso/redirect?redirectUrl=http://localhost:8008" ""
 if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
     pass "SSO Redirect v3 (302 redirect)"
 elif [[ "$HTTP_STATUS" == 200 ]]; then
@@ -7776,7 +7776,7 @@ fi
 
 echo ""
 echo "607. SSO Redirect (r0)"
-http_json GET "$SERVER_URL/_matrix/client/r0/login/sso/redirect?redirectUrl=http://localhost:28008" ""
+http_json GET "$SERVER_URL/_matrix/client/r0/login/sso/redirect?redirectUrl=http://localhost:8008" ""
 if [[ "$HTTP_STATUS" == 302 || "$HTTP_STATUS" == 303 ]]; then
     pass "SSO Redirect r0 (302 redirect)"
 elif [[ "$HTTP_STATUS" == 200 ]]; then

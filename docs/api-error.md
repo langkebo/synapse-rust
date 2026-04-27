@@ -19,7 +19,7 @@ debian:bookworm (74.8MB)
 用户
 synapse (UID 1000)
 暴露端口
-28008, 8448, 9090
+8008, 8448, 9090
 数据库表
 236 张
 迁移失败
@@ -440,7 +440,7 @@ P3
 
 十一、权限安全审计报告 (2026-04-19)
 11.1 测试环境配置
-- 目标服务器: http://localhost:28008
+- 目标服务器: http://localhost:8008
 - 测试账号:
   - 超级管理员: @admin:localhost (is_admin=true, user_type=super_admin)
   - 管理员: @testuser1:localhost (is_admin=true, user_type=admin)

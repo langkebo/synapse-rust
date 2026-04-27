@@ -16,7 +16,7 @@ mod tests {
             ],
             attribute_mapping: Default::default(),
             callback_url: Some(
-                "http://localhost:28008/_matrix/client/v3/oidc/callback".to_string(),
+                "http://localhost:8008/_matrix/client/v3/oidc/callback".to_string(),
             ),
             allow_existing_users: true,
             block_unknown_users: false,

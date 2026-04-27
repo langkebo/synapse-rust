@@ -5,7 +5,7 @@
 The nginx configuration uses environment variables for flexibility:
 
 - `DOMAIN_NAME`: Your domain name (default: `localhost`)
-- `SYNAPSE_UPSTREAM`: Backend synapse service (default: `synapse-rust:28008`)
+- `SYNAPSE_UPSTREAM`: Backend synapse service (default: `synapse-rust:8008`)
 
 ## Usage
 
@@ -18,7 +18,7 @@ nginx:
   image: nginx:alpine
   environment:
     - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
-    - SYNAPSE_UPSTREAM=synapse-rust:28008
+    - SYNAPSE_UPSTREAM=synapse-rust:8008
   volumes:
     - ./docker/nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
     - ./docker/nginx/docker-entrypoint.sh:/docker-entrypoint.sh:ro
@@ -35,7 +35,7 @@ nginx:
 2. Set environment variables:
    ```bash
    export DOMAIN_NAME=example.com
-   export SYNAPSE_UPSTREAM=synapse-rust:28008
+   export SYNAPSE_UPSTREAM=synapse-rust:8008
    ```
 
 3. Generate configuration:

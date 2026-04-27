@@ -2,7 +2,7 @@
 
 ## 复现方式（统一）
 
-- 运行：`SERVER_URL=http://localhost:28008 TEST_ENV=dev bash scripts/test/api-integration_test.sh`
+- 运行：`SERVER_URL=http://localhost:8008 TEST_ENV=dev bash scripts/test/api-integration_test.sh`
 - 产物：`test-results/api-integration.failed.txt` / `test-results/api-integration.missing.txt`
 
 ## 分级说明

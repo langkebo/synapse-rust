@@ -154,7 +154,7 @@
 |------|------|------|
 | docker-postgres | ✅ Healthy | 5432 |
 | docker-redis | ✅ Healthy | 6379 |
-| docker-rust | ✅ Healthy | 28008, 28448 |
+| docker-rust | ✅ Healthy | 8008, 28448 |
 
 ---
 

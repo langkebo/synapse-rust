@@ -1,7 +1,7 @@
 # 权限修复最终验证报告
 
 生成时间: 2026-04-26 17:30
-测试环境: Docker Compose (localhost:28008)
+测试环境: Docker Compose (localhost:8008)
 测试角色: admin
 
 ---

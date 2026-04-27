@@ -3,8 +3,8 @@ server_name: "${SERVER_NAME:-cjystx.top}"
 server:
   name: "${SERVER_NAME:-cjystx.top}"
   host: "0.0.0.0"
-  port: 28008
-  http_port: 28008
+  port: 8008
+  http_port: 8008
   https_port: 8448
   bind_address: "0.0.0.0"
   public_baseurl: "${PUBLIC_BASEURL:-https://matrix.cjystx.top}"
@@ -84,8 +84,8 @@ worker:
 
 cors:
   allowed_origins:
-    - "http://localhost:28008"
-    - "http://127.0.0.1:28008"
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
     - "tauri://localhost"
@@ -135,7 +135,7 @@ oidc:
     localpart: "preferred_username"
     displayname: "name"
     email: "email"
-  callback_url: "http://localhost:28008/_matrix/client/v3/oidc/callback"
+  callback_url: "http://localhost:8008/_matrix/client/v3/oidc/callback"
   allow_existing_users: true
   block_unknown_users: false
 

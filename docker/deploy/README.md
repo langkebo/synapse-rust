@@ -172,7 +172,7 @@ PUBLIC_BASEURL=https://matrix.example.com
 | 变量名 | 说明 | 默认值 | 必填 |
 |--------|------|--------|------|
 | `SERVER_NAME` | Matrix 服务器名称 | localhost | ✅ |
-| `PUBLIC_BASEURL` | 公开访问 URL | http://localhost:28008 | ✅ |
+| `PUBLIC_BASEURL` | 公开访问 URL | http://localhost:8008 | ✅ |
 | `POSTGRES_USER` | 数据库用户名 | synapse | |
 | `POSTGRES_PASSWORD` | 数据库密码 | (自动生成) | |
 | `POSTGRES_DB` | 数据库名称 | synapse | |
@@ -274,17 +274,17 @@ docker compose -f docker-compose.yml -f docker-compose.dev-host-access.yml up -d
 docker compose ps
 
 # 检查健康状态
-curl http://localhost:28008/health
+curl http://localhost:8008/health
 
 # 检查 API 版本
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 ```
 
 ### 步骤 6: 注册管理员
 
 ```bash
 # 使用共享密钥注册管理员
-curl -X POST http://localhost:28008/_synapse/admin/v1/register \
+curl -X POST http://localhost:8008/_synapse/admin/v1/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
@@ -466,7 +466,7 @@ docker compose logs migrator
 docker compose ps synapse
 
 # 检查 Synapse 健康状态
-curl http://localhost:28008/health
+curl http://localhost:8008/health
 
 # 重启服务
 docker compose restart synapse nginx
@@ -517,7 +517,7 @@ docker compose logs --since="2024-01-01T00:00:00"
 docker compose ps
 
 # 检查 Synapse 健康端点
-curl -f http://localhost:28008/health
+curl -f http://localhost:8008/health
 
 # 检查数据库连接
 docker compose exec postgres pg_isready

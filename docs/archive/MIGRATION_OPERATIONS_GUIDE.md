@@ -338,7 +338,7 @@ EOF
 systemctl start synapse-rust
 
 # 12. 健康检查
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 
 # 13. 监控日志
 tail -f /var/log/synapse-rust/synapse.log
@@ -380,7 +380,7 @@ cargo build --release
 systemctl start synapse-rust
 
 # 6. 验证功能
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 ```
 
 ### 5.3 从备份恢复

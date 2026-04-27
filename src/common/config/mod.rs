@@ -226,7 +226,7 @@ fn default_server_host() -> String {
 }
 
 fn default_server_port() -> u16 {
-    28008
+    8008
 }
 
 fn default_max_upload_size_value() -> u64 {
@@ -1166,7 +1166,7 @@ pub struct ServerConfig {
     pub host: String,
 
     /// 监听端口
-    /// 默认 28008 (HTTP) 或 8448 (HTTPS)
+    /// 默认 8008 (HTTP) 或 8448 (HTTPS)
     #[serde(default = "default_server_port")]
     pub port: u16,
 
@@ -3153,7 +3153,7 @@ pub struct StorageProviderConfig {
 /// ```yaml
 /// listeners:
 ///   - type: http
-///     port: 28008
+///     port: 8008
 ///     tls: false
 ///     x_forwarded: true
 ///     resources:

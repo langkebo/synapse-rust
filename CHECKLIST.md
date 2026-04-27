@@ -13,7 +13,7 @@
 - [x] 参数化 10+ 处硬编码域名
 
 ### 3. Docker 配置修复 ✅
-- [x] 修复 EXPOSE 端口（8008 → 28008）
+- [x] 修复 EXPOSE 端口（8008 → 8008）
 - [x] 统一 Dockerfile entrypoint
 - [x] 修复 nginx upstream 配置
 

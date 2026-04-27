@@ -2,7 +2,7 @@
 
 生成时间: 2026-04-26 19:00
 项目: synapse-rust Matrix Homeserver
-测试环境: Docker Compose (localhost:28008)
+测试环境: Docker Compose (localhost:8008)
 
 ---
 

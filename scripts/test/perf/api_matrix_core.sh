@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/artifacts/perf}"
-BASE_URL="${BASE_URL:-http://localhost:28008}"
+BASE_URL="${BASE_URL:-http://localhost:8008}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
 SUMMARY_EXPORT="$OUTPUT_DIR/k6-summary.json"

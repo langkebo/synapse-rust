@@ -15,7 +15,7 @@ services:
       - REGISTRATION_SHARED_SECRET=${FEDERATION_TEST_SHARED_SECRET_1:-test_shared_secret_1}
       - RUST_LOG=info
     ports:
-      - "8008:28008"
+      - "8008:8008"
       - "8448:8448"
     depends_on:
       db1:
@@ -27,7 +27,7 @@ services:
         aliases:
           - server1.test
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:28008/_matrix/client/versions"]
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -46,7 +46,7 @@ services:
       - REGISTRATION_SHARED_SECRET=${FEDERATION_TEST_SHARED_SECRET_2:-test_shared_secret_2}
       - RUST_LOG=info
     ports:
-      - "8009:28008"
+      - "8009:8008"
       - "8449:8448"
     depends_on:
       db2:
@@ -58,7 +58,7 @@ services:
         aliases:
           - server2.test
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:28008/_matrix/client/versions"]
+      test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
       interval: 10s
       timeout: 5s
       retries: 5

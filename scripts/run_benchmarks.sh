@@ -72,10 +72,10 @@ api_benchmark() {
     echo "测试 API 响应时间..."
     
     # 版本 API
-    time curl -s http://localhost:28008/_matrix/client/versions > /dev/null
+    time curl -s http://localhost:8008/_matrix/client/versions > /dev/null
     
     # 健康检查
-    time curl -s http://localhost:28008/health > /dev/null
+    time curl -s http://localhost:8008/health > /dev/null
     
     # 停止服务器
     kill $SERVER_PID

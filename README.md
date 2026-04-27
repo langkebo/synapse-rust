@@ -30,7 +30,7 @@ docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synaps
 验证服务：
 
 ```bash
-curl -f http://localhost:28008/_matrix/client/versions
+curl -f http://localhost:8008/_matrix/client/versions
 ```
 
 ### 配置文件

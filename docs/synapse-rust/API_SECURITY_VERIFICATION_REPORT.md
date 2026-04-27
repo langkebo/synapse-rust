@@ -2,7 +2,7 @@
 
 ## 1. 测试概览
 - **测试时间**: 2026-04-19
-- **测试环境**: Docker (http://localhost:28008)
+- **测试环境**: Docker (http://localhost:8008)
 - **测试角色**: 超级管理员 (super_admin), 管理员 (admin), 普通用户 (user)
 - **测试工具**: `api-integration_test.sh`
 

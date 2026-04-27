@@ -215,7 +215,7 @@ docker compose build synapse-rust
 docker compose restart synapse-rust
 sleep 15
 docker compose ps
-curl -s http://localhost:28008/_matrix/client/versions | jq .
+curl -s http://localhost:8008/_matrix/client/versions | jq .
 ```
 
 ### 测试步骤

@@ -707,7 +707,7 @@ fn build_test_config() -> Config {
         server: ServerConfig {
             name: "localhost".to_string(),
             host: "0.0.0.0".to_string(),
-            port: 28008,
+            port: 8008,
             public_baseurl: None,
             signing_key_path: None,
             macaroon_secret_key: None,
