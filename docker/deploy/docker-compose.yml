@@ -124,12 +124,8 @@ services:
       - synapse-network
 
   synapse:
-    image: ${SYNAPSE_IMAGE:-synapse-rust:local}
-    build:
-      context: ../..
-      dockerfile: docker/Dockerfile
-      target: runtime
-    pull_policy: ${SYNAPSE_PULL_POLICY:-never}
+    image: ${SYNAPSE_IMAGE:-vmuser232922/mysynapse:latest}
+    pull_policy: ${SYNAPSE_PULL_POLICY:-always}
     platform: linux/amd64
     container_name: synapse-app
     restart: unless-stopped
@@ -154,9 +150,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       SERVER_NAME: ${SERVER_NAME:?SERVER_NAME must be set}
       PUBLIC_BASEURL: ${PUBLIC_BASEURL:?PUBLIC_BASEURL must be set}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      REGISTRATION_SECRET: ${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET must be set}
       ADMIN_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set}
       ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
@@ -164,6 +159,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       MACAROON_SECRET: ${MACAROON_SECRET:?MACAROON_SECRET must be set}
       FORM_SECRET: ${FORM_SECRET:?FORM_SECRET must be set}
+      FEDERATION_SIGNING_KEY: ${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY must be set}
+      FEDERATION_KEY_ID: ${FEDERATION_KEY_ID:-ed25519:auto}
+      WORKER_REPLICATION_SECRET: ${WORKER_REPLICATION_SECRET:?WORKER_REPLICATION_SECRET must be set}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8008,http://127.0.0.1:8008,http://localhost:6130,http://127.0.0.1:6130,http://localhost:28080,http://127.0.0.1:28080,https://localhost:28443,https://127.0.0.1:28443,tauri://localhost,https://tauri.localhost}
       CORS_ORIGIN_PATTERN: ${CORS_ORIGIN_PATTERN:-^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$}
       SYNAPSE__DATABASE__POOL_SIZE: ${SYNAPSE__DATABASE__POOL_SIZE:-20}
