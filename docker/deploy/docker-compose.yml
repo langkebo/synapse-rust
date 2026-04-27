@@ -180,8 +180,8 @@ services:
       test: ["CMD", "/app/healthcheck"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 10
+      start_period: 90s
     security_opt:
       - no-new-privileges:true
     cap_drop:
