@@ -1,13 +1,33 @@
-# Synapse-Rust Deploy 部署指南
+# Synapse-Rust 部署指南
 
-## 快速开始
+## 快速部署
 
 ### 1. 配置环境变量
 
 ```bash
 cd docker/deploy
-cp .env.example .env
-# 编辑 .env 文件，修改所有 CHANGE_ME 的值
+
+# 生成环境变量文件
+cat > .env << 'EOF'
+SERVER_NAME=localhost
+PUBLIC_BASEURL=http://localhost:8008
+POSTGRES_PASSWORD=$(openssl rand -base64 24)
+REDIS_PASSWORD=$(openssl rand -base64 24)
+ADMIN_SHARED_SECRET=$(openssl rand -base64 32)
+JWT_SECRET=$(openssl rand -base64 32)
+REGISTRATION_SHARED_SECRET=$(openssl rand -base64 32)
+SECRET_KEY=$(openssl rand -base64 32)
+MACAROON_SECRET=$(openssl rand -base64 32)
+FORM_SECRET=$(openssl rand -base64 32)
+FEDERATION_SIGNING_KEY=$(openssl rand -base64 32)
+WORKER_REPLICATION_SECRET=$(openssl rand -base64 32)
+SYNAPSE_IMAGE=vmuser232922/mysynapse:latest
+EOF
+
+# 实际生成密钥
+sed -i.bak "s/\$(openssl rand -base64 24)/$(openssl rand -base64 24)/g" .env
+sed -i.bak "s/\$(openssl rand -base64 32)/$(openssl rand -base64 32)/g" .env
+rm .env.bak
 ```
 
 ### 2. 一键部署
@@ -15,14 +35,6 @@ cp .env.example .env
 ```bash
 ./deploy-simple.sh
 ```
-
-该脚本会自动：
-- 验证环境变量
-- 停止旧容器
-- 拉取/构建镜像
-- 启动数据库和 Redis
-- 执行数据库迁移
-- 启动应用和 Nginx
 
 ### 3. 验证部署
 
