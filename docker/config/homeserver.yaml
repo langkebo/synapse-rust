@@ -1,8 +1,8 @@
 server:
   name: "${SERVER_NAME:-localhost}"
   host: "0.0.0.0"
-  port: 28008
-  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:28008}"
+  port: 8008
+  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:8008}"
   signing_key_path: "/app/data/signing.key"
   macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
   form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
@@ -141,12 +141,12 @@ worker:
 
 cors:
   allowed_origins:
-    - "http://localhost:28008"
-    - "http://127.0.0.1:28008"
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
-    - "http://localhost:28008"
-    - "http://127.0.0.1:28008"
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
   allow_credentials: true
   allowed_methods:
     - "GET"

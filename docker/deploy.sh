@@ -123,7 +123,7 @@ echo
 echo "部署完成"
 echo "镜像: ${IMAGE_REPO}:${IMAGE_TAG}"
 echo "SBOM: ${ARTIFACTS_DIR}/sbom.spdx.json"
-echo "Client API: http://localhost:${SYNAPSE_PORT:-28008}"
+echo "Client API: http://localhost:${SYNAPSE_PORT:-8008}"
 echo "Federation: http://localhost:${FEDERATION_PORT:-28448}"
 echo
 compose ps

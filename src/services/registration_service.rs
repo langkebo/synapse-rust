@@ -281,7 +281,7 @@ mod tests {
             "user_id": "@test:example.com",
             "well_known": {
                 "m.homeserver": {
-                    "base_url": "http://localhost:28008"
+                    "base_url": "http://localhost:8008"
                 }
             }
         });

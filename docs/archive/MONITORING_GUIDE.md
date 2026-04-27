@@ -430,7 +430,7 @@ scrape_configs:
 
   - job_name: 'synapse-rust'
     static_configs:
-      - targets: ['app-server:28008']
+      - targets: ['app-server:8008']
         labels:
           instance: 'app-server'
           environment: 'production'

@@ -13,7 +13,7 @@
 |----|------|------|------|
 | P0-1 | `.env.example` 全零 OLM 密钥 | **安全风险极高**，用户可能直接使用导致加密失效 | `.env.example:5` |
 | P0-2 | `federation-test.yml` 明文密码 | 测试密码泄露到版本控制，违反安全最佳实践 | `docker/docker-compose.federation-test.yml:12,15,46,71,90` |
-| P0-3 | Dockerfile EXPOSE 端口错误 | `EXPOSE 8008` 但应用监听 `28008`，`docker run -P` 会映射错误端口 | `docker/Dockerfile:85,124` |
+| P0-3 | Dockerfile EXPOSE 端口错误 | `EXPOSE 8008` 但应用监听 `8008`，`docker run -P` 会映射错误端口 | `docker/Dockerfile:85,124` |
 
 ### 🟠 高优先级问题（P1 - 本周修复）
 
@@ -23,7 +23,7 @@
 | P1-2 | nginx.conf 硬编码生产域名（10+ 处） | 其他用户无法直接使用，必须手动替换所有 `cjystx.top` | `docker/nginx/nginx.conf` |
 | P1-3 | 硬编码开发者路径（3 处） | 脚本在其他环境无法运行 | `docker/ssl/generate_certs.sh:1`, `docker/deploy/update_admin_password.sh:2`, `scripts/backup_database.sh:3` |
 | P1-4 | Dockerfile runtime 阶段缺少 entrypoint.sh | tools 阶段有数据库等待和自动迁移逻辑，runtime 阶段缺失导致生产部署可能失败 | `docker/Dockerfile:126` |
-| P1-5 | nginx upstream 服务名不一致 | `docker/nginx/nginx.conf` 使用 `synapse-rust:28008`，但 `docker/deploy/nginx/nginx.conf` 使用 `synapse:28008` | 两个 nginx 配置文件 |
+| P1-5 | nginx upstream 服务名不一致 | `docker/nginx/nginx.conf` 使用 `synapse-rust:8008`，但 `docker/deploy/nginx/nginx.conf` 使用 `synapse:8008` | 两个 nginx 配置文件 |
 
 ### 🟡 中优先级问题（P2 - 本月修复）
 
@@ -73,12 +73,12 @@ environment:
 
 ### P0-3: 修复 Dockerfile EXPOSE 端口
 
-**问题**: EXPOSE 8008 但应用实际监听 28008
+**问题**: EXPOSE 8008 但应用实际监听 8008
 
 **修复方案**:
 ```dockerfile
 # 修改 Dockerfile:85 和 Dockerfile:124
-EXPOSE 28008 8448 9090
+EXPOSE 8008 8448 9090
 ```
 
 **验证**:
@@ -206,7 +206,7 @@ CMD ["/app/synapse-rust"]
 **问题**: 两个 nginx 配置文件使用不同的服务名
 
 **修复方案**:
-1. 确定标准服务名（建议 `synapse-rust:28008`）
+1. 确定标准服务名（建议 `synapse-rust:8008`）
 2. 统一所有 nginx 配置文件
 3. 确保与对应的 docker-compose.yml 匹配
 

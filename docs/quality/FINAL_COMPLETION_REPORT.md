@@ -180,7 +180,7 @@ docker compose logs -f synapse-rust
 
 ```bash
 # 检查健康状态
-curl http://localhost:28008/_matrix/client/versions
+curl http://localhost:8008/_matrix/client/versions
 
 # 检查迁移
 docker compose logs synapse-rust | grep migration

@@ -37,7 +37,7 @@ export SYNAPSE_SECURITY_SECRET=$(openssl rand -base64 32)
 ```bash
 export DOMAIN_NAME=example.com
 export SERVER_NAME=example.com
-export SYNAPSE_UPSTREAM=synapse-rust:28008
+export SYNAPSE_UPSTREAM=synapse-rust:8008
 ```
 
 ### 3. 运行测试
