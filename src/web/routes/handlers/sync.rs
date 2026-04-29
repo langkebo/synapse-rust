@@ -121,8 +121,12 @@ pub(crate) async fn sync(
 }
 
 async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
+    // 服务端总超时 = 客户端要求的 timeout + 15s 缓冲(覆盖响应序列化等开销)
+    // 这样可以避免硬编码 60s 与客户端 timeout 参数错配
+    let server_timeout = std::time::Duration::from_millis(params.timeout.saturating_add(15_000));
+
     let sync_result = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
+        server_timeout,
         params
             .state
             .services

@@ -1,0 +1,30 @@
+enabled: true
+default:
+  per_second: 200
+  burst_size: 400
+endpoints: []
+ip_header_priority:
+  - "x-forwarded-for"
+  - "x-real-ip"
+  - "forwarded"
+include_headers: true
+exempt_paths:
+  - "/"
+  - "/_matrix/client/versions"
+  - "/_matrix/client/v3/versions"
+  - "/_matrix/client/r0/versions"
+  - "/_matrix/federation/v1/version"
+exempt_path_prefixes:
+  - "/_matrix/client/v3/sync"
+  - "/_matrix/client/r0/sync"
+  - "/_matrix/client/unstable/"
+endpoint_aliases: {}
+fail_open_on_error: true
+sync:
+  enabled: false
+  initial:
+    per_second: 50
+    burst_size: 100
+  incremental:
+    per_second: 200
+    burst_size: 400
