@@ -145,8 +145,11 @@ cors:
     - "http://127.0.0.1:8008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
-    - "http://localhost:8008"
-    - "http://127.0.0.1:8008"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
+    - "vector://riot"
+    - "file://"
   allow_credentials: true
   allowed_methods:
     - "GET"

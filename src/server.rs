@@ -19,6 +19,7 @@ use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, panic_catcher_middleware,
+    set_config_allowed_origins,
     request_timeout_middleware, validate_bind_address_for_dev_mode,
 };
 use crate::web::routes::create_router;
@@ -43,6 +44,11 @@ use crate::common::task_queue::RedisTaskQueue;
 
 impl SynapseServer {
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+        // Make CORS origins from homeserver.yaml visible to the security check
+        // BEFORE we run validation, so operators don't have to also set
+        // ALLOWED_ORIGINS env var when they have already configured the file.
+        set_config_allowed_origins(config.cors.allowed_origins.clone());
+
         let cors_report = check_cors_security();
         log_cors_security_report(&cors_report);
 
@@ -77,37 +83,54 @@ impl SynapseServer {
         let pool = Arc::new(pool);
 
         // 运行数据库 Schema 健康检查
-        ::tracing::info!("Running database schema health check...");
-        match run_schema_health_check(&pool, false).await {
-            Ok(result) => {
-                if result.passed {
-                    ::tracing::info!("✅ Database schema validation PASSED");
-                } else {
-                    ::tracing::error!("❌ Database schema validation FAILED");
-                    if !result.missing_tables.is_empty() {
-                        ::tracing::error!("  Missing tables: {:?}", result.missing_tables);
+        let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK")
+            .unwrap_or_default()
+            .to_lowercase() == "true";
+
+        if skip_schema_check {
+            ::tracing::warn!("⚠️  Skipping database schema health check (SYNAPSE_SKIP_SCHEMA_CHECK=true)");
+        } else {
+            ::tracing::info!("Running database schema health check...");
+            match run_schema_health_check(&pool, false).await {
+                Ok(result) => {
+                    if result.passed {
+                        ::tracing::info!("✅ Database schema validation PASSED");
+                    } else {
+                        ::tracing::error!("❌ Database schema validation FAILED");
+                        if !result.missing_tables.is_empty() {
+                            ::tracing::error!("  Missing tables: {:?}", result.missing_tables);
+                        }
+                        if !result.missing_columns.is_empty() {
+                            ::tracing::error!("  Missing columns: {:?}", result.missing_columns);
+                        }
+                        if !result.repaired_indexes.is_empty() {
+                            ::tracing::info!("  Repaired indexes: {:?}", result.repaired_indexes);
+                        }
+                        // 如果有严重问题（缺少表或列），给出可执行的修复指引后退出
+                        if !result.missing_tables.is_empty() || !result.missing_columns.is_empty() {
+                            ::tracing::error!(
+                                "💡 To fix: run pending migrations against your database, e.g.\n   \
+                                 DATABASE_URL=\"postgresql://USER:PASS@HOST:PORT/DBNAME\" \\\n   \
+                                 bash docker/db_migrate.sh migrate\n   \
+                                 If you understand the risk and want to start anyway, set \
+                                 SYNAPSE_SKIP_SCHEMA_CHECK=true (NOT recommended for production)."
+                            );
+                            return Err(
+                                "Database schema validation failed: missing critical tables or columns. \
+                                 Run `docker/db_migrate.sh migrate` against the configured database \
+                                 (or set SYNAPSE_SKIP_SCHEMA_CHECK=true to bypass this check)."
+                                    .into(),
+                            );
+                        }
                     }
-                    if !result.missing_columns.is_empty() {
-                        ::tracing::error!("  Missing columns: {:?}", result.missing_columns);
-                    }
-                    if !result.repaired_indexes.is_empty() {
-                        ::tracing::info!("  Repaired indexes: {:?}", result.repaired_indexes);
-                    }
-                    // 如果有严重问题（缺少表或列），退出
-                    if !result.missing_tables.is_empty() || !result.missing_columns.is_empty() {
-                        return Err(
-                            "Database schema validation failed: missing critical tables or columns"
-                                .into(),
-                        );
+                    if !result.warnings.is_empty() {
+                        ::tracing::warn!("Schema warnings (non-critical): {:?}", result.warnings);
                     }
                 }
-                if !result.warnings.is_empty() {
-                    ::tracing::warn!("Schema warnings (non-critical): {:?}", result.warnings);
+                Err(e) => {
+                    ::tracing::error!("Failed to run schema health check: {}", e);
+                    // 非致命错误，继续启动
                 }
-            }
-            Err(e) => {
-                ::tracing::error!("Failed to run schema health check: {}", e);
-                // 非致命错误，继续启动
             }
         }
 

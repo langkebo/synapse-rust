@@ -2278,6 +2278,42 @@ impl Config {
     pub fn redis_url(&self) -> String {
         self.redis.connection_url()
     }
+
+    /// Canonical access-token lifetime in seconds.
+    ///
+    /// `homeserver.yaml` historically exposes two settings that both look like
+    /// they control this:
+    ///   - `server.expire_access_token_lifetime` (Synapse-style, e.g. 86400)
+    ///   - `security.expiry_time` (legacy short name, default 3600)
+    ///
+    /// Only `security.expiry_time` was actually wired into `AuthService`,
+    /// causing tokens to expire in 1 hour even when operators configured
+    /// 24 hours via the more obvious server-level field. This helper picks
+    /// a single value with the priority:
+    ///
+    ///   1. `server.expire_access_token_lifetime` if it has been explicitly
+    ///      set to something other than the legacy default of 3600.
+    ///   2. `security.expiry_time` otherwise.
+    ///   3. 3600 as a final fallback.
+    pub fn access_token_lifetime_seconds(&self) -> i64 {
+        let server_lifetime = self.server.expire_access_token_lifetime;
+        let security_lifetime = self.security.expiry_time;
+        if server_lifetime > 0 && server_lifetime != 3600 {
+            if security_lifetime > 0 && security_lifetime != 3600 && security_lifetime != server_lifetime {
+                tracing::warn!(
+                    "Both server.expire_access_token_lifetime ({}) and security.expiry_time ({}) are set and differ. \
+                     Using server.expire_access_token_lifetime as the canonical value.",
+                    server_lifetime,
+                    security_lifetime,
+                );
+            }
+            server_lifetime
+        } else if security_lifetime > 0 {
+            security_lifetime
+        } else {
+            3600
+        }
+    }
 }
 
 fn resolve_env_in_string(value: &str) -> Result<String, String> {
