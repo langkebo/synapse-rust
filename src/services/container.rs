@@ -175,12 +175,13 @@ impl ServiceContainer {
 
         let presence_pool = pool.clone();
         let metrics = Arc::new(MetricsCollector::new());
-        let auth_service = AuthService::new(
+        let auth_service = AuthService::new_with_lifetime(
             pool,
             cache.clone(),
             metrics.clone(),
             &config.security,
             &config.server.name,
+            config.access_token_lifetime_seconds(),
         );
         let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
         let device_key_storage_for_cs = Arc::new(device_key_storage.clone());

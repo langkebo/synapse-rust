@@ -63,7 +63,35 @@ impl DatabaseMaintenance {
             "events",
         ];
 
+        // Only VACUUM ANALYZE tables that have meaningful changes since the
+        // last analyze, to avoid stalling for tens of seconds on tables that
+        // PostgreSQL's autovacuum has already handled.
+        const MIN_MODIFICATIONS: i64 = 1_000;
+
         for table in tables {
+            let modifications = sqlx::query_scalar::<_, Option<i64>>(
+                r#"
+                SELECT COALESCE(n_mod_since_analyze, 0)
+                FROM pg_stat_user_tables
+                WHERE relname = $1
+                "#,
+            )
+            .bind(table)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .unwrap_or(0);
+
+            if modifications < MIN_MODIFICATIONS {
+                debug!(
+                    "VACUUM {} skipped: only {} modifications since last analyze",
+                    table, modifications
+                );
+                continue;
+            }
+
             let start = Instant::now();
 
             match sqlx::query(&format!("VACUUM ANALYZE {}", table))

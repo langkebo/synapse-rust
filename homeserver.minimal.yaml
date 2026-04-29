@@ -1,0 +1,201 @@
+# Minimal homeserver config for local development.
+#
+# This file contains ONLY the keys synapse-rust needs to boot a usable Matrix
+# server against a local Postgres. Optional modules (federation, OIDC, SAML,
+# bridges, app-service, push, TURN, telemetry, prometheus) are all disabled by
+# default so a missing secret never blocks startup.
+#
+# Usage:
+#   1. Start a Postgres on a port that does not conflict with any system PG:
+#        docker run -d --name synapse-postgres-15433 \
+#          -e POSTGRES_USER=synapse -e POSTGRES_PASSWORD=synapse \
+#          -e POSTGRES_DB=synapse -p 15433:5432 postgres:16
+#   2. Apply migrations:
+#        DATABASE_URL="postgres://synapse:synapse@localhost:15433/synapse" \
+#          bash docker/db_migrate.sh migrate
+#   3. Run the server:
+#        SYNAPSE_CONFIG_PATH=homeserver.minimal.yaml \
+#        RUST_ENV=development \
+#          cargo run --release --bin synapse-rust
+#
+# For a full feature set, use homeserver.yaml as the template instead.
+
+server_name: "localhost"
+
+server:
+  name: "localhost"
+  host: "127.0.0.1"
+  port: 8008
+  http_port: 8008
+  https_port: 8448
+  bind_address: "127.0.0.1"
+  public_baseurl: "http://localhost:8008"
+  signing_key_path: "data/signing.key"
+  # Local-only secrets. Replace with `openssl rand -hex 32` values for any
+  # deployment that is reachable over the network.
+  macaroon_secret_key: "local-dev-macaroon-secret-do-not-use-in-prod--32+"
+  form_secret: "local-dev-form-secret-do-not-use-in-prod--32+chars"
+  registration_shared_secret: "local-dev-registration-shared-secret-32+chars"
+  max_upload_size: 104857600
+  max_image_resolution: 1920
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 3600
+  expire_access_token: false
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  session_duration: 86400
+  warmup_pool: true
+
+database:
+  # Use 15433 so the dev container never collides with a system-installed
+  # PostgreSQL listening on 5432. See homeserver.local.yaml for the rationale.
+  host: "localhost"
+  port: 15433
+  username: "synapse"
+  password: "synapse"
+  name: "synapse"
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 30
+
+redis:
+  host: "localhost"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 10
+  enabled: false
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+
+logging:
+  level: "info"
+  format: "text"
+
+federation:
+  enabled: false
+  allow_ingress: false
+  server_name: "localhost"
+  federation_port: 8448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
+
+security:
+  # Replace this with `openssl rand -hex 32` before exposing the server.
+  secret: "local-dev-security-secret-replace-with-openssl-rand-hex-32"
+  expiry_time: 86400
+  refresh_token_expiry: 604800
+
+identity_server_url: "https://vector.im"
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
+
+rate_limit:
+  enabled: false
+
+admin_registration:
+  enabled: false
+  secret: ""
+  shared_secret: ""
+
+worker:
+  enabled: false
+
+cors:
+  allowed_origins:
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
+    - "vector://riot"
+    - "file://"
+  allow_credentials: true
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
+    - "X-Matrix-Auth"
+  expose_headers:
+    - "X-Matrix-Error"
+  max_age_seconds: 3600
+
+smtp:
+  enabled: false
+
+voip:
+  enabled: false
+
+push:
+  enabled: false
+
+url_preview:
+  enabled: false
+
+oidc:
+  enabled: false
+  issuer: ""
+  client_id: ""
+  client_secret: ""
+  scopes: []
+  attribute_mapping:
+    localpart: "preferred_username"
+    displayname: "name"
+    email: "email"
+  callback_url: ""
+  allow_existing_users: false
+  block_unknown_users: false
+
+saml:
+  enabled: false
+
+retention:
+  enabled: false
+
+telemetry:
+  enabled: false
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  trace_enabled: false
+  metrics_enabled: false
+  logs_enabled: false
+  sampling_ratio: 1.0
+  batch_export: false
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+
+jaeger:
+  enabled: false
+  service_name: "synapse-rust"
+  sampling_rate: 1.0
+  endpoint: ""
+
+prometheus:
+  enabled: false
+  port: 9090
+  path: "/metrics"
+  include_namespace: true
+  host: "127.0.0.1"
+
+bridges:
+  telegram:
+    enabled: false
+  irc:
+    enabled: false
+
+app_service:
+  enabled: false

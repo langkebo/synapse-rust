@@ -1,0 +1,180 @@
+server_name: "localhost"
+
+server:
+  name: "localhost"
+  host: "0.0.0.0"
+  port: 8008
+  http_port: 8008
+  https_port: 8448
+  bind_address: "0.0.0.0"
+  public_baseurl: "http://localhost:8008"
+  signing_key_path: "data/signing.key"
+  macaroon_secret_key: "dtiR+1SqMD4YbMZNsXVG4WBhpIRsK6Ja8LROI5aHfaY="
+  form_secret: "Ev0FS73iX8KO3iYgDHH1fAy+3228tc2ZxqRt7RsRbfc="
+  registration_shared_secret: "U4KkQPUTWk7sk0fscjiQOjNzvkdqbS1rm6nD5WeG1pQ="
+  max_upload_size: 104857600
+  max_image_resolution: 1920
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 3600
+  expire_access_token: false
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  session_duration: 86400
+  warmup_pool: true
+
+database:
+  # NOTE: 15433 is used (instead of the standard 5432) so that this dev config
+  # never collides with a system-installed PostgreSQL on port 5432, which would
+  # otherwise silently route the server to the wrong database and cause
+  # "column does not exist" errors at runtime. Override with `database.port`
+  # if your local container is published on a different port.
+  host: "localhost"
+  port: 15433
+  username: "synapse"
+  password: "synapse"
+  name: "synapse"
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 30
+
+redis:
+  host: "localhost"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 10
+  enabled: false
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+
+logging:
+  level: "debug"
+  format: "text"
+
+federation:
+  enabled: false
+  allow_ingress: false
+  server_name: "localhost"
+  federation_port: 8448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
+
+security:
+  secret: "regmJrPJQ4pAnLKGYo1P6UyScUr8zRQhbRcbQD6PoJI="
+  expiry_time: 3600
+  refresh_token_expiry: 604800
+
+identity_server_url: "https://vector.im"
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
+
+rate_limit:
+  enabled: false
+
+admin_registration:
+  enabled: true
+  secret: "admin_secret_for_local_dev"
+  shared_secret: "admin_shared_secret_for_local_dev"
+
+worker:
+  enabled: false
+
+cors:
+  allowed_origins:
+    - "http://localhost:8008"
+    - "http://127.0.0.1:8008"
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
+    - "file://"
+  allow_credentials: true
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
+    - "X-Matrix-Auth"
+  expose_headers:
+    - "X-Matrix-Error"
+    - "X-Ratelimit-Limit"
+    - "X-Ratelimit-Remaining"
+  max_age_seconds: 3600
+
+smtp:
+  enabled: false
+
+voip:
+  enabled: false
+
+push:
+  enabled: false
+
+url_preview:
+  enabled: false
+
+oidc:
+  enabled: false
+  issuer: ""
+  client_id: ""
+  client_secret: ""
+  scopes: []
+  attribute_mapping:
+    localpart: "preferred_username"
+    displayname: "name"
+    email: "email"
+  callback_url: ""
+  allow_existing_users: false
+  block_unknown_users: false
+
+saml:
+  enabled: false
+
+retention:
+  enabled: false
+
+telemetry:
+  enabled: false
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  trace_enabled: false
+  metrics_enabled: false
+  logs_enabled: false
+  sampling_ratio: 1.0
+  batch_export: false
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+
+jaeger:
+  enabled: false
+  service_name: "synapse-rust"
+  sampling_rate: 1.0
+  endpoint: ""
+
+prometheus:
+  enabled: false
+  port: 9090
+  path: "/metrics"
+  include_namespace: true
+  host: "0.0.0.0"
+
+bridges:
+  telegram:
+    enabled: false
+  irc:
+    enabled: false
+
+app_service:
+  enabled: false

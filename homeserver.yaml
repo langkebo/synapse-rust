@@ -90,6 +90,9 @@ cors:
     - "http://127.0.0.1:6130"
     - "tauri://localhost"
     - "https://tauri.localhost"
+    - "vector://vector"
+    - "vector://riot"
+    - "file://"
   allow_credentials: true
   allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
   allowed_headers:

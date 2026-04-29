@@ -55,6 +55,27 @@ impl AuthService {
         security: &SecurityConfig,
         server_name: &str,
     ) -> Self {
+        // Backward-compatible constructor: defers to security.expiry_time.
+        // New call sites should prefer `new_with_lifetime` so they can pass
+        // the canonical lifetime resolved from Config::access_token_lifetime_seconds.
+        Self::new_with_lifetime(
+            pool,
+            cache,
+            metrics,
+            security,
+            server_name,
+            security.expiry_time,
+        )
+    }
+
+    pub fn new_with_lifetime(
+        pool: &Arc<sqlx::PgPool>,
+        cache: Arc<CacheManager>,
+        metrics: Arc<MetricsCollector>,
+        security: &SecurityConfig,
+        server_name: &str,
+        access_token_lifetime: i64,
+    ) -> Self {
         Self {
             user_storage: UserStorage::new(pool, cache.clone()),
             device_storage: DeviceStorage::new(pool),
@@ -64,7 +85,7 @@ impl AuthService {
             metrics,
             validator: Arc::new(Validator::default()),
             jwt_secret: security.secret.as_bytes().to_vec(),
-            token_expiry: security.expiry_time,
+            token_expiry: access_token_lifetime,
             refresh_token_expiry: security.refresh_token_expiry,
             server_name: server_name.to_string(),
             argon2_m_cost: security.argon2_m_cost,

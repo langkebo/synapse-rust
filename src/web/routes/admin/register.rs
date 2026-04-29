@@ -600,12 +600,13 @@ async fn register(
     let display_name = payload.displayname.unwrap_or(payload.username.clone());
 
     // 使用 AuthService 注册用户
-    let auth_service = AuthService::new(
+    let auth_service = AuthService::new_with_lifetime(
         &state.services.user_storage.pool,
         state.cache.clone(),
         state.services.metrics.clone(),
         &config.security,
         &config.server.name,
+        config.access_token_lifetime_seconds(),
     );
 
     let register_result = auth_service
@@ -637,7 +638,7 @@ async fn register(
             Ok(Json(RegisterResponse {
                 access_token,
                 refresh_token,
-                expires_in: 3600,
+                expires_in: config.access_token_lifetime_seconds().max(0) as u64,
                 device_id,
                 user_id: user_id.clone(),
                 home_server: config.server.name.clone(),

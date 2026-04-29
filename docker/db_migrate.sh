@@ -29,6 +29,14 @@ log_error() {
 }
 
 load_env() {
+    # If the operator already supplied DATABASE_URL on the command line,
+    # treat it as the source of truth: parse it back into the individual
+    # DB_* variables so docker container detection, password masking, and
+    # the psql admin URL all stay consistent. Without this, sourcing .env
+    # can silently re-introduce default credentials and route migrations to
+    # the wrong instance.
+    local user_supplied_database_url="${DATABASE_URL:-}"
+
     local env_file=""
     for candidate in "$SCRIPT_DIR/.env" "$PWD/.env" "$PROJECT_ROOT/.env"; do
         if [ -f "$candidate" ]; then
@@ -42,6 +50,38 @@ load_env() {
         set -a
         . "$env_file"
         set +a
+    fi
+
+    if [ -n "$user_supplied_database_url" ]; then
+        DATABASE_URL="$user_supplied_database_url"
+        log_info "使用调用方提供的 DATABASE_URL（覆盖 .env 默认值）"
+
+        # Parse postgres[ql]://user:pass@host:port/dbname into discrete fields.
+        local stripped="${DATABASE_URL#*://}"
+        local creds_and_host="${stripped%%/*}"
+        local dbname="${stripped#*/}"
+        dbname="${dbname%%\?*}"
+        local creds=""
+        local hostport="$creds_and_host"
+        if [[ "$creds_and_host" == *@* ]]; then
+            creds="${creds_and_host%@*}"
+            hostport="${creds_and_host##*@}"
+        fi
+        local host="${hostport%%:*}"
+        local port=""
+        if [[ "$hostport" == *:* ]]; then
+            port="${hostport##*:}"
+        fi
+
+        if [ -n "$host" ];   then export DB_HOST="$host";       fi
+        if [ -n "$port" ];   then export DB_PORT="$port";       fi
+        if [ -n "$dbname" ]; then export DB_NAME="$dbname";     fi
+        if [ -n "$creds" ]; then
+            export DB_USER="${creds%%:*}"
+            if [[ "$creds" == *:* ]]; then
+                export DB_PASSWORD="${creds#*:}"
+            fi
+        fi
     fi
 
     export DB_HOST="${DB_HOST:-localhost}"

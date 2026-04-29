@@ -8,6 +8,19 @@ use tracing::{error, info, warn};
 use crate::storage::maintenance::{DatabaseMaintenance, MaintenanceReport};
 use crate::storage::{DataIntegrityReport, Database, DatabaseHealthStatus, PerformanceMetrics};
 
+/// Grace period after startup before the first run of expensive periodic
+/// tasks (performance metrics, integrity check, maintenance/VACUUM).
+///
+/// `tokio::time::interval` fires immediately on the first tick, which used to
+/// race with the very first user requests and produced 30+s `VACUUM ANALYZE`
+/// stalls during cold start. Letting the first ~60s be reserved for warming up
+/// connections and handling early traffic gives the server a clean ramp.
+const STARTUP_GRACE_PERIOD: Duration = Duration::from_secs(60);
+
+/// Reserve the maintenance task for a longer warmup; VACUUM is the most
+/// disruptive operation and on a cold container can take tens of seconds.
+const MAINTENANCE_STARTUP_DELAY: Duration = Duration::from_secs(300);
+
 pub struct ScheduledTasks {
     database: Arc<Database>,
     last_health_status: Arc<RwLock<Option<DatabaseHealthStatus>>>,
@@ -85,6 +98,10 @@ impl ScheduledTasks {
         let last_metrics = self.last_performance_metrics.clone();
 
         tokio::spawn(async move {
+            // Avoid running heavy stat queries while the server is still
+            // accepting its very first requests.
+            time::sleep(STARTUP_GRACE_PERIOD).await;
+
             let mut interval_timer = time::interval(interval);
             interval_timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
@@ -129,6 +146,8 @@ impl ScheduledTasks {
         let last_report = self.last_integrity_report.clone();
 
         tokio::spawn(async move {
+            time::sleep(STARTUP_GRACE_PERIOD).await;
+
             let mut interval_timer = time::interval(interval);
             interval_timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
@@ -178,6 +197,11 @@ impl ScheduledTasks {
         let last_report = self.last_maintenance_report.clone();
 
         tokio::spawn(async move {
+            // VACUUM ANALYZE on cold tables can stall for tens of seconds.
+            // Defer the first run to give startup traffic a smooth ramp;
+            // PostgreSQL's autovacuum is sufficient for this window.
+            time::sleep(MAINTENANCE_STARTUP_DELAY).await;
+
             let mut interval_timer = time::interval(interval);
             interval_timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 

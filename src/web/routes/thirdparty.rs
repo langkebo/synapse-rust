@@ -38,8 +38,13 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
 
 async fn get_protocols(
     State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Per Matrix spec this endpoint exposes the bridge protocol catalog,
+    // which is metadata about the homeserver itself, not user-scoped data.
+    // Element calls it during the unauthenticated bootstrap to decide what
+    // login affordances to show, so requiring auth here only causes a
+    // spurious 401 on every cold start. Returning the protocol descriptor
+    // anonymously matches the synapse-python behaviour as well.
     Ok(Json(serde_json::json!({
         "irc": {
             "instances": [
