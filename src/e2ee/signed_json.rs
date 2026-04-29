@@ -1,7 +1,17 @@
 use crate::e2ee::crypto::ed25519::Ed25519PublicKey;
 use crate::e2ee::crypto::CryptoError;
+use base64::alphabet;
+use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
+
+/// Matrix protocol uses "unpadded base64" for signatures and keys, but some
+/// clients (and our own historical encoding) emit padded variants. Accept
+/// either by configuring the engine to be `Indifferent` to padding on decode.
+const MATRIX_BASE64: GeneralPurpose = GeneralPurpose::new(
+    &alphabet::STANDARD,
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 
 pub fn canonical_json(value: &Value) -> String {
     match value {
@@ -73,7 +83,7 @@ pub fn verify_signed_json(
     let public_key = Ed25519PublicKey::from_base64(public_key_base64)?;
 
     let signature_bytes =
-        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature_base64)
+        base64::Engine::decode(&MATRIX_BASE64, signature_base64)
             .map_err(|_| CryptoError::InvalidBase64)?;
 
     if signature_bytes.len() != 64 {

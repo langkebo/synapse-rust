@@ -91,7 +91,10 @@ impl MatrixErrorCode {
             MatrixErrorCode::NotFound => StatusCode::NOT_FOUND,
             MatrixErrorCode::LimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             MatrixErrorCode::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
-            MatrixErrorCode::Unrecognized => StatusCode::BAD_REQUEST,
+            // Per Matrix spec v1.11+: M_UNRECOGNIZED is returned with 404 when an
+            // endpoint is not implemented. Returning 400 here causes Element to
+            // surface a confusing "bad request" error for unsupported MSC endpoints.
+            MatrixErrorCode::Unrecognized => StatusCode::NOT_FOUND,
             MatrixErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
             MatrixErrorCode::UserDeactivated => StatusCode::FORBIDDEN,
             MatrixErrorCode::UserInUse => StatusCode::CONFLICT,
@@ -274,14 +277,14 @@ where
                     StatusCode::UNAUTHORIZED
                 }
                 Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
+                Some("M_UNRECOGNIZED") => StatusCode::NOT_FOUND,
                 Some("M_BAD_JSON")
                 | Some("M_NOT_JSON")
                 | Some("M_INVALID_PARAM")
                 | Some("M_MISSING_PARAM")
                 | Some("M_INVALID_USERNAME")
                 | Some("M_BAD_STATE")
-                | Some("M_INVALID_ROOM_STATE")
-                | Some("M_UNRECOGNIZED") => StatusCode::BAD_REQUEST,
+                | Some("M_INVALID_ROOM_STATE") => StatusCode::BAD_REQUEST,
                 Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => {
                     StatusCode::CONFLICT
                 }

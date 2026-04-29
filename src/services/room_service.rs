@@ -238,11 +238,178 @@ impl RoomService {
                 .unwrap_err());
         }
 
+        // m.room.member for creator (membership=join). Without this state event the
+        // client never learns the creator is actually in the room and the room sits
+        // in `rooms.join` with no members, leaving the UI stuck on "joining...".
+        let result = self
+            .event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: json!({
+                        "membership": "join",
+                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+                    }),
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: now + 1,
+                },
+                Some(&mut tx),
+            )
+            .await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.member event: {}", e))
+                })
+                .unwrap_err());
+        }
+
+        // m.room.power_levels with Matrix spec defaults for a new room.
+        let result = self
+            .event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.power_levels".to_string(),
+                    content: json!({
+                        "users": { user_id: 100 },
+                        "users_default": 0,
+                        "events": {
+                            "m.room.name": 50,
+                            "m.room.power_levels": 100,
+                            "m.room.history_visibility": 100,
+                            "m.room.canonical_alias": 50,
+                            "m.room.avatar": 50,
+                            "m.room.tombstone": 100,
+                            "m.room.server_acl": 100,
+                            "m.room.encryption": 100,
+                        },
+                        "events_default": 0,
+                        "state_default": 50,
+                        "ban": 50,
+                        "kick": 50,
+                        "redact": 50,
+                        "invite": 0,
+                        "historical": 100,
+                    }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: now + 2,
+                },
+                Some(&mut tx),
+            )
+            .await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.power_levels event: {}", e))
+                })
+                .unwrap_err());
+        }
+
+        // m.room.join_rules so clients know who can join.
+        let result = self
+            .event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.join_rules".to_string(),
+                    content: json!({ "join_rule": join_rule }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: now + 3,
+                },
+                Some(&mut tx),
+            )
+            .await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.join_rules event: {}", e))
+                })
+                .unwrap_err());
+        }
+
+        // m.room.history_visibility — default "shared" matches Element's expectations.
+        // For trusted_private_chat preset, history is restricted to "invited" only.
+        let history_visibility = config
+            .history_visibility
+            .clone()
+            .unwrap_or_else(|| {
+                if is_trusted_private {
+                    "invited".to_string()
+                } else {
+                    "shared".to_string()
+                }
+            });
+        let result = self
+            .event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.history_visibility".to_string(),
+                    content: json!({ "history_visibility": history_visibility }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: now + 4,
+                },
+                Some(&mut tx),
+            )
+            .await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result
+                .map_err(|e| {
+                    ApiError::internal(format!(
+                        "Failed to create m.room.history_visibility event: {}",
+                        e
+                    ))
+                })
+                .unwrap_err());
+        }
+
+        // m.room.guest_access defaults to "can_join" for public rooms, "forbidden" otherwise.
+        let guest_access = if is_public { "can_join" } else { "forbidden" };
+        let result = self
+            .event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.guest_access".to_string(),
+                    content: json!({ "guest_access": guest_access }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: now + 5,
+                },
+                Some(&mut tx),
+            )
+            .await;
+        if result.is_err() {
+            let _ = tx.rollback().await;
+            return Err(result
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.guest_access event: {}", e))
+                })
+                .unwrap_err());
+        }
+
         let result = self
             .set_room_metadata(
                 &room_id,
+                user_id,
                 config.name.as_deref(),
                 config.topic.as_deref(),
+                now + 6,
                 Some(&mut tx),
             )
             .await;
@@ -254,7 +421,7 @@ impl RoomService {
         }
 
         let result = self
-            .process_invites(&room_id, config.invite_list.as_ref(), Some(&mut tx))
+            .process_invites(&room_id, config.invite_list.as_ref(), user_id, now + 7, Some(&mut tx))
             .await;
         if result.is_err() {
             let _ = tx.rollback().await;
@@ -263,59 +430,11 @@ impl RoomService {
                 .unwrap_err());
         }
 
-        // Handle trusted private chat specific logic
+        // Handle trusted private chat specific logic. The standard state
+        // (m.room.history_visibility="invited", m.room.guest_access="forbidden")
+        // is already emitted above based on `is_trusted_private`. We only add the
+        // private-chat anti-screenshot privacy marker here.
         if is_trusted_private {
-            // Set history visibility to invited
-            let history_content = json!({ "history_visibility": "invited" });
-            let result = self
-                .event_storage
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.clone(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.history_visibility".to_string(),
-                        content: history_content,
-                        state_key: Some("".to_string()),
-                        origin_server_ts: now,
-                    },
-                    Some(&mut tx),
-                )
-                .await;
-            if result.is_err() {
-                let _ = tx.rollback().await;
-                return Err(result
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to set history visibility: {}", e))
-                    })
-                    .unwrap_err());
-            }
-
-            // Set guest access to forbidden
-            let guest_content = json!({ "guest_access": "forbidden" });
-            let result = self
-                .event_storage
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.clone(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.guest_access".to_string(),
-                        content: guest_content,
-                        state_key: Some("".to_string()),
-                        origin_server_ts: now,
-                    },
-                    Some(&mut tx),
-                )
-                .await;
-            if result.is_err() {
-                let _ = tx.rollback().await;
-                return Err(result
-                    .map_err(|e| ApiError::internal(format!("Failed to set guest access: {}", e)))
-                    .unwrap_err());
-            }
-
-            // Set privacy marker for anti-screenshot
             let privacy_content = json!({ "action": "block_screenshot" });
             let result = self
                 .event_storage
@@ -327,7 +446,7 @@ impl RoomService {
                         event_type: "com.hula.privacy".to_string(),
                         content: privacy_content,
                         state_key: Some("".to_string()),
-                        origin_server_ts: now,
+                        origin_server_ts: now + 8,
                     },
                     Some(&mut tx),
                 )
@@ -468,8 +587,10 @@ impl RoomService {
     async fn set_room_metadata(
         &self,
         room_id: &str,
+        user_id: &str,
         name: Option<&str>,
         topic: Option<&str>,
+        base_ts: i64,
         mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         if let Some(room_name) = name {
@@ -488,6 +609,24 @@ impl RoomService {
                         ApiError::internal(format!("Failed to update room name: {}", e))
                     })?;
             }
+            // Also persist m.room.name as a state event so /sync delivers it.
+            self.event_storage
+                .create_event(
+                    CreateEventParams {
+                        event_id: generate_event_id(&self.server_name),
+                        room_id: room_id.to_string(),
+                        user_id: user_id.to_string(),
+                        event_type: "m.room.name".to_string(),
+                        content: json!({ "name": room_name }),
+                        state_key: Some("".to_string()),
+                        origin_server_ts: base_ts,
+                    },
+                    tx.as_deref_mut(),
+                )
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.name event: {}", e))
+                })?;
         }
 
         if let Some(room_topic) = topic {
@@ -506,6 +645,23 @@ impl RoomService {
                         ApiError::internal(format!("Failed to update room topic: {}", e))
                     })?;
             }
+            self.event_storage
+                .create_event(
+                    CreateEventParams {
+                        event_id: generate_event_id(&self.server_name),
+                        room_id: room_id.to_string(),
+                        user_id: user_id.to_string(),
+                        event_type: "m.room.topic".to_string(),
+                        content: json!({ "topic": room_topic }),
+                        state_key: Some("".to_string()),
+                        origin_server_ts: base_ts + 1,
+                    },
+                    tx.as_deref_mut(),
+                )
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to create m.room.topic event: {}", e))
+                })?;
         }
 
         Ok(())
@@ -515,6 +671,8 @@ impl RoomService {
         &self,
         room_id: &str,
         invite_list: Option<&Vec<String>>,
+        sender_user_id: &str,
+        base_ts: i64,
         mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
@@ -532,18 +690,43 @@ impl RoomService {
 
             // If tx is Some, we extract the inner mutable reference, and we can reborrow it.
             if let Some(ref mut t) = tx {
+                let mut offset: i64 = 0;
                 for invitee in invites {
                     if !existing_users.contains(invitee) {
                         ::tracing::warn!("Skipping invite for non-existent user: {}", invitee);
                         continue;
                     }
-                    // We need to reborrow *t which is &mut Transaction
                     self.member_storage
                         .add_member(room_id, invitee, "invite", None, None, Some(&mut **t))
                         .await
                         .map_err(|e| ApiError::internal(format!("Failed to invite user: {}", e)))?;
+                    self.event_storage
+                        .create_event(
+                            CreateEventParams {
+                                event_id: generate_event_id(&self.server_name),
+                                room_id: room_id.to_string(),
+                                user_id: sender_user_id.to_string(),
+                                event_type: "m.room.member".to_string(),
+                                content: json!({
+                                    "membership": "invite",
+                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
+                                }),
+                                state_key: Some(invitee.to_string()),
+                                origin_server_ts: base_ts + offset,
+                            },
+                            Some(&mut **t),
+                        )
+                        .await
+                        .map_err(|e| {
+                            ApiError::internal(format!(
+                                "Failed to record m.room.member invite event: {}",
+                                e
+                            ))
+                        })?;
+                    offset += 1;
                 }
             } else {
+                let mut offset: i64 = 0;
                 for invitee in invites {
                     if !existing_users.contains(invitee) {
                         continue;
@@ -552,6 +735,30 @@ impl RoomService {
                         .add_member(room_id, invitee, "invite", None, None, None)
                         .await
                         .map_err(|e| ApiError::internal(format!("Failed to invite user: {}", e)))?;
+                    self.event_storage
+                        .create_event(
+                            CreateEventParams {
+                                event_id: generate_event_id(&self.server_name),
+                                room_id: room_id.to_string(),
+                                user_id: sender_user_id.to_string(),
+                                event_type: "m.room.member".to_string(),
+                                content: json!({
+                                    "membership": "invite",
+                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
+                                }),
+                                state_key: Some(invitee.to_string()),
+                                origin_server_ts: base_ts + offset,
+                            },
+                            None,
+                        )
+                        .await
+                        .map_err(|e| {
+                            ApiError::internal(format!(
+                                "Failed to record m.room.member invite event: {}",
+                                e
+                            ))
+                        })?;
+                    offset += 1;
                 }
             }
         }
@@ -849,6 +1056,29 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
 
+        // Persist the m.room.member state event so /sync delivers the membership
+        // change and the client knows it has actually joined.
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: json!({
+                        "membership": "join",
+                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+                    }),
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to record m.room.member join event: {}", e))
+            })?;
+
         Ok(())
     }
 
@@ -862,6 +1092,25 @@ impl RoomService {
             .decrement_member_count(room_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
+
+        // Persist the m.room.member leave event for /sync.
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: json!({ "membership": "leave" }),
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to record m.room.member leave event: {}", e))
+            })?;
 
         Ok(())
     }
@@ -1106,6 +1355,35 @@ impl RoomService {
             .add_member(room_id, invitee_id, "invite", None, Some(inviter_id), None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+
+        // Persist the m.room.member invite state event so the invitee's /sync
+        // delivers the invite under `rooms.invite`. Without this row in
+        // `events`, the recipient never sees the invitation.
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: inviter_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: json!({
+                        "membership": "invite",
+                        "displayname": invitee_id
+                            .trim_start_matches('@')
+                            .split(':')
+                            .next()
+                            .unwrap_or(invitee_id),
+                    }),
+                    state_key: Some(invitee_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to record m.room.member invite event: {}", e))
+            })?;
+
         Ok(())
     }
 

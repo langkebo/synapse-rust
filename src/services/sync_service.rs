@@ -1949,31 +1949,131 @@ impl SyncService {
                     "global": {
                         "content": [
                             {
-                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
-                                "conditions": [{"kind": "contains_display_name"}],
+                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
                                 "default": true,
                                 "enabled": true,
-                                "rule_id": ".m.rule.contains_display_name"
+                                "pattern": user_id.trim_start_matches('@').split(':').next().unwrap_or(""),
+                                "rule_id": ".m.rule.contains_user_name"
                             }
                         ],
                         "override": [
                             {
-                                "actions": ["dont_notify"],
+                                "actions": [],
+                                "conditions": [],
+                                "default": true,
+                                "enabled": false,
+                                "rule_id": ".m.rule.master"
+                            },
+                            {
+                                "actions": [],
                                 "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
                                 "default": true,
                                 "enabled": true,
                                 "rule_id": ".m.rule.suppress_notices"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
+                                "conditions": [
+                                    {"kind": "event_match", "key": "type", "pattern": "m.room.member"},
+                                    {"kind": "event_match", "key": "content.membership", "pattern": "invite"},
+                                    {"kind": "event_match", "key": "state_key", "pattern": user_id}
+                                ],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.invite_for_me"
+                            },
+                            {
+                                "actions": [],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.member_event"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
+                                "conditions": [{"kind": "event_property_is", "key": "content.m\\.mentions.user_ids", "value": user_id}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.is_user_mention"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight"}],
+                                "conditions": [
+                                    {"kind": "event_property_is", "key": "content.m\\.mentions.room", "value": true},
+                                    {"kind": "sender_notification_permission", "key": "room"}
+                                ],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.is_room_mention"
+                            },
+                            {
+                                "actions": [],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.tombstone"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.tombstone"
+                            },
+                            {
+                                "actions": [],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.reaction"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.reaction"
+                            },
+                            {
+                                "actions": [],
+                                "conditions": [
+                                    {"kind": "event_match", "key": "type", "pattern": "m.room.server_acl"},
+                                    {"kind": "event_match", "key": "state_key", "pattern": ""}
+                                ],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.room.server_acl"
                             }
                         ],
                         "room": [],
                         "sender": [],
                         "underride": [
                             {
-                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}],
+                                "actions": ["notify", {"set_tweak": "sound", "value": "ring"}, {"set_tweak": "highlight", "value": false}],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.call"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}, {"set_tweak": "highlight"}],
+                                "conditions": [
+                                    {"kind": "room_member_count", "is": "2"},
+                                    {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
+                                ],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.room_one_to_one"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}, {"set_tweak": "highlight"}],
+                                "conditions": [
+                                    {"kind": "room_member_count", "is": "2"},
+                                    {"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}
+                                ],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.encrypted_room_one_to_one"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
                                 "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
                                 "default": true,
                                 "enabled": true,
                                 "rule_id": ".m.rule.message"
+                            },
+                            {
+                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
+                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
+                                "default": true,
+                                "enabled": true,
+                                "rule_id": ".m.rule.encrypted"
                             }
                         ]
                     }

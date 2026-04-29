@@ -4,14 +4,26 @@ use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;
 use axum::{
     extract::{Query, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde_json::{json, Value};
 
 pub(crate) async fn register(
     State(state): State<AppState>,
+    Query(query): Query<Value>,
     MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
+    if query.get("kind").and_then(|v| v.as_str()) == Some("guest") {
+        // Guest registration is not supported. Per Matrix spec, return 403
+        // M_GUEST_ACCESS_FORBIDDEN rather than 401 UIA so clients know to
+        // stop retrying instead of looping on auth flows.
+        return Err(ApiError::guest_access_forbidden(
+            "Guest registration is not enabled on this homeserver".to_string(),
+        ));
+    }
+
     let auth = body.get("auth").cloned();
     let auth_type = auth
         .as_ref()
@@ -27,14 +39,23 @@ pub(crate) async fn register(
                 "Username and password required".to_string(),
             ));
         }
-        return Ok(Json(json!({
-            "flows": [
-                { "stages": ["m.login.dummy"] },
-                { "stages": ["m.login.password"] }
-            ],
-            "params": {},
-            "session": uuid::Uuid::new_v4().to_string()
-        })));
+        // Matrix spec: User-Interactive Auth challenges MUST be returned with HTTP 401
+        // (https://spec.matrix.org/latest/client-server-api/#user-interactive-authentication-api).
+        // Returning 200 here makes Element interpret the body as a successful registration,
+        // try to read user_id from the empty payload, and crash the renderer with
+        // "Cannot enable encryption on MatrixClient with unknown userId".
+        return Ok((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "flows": [
+                    { "stages": ["m.login.dummy"] },
+                    { "stages": ["m.login.password"] }
+                ],
+                "params": {},
+                "session": uuid::Uuid::new_v4().to_string()
+            })),
+        )
+            .into_response());
     }
 
     let username =
@@ -61,7 +82,8 @@ pub(crate) async fn register(
             .registration_service
             .register_user(username, password, displayname)
             .await?,
-    ))
+    )
+    .into_response())
 }
 
 pub(crate) async fn check_username_availability(

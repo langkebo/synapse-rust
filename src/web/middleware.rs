@@ -1710,10 +1710,7 @@ pub async fn panic_catcher_middleware(request: Request<Body>, next: Next) -> Res
 }
 
 pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
-    let timeout_secs: u64 = std::env::var("REQUEST_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(30);
+    let timeout_secs = resolve_request_timeout_secs(&request);
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
@@ -1728,14 +1725,55 @@ pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> R
             (
                 StatusCode::REQUEST_TIMEOUT,
                 Json(json!({
-                    "errcode": "M_LIMIT_EXCEEDED",
-                    "error": "Request timeout",
-                    "retry_after_ms": timeout_secs * 1000
+                    "errcode": "M_REQUEST_TIMEOUT",
+                    "error": format!("Request processing exceeded server timeout of {}s", timeout_secs)
                 })),
             )
                 .into_response()
         }
     }
+}
+
+fn resolve_request_timeout_secs(request: &Request<Body>) -> u64 {
+    let path = request.uri().path();
+    let default_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    if !is_long_polling_endpoint(path) {
+        return default_timeout_secs;
+    }
+
+    let long_poll_timeout_secs = std::env::var("LONG_POLL_REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(90);
+
+    // 客户端 timeout 使用毫秒; 增加 15 秒缓冲避免边界竞态导致误杀
+    let query_timeout_secs = parse_timeout_query_secs(request.uri().query())
+        .map(|timeout_secs| timeout_secs.saturating_add(15))
+        .unwrap_or(0);
+
+    long_poll_timeout_secs.max(query_timeout_secs)
+}
+
+fn parse_timeout_query_secs(query: Option<&str>) -> Option<u64> {
+    let query = query?;
+    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        if key == "timeout" {
+            let timeout_ms = value.parse::<u64>().ok()?;
+            return Some(timeout_ms.div_ceil(1000));
+        }
+    }
+    None
+}
+
+fn is_long_polling_endpoint(path: &str) -> bool {
+    // Matrix 客户端 API 中所有长轮询/流式端点
+    path.ends_with("/sync")
+        || path.ends_with("/events")
+        || path.contains("/_matrix/client/unstable/org.matrix.msc3575/sync")
+        || path.contains("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync")
 }
 
 pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Response {
@@ -1766,7 +1804,7 @@ mod tests {
     use crate::test_utils::{env_lock, EnvGuard};
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
-    use axum::{middleware, routing::post, Router};
+    use axum::{middleware, routing::get, routing::post, Router};
     use ed25519_dalek::Signer;
     use std::sync::Arc;
     use std::time::Duration;
@@ -2317,6 +2355,101 @@ mod tests {
         let response = app.oneshot(request).await.expect("request should succeed");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_parse_timeout_query_secs() {
+        assert_eq!(
+            parse_timeout_query_secs(Some("since=1&timeout=90000&foo=bar")),
+            Some(90)
+        );
+        assert_eq!(parse_timeout_query_secs(Some("timeout=30001")), Some(31));
+        assert_eq!(parse_timeout_query_secs(Some("timeout=abc")), None);
+        assert_eq!(parse_timeout_query_secs(None), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_request_timeout_middleware_allows_sync_long_poll_request() {
+        async fn slow_sync_handler() -> StatusCode {
+            tokio::time::sleep(Duration::from_secs(90)).await;
+            StatusCode::OK
+        }
+
+        let _env_lock = crate::test_utils::env_lock_async().await;
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("REQUEST_TIMEOUT_SECS", "30");
+        env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
+
+        let app = Router::new()
+            .route("/_matrix/client/r0/sync", get(slow_sync_handler))
+            .layer(middleware::from_fn(request_timeout_middleware));
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/_matrix/client/r0/sync?timeout=90000")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response_task = tokio::spawn(async move {
+            app.oneshot(request)
+                .await
+                .expect("sync request should succeed")
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(90)).await;
+
+        let response = response_task.await.expect("join should succeed");
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .expect("body should be readable");
+        let body_text = String::from_utf8_lossy(&body);
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body_text.contains("M_REQUEST_TIMEOUT"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_request_timeout_middleware_times_out_non_sync_request() {
+        async fn slow_handler() -> StatusCode {
+            tokio::time::sleep(Duration::from_secs(40)).await;
+            StatusCode::OK
+        }
+
+        let _env_lock = crate::test_utils::env_lock_async().await;
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("REQUEST_TIMEOUT_SECS", "30");
+        env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
+
+        let app = Router::new()
+            .route("/rooms/test/send", get(slow_handler))
+            .layer(middleware::from_fn(request_timeout_middleware));
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/rooms/test/send")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response_task = tokio::spawn(async move {
+            app.oneshot(request)
+                .await
+                .expect("request should succeed with timeout response")
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(31)).await;
+
+        let response = response_task.await.expect("join should succeed");
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .expect("body should be readable");
+        let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+        assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
+        assert!(json["error"]
+            .as_str()
+            .expect("error should be string")
+            .contains("30"));
     }
 
     #[test]
