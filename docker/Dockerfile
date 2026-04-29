@@ -12,9 +12,11 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_LTO=thin \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
+    CARGO_PROFILE_RELEASE_DEBUG=false \
+    CARGO_PROFILE_RELEASE_PANIC=abort \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,9 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 依赖缓存机制: 先用空骨架预编译所有 crate, 后续源码改动不会触发依赖重编
+# BuildKit cache mounts 大幅加速重复构建 (cargo registry / git / target)
 COPY Cargo.toml Cargo.lock ./
 
-RUN mkdir src && echo "fn main() {}" > src/main.rs && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
+    mkdir src && echo "fn main() {}" > src/main.rs && \
     mkdir -p src/bin && echo "fn main() {}" > src/bin/healthcheck.rs && \
     cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     rm -rf src/
@@ -43,8 +49,13 @@ COPY docker/db_migrate.sh \
      docker/healthcheck.sh \
      docker/entrypoint.sh \
      ./docker/
+COPY docker/config/rate_limit.yaml ./docker/config_defaults/rate_limit.yaml
 
-RUN rm -rf target && \
+# 强制重新链接最终二进制 (force_relink hack 触发 build script 在缓存中也重新执行)
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
+    touch src/main.rs && \
     cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
@@ -52,6 +63,7 @@ RUN rm -rf target && \
     install -Dm755 docker/container-migrate.sh          /out/app/scripts/container-migrate.sh && \
     install -Dm755 docker/healthcheck.sh                /out/app/scripts/healthcheck.sh && \
     install -Dm755 docker/entrypoint.sh                 /out/app/entrypoint.sh && \
+    install -Dm644 docker/config_defaults/rate_limit.yaml /out/app/config_defaults/rate_limit.yaml && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
     cp -R migrations/. /out/app/migrations/
 

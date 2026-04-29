@@ -1,0 +1,21 @@
+# docker-compose.image.yml
+# ----------------------------------------------------------------------------
+# 使用已发布的 Docker Hub 镜像 (vmuser232922/mysynapse:0.1.1-amd64) 运行,
+# 不再触发本地 build, 适合服务器拉取部署. 与 docker-compose.yml 叠加使用:
+#
+#   docker compose \
+#     -f docker-compose.yml -f docker-compose.image.yml \
+#     pull && docker compose \
+#     -f docker-compose.yml -f docker-compose.image.yml \
+#     up -d
+#
+# 与 docker-compose.prod.yml 的差别: 这个文件只覆盖 image / build, 其它
+# 资源限制与卷挂载保持 docker-compose.yml 中的生产默认.
+# ----------------------------------------------------------------------------
+
+services:
+  synapse-rust:
+    image: vmuser232922/mysynapse:0.1.1-amd64
+    pull_policy: always
+    build: !reset null
+    platform: linux/amd64
