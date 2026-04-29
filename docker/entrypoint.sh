@@ -108,6 +108,15 @@ verify_schema() {
 main() {
     log_info "Starting Synapse Rust entrypoint..."
 
+    # 配置兜底: 当 docker-compose 未挂载 rate_limit.yaml 时, 使用镜像内默认值,
+    # 避免运行时因找不到 /app/config/rate_limit.yaml 而 fail-closed 退化为
+    # "Rate limiter unavailable" 429 响应.
+    if [ ! -f "/app/config/rate_limit.yaml" ] && [ -f "/app/config_defaults/rate_limit.yaml" ]; then
+        log_info "Seeding /app/config/rate_limit.yaml from baked-in default"
+        cp /app/config_defaults/rate_limit.yaml /app/config/rate_limit.yaml 2>/dev/null || \
+            log_warning "Could not seed default rate_limit.yaml (read-only filesystem?)"
+    fi
+
     # 等待数据库
     if ! wait_for_db; then
         log_error "Failed to connect to database"
