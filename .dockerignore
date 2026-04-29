@@ -1,51 +1,76 @@
 # ============================================================================
-# .dockerignore - Docker 构建忽略文件
+# .dockerignore — 生产级构建上下文裁剪
+# 目标: 把 ~500MB 的工作目录裁到只含构建必需文件 (<50MB)
 # ============================================================================
 
 # Git
 .git
 .gitignore
+.github/
 
-# 开发文件
-*.md
-LICENSE
-TODO
-*.txt
-
-# IDE
+# IDE / 编辑器
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-
-# 测试文件
-# tests/
-# benches/
+.DS_Store
+Thumbs.db
 
 # 构建产物
 target/
-# Cargo.lock
+**/target/
 
-# 临时文件
+# 日志 & 临时
+**/*.log
+**/logs/
 *.tmp
 *.bak
 *.orig
 
-# 日志
-logs/
-*.log
+# 环境文件 (任意层级)
+**/.env
+**/.env.local
+**/.env.*.local
+.env*
 
-# 环境文件
-.env
-.env.local
-.env.*.local
-
-# Docker 文件 (不需要复制到镜像)
-# docker/
-docker-compose*
+# Docker 自身配置 (compose 不进镜像)
+docker-compose*.yml
 .dockerignore
+docker/Dockerfile
+docker/docker-compose*.yml
 
-# 其他
-.DS_Store
-Thumbs.db
+# docker/ 目录中纯运行时/调试产物 (不应进镜像也不应进上下文)
+docker/data/
+docker/logs/
+docker/media/
+docker/test-results/
+docker/artifacts/
+docker/ssl/
+docker/nginx/        # nginx 反代配置由部署侧管理, 不进应用镜像
+docker/*.tsv
+docker/*.log
+docker/*.txt
+docker/load_obs_*
+docker/obs_*
+
+# 工作区文档 / PR 草稿 / 计划文件 (不应进镜像)
+*.md
+!docker/README.md
+!migrations/README.md
+
+# 测试 (镜像运行时不需要; benches/ 是 Dockerfile COPY 的, 保留)
+tests/
+
+# Element 客户端 (前端代码不应进后端镜像)
+element-desktop/
+element-web/
+
+# 杂项
+LICENSE
+TODO
+TODO.md
+*.iml
+node_modules/
+coverage/
+*.profraw
