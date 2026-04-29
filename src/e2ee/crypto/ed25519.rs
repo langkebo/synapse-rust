@@ -1,10 +1,19 @@
 use crate::e2ee::crypto::CryptoError;
+use base64::alphabet;
+use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+
+/// Matrix protocol uses unpadded base64 for keys; some clients still emit
+/// padded variants. Accept both on decode.
+const MATRIX_BASE64: GeneralPurpose = GeneralPurpose::new(
+    &alphabet::STANDARD,
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ed25519PublicKey {
@@ -25,7 +34,7 @@ impl Ed25519PublicKey {
     }
 
     pub fn from_base64(s: &str) -> Result<Self, CryptoError> {
-        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s)
+        let bytes = base64::Engine::decode(&MATRIX_BASE64, s)
             .map_err(|_| CryptoError::InvalidBase64)?;
         if bytes.len() != 32 {
             return Err(CryptoError::InvalidKeyLength);

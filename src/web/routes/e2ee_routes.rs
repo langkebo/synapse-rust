@@ -643,6 +643,21 @@ async fn upload_device_signing(
         }
     }
 
+    if let Some(user_signing_key) = body.get("user_signing_key") {
+        if let Some(key_obj) = user_signing_key.as_object() {
+            if !key_obj.is_empty() {
+                state
+                    .services
+                    .cross_signing_service
+                    .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to upload user-signing key: {}", e))
+                    })?;
+            }
+        }
+    }
+
     Ok(empty_json())
 }
 
