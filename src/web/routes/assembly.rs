@@ -55,6 +55,33 @@ async fn get_openid_configuration(
     })))
 }
 
+/// MSC2965 — `auth_metadata`. Used by clients (e.g. Element) to discover whether
+/// the homeserver supports OAuth2/OIDC-based login. When OIDC is not configured
+/// we must return `M_UNRECOGNIZED` rather than 404, so clients fall back to the
+/// classic password login flow without surfacing a misleading error to users.
+async fn get_auth_metadata(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let oidc_enabled = state.services.oidc_service.is_some()
+        || state.services.builtin_oidc_provider.is_some();
+
+    if !oidc_enabled {
+        return Err(ApiError::unrecognized(
+            "OAuth2/OIDC discovery is not enabled on this homeserver",
+        ));
+    }
+
+    let base_url = state.services.config.server.get_public_baseurl();
+    Ok(Json(json!({
+        "issuer": base_url,
+        "authorization_endpoint": format!("{}/_matrix/client/v3/login/sso/redirect", base_url),
+        "token_endpoint": format!("{}/_matrix/client/v3/login", base_url),
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+    })))
+}
+
 fn create_client_capabilities_router() -> Router<AppState> {
     Router::new().route("/capabilities", get(handlers::get_capabilities))
 }
@@ -143,6 +170,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/.well-known/matrix/support",
             get(handlers::get_well_known_support),
+        )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
+            get(get_auth_metadata),
         )
         .merge(create_auth_router())
         .merge(create_account_router())

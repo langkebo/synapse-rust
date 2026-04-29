@@ -33,6 +33,17 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
         })
 });
 
+static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Register CORS allowed origins loaded from the homeserver config file.
+/// This is used as a fallback when the `ALLOWED_ORIGINS` environment variable
+/// is not set, so that operators can rely solely on `homeserver.yaml`.
+///
+/// Idempotent: only the first call wins.
+pub fn set_config_allowed_origins(origins: Vec<String>) {
+    let _ = CONFIG_ALLOWED_ORIGINS.set(origins);
+}
+
 #[derive(Clone, Debug)]
 pub struct FederationRequestAuth {
     pub origin: String,
@@ -145,7 +156,8 @@ pub fn check_cors_security() -> CorsSecurityReport {
     if !is_dev && allowed_origins.is_empty() && !has_pattern {
         errors.push(
             "🚨 SECURITY ERROR: No CORS origins configured in production. \
-             Set ALLOWED_ORIGINS or CORS_ORIGIN_PATTERN environment variable."
+             Configure `cors.allowed_origins` in homeserver.yaml, \
+             or set the ALLOWED_ORIGINS / CORS_ORIGIN_PATTERN environment variable."
                 .to_string(),
         );
     }
@@ -321,9 +333,20 @@ fn is_dev_mode() -> bool {
 }
 
 fn get_allowed_origins() -> Vec<String> {
-    std::env::var("ALLOWED_ORIGINS")
-        .ok()
-        .map(|s| s.split(',').map(|v| v.trim().to_string()).collect())
+    if let Ok(env_value) = std::env::var("ALLOWED_ORIGINS") {
+        let parsed: Vec<String> = env_value
+            .split(',')
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect();
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+
+    CONFIG_ALLOWED_ORIGINS
+        .get()
+        .cloned()
         .unwrap_or_default()
 }
 

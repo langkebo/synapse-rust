@@ -13,9 +13,30 @@ pub fn init_logging(
     _telemetry_service: Option<Arc<TelemetryService>>,
     tracer_provider: Option<TracerProvider>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. 设置环境过滤器
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
+    // 1. 设置环境过滤器。
+    //    优先级:
+    //      a. RUST_LOG 显式提供 -> 完全使用其值（运维可全权覆盖）
+    //      b. 否则使用 logging.level 作为根级别，并强制把 sqlx 等高频
+    //         发声组件单独降到 WARN，否则 debug 模式下每条 SQL 都会被
+    //         打印两次（一次 query.summary，一次 db.statement），淹没
+    //         真正的业务错误。
+    let env_filter = match EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_) => {
+            let base = config.level.trim();
+            let mut directive = base.to_string();
+            // Only attach noise-suppression overrides when the operator chose
+            // a verbose level globally. At INFO/WARN/ERROR the base directives
+            // already keep sqlx quiet enough.
+            if matches!(
+                base.to_lowercase().as_str(),
+                "trace" | "debug"
+            ) {
+                directive.push_str(",sqlx::query=warn,sqlx_core=warn,hyper=info,tower_http::trace=info");
+            }
+            EnvFilter::new(directive)
+        }
+    };
 
     // 2. 创建基础 Registry
     let subscriber = Registry::default().with(env_filter);
