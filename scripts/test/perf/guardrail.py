@@ -38,6 +38,11 @@ THRESHOLDS = {
         "room_summary_duration": 600,
         "errors": 0.02,
     },
+    "friends": {
+        "friend_search_duration": 400,
+        "friend_list_duration": 300,
+        "errors": 0.02,
+    },
     "soak": {
         "login_duration": 700,
         "create_room_duration": 1200,
@@ -54,6 +59,8 @@ DISPLAY_NAMES = {
     "send_message_duration": "SendMessage P95",
     "sync_duration": "Sync P95",
     "room_summary_duration": "RoomSummary P95",
+    "friend_search_duration": "FriendSearch P95",
+    "friend_list_duration": "FriendList P95",
     "errors": "Error Rate",
 }
 

@@ -1,15 +1,76 @@
+use crate::cache::CacheManager;
 use crate::common::{generate_event_id, ApiError, ApiResult};
 use crate::federation::friend::FriendFederationClient;
 use crate::federation::KeyRotationManager;
 use crate::services::RoomService;
-use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage};
+use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+const FRIEND_LIST_CACHE_TTL_SECS: u64 = 30;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendListRequest {
+    pub limit: usize,
+    pub offset: usize,
+    pub sort_by: String,
+}
+
+impl Default for FriendListRequest {
+    fn default() -> Self {
+        Self {
+            limit: 50,
+            offset: 0,
+            sort_by: "alphabet".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendListEntry {
+    pub user_id: String,
+    pub username: Option<String>,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub note: Option<String>,
+    pub status: String,
+    pub online: bool,
+    pub presence: String,
+    pub last_active_ts: Option<i64>,
+    pub last_seen_ts: Option<i64>,
+    pub added_ts: Option<i64>,
+    pub sort_letter: String,
+    pub dm_room_id: Option<String>,
+    pub dm_room_active: bool,
+    pub dm_room_state: Option<String>,
+    pub dm_room_updated_ts: Option<i64>,
+    pub dm_room_affected_user_id: Option<String>,
+    pub dm_room_changed_by: Option<String>,
+    pub dm_room_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendListPage {
+    pub room_id: String,
+    pub items: Vec<FriendListEntry>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+    pub next_offset: Option<usize>,
+    pub version: i64,
+    pub cached: bool,
+    pub generated_ts: i64,
+}
 
 pub struct FriendRoomService {
     friend_storage: FriendRoomStorage,
     room_service: Arc<RoomService>,
     event_storage: EventStorage,
+    user_storage: UserStorage,
+    presence_storage: PresenceStorage,
+    cache: Arc<CacheManager>,
     server_name: String,
     federation_client: Arc<FriendFederationClient>,
 }
@@ -19,6 +80,9 @@ impl FriendRoomService {
         friend_storage: FriendRoomStorage,
         room_service: Arc<RoomService>,
         event_storage: EventStorage,
+        user_storage: UserStorage,
+        presence_storage: PresenceStorage,
+        cache: Arc<CacheManager>,
         server_name: String,
         key_rotation_manager: Arc<KeyRotationManager>,
     ) -> Self {
@@ -30,6 +94,9 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             event_storage,
+            user_storage,
+            presence_storage,
+            cache,
             server_name,
             federation_client,
         }
@@ -170,16 +237,40 @@ impl FriendRoomService {
                 ApiError::not_found(format!("No pending friend request from {}", requester_id))
             })?;
 
-        // 为接受者添加好友关系
-        let dm_room_id = self.add_friend_internal(user_id, requester_id).await?;
+        let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
+        let user_friend_room = self.create_friend_list_room(user_id).await?;
+        let requester_friend_room = self.create_friend_list_room(requester_id).await?;
 
-        // 为请求者添加好友关系（双向好友）
-        self.add_friend_internal(requester_id, user_id).await?;
+        self.update_friend_list(
+            user_id,
+            &user_friend_room,
+            requester_id,
+            "add",
+            Some(&dm_room_id),
+        )
+        .await?;
+        self.update_friend_list(
+            requester_id,
+            &requester_friend_room,
+            user_id,
+            "add",
+            Some(&dm_room_id),
+        )
+        .await?;
 
         self.friend_storage
             .update_friend_request_status(requester_id, user_id, "accepted")
             .await
             .map_err(|e| ApiError::database(format!("Failed to update request status: {}", e)))?;
+
+        self.presence_storage
+            .add_subscription(user_id, requester_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to subscribe to presence: {}", e)))?;
+        self.presence_storage
+            .add_subscription(requester_id, user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to subscribe to presence: {}", e)))?;
 
         if self.is_remote_user(requester_id) {
             let parts: Vec<&str> = requester_id.split(':').collect();
@@ -283,39 +374,6 @@ impl FriendRoomService {
             .collect())
     }
 
-    /// 内部方法：添加好友（不检查请求）
-    async fn add_friend_internal(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
-        let user_friend_room = self.create_friend_list_room(user_id).await?;
-
-        let already_friend = self
-            .friend_storage
-            .is_friend(&user_friend_room, friend_id)
-            .await
-            .map_err(|e| ApiError::database(format!("Failed to check friendship: {}", e)))?;
-
-        let config = crate::services::room_service::CreateRoomConfig {
-            visibility: Some("private".to_string()),
-            preset: Some("trusted_private_chat".to_string()),
-            invite_list: Some(vec![friend_id.to_string()]),
-            is_direct: Some(true),
-            ..Default::default()
-        };
-
-        let response = self.room_service.create_room(user_id, config).await?;
-        let dm_room_id = response
-            .get("room_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
-            .to_string();
-
-        if !already_friend {
-            self.update_friend_list(user_id, &user_friend_room, friend_id, "add")
-                .await?;
-        }
-
-        Ok(dm_room_id)
-    }
-
     /// 添加好友 (直接添加，用于向后兼容)
     pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
         if friend_id == user_id {
@@ -336,23 +394,21 @@ impl FriendRoomService {
             )));
         }
 
-        let config = crate::services::room_service::CreateRoomConfig {
-            visibility: Some("private".to_string()),
-            preset: Some("trusted_private_chat".to_string()),
-            invite_list: Some(vec![friend_id.to_string()]),
-            is_direct: Some(true),
-            ..Default::default()
-        };
+        let dm_room_id = self.create_friend_dm_room(user_id, friend_id).await?;
 
-        let response = self.room_service.create_room(user_id, config).await?;
-        let dm_room_id = response
-            .get("room_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))?
-            .to_string();
+        self.update_friend_list(
+            user_id,
+            &user_friend_room,
+            friend_id,
+            "add",
+            Some(&dm_room_id),
+        )
+        .await?;
 
-        self.update_friend_list(user_id, &user_friend_room, friend_id, "add")
-            .await?;
+        self.presence_storage
+            .add_subscription(user_id, friend_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to subscribe to presence: {}", e)))?;
 
         if self.is_remote_user(friend_id) {
             tracing::info!("Adding remote friend: {} -> {}", user_id, friend_id);
@@ -397,28 +453,185 @@ impl FriendRoomService {
             )));
         }
 
-        self.update_friend_list(user_id, &friend_room, friend_id, "remove")
+        self.update_friend_list(user_id, &friend_room, friend_id, "remove", None)
             .await?;
+        let _ = self
+            .presence_storage
+            .remove_subscription(user_id, friend_id)
+            .await;
+        let _ = self
+            .presence_storage
+            .remove_subscription(friend_id, user_id)
+            .await;
 
         Ok(())
     }
 
     /// 获取好友列表
     pub async fn get_friends(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let page = self
+            .get_friends_page(user_id, FriendListRequest::default())
+            .await?;
+        Ok(page
+            .items
+            .into_iter()
+            .filter_map(|item| serde_json::to_value(item).ok())
+            .collect())
+    }
+
+    pub async fn get_friends_page(
+        &self,
+        user_id: &str,
+        request: FriendListRequest,
+    ) -> ApiResult<FriendListPage> {
         let room_id = self.create_friend_list_room(user_id).await?;
         let content = self
             .friend_storage
             .get_friend_list_content(&room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::database(format!("Database error: {}", e)))?
+            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
-        if let Some(c) = content {
-            if let Some(friends) = c.get("friends").and_then(|f| f.as_array()) {
-                return Ok(friends.clone());
-            }
+        let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
+        let safe_limit = request.limit.clamp(1, 100);
+        let cache_key = format!(
+            "friends:list:v2:{}:{}:{}:{}:{}:{}",
+            user_id, room_id, version, request.sort_by, request.offset, safe_limit
+        );
+
+        if let Ok(Some(mut cached)) = self.cache.get::<FriendListPage>(&cache_key).await {
+            cached.cached = true;
+            cached.limit = safe_limit;
+            return Ok(cached);
         }
 
-        Ok(Vec::new())
+        let raw_friends = content
+            .get("friends")
+            .and_then(|friends| friends.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let friend_ids: Vec<String> = raw_friends
+            .iter()
+            .filter_map(|friend| {
+                friend
+                    .get("user_id")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+            })
+            .collect();
+        let profiles = self
+            .user_storage
+            .get_user_profiles_map(&friend_ids)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to load friend profiles: {}", e)))?;
+        let presence_map = self
+            .presence_storage
+            .get_presence_snapshots(&friend_ids)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to load presence snapshots: {}", e)))?;
+
+        let mut items = self.build_friend_entries(raw_friends, &profiles, &presence_map);
+        self.sort_friend_entries(&mut items, &request.sort_by);
+
+        let total = items.len();
+        let offset = request.offset.min(total);
+        let paged_items = items
+            .into_iter()
+            .skip(offset)
+            .take(safe_limit)
+            .collect::<Vec<_>>();
+        let next_offset = (offset + paged_items.len() < total).then_some(offset + paged_items.len());
+
+        let page = FriendListPage {
+            room_id,
+            items: paged_items,
+            total,
+            limit: safe_limit,
+            offset,
+            next_offset,
+            version,
+            cached: false,
+            generated_ts: chrono::Utc::now().timestamp_millis(),
+        };
+
+        let _ = self
+            .cache
+            .set(&cache_key, page.clone(), FRIEND_LIST_CACHE_TTL_SECS)
+            .await;
+
+        Ok(page)
+    }
+
+    pub async fn sync_dm_room_membership_change(
+        &self,
+        dm_room_id: &str,
+        affected_user_id: &str,
+        dm_room_state: &str,
+        changed_by: Option<&str>,
+        reason: Option<&str>,
+    ) -> ApiResult<usize> {
+        let links = self
+            .friend_storage
+            .find_friend_lists_by_dm_room_id(dm_room_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to load friend DM links: {}", e)))?;
+
+        if links.is_empty() {
+            return Ok(0);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut updated_lists = 0usize;
+
+        for link in links {
+            let mut content = link.content;
+            let mut touched = false;
+
+            if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut())
+            {
+                for friend in friends.iter_mut() {
+                    if friend.get("dm_room_id").and_then(|value| value.as_str()) != Some(dm_room_id)
+                    {
+                        continue;
+                    }
+
+                    friend["dm_room_state"] = json!(dm_room_state);
+                    friend["dm_room_active"] = json!(dm_room_state == "active");
+                    friend["dm_room_updated_ts"] = json!(now);
+                    friend["dm_room_affected_user_id"] = json!(affected_user_id);
+
+                    if let Some(changed_by) = changed_by {
+                        friend["dm_room_changed_by"] = json!(changed_by);
+                    }
+
+                    if let Some(reason) = reason {
+                        friend["dm_room_reason"] = json!(reason);
+                    }
+
+                    touched = true;
+                }
+            }
+
+            if !touched {
+                continue;
+            }
+
+            if let Some(version) = content.get("version").and_then(|value| value.as_i64()) {
+                content["version"] = json!(version + 1);
+            }
+
+            self.send_state_event(
+                &link.friend_room_id,
+                &link.owner_user_id,
+                "m.friends.list",
+                "",
+                content,
+            )
+            .await?;
+            updated_lists += 1;
+        }
+
+        Ok(updated_lists)
     }
 
     /// 更新好友备注
@@ -609,8 +822,17 @@ impl FriendRoomService {
     }
 
     /// 获取好友推荐
-    pub async fn get_friend_suggestions(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_friend_suggestions(
+        &self,
+        user_id: &str,
+        limit: Option<i64>,
+    ) -> ApiResult<Vec<serde_json::Value>> {
         let _friend_room = self.create_friend_list_room(user_id).await?;
+
+        // 规范化请求 limit：默认 20（与历史行为一致），上限 100 以防 DoS。
+        let effective_limit = limit.unwrap_or(20).clamp(1, 100);
+        // Mutual-friend 池预取 `effective_limit`，room-based fallback 用剩余额度补齐。
+        let mutual_fetch_limit = effective_limit;
 
         let mut suggestions: Vec<serde_json::Value> = Vec::new();
         let mut suggested_user_ids: std::collections::HashSet<String> =
@@ -618,7 +840,7 @@ impl FriendRoomService {
 
         let mutual_suggestions = self
             .friend_storage
-            .get_friend_suggestions_from_mutual_friends(user_id, 10)
+            .get_friend_suggestions_from_mutual_friends(user_id, mutual_fetch_limit)
             .await
             .map_err(|e| {
                 ApiError::database(format!("Failed to get mutual friend suggestions: {}", e))
@@ -631,10 +853,11 @@ impl FriendRoomService {
             suggestions.push(suggestion);
         }
 
-        if suggestions.len() < 10 {
+        if (suggestions.len() as i64) < effective_limit {
+            let remaining = effective_limit - suggestions.len() as i64;
             let room_suggestions = self
                 .friend_storage
-                .get_friend_suggestions_from_shared_rooms(user_id, 10 - suggestions.len() as i64)
+                .get_friend_suggestions_from_shared_rooms(user_id, remaining)
                 .await
                 .map_err(|e| {
                     ApiError::database(format!("Failed to get shared room suggestions: {}", e))
@@ -658,7 +881,7 @@ impl FriendRoomService {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        suggestions.truncate(20);
+        suggestions.truncate(effective_limit as usize);
 
         Ok(suggestions)
     }
@@ -1091,6 +1314,7 @@ impl FriendRoomService {
         room_id: &str,
         friend_id: &str,
         action: &str,
+        dm_room_id: Option<&str>,
     ) -> ApiResult<()> {
         let mut content = self
             .friend_storage
@@ -1111,7 +1335,11 @@ impl FriendRoomService {
                     "user_id": friend_id,
                     "since": chrono::Utc::now().timestamp(),
                     "status": "normal",
-                    "added_at": chrono::Utc::now().timestamp_millis()
+                    "added_at": chrono::Utc::now().timestamp_millis(),
+                    "dm_room_id": dm_room_id,
+                    "dm_room_active": dm_room_id.is_some(),
+                    "dm_room_state": if dm_room_id.is_some() { "active" } else { "none" },
+                    "dm_room_updated_ts": chrono::Utc::now().timestamp_millis()
                 }));
             }
         } else if action == "remove" {
@@ -1126,10 +1354,169 @@ impl FriendRoomService {
             .await?;
         Ok(())
     }
+
+    async fn create_friend_dm_room(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
+        let config = crate::services::room_service::CreateRoomConfig {
+            visibility: Some("private".to_string()),
+            preset: Some("trusted_private_chat".to_string()),
+            invite_list: Some(vec![friend_id.to_string()]),
+            is_direct: Some(true),
+            ..Default::default()
+        };
+
+        let response = self.room_service.create_room(user_id, config).await?;
+        response
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))
+    }
+
+    fn build_friend_entries(
+        &self,
+        raw_friends: Vec<serde_json::Value>,
+        profiles: &HashMap<String, crate::storage::UserProfile>,
+        presence_map: &HashMap<String, crate::storage::presence::PresenceSnapshot>,
+    ) -> Vec<FriendListEntry> {
+        raw_friends
+            .into_iter()
+            .filter_map(|friend| {
+                let user_id = friend.get("user_id")?.as_str()?.to_string();
+                let profile = profiles.get(&user_id);
+                let displayname = friend
+                    .get("displayname")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| profile.and_then(|value| value.displayname.clone()));
+                let username = profile.map(|value| value.username.clone());
+                let fallback_name = displayname
+                    .clone()
+                    .or(username.clone())
+                    .unwrap_or_else(|| user_id.clone());
+                let presence = presence_map
+                    .get(&user_id)
+                    .map(|snapshot| snapshot.presence.clone())
+                    .unwrap_or_else(|| "offline".to_string());
+                let last_active_ts = presence_map
+                    .get(&user_id)
+                    .and_then(|snapshot| snapshot.last_active_ts);
+
+                Some(FriendListEntry {
+                    user_id,
+                    username,
+                    displayname,
+                    avatar_url: profile.and_then(|value| value.avatar_url.clone()),
+                    note: friend
+                        .get("note")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                    status: friend
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("normal")
+                        .to_string(),
+                    online: presence == "online",
+                    presence,
+                    last_active_ts,
+                    last_seen_ts: last_active_ts,
+                    added_ts: friend.get("added_at").and_then(|value| value.as_i64()),
+                    sort_letter: sort_letter_for(&fallback_name),
+                    dm_room_id: friend
+                        .get("dm_room_id")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                    dm_room_active: friend
+                        .get("dm_room_active")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or_else(|| friend.get("dm_room_id").is_some()),
+                    dm_room_state: friend
+                        .get("dm_room_state")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                    dm_room_updated_ts: friend
+                        .get("dm_room_updated_ts")
+                        .and_then(|value| value.as_i64()),
+                    dm_room_affected_user_id: friend
+                        .get("dm_room_affected_user_id")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                    dm_room_changed_by: friend
+                        .get("dm_room_changed_by")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                    dm_room_reason: friend
+                        .get("dm_room_reason")
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned),
+                })
+            })
+            .collect()
+    }
+
+    fn sort_friend_entries(&self, items: &mut [FriendListEntry], sort_by: &str) {
+        match sort_by {
+            "activity" => items.sort_by(|left, right| {
+                right
+                    .online
+                    .cmp(&left.online)
+                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                    .then_with(|| right.added_ts.cmp(&left.added_ts))
+                    .then_with(|| left.user_id.cmp(&right.user_id))
+            }),
+            "recent" => items.sort_by(|left, right| {
+                right
+                    .added_ts
+                    .cmp(&left.added_ts)
+                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                    .then_with(|| left.user_id.cmp(&right.user_id))
+            }),
+            _ => items.sort_by(|left, right| {
+                left.sort_letter
+                    .cmp(&right.sort_letter)
+                    .then_with(|| {
+                        left.displayname
+                            .as_deref()
+                            .or(left.username.as_deref())
+                            .unwrap_or(left.user_id.as_str())
+                            .cmp(
+                                right
+                                    .displayname
+                                    .as_deref()
+                                    .or(right.username.as_deref())
+                                    .unwrap_or(right.user_id.as_str()),
+                            )
+                    })
+                    .then_with(|| left.user_id.cmp(&right.user_id))
+            }),
+        }
+    }
+}
+
+fn sort_letter_for(value: &str) -> String {
+    value.chars()
+        .find(|ch| !ch.is_whitespace())
+        .map(|ch| {
+            if ch.is_ascii_alphabetic() {
+                ch.to_ascii_uppercase().to_string()
+            } else {
+                "#".to_string()
+            }
+        })
+        .unwrap_or_else(|| "#".to_string())
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_is_remote_user() {}
+
+    #[test]
+    fn test_sort_letter_for_ascii_name() {
+        assert_eq!(super::sort_letter_for("alice"), "A");
+    }
+
+    #[test]
+    fn test_sort_letter_for_non_ascii_name() {
+        assert_eq!(super::sort_letter_for("张三"), "#");
+    }
 }

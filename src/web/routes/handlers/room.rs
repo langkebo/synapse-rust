@@ -686,6 +686,14 @@ pub(crate) async fn leave_room(
         .room_service
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
+    if let Err(error) = state
+        .services
+        .friend_room_service
+        .sync_dm_room_membership_change(&room_id, &auth_user.user_id, "left", Some(&auth_user.user_id), None)
+        .await
+    {
+        ::tracing::warn!("Failed to sync friend DM leave state for {}: {}", room_id, error);
+    }
     Ok(Json(json!({
         "room_id": room_id,
         "left_ts": chrono::Utc::now().timestamp_millis()
@@ -1160,6 +1168,18 @@ pub(crate) async fn create_room(
 
     let room_type = body.get("room_type").and_then(|v| v.as_str());
 
+    let is_direct = body.get("is_direct").and_then(|v| v.as_bool());
+    let room_version = body
+        .get("room_version")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let creation_content = body.get("creation_content").cloned();
+    let initial_state = body
+        .get("initial_state")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.clone());
+    let power_level_content_override = body.get("power_level_content_override").cloned();
+
     let config = CreateRoomConfig {
         visibility: visibility.map(|s| s.to_string()),
         room_alias_name: room_alias.map(|s| s.to_string()),
@@ -1168,6 +1188,11 @@ pub(crate) async fn create_room(
         invite_list: invite,
         preset: preset.map(|s| s.to_string()),
         room_type: room_type.map(|s| s.to_string()),
+        is_direct,
+        room_version,
+        creation_content,
+        initial_state,
+        power_level_content_override,
         ..Default::default()
     };
 
@@ -4143,6 +4168,15 @@ pub(crate) async fn kick_user(
         })
         .ok();
 
+    if let Err(error) = state
+        .services
+        .friend_room_service
+        .sync_dm_room_membership_change(&room_id, target, "kicked", Some(&auth_user.user_id), reason)
+        .await
+    {
+        ::tracing::warn!("Failed to sync friend DM kick state for {}: {}", room_id, error);
+    }
+
     Ok(Json(json!({
         "room_id": room_id,
         "user_id": target,
@@ -4238,6 +4272,15 @@ pub(crate) async fn ban_user(
             );
         })
         .ok();
+
+    if let Err(error) = state
+        .services
+        .friend_room_service
+        .sync_dm_room_membership_change(&room_id, target, "banned", Some(&auth_user.user_id), reason)
+        .await
+    {
+        ::tracing::warn!("Failed to sync friend DM ban state for {}: {}", room_id, error);
+    }
 
     Ok(Json(json!({
         "room_id": room_id,

@@ -123,6 +123,7 @@ fn create_room_v1_router() -> Router<AppState> {
 fn create_room_v3_router() -> Router<AppState> {
     create_room_r0_v3_compat_router()
         .merge(create_room_power_levels_compat_router())
+        .route("/createRoom", post(create_room))
         .route("/rooms/{room_id}/permissions", get(get_room_permissions))
         .route("/rooms/{room_id}/resolve", get(get_room_resolve))
         .route(
@@ -230,6 +231,152 @@ pub fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/v3", create_room_v3_router())
 }
 
+fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    let mut base: Vec<(Method, &'static str)> = vec![
+        (Method::GET, "/rooms/{room_id}"),
+        (Method::GET, "/rooms/{room_id}/messages"),
+        (Method::POST, "/rooms/{room_id}/search"),
+        (Method::GET, "/rooms/{room_id}/membership/{user_id}"),
+        (
+            Method::POST,
+            "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+        ),
+        (
+            Method::GET,
+            "/rooms/{room_id}/receipts/{receipt_type}/{event_id}",
+        ),
+        (Method::POST, "/rooms/{room_id}/read_markers"),
+        (Method::PUT, "/rooms/{room_id}/read_markers"),
+        (Method::GET, "/rooms/{room_id}/aliases"),
+        (Method::POST, "/rooms/{room_id}/join"),
+        (Method::POST, "/rooms/{room_id}/leave"),
+        (Method::POST, "/rooms/{room_id}/upgrade"),
+        (Method::POST, "/rooms/{room_id}/forget"),
+        (Method::GET, "/rooms/{room_id}/initialSync"),
+        (Method::GET, "/rooms/{room_id}/members"),
+        (Method::GET, "/rooms/{room_id}/members/recent"),
+        (Method::GET, "/rooms/{room_id}/joined_members"),
+        (Method::GET, "/rooms/{room_id}/version"),
+        (Method::POST, "/rooms/{room_id}/invite"),
+        (Method::GET, "/rooms/{room_id}/invites"),
+        (Method::GET, "/user/{user_id}/rooms"),
+        (
+            Method::PUT,
+            "/rooms/{room_id}/state/{event_type}/{state_key}",
+        ),
+        (
+            Method::GET,
+            "/rooms/{room_id}/state/{event_type}/{state_key}",
+        ),
+        (Method::PUT, "/rooms/{room_id}/state/{event_type}/"),
+        (Method::GET, "/rooms/{room_id}/state/{event_type}/"),
+        (Method::PUT, "/rooms/{room_id}/state/{event_type}"),
+        (Method::GET, "/rooms/{room_id}/state/{event_type}"),
+        (Method::POST, "/rooms/{room_id}/state/{event_type}"),
+        (Method::GET, "/rooms/{room_id}/state"),
+        (Method::PUT, "/rooms/{room_id}/redact/{event_id}/{txn_id}"),
+        (Method::POST, "/rooms/{room_id}/kick"),
+        (Method::POST, "/rooms/{room_id}/ban"),
+        (Method::POST, "/rooms/{room_id}/unban"),
+        (Method::GET, "/rooms/{room_id}/pinned_events"),
+        (Method::POST, "/rooms/{room_id}/pinned_events"),
+        (Method::DELETE, "/rooms/{room_id}/pinned_events/{event_id}"),
+        (Method::PUT, "/rooms/{room_id}/send/{event_type}/{txn_id}"),
+        (Method::GET, "/rooms/{room_id}/event/{event_id}"),
+    ];
+    base.extend(sticky_event::sticky_event_compat_relative_routes());
+    base
+}
+
+fn room_power_levels_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![(
+        Method::GET,
+        "/rooms/{room_id}/state/m.room.power_levels/",
+    )]
+}
+
+fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/createRoom"),
+        (Method::GET, "/rooms/{room_id}/permissions"),
+        (Method::GET, "/rooms/{room_id}/resolve"),
+        (Method::GET, "/rooms/{room_id}/notifications"),
+        (Method::GET, "/rooms/{room_id}/capabilities"),
+        (Method::GET, "/rooms/{room_id}/sync"),
+        (Method::GET, "/rooms/{room_id}/timeline"),
+        (Method::GET, "/rooms/{room_id}/unread_count"),
+        (Method::GET, "/rooms/{room_id}/account_data/{type}"),
+        (Method::PUT, "/rooms/{room_id}/account_data/{type}"),
+        (Method::GET, "/rooms/{room_id}/turn_server"),
+        (Method::GET, "/rooms/{room_id}/metadata"),
+        (Method::GET, "/rooms/{room_id}/vault_data"),
+        (Method::PUT, "/rooms/{room_id}/vault_data"),
+        (Method::GET, "/rooms/{room_id}/retention"),
+        (Method::GET, "/rooms/{room_id}/spaces"),
+        (Method::GET, "/rooms/{room_id}/encrypted_events"),
+        (Method::GET, "/rooms/{room_id}/reduced_events"),
+        (Method::GET, "/rooms/{room_id}/device/{device_id}"),
+        (Method::GET, "/rooms/{room_id}/rendered/"),
+        (Method::GET, "/rooms/{room_id}/external_ids"),
+        (Method::GET, "/rooms/{room_id}/event_perspective"),
+        (Method::GET, "/rooms/{room_id}/fragments/{user_id}"),
+        (Method::GET, "/rooms/{room_id}/service_types"),
+        (Method::GET, "/rooms/{room_id}/event/{event_id}/url"),
+        (Method::POST, "/rooms/{room_id}/translate/{event_id}"),
+        (Method::POST, "/rooms/{room_id}/convert/{event_id}"),
+        (Method::PUT, "/rooms/{room_id}/sign/{event_id}"),
+        (Method::POST, "/rooms/{room_id}/verify/{event_id}"),
+        (Method::GET, "/rooms/{room_id}/keys"),
+        (Method::GET, "/rooms/{room_id}/keys/count"),
+        (Method::GET, "/rooms/{room_id}/keys/version"),
+        (Method::POST, "/rooms/{room_id}/keys/claim"),
+        (Method::PUT, "/rooms/{room_id}/room_keys/keys"),
+        (Method::GET, "/rooms/{room_id}/message_queue"),
+        (Method::GET, "/rooms/{room_id}/threads/{thread_id}"),
+        (Method::GET, "/rooms/{room_id}/keys/{event_id}"),
+        (Method::GET, "/rooms/{room_id}/thread/{event_id}"),
+        (Method::POST, "/join/{room_id_or_alias}"),
+        (Method::POST, "/knock/{room_id_or_alias}"),
+        (Method::POST, "/invite/{room_id}"),
+        (Method::GET, "/rooms/{room_id}/invite_blocklist"),
+        (Method::POST, "/rooms/{room_id}/invite_blocklist"),
+        (Method::GET, "/rooms/{room_id}/invite_allowlist"),
+        (Method::POST, "/rooms/{room_id}/invite_allowlist"),
+    ]
+}
+
+pub fn room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    use axum::http::Method;
+
+    let mut r0_relative: Vec<(Method, &'static str)> = room_r0_v3_shared_relative_routes();
+    r0_relative.extend(room_power_levels_compat_relative_routes());
+    r0_relative.push((Method::POST, "/createRoom"));
+    r0_relative.push((Method::POST, "/rooms/{room_id}/get_membership_events"));
+
+    let v1_relative = room_power_levels_compat_relative_routes();
+
+    let mut v3_relative: Vec<(Method, &'static str)> = room_r0_v3_shared_relative_routes();
+    v3_relative.extend(room_power_levels_compat_relative_routes());
+    v3_relative.extend(room_v3_only_relative_routes());
+
+    let mut entries = expand_under_prefixes("room", &["/_matrix/client/r0"], &r0_relative);
+    entries.extend(expand_under_prefixes(
+        "room",
+        &["/_matrix/client/v1"],
+        &v1_relative,
+    ));
+    entries.extend(expand_under_prefixes(
+        "room",
+        &["/_matrix/client/v3"],
+        &v3_relative,
+    ));
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -239,6 +386,7 @@ mod tests {
             "/_matrix/client/r0/rooms/{room_id}/messages",
             "/_matrix/client/r0/createRoom",
             "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
+            "/_matrix/client/v3/createRoom",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
             "/_matrix/client/v3/join/{room_id_or_alias}",
             "/_matrix/client/v3/rooms/{room_id}/sticky_events",
@@ -253,6 +401,7 @@ mod tests {
     fn test_room_router_keeps_version_specific_paths() {
         let r0_only = ["/_matrix/client/r0/rooms/{room_id}/get_membership_events"];
         let v3_only = [
+            "/_matrix/client/v3/createRoom",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
             "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
         ];
