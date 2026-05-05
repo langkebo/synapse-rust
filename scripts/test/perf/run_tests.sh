@@ -63,6 +63,18 @@ run_peak_test() {
         "$SCRIPT_DIR/api_matrix_core.js"
 }
 
+run_friend_test() {
+    echo "Running Friend Search/List Test (100 concurrent users)..."
+    k6 run \
+        --env BASE_URL="$BASE_URL" \
+        --env ADMIN_USER="$ADMIN_USER" \
+        --env ADMIN_PASS="$ADMIN_PASS" \
+        --vus 100 \
+        --duration 60s \
+        --summary-export "${RESULTS_DIR}/friends_results.json" \
+        "$SCRIPT_DIR/friend_search_and_list.js"
+}
+
 run_soak_test() {
     echo "Running Soak Test (${SOAK_VUS} concurrent users for ${SOAK_DURATION})..."
     k6 run \
@@ -102,6 +114,9 @@ case "${1:-all}" in
     peak)
         run_peak_test
         ;;
+    friends)
+        run_friend_test
+        ;;
     soak)
         run_soak_test
         generate_report soak
@@ -111,13 +126,14 @@ case "${1:-all}" in
         run_baseline_test
         run_stress_test
         run_peak_test
-        generate_report smoke baseline stress peak
+        run_friend_test
+        generate_report smoke baseline stress peak friends
         ;;
     report)
         generate_report
         ;;
     *)
-        echo "Usage: $0 {smoke|baseline|stress|peak|soak|all|report}"
+        echo "Usage: $0 {smoke|baseline|stress|peak|friends|soak|all|report}"
         exit 1
         ;;
 esac
