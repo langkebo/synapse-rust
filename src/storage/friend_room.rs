@@ -1,6 +1,13 @@
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FriendDmLink {
+    pub owner_user_id: String,
+    pub friend_room_id: String,
+    pub content: serde_json::Value,
+}
+
 /// 创建好友分组的参数
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateFriendGroupParams {
@@ -91,6 +98,38 @@ impl FriendRoomStorage {
         .await?;
 
         Ok(row.map(|r| r.get("content")))
+    }
+
+    /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
+    pub async fn find_friend_lists_by_dm_room_id(
+        &self,
+        dm_room_id: &str,
+    ) -> Result<Vec<FriendDmLink>, sqlx::Error> {
+        sqlx::query_as::<_, FriendDmLink>(
+            r#"
+            WITH latest_friend_lists AS (
+                SELECT DISTINCT ON (COALESCE(sender, user_id))
+                    COALESCE(sender, user_id) AS owner_user_id,
+                    room_id AS friend_room_id,
+                    content,
+                    origin_server_ts
+                FROM events
+                WHERE event_type = 'm.friends.list'
+                  AND state_key = ''
+                ORDER BY COALESCE(sender, user_id), origin_server_ts DESC
+            )
+            SELECT owner_user_id, friend_room_id, content
+            FROM latest_friend_lists
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(COALESCE(content->'friends', '[]'::jsonb)) AS friend
+                WHERE friend->>'dm_room_id' = $1
+            )
+            "#,
+        )
+        .bind(dm_room_id)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     /// 获取好友请求列表

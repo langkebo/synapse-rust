@@ -145,6 +145,105 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
             get(get_room_forward_extremities),
         )
+        .route(
+            "/_synapse/admin/v1/rooms/cleanup",
+            post(cleanup_abnormal_rooms),
+        )
+}
+
+pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use axum::http::Method;
+    use crate::web::routes::route_ledger::RouteEntry;
+    [
+        (Method::GET, "/_synapse/admin/v1/rooms"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/rooms/{room_id}"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/delete"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/members"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/state"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/messages"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/aliases"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/version"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/block"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/block"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/unblock"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
+        (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/purge_history"),
+        (Method::POST, "/_synapse/admin/v1/purge_history"),
+        (Method::POST, "/_synapse/admin/v1/purge_room"),
+        (Method::POST, "/_synapse/admin/v1/shutdown_room"),
+        (Method::GET, "/_synapse/admin/v1/spaces"),
+        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/spaces/{space_id}"),
+        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/users"),
+        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/rooms"),
+        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/stats"),
+        (Method::GET, "/_synapse/admin/v1/room_stats"),
+        (Method::GET, "/_synapse/admin/v1/room_stats/{room_id}"),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
+        ),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}",
+        ),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/kick"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/listings"),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/rooms/{room_id}/listings/public",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/rooms/{room_id}/listings/public",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}",
+        ),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/token_sync"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/search"),
+        (Method::POST, "/_synapse/admin/v1/rooms/search"),
+        (Method::GET, "/_synapse/admin/v1/rooms/search"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
+        ),
+        (Method::POST, "/_synapse/admin/v1/rooms/cleanup"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::room"))
+    .collect()
+}
+
+#[axum::debug_handler]
+pub async fn cleanup_abnormal_rooms(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
+
+    let results = state
+        .services
+        .room_storage
+        .cleanup_abnormal_data(min_age_ms)
+        .await
+        .map_err(|e| ApiError::internal(format!("Cleanup failed: {}", e)))?;
+
+    Ok(Json(results))
 }
 
 async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, ApiError> {
@@ -1253,6 +1352,20 @@ async fn ban_user_internal(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     }
 
+    if let Err(error) = state
+        .services
+        .friend_room_service
+        .sync_dm_room_membership_change(room_id, user_id, "banned", Some(actor_user_id), reason)
+        .await
+    {
+        ::tracing::warn!(
+            "Failed to sync friend DM ban state for room {} and user {}: {}",
+            room_id,
+            user_id,
+            error
+        );
+    }
+
     Ok(json!({
         "user_id": user_id,
         "room_id": room_id,
@@ -1303,6 +1416,7 @@ async fn kick_user_internal(
     state: &AppState,
     room_id: &str,
     user_id: &str,
+    actor_user_id: &str,
     reason: Option<&str>,
 ) -> Result<Value, ApiError> {
     let existing_membership = state
@@ -1360,6 +1474,20 @@ async fn kick_user_internal(
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
         }
         None => {}
+    }
+
+    if let Err(error) = state
+        .services
+        .friend_room_service
+        .sync_dm_room_membership_change(room_id, user_id, "kicked", Some(actor_user_id), reason)
+        .await
+    {
+        ::tracing::warn!(
+            "Failed to sync friend DM kick state for room {} and user {}: {}",
+            room_id,
+            user_id,
+            error
+        );
     }
 
     Ok(json!({
@@ -1421,25 +1549,33 @@ pub async fn unban_user(
 /// Kick a user from a room
 #[axum::debug_handler]
 pub async fn kick_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(
-        kick_user_internal(&state, &room_id, &user_id, body.reason.as_deref()).await?,
+        kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref())
+            .await?,
     ))
 }
 
 #[axum::debug_handler]
 pub async fn kick_user_by_body(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(
-        kick_user_internal(&state, &room_id, &body.user_id, body.reason.as_deref()).await?,
+        kick_user_internal(
+            &state,
+            &room_id,
+            &body.user_id,
+            &admin.user_id,
+            body.reason.as_deref(),
+        )
+        .await?,
     ))
 }
 
