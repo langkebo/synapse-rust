@@ -41,6 +41,37 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/server_version"),
+        (Method::POST, "/_synapse/admin/v1/purge_media_cache"),
+        (Method::POST, "/_synapse/admin/v1/restart"),
+        (Method::GET, "/_synapse/admin/v1/statistics"),
+        (Method::GET, "/_synapse/admin/v1/status"),
+        (Method::GET, "/_synapse/admin/v1/whois/{user_id}"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/whois/{user_id}/{device_id}",
+        ),
+        (Method::GET, "/_synapse/admin/v1/health"),
+        (Method::GET, "/_synapse/admin/v1/config"),
+        (Method::GET, "/_synapse/admin/v1/experimental_features"),
+        (Method::GET, "/_synapse/admin/v1/backups"),
+        (Method::GET, "/_synapse/admin/v1/jitsi/config"),
+        (Method::GET, "/_synapse/admin/v1/invite/blocklist"),
+        (Method::GET, "/_synapse/admin/v1/invite/allowlist"),
+        // The `/_synapse/admin/info` endpoint is registered by the
+        // top-level `create_admin_module_router` with `server::get_admin_info`
+        // — declared here because it shares the module's namespace.
+        (Method::GET, "/_synapse/admin/info"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::server"))
+    .collect()
+}
+
 #[axum::debug_handler]
 pub async fn get_admin_info(
     admin: AdminUser,

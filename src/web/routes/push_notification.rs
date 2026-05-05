@@ -321,3 +321,28 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 
     public_routes.merge(admin_routes).with_state(state)
 }
+
+pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_matrix/client/r0/push/devices"),
+        (Method::POST, "/_matrix/client/r0/push/devices"),
+        (
+            Method::DELETE,
+            "/_matrix/client/r0/push/devices/{device_id}",
+        ),
+        (Method::POST, "/_matrix/client/r0/push/send"),
+        (Method::GET, "/_matrix/client/r0/push/rules"),
+        (Method::POST, "/_matrix/client/r0/push/rules"),
+        (
+            Method::DELETE,
+            "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
+        ),
+        (Method::POST, "/_synapse/admin/v1/push/process"),
+        (Method::POST, "/_synapse/admin/v1/push/cleanup"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
+    .collect()
+}

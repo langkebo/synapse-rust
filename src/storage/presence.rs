@@ -1,6 +1,16 @@
 use crate::cache::CacheManager;
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
+use std::collections::HashMap;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PresenceSnapshot {
+    pub user_id: String,
+    pub presence: String,
+    pub status_msg: Option<String>,
+    pub last_active_ts: Option<i64>,
+}
 
 #[derive(Clone)]
 pub struct PresenceStorage {
@@ -56,6 +66,47 @@ impl PresenceStorage {
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.map(|row| (row.0.unwrap_or_default(), row.1)))
+    }
+
+    /// 与 [`Self::get_presence`] 类似，但额外返回 `last_active_ts`，以便 handler
+    /// 计算 Matrix 规范要求的 `last_active_ago`/`currently_active` 字段。
+    pub async fn get_presence_with_meta(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<(String, Option<String>, Option<i64>)>, sqlx::Error> {
+        let result = sqlx::query_as::<_, (Option<String>, Option<String>, Option<i64>)>(
+            r#"
+            SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|row| (row.0.unwrap_or_default(), row.1, row.2)))
+    }
+
+    pub async fn get_presences(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, (String, Option<String>)>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+            r#"
+            SELECT user_id, presence, status_msg FROM presence WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut map = HashMap::new();
+        for row in rows {
+            map.insert(row.0, (row.1.unwrap_or_default(), row.2));
+        }
+        Ok(map)
     }
 
     pub async fn set_typing(
@@ -268,5 +319,55 @@ impl PresenceStorage {
             Ok(rows) => Ok(rows),
             Err(e) => Err(e),
         }
+    }
+
+    /// 与 [`Self::get_presence_batch`] 类似，但携带 `last_active_ts`，
+    /// 让调用方自行换算 `last_active_ago` / `currently_active`。
+    pub async fn get_presence_batch_with_meta(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
+            r#"
+            SELECT user_id, presence, status_msg, last_active_ts
+            FROM presence
+            WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_presence_snapshots(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, PresenceSnapshot>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, PresenceSnapshot>(
+            r#"
+            SELECT user_id,
+                   COALESCE(presence, 'offline') as presence,
+                   status_msg,
+                   last_active_ts
+            FROM presence
+            WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|snapshot| (snapshot.user_id.clone(), snapshot))
+            .collect())
     }
 }

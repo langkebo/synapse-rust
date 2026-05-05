@@ -25,12 +25,27 @@ impl ToDeviceStorage {
     }
 
     pub async fn device_exists(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query("SELECT 1 FROM devices WHERE user_id = $1 AND device_id = $2")
-            .bind(user_id)
-            .bind(device_id)
-            .fetch_optional(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        // Accept either a regular device or a (non-expired) dehydrated device
+        // (MSC3814) as a valid recipient — without this, to-device messages
+        // addressed to a dehydrated device id are silently dropped.
+        let now = chrono::Utc::now().timestamp_millis();
+        let result = sqlx::query(
+            r#"
+            SELECT 1 AS hit FROM devices
+                WHERE user_id = $1 AND device_id = $2
+            UNION ALL
+            SELECT 1 AS hit FROM dehydrated_devices
+                WHERE user_id = $1 AND device_id = $2
+                  AND (expires_at IS NULL OR expires_at > $3)
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         Ok(result.is_some())
     }

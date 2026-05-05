@@ -5,6 +5,7 @@ use crate::e2ee::cross_signing::storage::CrossSigningStorage;
 use crate::e2ee::crypto::CryptoError;
 use crate::e2ee::signed_json::verify_one_time_key_signature;
 use crate::error::ApiError;
+use crate::storage::DehydratedDeviceStorage;
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 pub struct DeviceKeyService {
     storage: DeviceKeyStorage,
     cross_signing_storage: Option<Arc<CrossSigningStorage>>,
+    dehydrated_device_storage: Option<DehydratedDeviceStorage>,
     cache: Arc<CacheManager>,
 }
 
@@ -21,12 +23,18 @@ impl DeviceKeyService {
         Self {
             storage,
             cross_signing_storage: None,
+            dehydrated_device_storage: None,
             cache,
         }
     }
 
     pub fn with_cross_signing_storage(mut self, storage: Arc<CrossSigningStorage>) -> Self {
         self.cross_signing_storage = Some(storage);
+        self
+    }
+
+    pub fn with_dehydrated_device_storage(mut self, storage: DehydratedDeviceStorage) -> Self {
+        self.dehydrated_device_storage = Some(storage);
         self
     }
 
@@ -59,36 +67,6 @@ impl DeviceKeyService {
                     }
                 }
 
-                let cache_key = format!("device_keys_bulk:{}", user_id);
-                if let Ok(Some(cached)) = self
-                    .cache
-                    .get::<serde_json::Map<String, Value>>(&cache_key)
-                    .await
-                {
-                    let dids: Vec<String> = if let Some(arr) = device_ids.as_array() {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    } else {
-                        vec!["*".to_string()]
-                    };
-
-                    let filtered: serde_json::Map<String, Value> =
-                        if dids.contains(&"*".to_string()) {
-                            cached
-                        } else {
-                            cached
-                                .into_iter()
-                                .filter(|(k, _)| dids.contains(k))
-                                .collect()
-                        };
-
-                    if !filtered.is_empty() {
-                        device_keys.insert(user_id.clone(), Value::Object(filtered));
-                        continue;
-                    }
-                }
-
                 let device_ids: Vec<String> = if let Some(arr) = device_ids.as_array() {
                     arr.iter()
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -97,54 +75,72 @@ impl DeviceKeyService {
                     vec!["*".to_string()]
                 };
 
-                let keys = if device_ids.contains(&"*".to_string()) {
-                    self.storage.get_all_device_keys(user_id).await?
-                } else {
-                    self.storage
-                        .get_device_keys(user_id, device_ids.as_slice())
-                        .await?
+                let cache_key = format!("device_keys_bulk:{}", user_id);
+                let cached_user_keys: Option<serde_json::Map<String, Value>> = match self
+                    .cache
+                    .get::<serde_json::Map<String, Value>>(&cache_key)
+                    .await
+                {
+                    Ok(Some(cached)) => {
+                        let filtered: serde_json::Map<String, Value> =
+                            if device_ids.contains(&"*".to_string()) {
+                                cached
+                            } else {
+                                cached
+                                    .into_iter()
+                                    .filter(|(k, _)| device_ids.contains(k))
+                                    .collect()
+                            };
+                        if filtered.is_empty() {
+                            None
+                        } else {
+                            Some(filtered)
+                        }
+                    }
+                    _ => None,
                 };
 
-                let mut user_keys = serde_json::Map::new();
-                for key in keys {
-                    let curve25519_key = if key.algorithm == "curve25519" {
-                        key.public_key.clone()
+                let mut user_keys = if let Some(cached) = cached_user_keys {
+                    cached
+                } else {
+                    let keys = if device_ids.contains(&"*".to_string()) {
+                        self.storage.get_all_device_keys(user_id).await?
                     } else {
-                        String::new()
-                    };
-                    let ed25519_key = if key.algorithm == "ed25519" {
-                        key.public_key.clone()
-                    } else {
-                        String::new()
+                        self.storage
+                            .get_device_keys(user_id, device_ids.as_slice())
+                            .await?
                     };
 
-                    let mut keys_map = serde_json::Map::new();
-                    if !curve25519_key.is_empty() {
-                        keys_map.insert(
-                            format!("curve25519:{}", key.key_id),
-                            serde_json::Value::String(curve25519_key),
-                        );
-                    }
-                    if !ed25519_key.is_empty() {
-                        keys_map.insert(
-                            format!("ed25519:{}", key.key_id),
-                            serde_json::Value::String(ed25519_key),
-                        );
-                    }
+                    let mut fetched = serde_json::Map::new();
+                    Self::populate_user_keys(&mut fetched, keys);
 
-                    let device_key = serde_json::json!({
-                        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-                        "device_id": key.device_id,
-                        "keys": keys_map,
-                        "signatures": key.signatures,
-                        "user_id": key.user_id,
-                    });
-                    user_keys.insert(key.device_id.clone(), device_key);
-                }
+                    if !fetched.is_empty() {
+                        let _ = self.cache.set(&cache_key, &fetched, 300).await;
+                    }
+                    fetched
+                };
 
-                if !user_keys.is_empty() {
-                    let cache_key = format!("device_keys_bulk:{}", user_id);
-                    let _ = self.cache.set(&cache_key, &user_keys, 300).await;
+                // MSC3814 — merge the user's dehydrated device into the keys
+                // response so that senders can discover it and address
+                // to-device messages to it. We never cache this branch since
+                // the dehydrated device can be rotated independently of the
+                // regular device key set.
+                if let Some(dh_storage) = &self.dehydrated_device_storage {
+                    if let Ok(Some(record)) = dh_storage.get_by_user(user_id).await {
+                        let include = device_ids.is_empty()
+                            || device_ids.contains(&"*".to_string())
+                            || device_ids.iter().any(|d| d == &record.device_id);
+                        if include {
+                            if let Some(device_keys) = record
+                                .device_data
+                                .as_object()
+                                .and_then(|obj| obj.get("device_keys"))
+                                .filter(|v| v.is_object())
+                            {
+                                user_keys.insert(record.device_id.clone(), device_keys.clone());
+                            }
+                        }
+                    }
                 }
 
                 device_keys.insert(user_id.clone(), serde_json::Value::Object(user_keys));
@@ -480,6 +476,22 @@ impl DeviceKeyService {
                                         );
                                     }
                                 }
+                                continue;
+                            }
+
+                            // MSC3814 — fall back to the dehydrated device's
+                            // one-time / fallback key pool when the regular
+                            // device storage has nothing for this device.
+                            if let Some(dh_storage) = &self.dehydrated_device_storage {
+                                if let Ok(Some((key_id, payload))) = dh_storage
+                                    .claim_one_time_key(user_id, device_id, algo_str)
+                                    .await
+                                {
+                                    user_keys.insert(
+                                        device_id.clone(),
+                                        serde_json::json!({ key_id: payload }),
+                                    );
+                                }
                             }
                         }
                     }
@@ -561,6 +573,35 @@ impl DeviceKeyService {
         Ok(serde_json::json!({
             "failures": failures
         }))
+    }
+
+    fn populate_user_keys(target: &mut serde_json::Map<String, Value>, keys: Vec<DeviceKey>) {
+        for key in keys {
+            let entry = target.entry(key.device_id.clone()).or_insert_with(|| {
+                serde_json::json!({
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                    "device_id": key.device_id,
+                    "keys": serde_json::Map::<String, Value>::new(),
+                    "signatures": key.signatures.clone(),
+                    "user_id": key.user_id,
+                })
+            });
+
+            if let Some(obj) = entry.as_object_mut() {
+                if let Some(keys_map) = obj.get_mut("keys").and_then(|v| v.as_object_mut()) {
+                    let prefix = if key.algorithm == "curve25519" {
+                        "curve25519"
+                    } else {
+                        "ed25519"
+                    };
+                    keys_map.insert(
+                        format!("{}:{}", prefix, key.key_id),
+                        Value::String(key.public_key.clone()),
+                    );
+                }
+                obj.insert("signatures".to_string(), key.signatures);
+            }
+        }
     }
 }
 

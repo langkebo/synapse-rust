@@ -136,6 +136,18 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
         .route(
             "/_matrix/client/r0/register/captcha/status",
             get(get_captcha_status),
+        )
+        .route(
+            "/_matrix/client/v3/register/captcha/send",
+            post(send_captcha),
+        )
+        .route(
+            "/_matrix/client/v3/register/captcha/verify",
+            post(verify_captcha),
+        )
+        .route(
+            "/_matrix/client/v3/register/captcha/status",
+            get(get_captcha_status),
         );
 
     let admin_routes = axum::Router::new()
@@ -146,4 +158,21 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
         ));
 
     public_routes.merge(admin_routes).with_state(state)
+}
+
+pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_matrix/client/r0/register/captcha/send"),
+        (Method::POST, "/_matrix/client/r0/register/captcha/verify"),
+        (Method::GET, "/_matrix/client/r0/register/captcha/status"),
+        (Method::POST, "/_matrix/client/v3/register/captcha/send"),
+        (Method::POST, "/_matrix/client/v3/register/captcha/verify"),
+        (Method::GET, "/_matrix/client/v3/register/captcha/status"),
+        (Method::POST, "/_synapse/admin/v1/captcha/cleanup"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "captcha"))
+    .collect()
 }

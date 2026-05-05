@@ -1,0 +1,83 @@
+# docker-compose.web.yml
+# ----------------------------------------------------------------------------
+# Adds Element Web client + nginx TLS reverse proxy to the base stack.
+#
+# Use together with docker-compose.yml (and optionally docker-compose.image.yml
+# to pull a published synapse-rust image instead of rebuilding):
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.image.yml \
+#     -f docker-compose.web.yml \
+#     up -d
+#
+# Hosts you must add to /etc/hosts on the host running the browser:
+#   127.0.0.1 matrix.test element.test
+#
+# Certificates are issued via mkcert (run `mkcert -install` once on the host
+# to trust the local CA, then the *.crt/*.key files in docker/nginx/ssl/ are
+# trusted automatically by browsers and curl).
+# ----------------------------------------------------------------------------
+
+services:
+  element-web:
+    image: vectorim/element-web:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-element-web
+    restart: unless-stopped
+    networks:
+      - synapse_network
+    volumes:
+      - ./element/config.json:/app/config.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-nginx
+    restart: unless-stopped
+    depends_on:
+      synapse-rust:
+        condition: service_healthy
+      element-web:
+        condition: service_healthy
+    networks:
+      - synapse_network
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl/matrix.test.crt:/etc/nginx/ssl/matrix.test.crt:ro
+      - ./nginx/ssl/matrix.test.key:/etc/nginx/ssl/matrix.test.key:ro
+      - ./logs/nginx:/var/log/nginx
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- --no-check-certificate https://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Free 8448 on the synapse-rust container so nginx can bind it on the host.
+  # (Synapse-rust container still listens on 8448 internally; we just don't
+  # publish it on the host port any more.)
+  synapse-rust:
+    ports: !reset null
+    expose:
+      - "8008"
+      - "8448"
+      - "9090"

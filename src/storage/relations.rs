@@ -107,6 +107,30 @@ impl RelationsStorage {
         .await
     }
 
+    pub async fn count_relations(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        relation_type: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        let count: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)
+            FROM event_relations
+            WHERE room_id = $1 AND relates_to_event_id = $2
+              AND ($3::text IS NULL OR relation_type = $3)
+              AND is_redacted = FALSE
+            "#,
+        )
+        .bind(room_id)
+        .bind(relates_to_event_id)
+        .bind(relation_type)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(count.0)
+    }
+
     pub async fn get_relations(
         &self,
         params: RelationQueryParams,

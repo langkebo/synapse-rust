@@ -22,6 +22,7 @@ mod api_federation_tests;
 mod api_friend_room_routes_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
+mod api_key_backup_route_table_tests;
 mod api_media_routes_tests;
 #[cfg(feature = "openclaw-routes")]
 mod api_openclaw_routes_tests;
@@ -34,6 +35,7 @@ mod api_rendezvous_routes_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
 mod api_room_tests;
+mod api_route_ledger_tests;
 mod api_search_thread_tests;
 mod api_sliding_sync_contract_tests;
 mod api_space_routes_tests;
@@ -45,6 +47,7 @@ mod api_typing_routes_tests;
 mod api_widget_tests;
 mod api_worker_replication_auth_tests;
 mod cache_tests;
+mod cleanup_tests;
 mod concurrency_tests;
 mod database_integrity_tests;
 mod federation_error_tests;
@@ -52,6 +55,7 @@ mod metrics_tests;
 mod password_hash_pool_tests;
 mod protocol_compliance_tests;
 mod regex_cache_tests;
+mod rtc_transports_tests;
 mod transaction_tests;
 mod voice_routes_tests;
 
@@ -90,7 +94,16 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     let result = if use_isolated {
         synapse_rust::test_utils::prepare_isolated_test_pool().await
     } else {
-        synapse_rust::test_utils::prepare_shared_test_pool().await
+        match synapse_rust::test_utils::prepare_shared_test_pool().await {
+            Ok(pool) => Ok(pool),
+            Err(error) if should_fallback_to_isolated_pool(&error) => {
+                eprintln!(
+                    "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
+                );
+                synapse_rust::test_utils::prepare_isolated_test_pool().await
+            }
+            Err(error) => Err(error),
+        }
     };
 
     match result {
@@ -111,6 +124,13 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     }
 }
 
+fn should_fallback_to_isolated_pool(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("out of shared memory")
+        || error.contains("failed to clone template")
+        || error.contains("template schema initialization")
+}
+
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
     get_test_pool().await.unwrap_or_else(|| {
         panic!(
@@ -122,16 +142,35 @@ pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
 pub fn clear_test_cache() {}
 
 pub async fn setup_test_app() -> Option<axum::Router> {
+    setup_test_app_with_config(|_| {}).await.map(|(app, _)| app)
+}
+
+pub async fn setup_test_app_with_config<F>(
+    configure: F,
+) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+where
+    F: FnOnce(&mut synapse_rust::services::ServiceContainer),
+{
     use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_rust::services::ServiceContainer;
     use synapse_rust::web::routes::state::AppState;
 
     let pool = get_test_pool().await?;
     let cache = std::sync::Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
+    configure(&mut container);
     let state = AppState::new(container, cache);
 
-    Some(synapse_rust::web::create_router(state))
+    let app = synapse_rust::web::create_router(state.clone());
+    Some((app, state))
+}
+
+pub async fn setup_test_app_with_state(
+) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+    setup_test_app_with_config(|container| {
+        container.config.federation.allow_ingress = true;
+    })
+    .await
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {

@@ -34,8 +34,8 @@ impl Ed25519PublicKey {
     }
 
     pub fn from_base64(s: &str) -> Result<Self, CryptoError> {
-        let bytes = base64::Engine::decode(&MATRIX_BASE64, s)
-            .map_err(|_| CryptoError::InvalidBase64)?;
+        let bytes =
+            base64::Engine::decode(&MATRIX_BASE64, s).map_err(|_| CryptoError::InvalidBase64)?;
         if bytes.len() != 32 {
             return Err(CryptoError::InvalidKeyLength);
         }

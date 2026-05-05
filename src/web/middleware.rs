@@ -344,10 +344,7 @@ fn get_allowed_origins() -> Vec<String> {
         }
     }
 
-    CONFIG_ALLOWED_ORIGINS
-        .get()
-        .cloned()
-        .unwrap_or_default()
+    CONFIG_ALLOWED_ORIGINS.get().cloned().unwrap_or_default()
 }
 
 fn is_origin_allowed(origin: &str) -> bool {
@@ -644,6 +641,17 @@ pub fn extract_token(headers: &HeaderMap) -> Option<String> {
     crate::web::utils::auth::bearer_token_opt(headers)
 }
 
+fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/_matrix/client/r0/sync"
+            | "/_matrix/client/v1/sync"
+            | "/_matrix/client/v3/sync"
+            | "/_matrix/client/unstable/org.matrix.msc3575/sync"
+            | "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
+    )
+}
+
 pub async fn rate_limit_middleware(
     State(state): State<crate::web::routes::AppState>,
     request: Request<Body>,
@@ -673,7 +681,8 @@ pub async fn rate_limit_middleware(
         .map(|c| c.exempt_path_prefixes.as_slice())
         .unwrap_or(&config.exempt_path_prefixes);
 
-    if exempt_paths.iter().any(|p: &String| p == path)
+    if is_sync_rate_limit_exempt_path(path)
+        || exempt_paths.iter().any(|p: &String| p == path)
         || exempt_path_prefixes
             .iter()
             .any(|p: &String| !p.is_empty() && path.starts_with(p))
@@ -1215,7 +1224,13 @@ pub async fn replication_http_auth_middleware(
         .get("x-synapse-worker-secret")
         .and_then(|h| h.to_str().ok())
         .unwrap_or_default();
-    if token != secret {
+    // 必须用常量时间比较 —— 普通 != 在字符串首次失配处即返回，
+    // 让攻击者按字节恢复 worker 复制密钥。这里用 subtle::ConstantTimeEq
+    // 把比较时间钉死在固定长度，并先校验长度不一致直接拒绝。
+    use subtle::ConstantTimeEq;
+    let token_bytes = token.as_bytes();
+    let secret_bytes = secret.as_bytes();
+    if token_bytes.len() != secret_bytes.len() || token_bytes.ct_eq(secret_bytes).unwrap_u8() != 1 {
         return ApiError::unauthorized("Invalid replication secret".to_string()).into_response();
     }
     next.run(request).await
@@ -1301,7 +1316,7 @@ fn canonical_federation_request_bytes(
     result
 }
 
-async fn verify_federation_signature_with_cache(
+pub(crate) async fn verify_federation_signature_with_cache(
     state: &crate::web::routes::AppState,
     origin: &str,
     key_id: &str,
@@ -1847,6 +1862,20 @@ mod tests {
     }
 
     #[test]
+    fn test_is_sync_rate_limit_exempt_path() {
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/r0/sync"));
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v1/sync"));
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v3/sync"));
+        assert!(is_sync_rate_limit_exempt_path(
+            "/_matrix/client/unstable/org.matrix.msc3575/sync"
+        ));
+        assert!(is_sync_rate_limit_exempt_path(
+            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
+        ));
+        assert!(!is_sync_rate_limit_exempt_path("/_matrix/client/v3/events"));
+    }
+
+    #[test]
     fn test_extract_client_ip_forwarded() {
         let mut headers = HeaderMap::new();
         let priority = vec!["forwarded".to_string()];
@@ -2274,6 +2303,85 @@ mod tests {
 
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(json["error"], "Cross-site requests are not allowed");
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_middleware_exempts_sync_endpoints() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test();
+        services.config.rate_limit = RateLimitConfig {
+            enabled: true,
+            default: RateLimitRule {
+                per_second: 1,
+                burst_size: 1,
+            },
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/".to_string(),
+                match_type: RateLimitMatchType::Prefix,
+                rule: RateLimitRule {
+                    per_second: 1,
+                    burst_size: 1,
+                },
+            }],
+            ..RateLimitConfig::default()
+        };
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/_matrix/client/v3/sync", get(ok_handler))
+            .route("/rooms/test/send", get(ok_handler))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                rate_limit_middleware,
+            ))
+            .with_state(state);
+
+        let sync_request = || {
+            Request::builder()
+                .method(Method::GET)
+                .uri("/_matrix/client/v3/sync")
+                .header("x-forwarded-for", "1.2.3.4")
+                .body(Body::empty())
+                .expect("request should build")
+        };
+        let normal_request = || {
+            Request::builder()
+                .method(Method::GET)
+                .uri("/rooms/test/send")
+                .header("x-forwarded-for", "1.2.3.4")
+                .body(Body::empty())
+                .expect("request should build")
+        };
+
+        let sync_response_1 = app
+            .clone()
+            .oneshot(sync_request())
+            .await
+            .expect("sync request should succeed");
+        let sync_response_2 = app
+            .clone()
+            .oneshot(sync_request())
+            .await
+            .expect("second sync request should succeed");
+        let normal_response_1 = app
+            .clone()
+            .oneshot(normal_request())
+            .await
+            .expect("normal request should succeed");
+        let normal_response_2 = app
+            .oneshot(normal_request())
+            .await
+            .expect("second normal request should return a response");
+
+        assert_eq!(sync_response_1.status(), StatusCode::OK);
+        assert_eq!(sync_response_2.status(), StatusCode::OK);
+        assert_eq!(normal_response_1.status(), StatusCode::OK);
+        assert_eq!(normal_response_2.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

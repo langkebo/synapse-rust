@@ -541,7 +541,7 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadSubscription>, sqlx::Error> {
         sqlx::query_as::<_, ThreadSubscription>(
             r#"
-            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, subscribed_ts, updated_ts
+            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
             FROM thread_subscriptions
             WHERE room_id = $1 AND thread_id = $2 AND user_id = $3
             "#,
@@ -562,7 +562,7 @@ impl ThreadStorage {
 
         sqlx::query_as::<_, ThreadSubscription>(
             r#"
-            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, subscribed_ts, updated_ts
+            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
             FROM thread_subscriptions
             WHERE user_id = $1
             ORDER BY updated_ts DESC

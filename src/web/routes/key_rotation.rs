@@ -142,3 +142,22 @@ pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
         )
         .with_state(state)
 }
+
+pub fn key_rotation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_matrix/client/v1/keys/rotation/status"),
+        (Method::POST, "/_matrix/client/v1/keys/rotation/rotate"),
+        (
+            Method::GET,
+            "/_matrix/client/v1/keys/rotation/history/{device_id}",
+        ),
+        (Method::POST, "/_matrix/client/v1/keys/rotation/revoke"),
+        (Method::PUT, "/_matrix/client/v1/keys/rotation/config"),
+        (Method::GET, "/_matrix/client/v1/keys/rotation/check"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "key_rotation"))
+    .collect()
+}

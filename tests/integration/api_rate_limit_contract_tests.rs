@@ -24,6 +24,22 @@ async fn setup_test_app_with_rate_limit_rule(rule: RateLimitEndpointRule) -> Opt
     Some(synapse_rust::web::create_router(state))
 }
 
+async fn setup_test_app_with_sliding_sync_rate_limit(
+    initial: RateLimitRule,
+    incremental: RateLimitRule,
+) -> Option<axum::Router> {
+    let pool = super::get_test_pool().await?;
+    let mut container = ServiceContainer::new_test_with_pool(pool);
+    container.config.rate_limit.enabled = false;
+    container.config.rate_limit.sync.enabled = true;
+    container.config.rate_limit.sync.initial = initial;
+    container.config.rate_limit.sync.incremental = incremental;
+
+    let cache = Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+    Some(synapse_rust::web::create_router(state))
+}
+
 async fn register_user_and_get_token(app: &axum::Router) -> String {
     let request = Request::builder()
         .method("POST")
@@ -107,16 +123,18 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
 
 #[tokio::test]
 async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
-    let rule = RateLimitEndpointRule {
-        path: "/_matrix/client/v3/sync".to_string(),
-        match_type: RateLimitMatchType::Exact,
-        rule: RateLimitRule {
+    let Some(app) = setup_test_app_with_sliding_sync_rate_limit(
+        RateLimitRule {
             per_second: 1,
             burst_size: 1,
         },
-    };
-
-    let Some(app) = setup_test_app_with_rate_limit_rule(rule).await else {
+        RateLimitRule {
+            per_second: 10,
+            burst_size: 10,
+        },
+    )
+    .await
+    else {
         return;
     };
     let token = register_user_and_get_token(&app).await;

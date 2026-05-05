@@ -1,0 +1,131 @@
+name: Ledger Export
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ "v*", "release-*" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ledger-export-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  SDK_REPOSITORY: langkebo/matrix-js-sdk
+  LEDGER_ARTIFACT_NAME: ledger-export-${{ github.sha }}
+
+jobs:
+  publish-ledger-export:
+    name: Publish Ledger Export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Build ledger exporter
+        run: cargo build --locked --bin synapse_ledger_export
+
+      - name: Render ledger export artifacts
+        run: |
+          mkdir -p artifacts/ledger-export
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          for profile in default worker openclaw all; do
+            ./target/debug/synapse_ledger_export \
+              --profile="${profile}" \
+              --commit="${GITHUB_SHA}" \
+              --timestamp="${timestamp}" \
+              --output="artifacts/ledger-export/${profile}.json"
+          done
+
+      - name: Upload ledger export artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.LEDGER_ARTIFACT_NAME }}
+          path: artifacts/ledger-export/*.json
+          retention-days: 14
+
+      - name: Notify SDK repo
+        if: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN != '' }}
+        env:
+          DISPATCH_TOKEN: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import ssl
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          repository = os.environ["SDK_REPOSITORY"]
+          payload = {
+              "event_type": "synapse-ledger-export",
+              "client_payload": {
+                  "source_repository": os.environ["GITHUB_REPOSITORY"],
+                  "source_sha": os.environ["GITHUB_SHA"],
+                  "source_ref": os.environ["GITHUB_REF_NAME"],
+                  "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+                  "artifact_name": os.environ["LEDGER_ARTIFACT_NAME"],
+                  "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              },
+          }
+
+          url = f"https://api.github.com/repos/{repository}/dispatches"
+          body = json.dumps(payload).encode("utf-8")
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['DISPATCH_TOKEN']}",
+              "Content-Type": "application/json",
+              "User-Agent": "synapse-rust-ledger-export",
+          }
+
+          backoffs = [0, 2, 4]
+          last_error = None
+          for attempt, delay in enumerate(backoffs, start=1):
+              if delay:
+                  time.sleep(delay)
+              request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+              try:
+                  with urllib.request.urlopen(request, context=ssl.create_default_context()) as response:
+                      status = response.getcode()
+                      if 200 <= status < 300:
+                          print(f"repository_dispatch delivered on attempt {attempt} (status {status})")
+                          sys.exit(0)
+                      last_error = f"unexpected status {status}"
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode("utf-8", errors="replace")
+                  last_error = f"attempt {attempt} failed with HTTP {error.code}: {detail}"
+                  print(last_error, file=sys.stderr)
+              except Exception as error:  # noqa: BLE001
+                  last_error = f"attempt {attempt} failed with {type(error).__name__}: {error}"
+                  print(last_error, file=sys.stderr)
+
+          print(
+              "repository_dispatch failed after 3 attempts\n"
+              f"  target repository: {repository}\n"
+              f"  source sha: {os.environ['GITHUB_SHA']}\n"
+              f"  workflow run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\n"
+              f"  artifact: {os.environ['LEDGER_ARTIFACT_NAME']}\n"
+              f"  last error: {last_error}",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+          PY
+
+      - name: Skip SDK notify when token is missing
+        if: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN == '' }}
+        run: |
+          echo "MATRIX_JS_SDK_DISPATCH_TOKEN is not configured; ledger export artifact was published but no downstream dispatch was sent."

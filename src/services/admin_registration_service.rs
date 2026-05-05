@@ -208,6 +208,9 @@ impl AdminRegistrationService {
             ));
         }
 
+        let provided = hex::decode(&request.mac)
+            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
+
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
 
@@ -229,83 +232,14 @@ impl AdminRegistrationService {
             mac.update(user_type.as_bytes());
         }
 
-        let expected_mac = mac.finalize().into_bytes();
-        let expected_hex = expected_mac
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>();
-
-        if request.admin.unwrap_or(false) {
-            // Support both padded and unpadded "admin" string for compatibility
-            if !constant_time_eq(&expected_hex, &request.mac) {
-                let mut mac_unpadded =
-                    HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
-                        .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
-                mac_unpadded.update(request.nonce.as_bytes());
-                mac_unpadded.update(b"\0");
-                mac_unpadded.update(request.username.as_bytes());
-                mac_unpadded.update(b"\0");
-                mac_unpadded.update(request.password.as_bytes());
-                mac_unpadded.update(b"\0");
-                mac_unpadded.update(b"admin");
-                if let Some(user_type) = &request.user_type {
-                    mac_unpadded.update(b"\0");
-                    mac_unpadded.update(user_type.as_bytes());
-                }
-                let expected_mac_unpadded = mac_unpadded.finalize().into_bytes();
-                let expected_hex_unpadded = expected_mac_unpadded
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<String>();
-
-                if !constant_time_eq(&expected_hex_unpadded, &request.mac) {
-                    return Err(ApiError::forbidden("HMAC incorrect".to_string()));
-                }
-            }
-        } else if !constant_time_eq(&expected_hex, &request.mac) {
-            return Err(ApiError::forbidden("HMAC incorrect".to_string()));
-        }
-
-        Ok(())
+        mac.verify_slice(&provided)
+            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))
     }
-}
-
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-
-    let mut result = 0u8;
-    for (x, y) in a.bytes().zip(b.bytes()) {
-        result |= x ^ y;
-    }
-
-    result == 0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_constant_time_eq_equal() {
-        assert!(constant_time_eq("hello", "hello"));
-        assert!(constant_time_eq("test123", "test123"));
-        assert!(constant_time_eq("", ""));
-    }
-
-    #[test]
-    fn test_constant_time_eq_not_equal() {
-        assert!(!constant_time_eq("hello", "world"));
-        assert!(!constant_time_eq("test", "Test"));
-        assert!(!constant_time_eq("abc", "abcd"));
-    }
-
-    #[test]
-    fn test_constant_time_eq_different_lengths() {
-        assert!(!constant_time_eq("short", "longer"));
-        assert!(!constant_time_eq("a", "ab"));
-    }
 
     #[test]
     fn test_nonce_response_serialization() {

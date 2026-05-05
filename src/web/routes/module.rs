@@ -1054,3 +1054,64 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
         ))
         .with_state(state)
 }
+
+pub fn module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/admin/v1/modules"),
+        (Method::GET, "/_synapse/admin/v1/modules"),
+        (Method::GET, "/_synapse/admin/v1/modules/type/{module_type}"),
+        (Method::GET, "/_synapse/admin/v1/modules/{module_name}"),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/modules/{module_name}/config",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/modules/{module_name}/enable",
+        ),
+        (Method::DELETE, "/_synapse/admin/v1/modules/{module_name}"),
+        (Method::POST, "/_synapse/admin/v1/modules/check_spam"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/modules/check_third_party_rule",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/modules/spam_check/{event_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/modules/spam_check/sender/{sender}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/modules/third_party_rule/{event_id}",
+        ),
+        (Method::GET, "/_synapse/admin/v1/modules/logs/{module_name}"),
+        (Method::POST, "/_synapse/admin/v1/account_validity"),
+        (Method::GET, "/_synapse/admin/v1/account_validity/{user_id}"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/account_validity/{user_id}/renew",
+        ),
+        (Method::POST, "/_synapse/admin/v1/password_auth_providers"),
+        (Method::GET, "/_synapse/admin/v1/password_auth_providers"),
+        (Method::POST, "/_synapse/admin/v1/presence_routes"),
+        (Method::GET, "/_synapse/admin/v1/presence_routes"),
+        (Method::POST, "/_synapse/admin/v1/media_callbacks"),
+        (Method::GET, "/_synapse/admin/v1/media_callbacks"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/media_callbacks/{callback_type}",
+        ),
+        (Method::POST, "/_synapse/admin/v1/rate_limit_callbacks"),
+        (Method::GET, "/_synapse/admin/v1/rate_limit_callbacks"),
+        (Method::POST, "/_synapse/admin/v1/account_data_callbacks"),
+        (Method::GET, "/_synapse/admin/v1/account_data_callbacks"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "module"))
+    .collect()
+}

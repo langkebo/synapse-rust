@@ -2842,7 +2842,7 @@ async fn test_federation_keys_upload_returns_unrecognized_with_migration_hint() 
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -2879,7 +2879,7 @@ async fn test_federation_legacy_keys_claim_returns_unrecognized_with_supported_p
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -2916,7 +2916,7 @@ async fn test_federation_legacy_keys_query_returns_unrecognized_with_supported_p
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();

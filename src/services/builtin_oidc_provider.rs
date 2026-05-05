@@ -4,13 +4,21 @@
 
 use crate::common::error::ApiError;
 use crate::common::{BuiltinOidcConfig, BuiltinOidcUser};
+use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use rand::Rng;
+use rsa::pkcs1::EncodeRsaPrivateKey;
+use rsa::pkcs1v15::SigningKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rsa::traits::PublicKeyParts;
+use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tracing::info;
+use subtle::ConstantTimeEq;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // ============ 类型定义 ============
@@ -22,6 +30,8 @@ pub struct OidcDiscoveryDocument {
     pub token_endpoint: String,
     pub userinfo_endpoint: String,
     pub jwks_uri: String,
+    pub registration_endpoint: Option<String>,
+    pub revocation_endpoint: Option<String>,
     pub end_session_endpoint: Option<String>,
     pub response_types_supported: Vec<String>,
     pub subject_types_supported: Vec<String>,
@@ -73,6 +83,7 @@ pub struct Jwks {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Jwk {
     pub kty: String,
+    #[serde(rename = "use")]
     pub use_: String,
     pub kid: String,
     pub alg: String,
@@ -118,7 +129,8 @@ pub struct AuthSession {
     pub scope: String,
     pub state: String,
     pub nonce: Option<String>,
-    pub code_verifier: Option<String>,
+    /// 客户端在 /authorize 提交的 PKCE code_challenge (S256, BASE64URL(SHA256(verifier)))
+    pub code_challenge: Option<String>,
     pub user_id: String,
     pub created_at: Instant,
 }
@@ -127,7 +139,10 @@ pub struct AuthSession {
 
 pub struct BuiltinOidcProvider {
     config: Arc<BuiltinOidcConfig>,
-    signing_key: Vec<u8>,
+    signing_key: RsaPrivateKey,
+    encoding_key: EncodingKey,
+    decoding_key: DecodingKey,
+    key_id: String,
     auth_sessions:
         std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
     refresh_tokens:
@@ -149,23 +164,82 @@ pub struct AuthorizeRequest {
     pub scope: String,
     pub state: String,
     pub nonce: Option<String>,
+    /// PKCE code_challenge 由客户端生成: BASE64URL(SHA256(code_verifier))
+    /// 字段名保留为 `code_verifier` 以兼容外层路由参数, 语义见文档.
+    #[serde(alias = "code_challenge")]
     pub code_verifier: Option<String>,
     pub username: String,
     pub password: String,
 }
 
 impl BuiltinOidcProvider {
-    pub fn new(config: Arc<BuiltinOidcConfig>) -> Self {
-        // 生成随机签名密钥
-        let mut rng = rand::thread_rng();
-        let signing_key: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
+        let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
+        let der = signing_key
+            .to_pkcs1_der()
+            .map_err(|e| ApiError::internal(format!("OIDC RSA serialize: {}", e)))?;
+        let encoding_key = EncodingKey::from_rsa_der(der.as_bytes());
 
-        Self {
+        let public_der = signing_key
+            .to_public_key()
+            .to_public_key_der()
+            .map_err(|e| ApiError::internal(format!("OIDC RSA pub serialize: {}", e)))?;
+        let decoding_key = DecodingKey::from_rsa_der(public_der.as_bytes());
+
+        // 计算稳定的 kid: SHA256 over public-key DER, 取前 12B base64url
+        let mut hasher = Sha256::new();
+        hasher.update(public_der.as_bytes());
+        let digest = hasher.finalize();
+        let key_id = URL_SAFE_NO_PAD.encode(&digest[..12]);
+
+        Ok(Self {
             config,
             signing_key,
+            encoding_key,
+            decoding_key,
+            key_id,
             auth_sessions: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             refresh_tokens: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+        })
+    }
+
+    /// 从指定路径加载 RSA 私钥, 不存在则生成并持久化.
+    /// path 为 None 时仅在内存中生成 (重启后所有 token 失效, 仅适合开发).
+    fn load_or_generate_key(path: Option<&Path>) -> Result<RsaPrivateKey, ApiError> {
+        if let Some(p) = path {
+            if p.exists() {
+                let pem = std::fs::read_to_string(p)
+                    .map_err(|e| ApiError::internal(format!("OIDC signing key read: {}", e)))?;
+                return RsaPrivateKey::from_pkcs8_pem(&pem)
+                    .map_err(|e| ApiError::internal(format!("OIDC signing key parse: {}", e)));
+            }
         }
+
+        info!("Generating new RSA-2048 key for builtin OIDC provider");
+        let mut rng = rand::thread_rng();
+        let key = RsaPrivateKey::new(&mut rng, 2048)
+            .map_err(|e| ApiError::internal(format!("OIDC RSA generate: {}", e)))?;
+
+        if let Some(p) = path {
+            use rsa::pkcs8::EncodePrivateKey;
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let pem = key
+                .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+                .map_err(|e| ApiError::internal(format!("OIDC RSA pem: {}", e)))?;
+            std::fs::write(p, pem.as_bytes())
+                .map_err(|e| ApiError::internal(format!("OIDC signing key write: {}", e)))?;
+            info!("Persisted builtin OIDC signing key to {}", p.display());
+        } else {
+            warn!(
+                "BuiltinOidcProvider: signing_key_path not configured; key is ephemeral and \
+                 all issued tokens will be invalidated on restart"
+            );
+        }
+
+        let _ = SigningKey::<Sha256>::new(key.clone()); // 探测 SHA256 sign 可用
+        Ok(key)
     }
 
     /// 获取 OIDC 发现文档
@@ -177,6 +251,8 @@ impl BuiltinOidcProvider {
             token_endpoint: format!("{}/_matrix/client/v3/oidc/token", issuer),
             userinfo_endpoint: format!("{}/_matrix/client/v3/oidc/userinfo", issuer),
             jwks_uri: format!("{}/.well-known/jwks.json", issuer),
+            registration_endpoint: Some(format!("{}/_matrix/client/v3/oidc/register", issuer)),
+            revocation_endpoint: Some(format!("{}/_matrix/client/v3/oidc/revoke", issuer)),
             end_session_endpoint: Some(format!("{}/_matrix/client/v3/oidc/logout", issuer)),
             response_types_supported: vec!["code".to_string()],
             subject_types_supported: vec!["public".to_string()],
@@ -206,28 +282,26 @@ impl BuiltinOidcProvider {
         }
     }
 
-    /// 获取 JWKS
+    /// 获取 JWKS (从真实 RSA 公钥导出 n/e)
     pub fn get_jwks(&self) -> Jwks {
-        // 从签名密钥派生 RSA 模数和指数（简化实现）
-        // 生产环境应该使用真正的 RSA 密钥
-        let mut rng = rand::thread_rng();
-        let e: u32 = 65537;
-
-        // 生成伪随机 n（实际应使用真实 RSA 密钥）
-        let n_bytes: Vec<u8> = (0..256).map(|_| rng.gen()).collect();
-        let n = URL_SAFE_NO_PAD.encode(&n_bytes);
-        let e_encoded = URL_SAFE_NO_PAD.encode(e.to_be_bytes());
+        let public: RsaPublicKey = self.signing_key.to_public_key();
+        let n = URL_SAFE_NO_PAD.encode(public.n().to_bytes_be());
+        let e = URL_SAFE_NO_PAD.encode(public.e().to_bytes_be());
 
         Jwks {
             keys: vec![Jwk {
                 kty: "RSA".to_string(),
                 use_: "sig".to_string(),
-                kid: "builtin-oidc-key-1".to_string(),
+                kid: self.key_id.clone(),
                 alg: "RS256".to_string(),
                 n,
-                e: e_encoded,
+                e,
             }],
         }
+    }
+
+    fn lock_err() -> ApiError {
+        ApiError::internal("OIDC internal lock poisoned".to_string())
     }
 
     /// 处理授权请求
@@ -263,14 +337,14 @@ impl BuiltinOidcProvider {
             scope: request.scope,
             state: request.state,
             nonce: request.nonce,
-            code_verifier: request.code_verifier,
+            code_challenge: request.code_verifier,
             user_id: user.id.clone(),
             created_at: Instant::now(),
         };
 
         self.auth_sessions
             .write()
-            .unwrap()
+            .map_err(|_| Self::lock_err())?
             .insert(code.clone(), session);
 
         info!("OIDC authorization code generated for user: {}", user.id);
@@ -306,14 +380,14 @@ impl BuiltinOidcProvider {
             .ok_or(ApiError::bad_request("Missing client_id".to_string()))?;
 
         // 提取会话
-        let session =
-            self.auth_sessions
-                .write()
-                .unwrap()
-                .remove(code)
-                .ok_or(ApiError::unauthorized(
-                    "Invalid or expired code".to_string(),
-                ))?;
+        let session = self
+            .auth_sessions
+            .write()
+            .map_err(|_| Self::lock_err())?
+            .remove(code)
+            .ok_or(ApiError::unauthorized(
+                "Invalid or expired code".to_string(),
+            ))?;
 
         // 验证会话
         if session.redirect_uri != *redirect_uri {
@@ -326,13 +400,24 @@ impl BuiltinOidcProvider {
             return Err(ApiError::unauthorized("Code expired".to_string()));
         }
 
-        // 验证 PKCE 如果提供
-        if let Some(ref verifier) = request.code_verifier {
-            if let Some(ref _challenge) = session.code_verifier {
-                // 简化验证：实际应该做 SHA256 hash 比较
-                if verifier.len() < 43 {
-                    return Err(ApiError::bad_request("Invalid code_verifier".to_string()));
-                }
+        // PKCE 验证: 若 authorize 阶段绑定了 code_challenge, 则必须提供并匹配 code_verifier
+        if let Some(ref challenge) = session.code_challenge {
+            let verifier = request.code_verifier.as_deref().ok_or_else(|| {
+                ApiError::bad_request("Missing code_verifier (PKCE required)".to_string())
+            })?;
+            if verifier.len() < 43 || verifier.len() > 128 {
+                return Err(ApiError::bad_request(
+                    "code_verifier length must be 43..=128".to_string(),
+                ));
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(verifier.as_bytes());
+            let computed = URL_SAFE_NO_PAD.encode(hasher.finalize());
+            // 常量时间比较, 抵御 timing
+            if computed.as_bytes().ct_eq(challenge.as_bytes()).unwrap_u8() != 1 {
+                return Err(ApiError::unauthorized(
+                    "PKCE code_verifier mismatch".to_string(),
+                ));
             }
         }
 
@@ -344,10 +429,11 @@ impl BuiltinOidcProvider {
             .find(|u| u.id == session.user_id)
             .ok_or(ApiError::not_found("User not found".to_string()))?;
 
-        // 生成令牌
+        // 生成令牌 (先 access, 再用 access 计算 at_hash)
         let access_token = self.generate_access_token(user, session.scope.as_str())?;
-        let id_token = self.generate_id_token(user, client_id, session.nonce.as_deref())?;
-        let refresh_token = self.generate_refresh_token(user, session.scope.as_str());
+        let id_token =
+            self.generate_id_token(user, client_id, session.nonce.as_deref(), &access_token)?;
+        let refresh_token = self.generate_refresh_token(user, session.scope.as_str())?;
 
         Ok(OidcTokenResponse {
             access_token,
@@ -372,7 +458,7 @@ impl BuiltinOidcProvider {
         let token_data = self
             .refresh_tokens
             .read()
-            .unwrap()
+            .map_err(|_| Self::lock_err())?
             .get(refresh_token)
             .cloned()
             .ok_or(ApiError::unauthorized("Invalid refresh_token".to_string()))?;
@@ -387,7 +473,7 @@ impl BuiltinOidcProvider {
 
         // 生成新令牌
         let access_token = self.generate_access_token(user, token_data.scope.as_str())?;
-        let id_token = self.generate_id_token(user, &token_data.client_id, None)?;
+        let id_token = self.generate_id_token(user, &token_data.client_id, None, &access_token)?;
 
         Ok(OidcTokenResponse {
             access_token,
@@ -422,64 +508,86 @@ impl BuiltinOidcProvider {
         })
     }
 
-    /// 验证用户
+    /// 验证用户 (优先 argon2 password_hash, 兜底 plaintext + 启动告警)
     fn verify_user(&self, username: &str, password: &str) -> Result<&BuiltinOidcUser, ApiError> {
         let user = self
             .config
             .users
             .iter()
-            .find(|u| u.username == username && u.password == password)
+            .find(|u| u.username == username)
             .ok_or(ApiError::unauthorized(
                 "Invalid username or password".to_string(),
             ))?;
-        Ok(user)
+
+        if let Some(ref phc) = user.password_hash {
+            let parsed = PasswordHash::new(phc).map_err(|e| {
+                ApiError::internal(format!("Invalid password_hash for {}: {}", username, e))
+            })?;
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .map_err(|_| ApiError::unauthorized("Invalid username or password".to_string()))?;
+            return Ok(user);
+        }
+
+        if let Some(ref plain) = user.password {
+            warn!(
+                "BuiltinOidcProvider: user '{}' has plaintext password configured; \
+                 migrate to password_hash (argon2 PHC) for production",
+                username
+            );
+            // 常量时间比较
+            if plain.as_bytes().ct_eq(password.as_bytes()).unwrap_u8() == 1 {
+                return Ok(user);
+            }
+        }
+
+        Err(ApiError::unauthorized(
+            "Invalid username or password".to_string(),
+        ))
     }
 
-    /// 生成 ID Token
+    /// 计算 at_hash: BASE64URL( left-128-bit( SHA256(access_token) ) ) for RS256
+    fn compute_at_hash(access_token: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(access_token.as_bytes());
+        let digest = hasher.finalize();
+        URL_SAFE_NO_PAD.encode(&digest[..16])
+    }
+
+    /// 生成 ID Token (RS256)
     fn generate_id_token(
         &self,
         user: &BuiltinOidcUser,
         client_id: &str,
         nonce: Option<&str>,
+        access_token: &str,
     ) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| ApiError::internal(format!("clock: {}", e)))?
             .as_secs() as i64;
 
-        let mut claims = JwtClaims {
+        let claims = JwtClaims {
             iss: self.config.issuer.clone(),
             sub: user.id.clone(),
             aud: client_id.to_string(),
             exp: now + 3600,
             iat: now,
             nonce: nonce.map(String::from),
-            at_hash: None,
+            at_hash: Some(Self::compute_at_hash(access_token)),
             email: Some(user.email.clone()),
             email_verified: true,
             name: user.displayname.clone(),
             picture: None,
         };
 
-        // 计算 at_hash
-        // 简化实现
-        claims.at_hash = Some("".to_string());
-
-        let header = Header::new(Algorithm::RS256);
-        let token = encode(
-            &header,
-            &claims,
-            &EncodingKey::from_rsa_pem(&self.signing_key).unwrap_or_else(|_| {
-                // 如果密钥格式错误，使用 HMAC
-                EncodingKey::from_secret(&self.signing_key)
-            }),
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to generate ID token: {}", e)))?;
-
-        Ok(token)
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(self.key_id.clone());
+        encode(&header, &claims, &self.encoding_key)
+            .map_err(|e| ApiError::internal(format!("Failed to generate ID token: {}", e)))
     }
 
-    /// 生成 Access Token
+    /// 生成 Access Token (RS256, 与 id_token 算法一致, 防止 alg 混淆)
     fn generate_access_token(
         &self,
         user: &BuiltinOidcUser,
@@ -487,7 +595,7 @@ impl BuiltinOidcProvider {
     ) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| ApiError::internal(format!("clock: {}", e)))?
             .as_secs() as i64;
 
         let claims = AccessTokenClaims {
@@ -500,19 +608,18 @@ impl BuiltinOidcProvider {
             scope: scope.to_string(),
         };
 
-        let header = Header::new(Algorithm::HS256);
-        let token = encode(
-            &header,
-            &claims,
-            &EncodingKey::from_secret(&self.signing_key),
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))?;
-
-        Ok(token)
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(self.key_id.clone());
+        encode(&header, &claims, &self.encoding_key)
+            .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))
     }
 
     /// 生成 Refresh Token
-    fn generate_refresh_token(&self, user: &BuiltinOidcUser, scope: &str) -> String {
+    fn generate_refresh_token(
+        &self,
+        user: &BuiltinOidcUser,
+        scope: &str,
+    ) -> Result<String, ApiError> {
         let token = Uuid::new_v4().to_string();
 
         let refresh_token = RefreshToken {
@@ -524,35 +631,54 @@ impl BuiltinOidcProvider {
 
         self.refresh_tokens
             .write()
-            .unwrap()
+            .map_err(|_| Self::lock_err())?
             .insert(token.clone(), refresh_token);
 
-        token
+        Ok(token)
     }
 
-    /// 验证 Access Token
+    /// 验证 Access Token (RS256)
     fn verify_access_token(&self, token: &str) -> Result<AccessTokenClaims, ApiError> {
-        let validation = Validation::new(Algorithm::HS256);
-        let claims = decode::<AccessTokenClaims>(
-            token,
-            &DecodingKey::from_secret(&self.signing_key),
-            &validation,
-        )
-        .map_err(|e| ApiError::unauthorized(format!("Invalid token: {}", e)))?
-        .claims;
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_audience(&[&self.config.issuer]);
+        validation.set_issuer(&[&self.config.issuer]);
+        let claims = decode::<AccessTokenClaims>(token, &self.decoding_key, &validation)
+            .map_err(|e| ApiError::unauthorized(format!("Invalid token: {}", e)))?
+            .claims;
 
         Ok(claims)
     }
 
-    /// 登出
+    /// 登出: 仅撤销给定 refresh_token 关联用户的所有 refresh, 不动其他用户.
+    /// 不再清空全局 auth_sessions.
     pub fn logout(&self, refresh_token: Option<&str>) -> Result<(), ApiError> {
-        if let Some(token) = refresh_token {
-            self.refresh_tokens.write().unwrap().remove(token);
+        let Some(token) = refresh_token else {
+            return Ok(());
+        };
+
+        // 找出 token 所属用户
+        let owner = {
+            let map = self.refresh_tokens.read().map_err(|_| Self::lock_err())?;
+            map.get(token).map(|t| t.user_id.clone())
+        };
+
+        let Some(user_id) = owner else {
+            return Ok(());
+        };
+
+        // 仅删除该用户的 refresh tokens
+        {
+            let mut map = self.refresh_tokens.write().map_err(|_| Self::lock_err())?;
+            map.retain(|_, t| t.user_id != user_id);
         }
 
-        // 清除所有授权会话
-        self.auth_sessions.write().unwrap().clear();
+        // 仅删除该用户尚未兑换的 auth_sessions
+        {
+            let mut map = self.auth_sessions.write().map_err(|_| Self::lock_err())?;
+            map.retain(|_, s| s.user_id != user_id);
+        }
 
+        info!("OIDC logout: revoked sessions for user {}", user_id);
         Ok(())
     }
 }

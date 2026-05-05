@@ -198,6 +198,58 @@ pub(crate) fn should_require_admin_mfa(
         && is_sensitive_admin_request(method, path)
 }
 
+fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
+    let is_write = matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    );
+
+    // Setting another user's admin status
+    if path.ends_with("/admin") && is_write {
+        return true;
+    }
+    if path.contains("/make_admin") {
+        return true;
+    }
+
+    // Batch user creation (not batch_deactivate which admin can do)
+    if path == "/_synapse/admin/v1/users/batch" {
+        return true;
+    }
+
+    // Batch device deletion (different from single device deletion)
+    if path.contains("/delete_devices") {
+        return true;
+    }
+
+    // Purge room history
+    if path.contains("/purge") {
+        return true;
+    }
+
+    // Retention policy management
+    if path.contains("/retention") {
+        return true;
+    }
+
+    // Server info (internal)
+    if path == "/_synapse/admin/info" {
+        return true;
+    }
+
+    // Send server notice
+    if path.contains("/send_server_notice") {
+        return true;
+    }
+
+    // Registration tokens write operations
+    if path.contains("/registration_tokens") && is_write {
+        return true;
+    }
+
+    false
+}
+
 fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
     if role == "super_admin" {
         return true;
@@ -205,130 +257,106 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
     let is_read = matches!(*method, Method::GET | Method::HEAD);
 
-    let is_super_admin_only = path.contains("/deactivate")
-        || path.contains("/users/") && path.contains("/login") && !path.contains("/login/")
-        || path.contains("/users/") && path.contains("/logout")
-        || path.ends_with("/admin")
-        || path.contains("/make_admin")
-        || path.contains("/server/version")
-        || path.contains("/server_info")
-        || path == "/_synapse/admin/info"  // Server info endpoint
-        || path.contains("/send_server_notice")
-        || path.contains("/delete_devices")
-        || path.contains("/shutdown")
-        || path.contains("/federation/resolve")
-        || path.contains("/federation/blacklist")
-        || path.contains("/federation/cache/clear")
-        || path.contains("/federation/rewrite")
-        || path.contains("/federation/confirm")
-        || path.contains("/purge")
-        || path.contains("/reset_connection")
-        || path.contains("/retention")
-        || (path.contains("/registration_tokens") && !is_read)  // Allow read, deny write
-        || path.contains("/batch_users"); // Batch operations are super_admin only
+    if is_super_admin_only_endpoint(method, path) {
+        return false;
+    }
 
     match role {
         "admin" => {
-            if is_super_admin_only {
-                return false;
-            }
+            // User management - full access
+            path.starts_with("/_synapse/admin/v1/users")
+                || path.starts_with("/_synapse/admin/v2/users")
 
-            // admin 可访问的路径
-            (path.starts_with("/_synapse/admin/v1/users") || path.starts_with("/_synapse/admin/v2/users"))
-                    && is_read
-                    && !path.contains("/deactivate")
-                    && !path.contains("/login")
-                    && !path.contains("/logout")
-                    && !path.ends_with("/admin")
+            // User sessions
+            || path.starts_with("/_synapse/admin/v1/user_sessions")
 
-                // 用户管理操作（影子封禁）
-                || (path.contains("/users/") && path.contains("/shadow_ban"))
+            // User statistics
+            || path.starts_with("/_synapse/admin/v1/user_stats")
 
-                // 用户管理操作（驱逐用户）
-                || (path.contains("/users/") && path.contains("/evict"))
+            // Account details
+            || path.starts_with("/_synapse/admin/v1/account/")
 
-                // 用户速率限制管理
-                || (path.contains("/users/") && path.contains("/rate_limit"))
-                || (path.contains("/users/") && path.contains("/override_ratelimit"))
+            // Notifications
+            || path.starts_with("/_synapse/admin/v1/notifications")
 
-                // 用户会话管理（只读）
-                || path.starts_with("/_synapse/admin/v1/user_sessions/")
-                || (path.contains("/users/") && path.contains("/sessions") && is_read)
-                || path.starts_with("/_synapse/admin/v1/whois")
+            // Media management
+            || path.starts_with("/_synapse/admin/v1/media")
 
-                // 用户统计
-                || path.starts_with("/_synapse/admin/v1/user_stats")
+            // Room management - full access including shutdown and delete
+            || path.starts_with("/_synapse/admin/v1/rooms")
+            || path == "/_synapse/admin/v1/shutdown_room"
 
-                // 账户详情
-                || path.starts_with("/_synapse/admin/v1/account/")
+            // Room statistics
+            || path.starts_with("/_synapse/admin/v1/room_stats/")
 
-                // 通知管理
-                || path.starts_with("/_synapse/admin/v1/notifications")
+            // Registration tokens (read only)
+            || (path.contains("/registration_tokens") && is_read)
 
-                // 媒体管理
-                || path.starts_with("/_synapse/admin/v1/media")
+            // System statistics
+            || path.starts_with("/_synapse/admin/v1/statistics")
+            || path.starts_with("/_synapse/admin/v1/stats")
 
-                // 房间信息和管理
-                || (path.starts_with("/_synapse/admin/v1/rooms")
-                    && !path.contains("/shutdown")
-                    && !path.contains("/delete"))
+            // Cleanup
+            || path.starts_with("/_synapse/admin/v1/cleanup")
 
-                // 房间统计
-                || path.starts_with("/_synapse/admin/v1/room_stats/")
+            // Background tasks
+            || path.starts_with("/_synapse/admin/v1/background_updates")
 
-                // 房间封禁/解封
-                || path.contains("/rooms/") && (path.contains("/block") || path.contains("/unblock"))
+            // Event reports
+            || path.starts_with("/_synapse/admin/v1/event_reports")
 
-                // 房间成员管理（踢出、封禁）
-                || path.contains("/rooms/") && (path.contains("/kick") || path.contains("/ban"))
-                || path.contains("/rooms/") && path.contains("/members")
+            // Space management
+            || path.starts_with("/_synapse/admin/v1/spaces")
 
-                // 注册令牌（只读）
-                || (path.contains("/registration_tokens") && is_read)
+            // Feature flags
+            || path.starts_with("/_synapse/admin/v1/experimental_features")
+            || path.starts_with("/_synapse/admin/v1/feature_flags")
+            || path.starts_with("/_synapse/admin/v1/feature-flags")
 
-                // 系统统计
-                || path.starts_with("/_synapse/admin/v1/statistics")
-                || path.starts_with("/_synapse/admin/v1/stats")
+            // Application services
+            || path.starts_with("/_synapse/admin/v1/appservices")
 
-                // 后台任务
-                || path.starts_with("/_synapse/admin/v1/background_updates")
+            // Audit logs (read only)
+            || (path.starts_with("/_synapse/admin/v1/audit") && is_read)
 
-                // 事件报告
-                || path.starts_with("/_synapse/admin/v1/event_reports")
+            // Device management - single device operations
+            || (path.contains("/users/") && path.contains("/devices")
+                && !path.contains("/delete_devices")
+                && (is_read || *method == Method::DELETE))
 
-                // 空间管理
-                || path.starts_with("/_synapse/admin/v1/spaces")
+            // Federation management - full access
+            || path.starts_with("/_synapse/admin/v1/federation")
 
-                // 功能标志
-                || path.starts_with("/_synapse/admin/v1/experimental_features")
-                || path.starts_with("/_synapse/admin/v1/feature_flags")
-                || path.starts_with("/_synapse/admin/v1/feature-flags")
+            // CAS management
+            || path.starts_with("/_synapse/admin/v1/cas")
 
-                // 应用服务
-                || path.starts_with("/_synapse/admin/v1/appservices")
+            // Worker and room summary
+            || path.starts_with("/_synapse/worker/v1/")
+            || path.starts_with("/_synapse/room_summary/v1/")
 
-                // 审计日志（只读）
-                || (path.starts_with("/_synapse/admin/v1/audit") && is_read)
+            // Server version and health
+            || path.starts_with("/_synapse/admin/v1/server_version")
+            || path.starts_with("/_synapse/admin/v1/health")
+            || path.starts_with("/_synapse/admin/v1/status")
 
-                // 设备管理 - 允许查看和删除单个设备，禁止批量删除
-                || (path.contains("/users/") && path.contains("/devices")
-                    && !path.contains("/delete_devices")
-                    && (is_read || *method == Method::DELETE))
+            // Module inventory (read only)
+            || path.starts_with("/_synapse/admin/v1/modules")
 
-                // 联邦信息（只读，只允许查询端点）
-                || (path == "/_synapse/admin/v1/federation/destinations" && is_read)
+            // Account validity
+            || path.starts_with("/_synapse/admin/v1/account_validity")
 
-                // CAS 管理
-                || path.starts_with("/_synapse/admin/v1/cas")
+            // SAML management
+            || path.starts_with("/_synapse/admin/v1/saml")
 
-                // Worker 和房间摘要
-                || path.starts_with("/_synapse/worker/v1/")
-                || path.starts_with("/_synapse/room_summary/v1/")
+            // External services and webhooks
+            || path.starts_with("/_synapse/admin/v1/external_services")
+            || path.starts_with("/_synapse/admin/v1/external_webhook")
 
-                // 服务器状态和健康检查
-                || path.starts_with("/_synapse/admin/v1/server_version")
-                || path.starts_with("/_synapse/admin/v1/health")
-                || path.starts_with("/_synapse/admin/v1/status")
+            // Telemetry/observability
+            || path.starts_with("/_synapse/admin/v1/telemetry")
+
+            // Whois
+            || path.starts_with("/_synapse/admin/v1/whois")
         }
         "auditor" => {
             is_read
@@ -343,7 +371,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
                 || path.starts_with("/_synapse/admin/v1/server")
         }
         "user_admin" => {
-            if is_super_admin_only {
+            if is_super_admin_only_endpoint(method, path) {
                 return false;
             }
 
@@ -356,6 +384,118 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
     }
 }
 
+fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
+    if matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) {
+        return true;
+    }
+
+    path.starts_with("/_synapse/admin/v1/security")
+        || path.starts_with("/_synapse/admin/v1/server")
+        || path.starts_with("/_synapse/admin/v1/media/quarantine")
+}
+
+fn verify_totp_code(
+    security: &SecurityConfig,
+    provided_code: &str,
+    user: Option<&User>,
+) -> Result<(), ApiError> {
+    if !security.admin_mfa_required {
+        return Ok(());
+    }
+
+    let secret = decode_secret(&security.admin_mfa_shared_secret).ok_or_else(|| {
+        ApiError::forbidden(
+            "Admin MFA is enabled but no valid TOTP secret is configured".to_string(),
+        )
+    })?;
+
+    let provided_code = provided_code.trim();
+    if provided_code.len() != 6 || !provided_code.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(ApiError::forbidden(
+            "Invalid admin MFA code format".to_string(),
+        ));
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ApiError::internal("System time error".to_string()))?
+        .as_secs();
+    let current_step = now / 30;
+    let drift = security.admin_mfa_allowed_drift_steps as i64;
+
+    for offset in -drift..=drift {
+        let Some(step) = current_step.checked_add_signed(offset) else {
+            continue;
+        };
+
+        if generate_totp_code(&secret, step).as_deref() == Some(provided_code) {
+            return Ok(());
+        }
+    }
+
+    let user_id = user
+        .map(|value| value.user_id.as_str())
+        .unwrap_or("unknown");
+    tracing::warn!(target: "admin_auth", user_id, "Admin MFA verification failed");
+    Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
+}
+
+fn generate_totp_code(secret: &[u8], step: u64) -> Option<String> {
+    let mut mac = HmacSha1::new_from_slice(secret).ok()?;
+    mac.update(&step.to_be_bytes());
+    let hash = mac.finalize().into_bytes();
+    let offset = (hash[19] & 0x0f) as usize;
+    let binary = ((u32::from(hash[offset]) & 0x7f) << 24)
+        | (u32::from(hash[offset + 1]) << 16)
+        | (u32::from(hash[offset + 2]) << 8)
+        | u32::from(hash[offset + 3]);
+    Some(format!("{:06}", binary % 1_000_000))
+}
+
+fn decode_secret(secret: &str) -> Option<Vec<u8>> {
+    let trimmed = secret.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    decode_base32_secret(trimmed).or_else(|| Some(trimmed.as_bytes().to_vec()))
+}
+
+fn decode_base32_secret(secret: &str) -> Option<Vec<u8>> {
+    let mut bits = 0u32;
+    let mut bit_count = 0u8;
+    let mut output = Vec::new();
+
+    for ch in secret.chars().filter(|ch| !matches!(ch, ' ' | '-')) {
+        if ch == '=' {
+            break;
+        }
+
+        let value = match ch.to_ascii_uppercase() {
+            'A'..='Z' => ch.to_ascii_uppercase() as u8 - b'A',
+            '2'..='7' => (ch as u8 - b'2') + 26,
+            _ => return None,
+        };
+
+        bits = (bits << 5) | u32::from(value);
+        bit_count += 5;
+        while bit_count >= 8 {
+            bit_count -= 8;
+            output.push(((bits >> bit_count) & 0xff) as u8);
+            bits &= (1 << bit_count) - 1;
+        }
+    }
+
+    if output.is_empty() {
+        None
+    } else {
+        Some(output)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,38 +505,13 @@ mod tests {
         // Super admin only endpoints should be denied for admin role
         assert!(!is_role_allowed(
             "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/deactivate"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
             &Method::PUT,
             "/_synapse/admin/v1/users/@u:localhost/admin"
         ));
         assert!(!is_role_allowed(
             "admin",
             &Method::POST,
-            "/_synapse/admin/v1/federation/resolve"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/login"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
             "/_synapse/admin/v1/registration_tokens"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/blacklist/server.example.com"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/cache/clear"
         ));
         assert!(!is_role_allowed(
             "admin",
@@ -407,6 +522,95 @@ mod tests {
             "admin",
             &Method::POST,
             "/_synapse/admin/v1/users/batch"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/delete_devices"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/rooms/!room:localhost/purge"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::PUT,
+            "/_synapse/admin/v1/rooms/!room:localhost/retention"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/rooms/!room:localhost/make_admin"
+        ));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/send_server_notice"
+        ));
+    }
+
+    #[test]
+    fn admin_role_allowed_management_endpoints() {
+        // Admin should be able to deactivate users
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/deactivate"
+        ));
+        // Admin should be able to login as user
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/login"
+        ));
+        // Admin should be able to logout user
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/logout"
+        ));
+        // Admin should be able to resolve federation
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/resolve"
+        ));
+        // Admin should be able to manage federation blacklist
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/blacklist/server.example.com"
+        ));
+        // Admin should be able to clear federation cache
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/cache/clear"
+        ));
+        // Admin should be able to shutdown rooms
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/shutdown_room"
+        ));
+        // Admin should be able to delete rooms
+        assert!(is_role_allowed(
+            "admin",
+            &Method::DELETE,
+            "/_synapse/admin/v1/rooms/!room:localhost"
+        ));
+        // Admin should be able to reset user password
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@u:localhost/password"
+        ));
+        // Admin should be able to reset federation connection
+        assert!(is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/federation/destinations/server.example.com/reset_connection"
         ));
     }
 
@@ -565,117 +769,5 @@ mod tests {
             &Method::DELETE,
             "/_synapse/admin/v1/users/@user:localhost/rate_limit"
         ));
-    }
-}
-
-fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
-    if matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    ) {
-        return true;
-    }
-
-    path.starts_with("/_synapse/admin/v1/security")
-        || path.starts_with("/_synapse/admin/v1/server")
-        || path.starts_with("/_synapse/admin/v1/media/quarantine")
-}
-
-fn verify_totp_code(
-    security: &SecurityConfig,
-    provided_code: &str,
-    user: Option<&User>,
-) -> Result<(), ApiError> {
-    if !security.admin_mfa_required {
-        return Ok(());
-    }
-
-    let secret = decode_secret(&security.admin_mfa_shared_secret).ok_or_else(|| {
-        ApiError::forbidden(
-            "Admin MFA is enabled but no valid TOTP secret is configured".to_string(),
-        )
-    })?;
-
-    let provided_code = provided_code.trim();
-    if provided_code.len() != 6 || !provided_code.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(ApiError::forbidden(
-            "Invalid admin MFA code format".to_string(),
-        ));
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| ApiError::internal("System time error".to_string()))?
-        .as_secs();
-    let current_step = now / 30;
-    let drift = security.admin_mfa_allowed_drift_steps as i64;
-
-    for offset in -drift..=drift {
-        let Some(step) = current_step.checked_add_signed(offset) else {
-            continue;
-        };
-
-        if generate_totp_code(&secret, step).as_deref() == Some(provided_code) {
-            return Ok(());
-        }
-    }
-
-    let user_id = user
-        .map(|value| value.user_id.as_str())
-        .unwrap_or("unknown");
-    tracing::warn!(target: "admin_auth", user_id, "Admin MFA verification failed");
-    Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
-}
-
-fn generate_totp_code(secret: &[u8], step: u64) -> Option<String> {
-    let mut mac = HmacSha1::new_from_slice(secret).ok()?;
-    mac.update(&step.to_be_bytes());
-    let hash = mac.finalize().into_bytes();
-    let offset = (hash[19] & 0x0f) as usize;
-    let binary = ((u32::from(hash[offset]) & 0x7f) << 24)
-        | (u32::from(hash[offset + 1]) << 16)
-        | (u32::from(hash[offset + 2]) << 8)
-        | u32::from(hash[offset + 3]);
-    Some(format!("{:06}", binary % 1_000_000))
-}
-
-fn decode_secret(secret: &str) -> Option<Vec<u8>> {
-    let trimmed = secret.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    decode_base32_secret(trimmed).or_else(|| Some(trimmed.as_bytes().to_vec()))
-}
-
-fn decode_base32_secret(secret: &str) -> Option<Vec<u8>> {
-    let mut bits = 0u32;
-    let mut bit_count = 0u8;
-    let mut output = Vec::new();
-
-    for ch in secret.chars().filter(|ch| !matches!(ch, ' ' | '-')) {
-        if ch == '=' {
-            break;
-        }
-
-        let value = match ch.to_ascii_uppercase() {
-            'A'..='Z' => ch.to_ascii_uppercase() as u8 - b'A',
-            '2'..='7' => (ch as u8 - b'2') + 26,
-            _ => return None,
-        };
-
-        bits = (bits << 5) | u32::from(value);
-        bit_count += 5;
-        while bit_count >= 8 {
-            bit_count -= 8;
-            output.push(((bits >> bit_count) & 0xff) as u8);
-            bits &= (1 << bit_count) - 1;
-        }
-    }
-
-    if output.is_empty() {
-        None
-    } else {
-        Some(output)
     }
 }

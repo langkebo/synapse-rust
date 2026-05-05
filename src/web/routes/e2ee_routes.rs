@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
 fn parse_stream_id(value: &Value) -> Option<i64> {
@@ -83,20 +82,6 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
             "/keys/backup/secure/{backup_id}/verify",
             post(verify_secure_backup_passphrase),
         )
-        .route(
-            "/room_keys/version",
-            get(get_room_keys_version).post(create_room_keys_version),
-        )
-        .route(
-            "/room_keys/version/{version}",
-            get(get_room_keys_version_by_id).delete(delete_room_keys_version),
-        )
-        .route("/room_keys/keys", put(put_room_keys))
-        .route(
-            "/room_keys/keys/{room_id}/{session_id}",
-            put(put_room_key).get(get_room_key),
-        )
-        .route("/room_keys/keys/{room_id}", get(get_room_keys))
 }
 
 pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
@@ -109,6 +94,70 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
         .nest("/_matrix/client/v3", compat_router)
         .nest("/_matrix/client/v3", v3_only_router)
         .with_state(state)
+}
+
+/// Nest prefixes `create_e2ee_router` mounts the compat sub-router under.
+const E2EE_COMPAT_NEST_PREFIXES: &[&str] = &[
+    "/_matrix/client/r0",
+    "/_matrix/client/v1",
+    "/_matrix/client/v3",
+];
+
+/// Nest prefix used for the v3-only sub-router.
+const E2EE_V3_ONLY_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
+
+fn e2ee_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/keys/upload"),
+        (Method::POST, "/keys/query"),
+        (Method::POST, "/keys/claim"),
+        (Method::GET, "/keys/changes"),
+        (Method::POST, "/keys/device_list/update"),
+        (Method::POST, "/keys/signatures"),
+        (Method::POST, "/keys/signatures/upload"),
+        (Method::POST, "/keys/device_signing/upload"),
+        (Method::POST, "/room_keys/request"),
+        (Method::GET, "/room_keys/request"),
+        (Method::DELETE, "/room_keys/request/{request_id}"),
+        (Method::GET, "/rooms/{room_id}/keys/distribution"),
+        (Method::PUT, "/sendToDevice/{event_type}/{transaction_id}"),
+    ]
+}
+
+fn e2ee_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/device_verification/request"),
+        (Method::POST, "/device_verification/respond"),
+        (Method::GET, "/device_verification/status/{token}"),
+        (Method::GET, "/device_trust"),
+        (Method::GET, "/device_trust/{device_id}"),
+        (Method::GET, "/security/summary"),
+        (Method::POST, "/keys/backup/secure"),
+        (Method::GET, "/keys/backup/secure/{backup_id}"),
+        (Method::DELETE, "/keys/backup/secure/{backup_id}"),
+        (Method::POST, "/keys/backup/secure/{backup_id}/keys"),
+        (Method::POST, "/keys/backup/secure/{backup_id}/restore"),
+        (Method::POST, "/keys/backup/secure/{backup_id}/verify"),
+    ]
+}
+
+/// Manifest of every `(method, absolute_path)` tuple `create_e2ee_router`
+/// registers. Both sub-routers (compat + v3-only) are aggregated; the
+/// v3-only entries are intentionally narrower to mirror the assembly above.
+pub fn e2ee_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    let mut out = crate::web::routes::route_ledger::expand_under_prefixes(
+        "e2ee_routes",
+        E2EE_COMPAT_NEST_PREFIXES,
+        &e2ee_compat_relative_routes(),
+    );
+    out.extend(crate::web::routes::route_ledger::expand_under_prefixes(
+        "e2ee_routes",
+        E2EE_V3_ONLY_NEST_PREFIXES,
+        &e2ee_v3_only_relative_routes(),
+    ));
+    out
 }
 
 #[axum::debug_handler]
@@ -494,67 +543,13 @@ async fn device_list_update(
 
 #[axum::debug_handler]
 async fn room_key_distribution(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(_room_id): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let is_member = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join')"
-    )
-    .bind(&room_id)
-    .bind(&auth_user.user_id)
-    .fetch_one(&*state.services.user_storage.pool)
-    .await
-    .unwrap_or(false);
-
-    if !is_member {
-        return Err(crate::error::ApiError::forbidden(
-            "You are not a member of this room".to_string(),
-        ));
-    }
-
-    let devices = sqlx::query(
-        "SELECT d.device_id, d.display_name, d.user_id FROM devices d \
-         INNER JOIN room_memberships rm ON d.user_id = rm.user_id \
-         WHERE rm.room_id = $1 AND rm.membership = 'join' \
-         ORDER BY d.user_id, d.device_id",
-    )
-    .bind(&room_id)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?;
-
-    let mut distribution = serde_json::Map::new();
-    let mut current_user: Option<String> = None;
-    let mut user_devices = Vec::new();
-
-    for row in &devices {
-        let user_id: String = row.get("user_id");
-        let device_id: String = row.get("device_id");
-        let display_name: Option<String> = row.get("display_name");
-
-        if current_user.as_ref() != Some(&user_id) {
-            if let Some(prev_user) = current_user.take() {
-                distribution.insert(prev_user, Value::Array(std::mem::take(&mut user_devices)));
-            }
-            current_user = Some(user_id);
-        }
-
-        user_devices.push(json!({
-            "device_id": device_id,
-            "display_name": display_name,
-        }));
-    }
-
-    if let Some(prev_user) = current_user.take() {
-        distribution.insert(prev_user, Value::Array(user_devices));
-    }
-
-    Ok(Json(json!({
-        "distribution": distribution,
-        "room_id": room_id,
-        "algorithm": "m.megolm.v1.aes-sha2"
-    })))
+    Err(crate::error::ApiError::forbidden(
+        "Room key distribution is a server-internal endpoint and is not available via the client API".to_string(),
+    ))
 }
 
 #[axum::debug_handler]
@@ -1138,279 +1133,11 @@ async fn delete_secure_backup(
     Ok(empty_json())
 }
 
-#[axum::debug_handler]
-async fn create_room_keys_version(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let algorithm = body
-        .get("algorithm")
-        .and_then(|v| v.as_str())
-        .unwrap_or("m.megolm.backup.v1.curve25519-aes-sha2");
-    let auth_data = body.get("auth_data").cloned();
-
-    let version = state
-        .services
-        .backup_service
-        .create_backup(&auth_user.user_id, algorithm, auth_data)
-        .await?;
-
-    Ok(Json(json!({
-        "version": version
-    })))
-}
-
-#[axum::debug_handler]
-async fn get_room_keys_version(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let backup = state
-        .services
-        .backup_service
-        .get_backup_version(&auth_user.user_id)
-        .await?;
-
-    let Some(backup) = backup else {
-        return Err(ApiError::not_found("No backup found".to_string()));
-    };
-
-    let count = state
-        .services
-        .backup_service
-        .get_backup_key_count(&auth_user.user_id)
-        .await
-        .unwrap_or(0);
-
-    Ok(Json(json!({
-        "version": backup.version.to_string(),
-        "algorithm": backup.algorithm,
-        "auth_data": backup.backup_data,
-        "count": count,
-        "etag": backup.etag.unwrap_or_default(),
-    })))
-}
-
-#[axum::debug_handler]
-async fn get_room_keys_version_by_id(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let backup = state
-        .services
-        .backup_service
-        .get_backup(&auth_user.user_id, &version)
-        .await?;
-
-    let Some(backup) = backup else {
-        return Err(ApiError::not_found("Backup version not found".to_string()));
-    };
-
-    let count = state
-        .services
-        .backup_service
-        .get_backup_key_count(&auth_user.user_id)
-        .await
-        .unwrap_or(0);
-
-    Ok(Json(json!({
-        "version": backup.version.to_string(),
-        "algorithm": backup.algorithm,
-        "auth_data": backup.backup_data,
-        "count": count,
-        "etag": backup.etag.unwrap_or_default(),
-    })))
-}
-
-#[axum::debug_handler]
-async fn delete_room_keys_version(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .backup_service
-        .delete_backup(&auth_user.user_id, &version)
-        .await?;
-
-    Ok(empty_json())
-}
-
-#[axum::debug_handler]
-async fn put_room_keys(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Query(params): Query<HashMap<String, String>>,
-    MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let version = params
-        .get("version")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp().to_string());
-
-    let mut total_count = 0i64;
-
-    if let Some(rooms) = body.get("rooms").and_then(|v| v.as_object()) {
-        for (room_id, room_data) in rooms {
-            if let Some(sessions) = room_data.get("sessions").and_then(|v| v.as_object()) {
-                for (session_id, session_data) in sessions {
-                    let params = crate::e2ee::backup::service::BackupKeyUploadParams {
-                        user_id: auth_user.user_id.clone(),
-                        version: version.clone(),
-                        room_id: room_id.clone(),
-                        session_id: session_id.clone(),
-                        first_message_index: session_data
-                            .get("first_message_index")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0),
-                        forwarded_count: session_data
-                            .get("forwarded_count")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0),
-                        is_verified: session_data
-                            .get("is_verified")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
-                        session_data: session_data
-                            .get("session_data")
-                            .cloned()
-                            .unwrap_or(serde_json::json!({}))
-                            .to_string(),
-                    };
-
-                    state
-                        .services
-                        .backup_service
-                        .upload_backup_key(params)
-                        .await?;
-
-                    total_count += 1;
-                }
-            }
-        }
-    }
-
-    Ok(Json(json!({
-        "count": total_count,
-        "etag": format!("{:x}", chrono::Utc::now().timestamp()),
-    })))
-}
-
-#[axum::debug_handler]
-async fn put_room_key(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, session_id)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-    MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let version = params
-        .get("version")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().timestamp().to_string());
-
-    let params = crate::e2ee::backup::service::BackupKeyUploadParams {
-        user_id: auth_user.user_id.clone(),
-        version,
-        room_id,
-        session_id,
-        first_message_index: body
-            .get("first_message_index")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0),
-        forwarded_count: body
-            .get("forwarded_count")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0),
-        is_verified: body
-            .get("is_verified")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        session_data: body
-            .get("session_data")
-            .cloned()
-            .unwrap_or(serde_json::json!({}))
-            .to_string(),
-    };
-
-    state
-        .services
-        .backup_service
-        .upload_backup_key(params)
-        .await?;
-
-    Ok(Json(json!({
-        "count": 1,
-        "etag": format!("{:x}", chrono::Utc::now().timestamp()),
-    })))
-}
-
-#[axum::debug_handler]
-async fn get_room_key(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, session_id)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Value>, ApiError> {
-    let _version = params.get("version").cloned().unwrap_or_default();
-
-    let key = state
-        .services
-        .backup_service
-        .get_room_key(&auth_user.user_id, &room_id, &session_id)
-        .await?;
-
-    let Some(key) = key else {
-        return Err(ApiError::not_found("Key not found".to_string()));
-    };
-
-    Ok(Json(json!({
-        "first_message_index": key.first_message_index,
-        "forwarded_count": key.forwarded_count,
-        "is_verified": key.is_verified,
-        "session_data": key.session_data,
-    })))
-}
-
-#[axum::debug_handler]
-async fn get_room_keys(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Value>, ApiError> {
-    let version = params.get("version").cloned().unwrap_or_default();
-
-    let keys = state
-        .services
-        .backup_service
-        .get_room_backup_keys(&auth_user.user_id, &room_id, &version)
-        .await?;
-
-    let mut sessions = serde_json::Map::new();
-    for key in keys {
-        sessions.insert(
-            key.session_id.clone(),
-            json!({
-                "first_message_index": key.first_message_index,
-                "forwarded_count": key.forwarded_count,
-                "is_verified": key.is_verified,
-                "session_data": key.session_data,
-            }),
-        );
-    }
-
-    Ok(Json(json!({
-        "rooms": {
-            room_id: {
-                "sessions": sessions
-            }
-        }
-    })))
-}
+// Key-backup version + per-session handlers live in
+// `src/web/routes/key_backup.rs` (registered through `create_key_backup_router`
+// in `assembly.rs`). They were duplicated here historically and the routes
+// silently won the merge over the spec-compliant ones; see
+// `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md` §1.2 for the audit.
 
 #[cfg(test)]
 mod tests {

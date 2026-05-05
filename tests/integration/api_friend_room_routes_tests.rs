@@ -98,12 +98,19 @@ async fn establish_friend_dm(
         })),
     )
     .await;
-    assert_eq!(send_status, StatusCode::OK, "send friend request failed: {send_body}");
+    assert_eq!(
+        send_status,
+        StatusCode::OK,
+        "send friend request failed: {send_body}"
+    );
 
     let (accept_status, accept_body) = json_request(
         app,
         "POST",
-        format!("/_matrix/client/v1/friends/request/{}/accept", alice_user_id),
+        format!(
+            "/_matrix/client/v1/friends/request/{}/accept",
+            alice_user_id
+        ),
         Some(&bob_token),
         None,
     )
@@ -119,7 +126,13 @@ async fn establish_friend_dm(
         .expect("friend accept should return dm room id")
         .to_string();
 
-    (alice_token, alice_user_id, bob_token, bob_user_id, dm_room_id)
+    (
+        alice_token,
+        alice_user_id,
+        bob_token,
+        bob_user_id,
+        dm_room_id,
+    )
 }
 
 async fn fetch_friend_entry(app: &axum::Router, token: &str, target_user_id: &str) -> Value {
@@ -333,7 +346,10 @@ async fn test_friend_dm_leave_updates_friend_list_state() {
             entry["dm_room_affected_user_id"].as_str(),
             Some(bob_user_id.as_str())
         );
-        assert_eq!(entry["dm_room_changed_by"].as_str(), Some(bob_user_id.as_str()));
+        assert_eq!(
+            entry["dm_room_changed_by"].as_str(),
+            Some(bob_user_id.as_str())
+        );
     }
 }
 

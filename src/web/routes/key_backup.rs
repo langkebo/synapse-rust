@@ -1,12 +1,87 @@
+use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
+    http::Method,
     routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
 use serde_json::Value;
 use validator::Validate;
+
+/// Nest prefixes under which `create_key_backup_router` mounts its internal
+/// router. Kept as a module-level constant so both the [`Router`] assembly
+/// below and [`key_backup_route_manifest`] cannot drift apart.
+const NEST_PREFIXES: &[&str] = &[
+    "/_matrix/client/v1",
+    "/_matrix/client/r0",
+    "/_matrix/client/v3",
+];
+
+/// Manifest entry for every `(method, relative_path)` registered by
+/// `create_key_backup_router`. Mirrors the `.route(...)` calls in
+/// [`create_key_backup_router`] one-for-one — new routes there MUST add a
+/// matching entry here.
+fn relative_routes() -> Vec<(Method, &'static str)> {
+    vec![
+        // Backup version lifecycle.
+        (Method::GET, "/room_keys/version"),
+        (Method::POST, "/room_keys/version"),
+        (Method::GET, "/room_keys/version/{version}"),
+        (Method::PUT, "/room_keys/version/{version}"),
+        (Method::DELETE, "/room_keys/version/{version}"),
+        // Spec endpoints — version is a `?version=` query parameter.
+        (Method::GET, "/room_keys/keys"),
+        (Method::PUT, "/room_keys/keys"),
+        (Method::DELETE, "/room_keys/keys"),
+        (Method::GET, "/room_keys/keys/{room_id}"),
+        (Method::PUT, "/room_keys/keys/{room_id}"),
+        (Method::DELETE, "/room_keys/keys/{room_id}"),
+        (Method::GET, "/room_keys/keys/{room_id}/{session_id}"),
+        (Method::PUT, "/room_keys/keys/{room_id}/{session_id}"),
+        (Method::DELETE, "/room_keys/keys/{room_id}/{session_id}"),
+        // Legacy / MSC-compatibility: version is a path segment.
+        (Method::GET, "/room_keys/{version}/keys"),
+        (Method::PUT, "/room_keys/{version}/keys"),
+        (Method::DELETE, "/room_keys/{version}/keys"),
+        (Method::GET, "/room_keys/{version}/keys/{room_id}"),
+        (Method::PUT, "/room_keys/{version}/keys/{room_id}"),
+        (Method::DELETE, "/room_keys/{version}/keys/{room_id}"),
+        (
+            Method::GET,
+            "/room_keys/{version}/keys/{room_id}/{session_id}",
+        ),
+        (
+            Method::PUT,
+            "/room_keys/{version}/keys/{room_id}/{session_id}",
+        ),
+        (
+            Method::DELETE,
+            "/room_keys/{version}/keys/{room_id}/{session_id}",
+        ),
+        // Recovery / verify helpers.
+        (Method::POST, "/room_keys/recover"),
+        (Method::GET, "/room_keys/recovery/{version}/progress"),
+        (Method::GET, "/room_keys/verify/{version}"),
+        (Method::POST, "/room_keys/batch_recover"),
+        (Method::GET, "/room_keys/recover/{version}/{room_id}"),
+        (
+            Method::GET,
+            "/room_keys/recover/{version}/{room_id}/{session_id}",
+        ),
+        // Export / import.
+        (Method::GET, "/room_keys/export"),
+        (Method::GET, "/room_keys/export/{version}"),
+        (Method::POST, "/room_keys/import"),
+        (Method::POST, "/room_keys/import/{version}"),
+    ]
+}
+
+/// Manifest for the route ledger (§R4 / §O2 in SPEC_ALIGNMENT_PLAN_2026-05-01).
+pub fn key_backup_route_manifest() -> Vec<RouteEntry> {
+    expand_under_prefixes("key_backup", NEST_PREFIXES, &relative_routes())
+}
 
 pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
     let router = Router::new()
@@ -20,34 +95,41 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
                 .put(update_backup_version)
                 .delete(delete_backup_version),
         )
+        // Spec-compliant: version is a query param, not a path segment.
         .route(
             "/room_keys/keys",
-            get(get_room_keys_all).put(put_room_keys_all),
+            get(get_room_keys_all)
+                .put(put_room_keys_all)
+                .delete(delete_room_keys_all),
         )
         .route(
-            "/room_keys/keys/{version}",
-            get(get_room_keys).put(put_room_keys),
+            "/room_keys/keys/{room_id}",
+            get(get_room_keys_for_room)
+                .put(put_room_keys_for_room)
+                .delete(delete_room_keys_for_room),
         )
         .route(
-            "/room_keys/keys/{version}/{room_id}",
-            get(get_room_key_by_id),
+            "/room_keys/keys/{room_id}/{session_id}",
+            get(get_room_key).put(put_room_key).delete(delete_room_key),
         )
+        // Legacy/MSC compatibility: version is encoded in the path.
         .route(
-            "/room_keys/keys/{version}/{room_id}/{session_id}",
-            get(get_room_key).put(put_room_key),
+            "/room_keys/{version}/keys",
+            get(get_room_keys_all_legacy)
+                .put(put_room_keys_all_legacy)
+                .delete(delete_room_keys_all_legacy),
         )
-        .route(
-            "/room_keys/{version}",
-            get(get_room_keys).put(put_room_keys),
-        )
-        .route("/room_keys/{version}/keys", post(put_room_keys_multi))
         .route(
             "/room_keys/{version}/keys/{room_id}",
-            get(get_room_key_by_id),
+            get(get_room_keys_for_room_legacy)
+                .put(put_room_keys_for_room_legacy)
+                .delete(delete_room_keys_for_room_legacy),
         )
         .route(
             "/room_keys/{version}/keys/{room_id}/{session_id}",
-            get(get_room_key).put(put_room_key),
+            get(get_room_key_legacy)
+                .put(put_room_key_legacy)
+                .delete(delete_room_key_legacy),
         )
         .route("/room_keys/recover", post(recover_keys))
         .route(
@@ -77,6 +159,11 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct VersionQuery {
+    pub version: String,
+}
+
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateBackupVersionBody {
     #[validate(length(max = 255, message = "Algorithm name too long"))]
@@ -89,13 +176,6 @@ pub struct UpdateBackupVersionBody {
     pub auth_data: Option<Value>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
-pub struct PutRoomKeysBody {
-    #[validate(length(min = 1, max = 255))]
-    pub room_id: Option<String>,
-    pub sessions: Option<Vec<Value>>,
-}
-
 #[axum::debug_handler]
 async fn create_backup_version(
     State(state): State<AppState>,
@@ -106,7 +186,10 @@ async fn create_backup_version(
         return Err(crate::error::ApiError::bad_request(e.to_string()));
     }
 
-    let algorithm = body.algorithm.as_deref().unwrap_or("m.megolm.v1.aes-sha2");
+    let algorithm = body
+        .algorithm
+        .as_deref()
+        .unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
     let auth_data = body.auth_data;
 
     let version = state
@@ -131,19 +214,26 @@ async fn get_all_backup_versions(
         .get_all_backups(&auth_user.user_id)
         .await?;
 
-    let versions: Vec<Value> = backups
+    let latest = backups
         .into_iter()
-        .map(|b| {
-            serde_json::json!({
-                "algorithm": b.algorithm,
-                "auth_data": b.backup_data,
-                "version": b.version.to_string()
-            })
-        })
-        .collect();
+        .max_by_key(|b| b.version)
+        .ok_or_else(|| {
+            crate::error::ApiError::not_found("No current backup version".to_string())
+        })?;
+
+    let version_str = latest.version.to_string();
+    let count = state
+        .services
+        .backup_service
+        .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
+        .await?;
 
     Ok(Json(serde_json::json!({
-        "versions": versions
+        "algorithm": latest.algorithm,
+        "auth_data": latest.backup_data,
+        "count": count,
+        "etag": latest.etag.unwrap_or_else(|| version_str.clone()),
+        "version": version_str
     })))
 }
 
@@ -160,11 +250,21 @@ async fn get_backup_version(
         .await?;
 
     match backup {
-        Some(b) => Ok(Json(serde_json::json!({
-            "algorithm": b.algorithm,
-            "auth_data": b.backup_data,
-            "version": b.version.to_string()
-        }))),
+        Some(b) => {
+            let version_str = b.version.to_string();
+            let count = state
+                .services
+                .backup_service
+                .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
+                .await?;
+            Ok(Json(serde_json::json!({
+                "algorithm": b.algorithm,
+                "auth_data": b.backup_data,
+                "count": count,
+                "etag": b.etag.unwrap_or_else(|| version_str.clone()),
+                "version": version_str
+            })))
+        }
         None => Err(crate::error::ApiError::not_found(format!(
             "Backup version '{}' not found",
             version
@@ -227,315 +327,458 @@ async fn delete_backup_version(
     })))
 }
 
+// ----------------------------------------------------------------------------
+// Spec body shapes for /room_keys/keys[*] (Matrix C-S §11.13)
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct RoomSessionsBody {
+    #[serde(default)]
+    sessions: std::collections::HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RoomKeysBody {
+    #[serde(default)]
+    rooms: std::collections::HashMap<String, Value>,
+}
+
+fn current_etag(version: &str) -> String {
+    format!("{}_{}", version, chrono::Utc::now().timestamp_millis())
+}
+
+fn write_response(version: &str, count: u64) -> Json<Value> {
+    Json(serde_json::json!({
+        "etag": current_etag(version),
+        "count": count,
+    }))
+}
+
+async fn ensure_backup_exists(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+) -> Result<(), crate::error::ApiError> {
+    state
+        .services
+        .backup_service
+        .get_backup(user_id, version)
+        .await?
+        .ok_or_else(|| {
+            crate::error::ApiError::not_found(format!("Backup version '{}' not found", version))
+        })
+        .map(|_| ())
+}
+
+// ----------------------------------------------------------------------------
+// GET /room_keys/keys?version=...
+// Returns {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
+// ----------------------------------------------------------------------------
+async fn read_all_rooms(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    let keys = state
+        .services
+        .backup_service
+        .get_keys_for_version(user_id, version)
+        .await?;
+
+    let mut rooms = serde_json::Map::<String, Value>::new();
+    for k in keys {
+        let entry = rooms
+            .entry(k.room_id.clone())
+            .or_insert_with(|| serde_json::json!({"sessions": {}}));
+        if let Some(sessions) = entry.get_mut("sessions").and_then(|v| v.as_object_mut()) {
+            sessions.insert(k.session_id.clone(), k.session_data.clone());
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "rooms": rooms })))
+}
+
 #[axum::debug_handler]
 async fn get_room_keys_all(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backups = state
-        .services
-        .backup_service
-        .get_all_backups(&auth_user.user_id)
-        .await?;
-
-    let latest_backup = backups.into_iter().max_by_key(|b| b.version);
-
-    if let Some(backup) = latest_backup {
-        let rooms = state
-            .services
-            .backup_service
-            .get_backup_count_per_room(&auth_user.user_id, &backup.version.to_string())
-            .await?;
-
-        Ok(Json(serde_json::json!({
-            "rooms": rooms,
-            "etag": backup.etag.clone().unwrap_or_else(|| backup.version.to_string())
-        })))
-    } else {
-        Ok(Json(serde_json::json!({
-            "rooms": {},
-            "etag": "0"
-        })))
-    }
+    read_all_rooms(&state, &auth_user.user_id, &q.version).await
 }
 
 #[axum::debug_handler]
-async fn put_room_keys_all(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Json(body): Json<PutRoomKeysBody>,
-) -> Result<Json<Value>, crate::error::ApiError> {
-    if let Err(e) = body.validate() {
-        return Err(crate::error::ApiError::bad_request(e.to_string()));
-    }
-
-    let backups = state
-        .services
-        .backup_service
-        .get_all_backups(&auth_user.user_id)
-        .await?;
-
-    let latest_backup = backups.into_iter().max_by_key(|b| b.version);
-
-    let version = if let Some(backup) = latest_backup {
-        backup.version.to_string()
-    } else {
-        return Err(crate::error::ApiError::not_found("No backup version found"));
-    };
-
-    let room_id = body.room_id.as_deref().unwrap_or("");
-    let sessions = body.sessions.unwrap_or_default();
-
-    state
-        .services
-        .backup_service
-        .upload_room_keys_for_room(&auth_user.user_id, room_id, &version, sessions.clone())
-        .await?;
-
-    Ok(Json(serde_json::json!({
-        "count": sessions.len(),
-        "etag": version
-    })))
-}
-
-#[axum::debug_handler]
-async fn get_room_keys(
+async fn get_room_keys_all_legacy(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    if version.starts_with('!') {
-        return Ok(Json(serde_json::json!({
-            "rooms": {},
-            "etag": "0"
-        })));
-    }
+    read_all_rooms(&state, &auth_user.user_id, &version).await
+}
 
-    let backup = state
+// ----------------------------------------------------------------------------
+// GET /room_keys/keys/{room_id}?version=...
+// Returns {sessions: {session_id: KeyBackupData}}
+// ----------------------------------------------------------------------------
+async fn read_room(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    let keys = state
         .services
         .backup_service
-        .get_backup(&auth_user.user_id, &version)
-        .await?
-        .ok_or_else(|| {
-            crate::error::ApiError::not_found(format!("Backup version '{}' not found", version))
-        })?;
-
-    let rooms = state
-        .services
-        .backup_service
-        .get_backup_count_per_room(&auth_user.user_id, &version)
+        .get_room_backup_keys(user_id, room_id, version)
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "rooms": rooms,
-        "etag": backup.etag.clone().unwrap_or_else(|| backup.version.to_string())
-    })))
-}
-
-#[axum::debug_handler]
-async fn put_room_keys(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
-    Json(body): Json<PutRoomKeysBody>,
-) -> Result<Json<Value>, crate::error::ApiError> {
-    if let Err(e) = body.validate() {
-        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    let mut sessions = serde_json::Map::<String, Value>::new();
+    for k in keys {
+        sessions.insert(k.session_id.clone(), k.session_data.clone());
     }
 
-    let room_id = body.room_id.as_deref().unwrap_or("");
-    let sessions = body.sessions.unwrap_or_default();
-
-    state
-        .services
-        .backup_service
-        .upload_room_keys_for_room(&auth_user.user_id, room_id, &version, sessions.clone())
-        .await?;
-
-    Ok(Json(serde_json::json!({
-        "count": sessions.len(),
-        "etag": format!("{}_{}", version, chrono::Utc::now().timestamp())
-    })))
+    Ok(Json(serde_json::json!({ "sessions": sessions })))
 }
 
 #[axum::debug_handler]
-async fn put_room_keys_multi(
+async fn get_room_keys_for_room(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
-    Json(body): Json<Value>,
+    Path(room_id): Path<String>,
+    Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let mut total_count = 0;
-
-    if let Some(rooms) = body.as_object() {
-        for (room_id, room_data) in rooms {
-            if let Some(sessions_obj) = room_data.get("sessions") {
-                if let Some(sessions) = sessions_obj.as_array() {
-                    for session in sessions {
-                        if let Err(e) = state
-                            .services
-                            .backup_service
-                            .upload_room_key(
-                                &auth_user.user_id,
-                                room_id,
-                                session["session_id"].as_str().unwrap_or(""),
-                                session,
-                            )
-                            .await
-                        {
-                            tracing::warn!(
-                                target: "key_backup",
-                                "Failed to upload room key: {}",
-                                e
-                            );
-                        }
-                    }
-                    total_count += sessions.len();
-                }
-            }
-        }
-    }
-
-    Ok(Json(serde_json::json!({
-        "count": total_count,
-        "etag": format!("{}_{}", version, chrono::Utc::now().timestamp())
-    })))
+    read_room(&state, &auth_user.user_id, &q.version, &room_id).await
 }
 
 #[axum::debug_handler]
-async fn get_room_key_by_id(
+async fn get_room_keys_for_room_legacy(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    if !state
-        .services
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| crate::error::ApiError::internal(format!("Database error: {}", e)))?
-    {
-        return Err(crate::error::ApiError::not_found(format!(
-            "Room '{}' not found",
-            room_id
-        )));
-    }
+    read_room(&state, &auth_user.user_id, &version, &room_id).await
+}
 
-    let keys = state
+// ----------------------------------------------------------------------------
+// GET /room_keys/keys/{room_id}/{session_id}?version=...
+// Returns KeyBackupData
+// ----------------------------------------------------------------------------
+async fn read_session(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+    session_id: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    let key = state
         .services
         .backup_service
-        .get_room_backup_keys(&auth_user.user_id, &room_id, &version)
-        .await?;
+        .get_backup_key(user_id, room_id, session_id, version)
+        .await?
+        .ok_or_else(|| {
+            crate::error::ApiError::not_found(format!(
+                "Session '{}' in room '{}' not found",
+                session_id, room_id
+            ))
+        })?;
 
-    let mut sessions = serde_json::Map::new();
-    for key in keys {
-        let session_data = key
-            .session_data
-            .get("session_data")
-            .cloned()
-            .unwrap_or_else(|| key.session_data.clone());
-
-        sessions.insert(
-            key.session_id,
-            serde_json::json!({
-                "first_message_index": key.first_message_index,
-                "forwarded_count": key.forwarded_count,
-                "is_verified": key.is_verified,
-                "session_data": session_data
-            }),
-        );
-    }
-
-    Ok(Json(serde_json::json!({
-        "rooms": {
-            room_id: {
-                "sessions": sessions
-            }
-        }
-    })))
+    Ok(Json(key.session_data))
 }
 
 #[axum::debug_handler]
 async fn get_room_key(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    Path((room_id, session_id)): Path<(String, String)>,
+    Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let key = state
-        .services
-        .backup_service
-        .get_backup_key(&auth_user.user_id, &room_id, &session_id, &version)
-        .await?;
-
-    match key {
-        Some(k) => Ok(Json(serde_json::json!({
-            "room_id": room_id,
-            "session_id": session_id,
-            "first_message_index": k.first_message_index,
-            "forwarded_count": k.forwarded_count,
-            "is_verified": k.is_verified,
-            "session_data": k.session_data.get("session_data").cloned().unwrap_or(k.session_data)
-        }))),
-        None => Err(crate::error::ApiError::not_found(format!(
-            "Session '{}' not found in room '{}'",
-            session_id, room_id
-        ))),
-    }
+    read_session(
+        &state,
+        &auth_user.user_id,
+        &q.version,
+        &room_id,
+        &session_id,
+    )
+    .await
 }
 
-#[derive(Debug, Deserialize, Validate)]
-pub struct PutRoomKeyBody {
-    pub first_message_index: i64,
-    pub forwarded_count: i64,
-    pub is_verified: bool,
-    pub session_data: Value,
+#[axum::debug_handler]
+async fn get_room_key_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id, session_id)): Path<(String, String, String)>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    read_session(&state, &auth_user.user_id, &version, &room_id, &session_id).await
+}
+
+// ----------------------------------------------------------------------------
+// PUT /room_keys/keys?version=...
+// Body: {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
+// ----------------------------------------------------------------------------
+async fn write_all_rooms(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    body: RoomKeysBody,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+
+    let mut count: u64 = 0;
+    for (room_id, room_payload) in body.rooms {
+        let sessions = room_payload
+            .get("sessions")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+        for (session_id, key_data) in sessions {
+            state
+                .services
+                .backup_service
+                .upload_session(user_id, version, &room_id, &session_id, key_data)
+                .await?;
+            count += 1;
+        }
+    }
+
+    Ok(write_response(version, count))
+}
+
+#[axum::debug_handler]
+async fn put_room_keys_all(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(q): Query<VersionQuery>,
+    Json(body): Json<RoomKeysBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    write_all_rooms(&state, &auth_user.user_id, &q.version, body).await
+}
+
+#[axum::debug_handler]
+async fn put_room_keys_all_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+    Json(body): Json<RoomKeysBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    write_all_rooms(&state, &auth_user.user_id, &version, body).await
+}
+
+// ----------------------------------------------------------------------------
+// PUT /room_keys/keys/{room_id}?version=...
+// Body: {sessions: {session_id: KeyBackupData}}
+// ----------------------------------------------------------------------------
+async fn write_room(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+    body: RoomSessionsBody,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+
+    let mut count: u64 = 0;
+    for (session_id, key_data) in body.sessions {
+        state
+            .services
+            .backup_service
+            .upload_session(user_id, version, room_id, &session_id, key_data)
+            .await?;
+        count += 1;
+    }
+
+    Ok(write_response(version, count))
+}
+
+#[axum::debug_handler]
+async fn put_room_keys_for_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Query(q): Query<VersionQuery>,
+    Json(body): Json<RoomSessionsBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    write_room(&state, &auth_user.user_id, &q.version, &room_id, body).await
+}
+
+#[axum::debug_handler]
+async fn put_room_keys_for_room_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id)): Path<(String, String)>,
+    Json(body): Json<RoomSessionsBody>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    write_room(&state, &auth_user.user_id, &version, &room_id, body).await
+}
+
+// ----------------------------------------------------------------------------
+// PUT /room_keys/keys/{room_id}/{session_id}?version=...
+// Body: KeyBackupData
+// ----------------------------------------------------------------------------
+async fn write_session(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+    session_id: &str,
+    key_data: Value,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    state
+        .services
+        .backup_service
+        .upload_session(user_id, version, room_id, session_id, key_data)
+        .await?;
+    Ok(write_response(version, 1))
 }
 
 #[axum::debug_handler]
 async fn put_room_key(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
-    Json(body): Json<PutRoomKeyBody>,
+    Path((room_id, session_id)): Path<(String, String)>,
+    Query(q): Query<VersionQuery>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    if let Err(e) = body.validate() {
-        return Err(crate::error::ApiError::bad_request(e.to_string()));
-    }
+    write_session(
+        &state,
+        &auth_user.user_id,
+        &q.version,
+        &room_id,
+        &session_id,
+        body,
+    )
+    .await
+}
 
-    let backup = state
+#[axum::debug_handler]
+async fn put_room_key_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    write_session(
+        &state,
+        &auth_user.user_id,
+        &version,
+        &room_id,
+        &session_id,
+        body,
+    )
+    .await
+}
+
+// ----------------------------------------------------------------------------
+// DELETE handlers (spec + legacy)
+// ----------------------------------------------------------------------------
+async fn delete_all_rooms_impl(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    let count = state
         .services
         .backup_service
-        .get_backup(&auth_user.user_id, &version)
-        .await?
-        .ok_or_else(|| {
-            crate::error::ApiError::not_found(format!("Backup version '{}' not found", version))
-        })?;
-
-    let session_data = serde_json::to_string(&body.session_data)
-        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid session_data: {}", e)))?;
-
-    let params = crate::e2ee::backup::BackupKeyUploadParams {
-        user_id: auth_user.user_id.clone(),
-        version: version.clone(),
-        room_id: room_id.clone(),
-        session_id: session_id.clone(),
-        first_message_index: body.first_message_index,
-        forwarded_count: body.forwarded_count,
-        is_verified: body.is_verified,
-        session_data,
-    };
-
-    state
-        .services
-        .backup_service
-        .upload_backup_key(params)
+        .delete_all_for_version(user_id, version)
         .await?;
+    Ok(write_response(version, count))
+}
 
-    Ok(Json(serde_json::json!({
-        "room_id": room_id,
-        "session_id": session_id,
-        "etag": format!("{}_{}", backup.version, chrono::Utc::now().timestamp())
-    })))
+#[axum::debug_handler]
+async fn delete_room_keys_all(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(q): Query<VersionQuery>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_all_rooms_impl(&state, &auth_user.user_id, &q.version).await
+}
+
+#[axum::debug_handler]
+async fn delete_room_keys_all_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(version): Path<String>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_all_rooms_impl(&state, &auth_user.user_id, &version).await
+}
+
+async fn delete_room_impl(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    let count = state
+        .services
+        .backup_service
+        .delete_room_for_version(user_id, version, room_id)
+        .await?;
+    Ok(write_response(version, count))
+}
+
+#[axum::debug_handler]
+async fn delete_room_keys_for_room(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Query(q): Query<VersionQuery>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_room_impl(&state, &auth_user.user_id, &q.version, &room_id).await
+}
+
+#[axum::debug_handler]
+async fn delete_room_keys_for_room_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id)): Path<(String, String)>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_room_impl(&state, &auth_user.user_id, &version, &room_id).await
+}
+
+async fn delete_session_impl(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+    room_id: &str,
+    session_id: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(state, user_id, version).await?;
+    let count = state
+        .services
+        .backup_service
+        .delete_session_for_version(user_id, version, room_id, session_id)
+        .await?;
+    Ok(write_response(version, count))
+}
+
+#[axum::debug_handler]
+async fn delete_room_key(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, session_id)): Path<(String, String)>,
+    Query(q): Query<VersionQuery>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_session_impl(
+        &state,
+        &auth_user.user_id,
+        &q.version,
+        &room_id,
+        &session_id,
+    )
+    .await
+}
+
+#[axum::debug_handler]
+async fn delete_room_key_legacy(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((version, room_id, session_id)): Path<(String, String, String)>,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    delete_session_impl(&state, &auth_user.user_id, &version, &room_id, &session_id).await
 }
 
 #[derive(Debug, Deserialize, Validate)]

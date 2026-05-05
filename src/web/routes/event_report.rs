@@ -126,6 +126,7 @@ pub struct StatsResponse {
     pub resolved_reports: i32,
     pub dismissed_reports: i32,
     pub avg_resolution_time_hours: Option<i32>,
+    pub avg_resolution_time_ms: Option<i64>,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -142,6 +143,7 @@ impl From<EventReportStats> for StatsResponse {
             avg_resolution_time_hours: s.avg_resolution_time_ms.and_then(
                 |avg_resolution_time_ms| i32::try_from(avg_resolution_time_ms / 3_600_000).ok(),
             ),
+            avg_resolution_time_ms: s.avg_resolution_time_ms,
             created_ts: s.created_ts,
             updated_ts: s.updated_ts,
         }
@@ -540,4 +542,66 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
             crate::web::middleware::admin_auth_middleware,
         ))
         .with_state(state)
+}
+
+pub fn event_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/admin/v1/event_reports"),
+        (Method::GET, "/_synapse/admin/v1/event_reports"),
+        (Method::GET, "/_synapse/admin/v1/event_reports/count"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/status/{status}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/status/{status}/count",
+        ),
+        (Method::GET, "/_synapse/admin/v1/event_reports/{id}"),
+        (Method::PUT, "/_synapse/admin/v1/event_reports/{id}"),
+        (Method::DELETE, "/_synapse/admin/v1/event_reports/{id}"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/event_reports/{id}/resolve",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/event_reports/{id}/dismiss",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/event_reports/{id}/escalate",
+        ),
+        (Method::GET, "/_synapse/admin/v1/event_reports/{id}/history"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/event/{event_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/room/{room_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock",
+        ),
+        (Method::GET, "/_synapse/admin/v1/event_reports/stats"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "event_report"))
+    .collect()
 }

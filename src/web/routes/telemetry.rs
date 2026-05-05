@@ -237,6 +237,25 @@ pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
         .with_state(state)
 }
 
+pub fn telemetry_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/telemetry/status"),
+        (Method::GET, "/_synapse/admin/v1/telemetry/attributes"),
+        (Method::GET, "/_synapse/admin/v1/telemetry/metrics"),
+        (Method::GET, "/_synapse/admin/v1/telemetry/alerts"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack",
+        ),
+        (Method::GET, "/_synapse/admin/v1/telemetry/health"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "telemetry"))
+    .collect()
+}
+
 fn request_id(headers: &HeaderMap) -> String {
     headers
         .get("x-request-id")
