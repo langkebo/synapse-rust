@@ -2,7 +2,7 @@ use crate::common::error::ApiError;
 use crate::web::routes::AppState;
 use crate::web::AuthenticatedUser;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::header,
     middleware,
     response::{IntoResponse, Redirect},
@@ -295,6 +295,194 @@ pub async fn refresh_idp_metadata(
     }))
 }
 
+// ============================================================================
+// Admin endpoints: SAML user-mapping CRUD + admin-initiated logout + runtime
+// config (closes audit R2-SAML-01). All mounted under `/_synapse/admin/v1`
+// and guarded by `admin_auth_middleware`.
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct SamlMappingListQuery {
+    pub limit: Option<i64>,
+    pub from: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SamlMappingView {
+    pub name_id: String,
+    pub user_id: String,
+    pub issuer: String,
+    pub first_seen_ts: i64,
+    pub last_authenticated_ts: i64,
+    pub authentication_count: i32,
+    pub attributes: serde_json::Value,
+}
+
+impl From<crate::storage::saml::SamlUserMapping> for SamlMappingView {
+    fn from(m: crate::storage::saml::SamlUserMapping) -> Self {
+        Self {
+            name_id: m.name_id,
+            user_id: m.user_id,
+            issuer: m.issuer,
+            first_seen_ts: m.first_seen_ts,
+            last_authenticated_ts: m.last_authenticated_ts,
+            authentication_count: m.authentication_count,
+            attributes: m.attributes,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SamlMappingPage {
+    pub mappings: Vec<SamlMappingView>,
+    pub next_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateSamlMappingBody {
+    pub user_id: Option<String>,
+    pub attributes: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SamlLogoutAdminBody {
+    pub user_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SamlLogoutAdminResponse {
+    pub user_id: String,
+    pub redirect_url: Option<String>,
+    pub sessions_invalidated: u32,
+}
+
+pub async fn list_saml_mappings_admin(
+    State(state): State<AppState>,
+    Query(query): Query<SamlMappingListQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50).clamp(1, 500);
+    let rows = state
+        .services
+        .saml_storage
+        .list_user_mappings(limit, query.from.as_deref())
+        .await?;
+
+    let next_token = if rows.len() as i64 == limit {
+        rows.last().map(|r| r.name_id.clone())
+    } else {
+        None
+    };
+
+    Ok(Json(SamlMappingPage {
+        mappings: rows.into_iter().map(SamlMappingView::from).collect(),
+        next_token,
+    }))
+}
+
+pub async fn get_saml_mapping_admin(
+    State(state): State<AppState>,
+    Path(name_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let row = state
+        .services
+        .saml_storage
+        .get_user_mapping_any_issuer(&name_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("SAML user mapping not found"))?;
+    Ok(Json(SamlMappingView::from(row)))
+}
+
+pub async fn update_saml_mapping_admin(
+    State(state): State<AppState>,
+    Path(name_id): Path<String>,
+    Json(body): Json<UpdateSamlMappingBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.user_id.is_none() && body.attributes.is_none() {
+        return Err(ApiError::bad_request(
+            "At least one of user_id / attributes must be provided",
+        ));
+    }
+    let row = state
+        .services
+        .saml_storage
+        .update_user_mapping_by_name_id(&name_id, body.user_id.as_deref(), body.attributes.as_ref())
+        .await?
+        .ok_or_else(|| ApiError::not_found("SAML user mapping not found"))?;
+    Ok(Json(SamlMappingView::from(row)))
+}
+
+pub async fn delete_saml_mapping_admin(
+    State(state): State<AppState>,
+    Path(name_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let removed = state
+        .services
+        .saml_storage
+        .delete_user_mapping_by_name_id(&name_id)
+        .await?;
+    if removed == 0 {
+        return Err(ApiError::not_found("SAML user mapping not found"));
+    }
+    Ok(Json(serde_json::json!({ "removed": removed })))
+}
+
+pub async fn saml_logout_admin(
+    State(state): State<AppState>,
+    Json(body): Json<SamlLogoutAdminBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.user_id.is_empty() {
+        return Err(ApiError::bad_request("user_id is required"));
+    }
+    if !state.services.saml_service.is_enabled() {
+        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+    }
+
+    let session = state
+        .services
+        .saml_storage
+        .get_session_by_user(&body.user_id)
+        .await?;
+
+    let Some(session) = session else {
+        return Ok(Json(SamlLogoutAdminResponse {
+            user_id: body.user_id,
+            redirect_url: None,
+            sessions_invalidated: 0,
+        }));
+    };
+
+    let redirect_url = state
+        .services
+        .saml_service
+        .initiate_logout(&session.session_id, Some("Admin initiated logout"))
+        .await
+        .ok();
+
+    Ok(Json(SamlLogoutAdminResponse {
+        user_id: body.user_id,
+        redirect_url,
+        sessions_invalidated: 1,
+    }))
+}
+
+pub async fn get_saml_admin_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(state.services.saml_service.effective_config()))
+}
+
+pub async fn update_saml_admin_config(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let merged = state
+        .services
+        .saml_service
+        .apply_runtime_overrides(body)
+        .await?;
+    Ok(Json(merged))
+}
+
 pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -328,10 +516,52 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
             "/_synapse/admin/v1/saml/metadata/refresh",
             post(refresh_idp_metadata),
         )
+        .route(
+            "/_synapse/admin/v1/saml/config",
+            get(get_saml_admin_config).put(update_saml_admin_config),
+        )
+        .route(
+            "/_synapse/admin/v1/saml/mappings",
+            get(list_saml_mappings_admin),
+        )
+        .route(
+            "/_synapse/admin/v1/saml/mapping/{name_id}",
+            get(get_saml_mapping_admin)
+                .put(update_saml_mapping_admin)
+                .delete(delete_saml_mapping_admin),
+        )
+        .route("/_synapse/admin/v1/saml/logout", post(saml_logout_admin))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
         ));
 
     public_routes.merge(admin_routes).with_state(state)
+}
+
+pub fn saml_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"),
+        (Method::POST, "/_matrix/client/r0/login/sso/redirect/saml"),
+        (Method::GET, "/_matrix/client/r0/login/saml/callback"),
+        (Method::POST, "/_matrix/client/r0/login/saml/callback"),
+        (Method::GET, "/_matrix/client/r0/logout/saml"),
+        (Method::GET, "/_matrix/client/r0/logout/saml/callback"),
+        (Method::GET, "/_matrix/client/r0/saml/metadata"),
+        (Method::GET, "/_matrix/client/r0/saml/sp_metadata"),
+        (Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"),
+        (Method::GET, "/_synapse/admin/v1/saml/config"),
+        (Method::PUT, "/_synapse/admin/v1/saml/config"),
+        (Method::GET, "/_synapse/admin/v1/saml/mappings"),
+        (Method::GET, "/_synapse/admin/v1/saml/mapping/{name_id}"),
+        (Method::PUT, "/_synapse/admin/v1/saml/mapping/{name_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/saml/mapping/{name_id}"),
+        (Method::POST, "/_synapse/admin/v1/saml/logout"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "saml"))
+    .collect()
 }

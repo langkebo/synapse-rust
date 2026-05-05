@@ -3,7 +3,9 @@ use crate::common::{generate_event_id, ApiError, ApiResult};
 use crate::federation::friend::FriendFederationClient;
 use crate::federation::KeyRotationManager;
 use crate::services::RoomService;
-use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use crate::storage::{
+    CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -76,6 +78,7 @@ pub struct FriendRoomService {
 }
 
 impl FriendRoomService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         friend_storage: FriendRoomStorage,
         room_service: Arc<RoomService>,
@@ -540,7 +543,8 @@ impl FriendRoomService {
             .skip(offset)
             .take(safe_limit)
             .collect::<Vec<_>>();
-        let next_offset = (offset + paged_items.len() < total).then_some(offset + paged_items.len());
+        let next_offset =
+            (offset + paged_items.len() < total).then_some(offset + paged_items.len());
 
         let page = FriendListPage {
             room_id,
@@ -587,7 +591,9 @@ impl FriendRoomService {
             let mut content = link.content;
             let mut touched = false;
 
-            if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut())
+            if let Some(friends) = content
+                .get_mut("friends")
+                .and_then(|value| value.as_array_mut())
             {
                 for friend in friends.iter_mut() {
                     if friend.get("dm_room_id").and_then(|value| value.as_str()) != Some(dm_room_id)
@@ -1493,7 +1499,8 @@ impl FriendRoomService {
 }
 
 fn sort_letter_for(value: &str) -> String {
-    value.chars()
+    value
+        .chars()
         .find(|ch| !ch.is_whitespace())
         .map(|ch| {
             if ch.is_ascii_alphabetic() {

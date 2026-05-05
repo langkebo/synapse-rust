@@ -464,6 +464,140 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// List SAML user mappings with keyset pagination on `name_id`.
+    ///
+    /// `after` is an optional cursor: when provided, only mappings with
+    /// `name_id > after` are returned. Rows are ordered ascending by
+    /// `(name_id, issuer)` so the cursor remains deterministic even when
+    /// the same `name_id` appears under multiple issuers.
+    pub async fn list_user_mappings(
+        &self,
+        limit: i64,
+        after: Option<&str>,
+    ) -> Result<Vec<SamlUserMapping>, ApiError> {
+        let rows = if let Some(cursor) = after {
+            sqlx::query_as::<_, SamlUserMapping>(
+                r#"
+                SELECT * FROM saml_user_mapping
+                WHERE name_id > $1
+                ORDER BY name_id ASC, issuer ASC
+                LIMIT $2
+                "#,
+            )
+            .bind(cursor)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, SamlUserMapping>(
+                r#"
+                SELECT * FROM saml_user_mapping
+                ORDER BY name_id ASC, issuer ASC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+        .map_err(|e| ApiError::internal(format!("Failed to list SAML user mappings: {}", e)))?;
+
+        Ok(rows)
+    }
+
+    /// Fetch the first SAML user mapping matching `name_id` across any issuer.
+    ///
+    /// The admin SDK identifies mappings by `name_id` only; when multiple
+    /// issuers have produced the same `name_id`, the oldest (`first_seen_ts
+    /// ASC`, then `issuer ASC`) is returned for stability. Consumers that
+    /// need exactness should use {@link Self::get_user_mapping_by_name_id}
+    /// with an explicit issuer.
+    pub async fn get_user_mapping_any_issuer(
+        &self,
+        name_id: &str,
+    ) -> Result<Option<SamlUserMapping>, ApiError> {
+        let row = sqlx::query_as::<_, SamlUserMapping>(
+            r#"
+            SELECT * FROM saml_user_mapping
+            WHERE name_id = $1
+            ORDER BY first_seen_ts ASC, issuer ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(name_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get SAML user mapping: {}", e)))?;
+
+        Ok(row)
+    }
+
+    /// Update the first mapping matching `name_id` (across any issuer).
+    ///
+    /// `new_user_id` replaces the mapped homeserver user when `Some`.
+    /// `attributes` replaces the stored attribute JSON when `Some`.
+    /// Returns the updated row, or `None` when no mapping matched.
+    pub async fn update_user_mapping_by_name_id(
+        &self,
+        name_id: &str,
+        new_user_id: Option<&str>,
+        attributes: Option<&serde_json::Value>,
+    ) -> Result<Option<SamlUserMapping>, ApiError> {
+        let existing = self.get_user_mapping_any_issuer(name_id).await?;
+        let Some(existing) = existing else {
+            return Ok(None);
+        };
+
+        let target_user_id = new_user_id.unwrap_or(&existing.user_id);
+        let target_attributes = attributes.cloned().unwrap_or(existing.attributes.clone());
+
+        let row = sqlx::query_as::<_, SamlUserMapping>(
+            r#"
+            UPDATE saml_user_mapping
+            SET user_id = $1, attributes = $2
+            WHERE name_id = $3 AND issuer = $4
+            RETURNING *
+            "#,
+        )
+        .bind(target_user_id)
+        .bind(&target_attributes)
+        .bind(&existing.name_id)
+        .bind(&existing.issuer)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to update SAML user mapping: {}", e)))?;
+
+        if row.is_some() {
+            info!(
+                "Updated SAML user mapping: {} -> {}",
+                name_id, target_user_id
+            );
+        }
+        Ok(row)
+    }
+
+    /// Delete every mapping row matching `name_id` (across any issuer).
+    ///
+    /// Returns the number of rows removed.
+    pub async fn delete_user_mapping_by_name_id(&self, name_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query("DELETE FROM saml_user_mapping WHERE name_id = $1")
+            .bind(name_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete SAML user mappings: {}", e))
+            })?;
+
+        let count = result.rows_affected();
+        if count > 0 {
+            info!(
+                "Deleted {} SAML user mapping rows for name_id {}",
+                count, name_id
+            );
+        }
+        Ok(count)
+    }
+
     pub async fn create_identity_provider(
         &self,
         request: CreateSamlIdentityProviderRequest,
@@ -725,5 +859,68 @@ impl SamlStorage {
             info!("Cleaned up {} old SAML auth events", count);
         }
         Ok(count)
+    }
+
+    /// Load every persisted SAML runtime config override.
+    ///
+    /// Called once at service startup to hydrate the in-memory cache
+    /// that `SamlService::effective_config()` reads from synchronously.
+    pub async fn get_all_config_overrides(
+        &self,
+    ) -> Result<HashMap<String, serde_json::Value>, ApiError> {
+        let rows: Vec<(String, serde_json::Value)> =
+            sqlx::query_as("SELECT config_key, config_value FROM saml_config_overrides")
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to load SAML config overrides: {}", e))
+                })?;
+
+        debug!("Loaded {} SAML config override(s)", rows.len());
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Upsert a single SAML runtime config override.
+    ///
+    /// The caller (SamlService) is responsible for enforcing the
+    /// `MUTABLE_CONFIG_FIELDS` whitelist; this method trusts its inputs.
+    pub async fn upsert_config_override(
+        &self,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), ApiError> {
+        let now = Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO saml_config_overrides (config_key, config_value, updated_ts)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (config_key) DO UPDATE SET
+                config_value = EXCLUDED.config_value,
+                updated_ts = EXCLUDED.updated_ts
+            "#,
+        )
+        .bind(key)
+        .bind(value)
+        .bind(now)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to upsert SAML config override: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Remove a single SAML runtime config override.
+    ///
+    /// Used to reset a field back to the static `SamlConfig` value.
+    pub async fn delete_config_override(&self, key: &str) -> Result<(), ApiError> {
+        sqlx::query("DELETE FROM saml_config_overrides WHERE config_key = $1")
+            .bind(key)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to delete SAML config override: {}", e))
+            })?;
+
+        Ok(())
     }
 }
