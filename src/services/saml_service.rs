@@ -80,6 +80,7 @@ pub struct SamlService {
     server_name: String,
     cached_metadata: Option<SamlMetadata>,
     metadata_last_refresh: Option<DateTime<Utc>>,
+    runtime_overrides: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
 }
 
 impl SamlService {
@@ -96,11 +97,163 @@ impl SamlService {
             server_name,
             cached_metadata: None,
             metadata_last_refresh: None,
+            runtime_overrides: Arc::new(Mutex::new(serde_json::Map::new())),
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
+    }
+
+    /// Whitelist of SAML config fields that can be mutated at runtime via
+    /// `PUT /_synapse/admin/v1/saml/config`. Fields outside this list are
+    /// rejected — secrets (`sp_private_key*`, `sp_certificate*`) and path
+    /// references cannot be hot-reloaded safely.
+    pub const MUTABLE_CONFIG_FIELDS: &'static [&'static str] = &[
+        "enabled",
+        "metadata_url",
+        "attribute_mapping",
+        "nameid_format",
+        "allow_existing_users",
+        "block_unknown_users",
+        "user_id_template",
+        "use_name_id_for_user_id",
+        "sign_requests",
+        "want_response_signed",
+        "want_assertions_signed",
+        "want_assertions_encrypted",
+        "authn_context_class_ref",
+        "session_lifetime",
+        "metadata_refresh_interval",
+        "allowed_idp_entity_ids",
+        "timeout",
+        "sp_entity_id",
+        "sp_acs_url",
+        "sp_sls_url",
+    ];
+
+    /// Serialize the static base config into a sanitized JSON view,
+    /// stripping every secret / path field that would expose private
+    /// key material or filesystem details.
+    pub fn sanitized_base_config(&self) -> serde_json::Value {
+        serde_json::json!({
+            "enabled": self.config.enabled,
+            "metadata_url": self.config.metadata_url,
+            "has_metadata_xml": self.config.metadata_xml.is_some(),
+            "sp_entity_id": self.config.sp_entity_id,
+            "sp_acs_url": self.config.sp_acs_url,
+            "sp_sls_url": self.config.sp_sls_url,
+            "has_sp_private_key": self.config.sp_private_key.is_some()
+                || self.config.sp_private_key_path.is_some(),
+            "has_sp_certificate": self.config.sp_certificate.is_some()
+                || self.config.sp_certificate_path.is_some(),
+            "attribute_mapping": {
+                "uid": self.config.attribute_mapping.uid,
+                "displayname": self.config.attribute_mapping.displayname,
+                "email": self.config.attribute_mapping.email,
+            },
+            "nameid_format": self.config.nameid_format,
+            "allow_existing_users": self.config.allow_existing_users,
+            "block_unknown_users": self.config.block_unknown_users,
+            "user_id_template": self.config.user_id_template,
+            "use_name_id_for_user_id": self.config.use_name_id_for_user_id,
+            "sign_requests": self.config.sign_requests,
+            "want_response_signed": self.config.want_response_signed,
+            "want_assertions_signed": self.config.want_assertions_signed,
+            "want_assertions_encrypted": self.config.want_assertions_encrypted,
+            "authn_context_class_ref": self.config.authn_context_class_ref,
+            "session_lifetime": self.config.session_lifetime,
+            "metadata_refresh_interval": self.config.metadata_refresh_interval,
+            "allowed_idp_entity_ids": self.config.allowed_idp_entity_ids,
+            "timeout": self.config.timeout,
+        })
+    }
+
+    /// Snapshot the full effective config = base sanitized view with any
+    /// runtime overrides applied on top. Result is JSON-ready.
+    pub fn effective_config(&self) -> serde_json::Value {
+        let mut base = self.sanitized_base_config();
+        let overrides = self
+            .runtime_overrides
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        if let serde_json::Value::Object(ref mut map) = base {
+            for (k, v) in overrides {
+                map.insert(k, v);
+            }
+        }
+        base
+    }
+
+    /// Apply a runtime override patch. Fields not in
+    /// [`Self::MUTABLE_CONFIG_FIELDS`] cause a 400 error. Validation
+    /// is intentionally light: types are not re-checked against
+    /// `SamlConfig`'s Rust types — callers trust the admin UI.
+    /// Returns the effective config after applying.
+    ///
+    /// Persisted to `saml_config_overrides` so admin edits survive
+    /// process restarts. The in-memory `runtime_overrides` cache is
+    /// updated after the DB write succeeds, so `effective_config()`
+    /// can remain sync for synchronous read paths.
+    pub async fn apply_runtime_overrides(
+        &self,
+        patch: serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        let patch_map = match patch {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(ApiError::bad_request(
+                    "SAML config body must be a JSON object",
+                ));
+            }
+        };
+
+        let mut rejected: Vec<&str> = Vec::new();
+        for key in patch_map.keys() {
+            if !Self::MUTABLE_CONFIG_FIELDS.contains(&key.as_str()) {
+                rejected.push(key.as_str());
+            }
+        }
+        if !rejected.is_empty() {
+            return Err(ApiError::bad_request(format!(
+                "SAML config fields not mutable at runtime: {}",
+                rejected.join(", ")
+            )));
+        }
+
+        for (k, v) in &patch_map {
+            self.storage.upsert_config_override(k, v).await?;
+        }
+
+        {
+            let mut guard = self.runtime_overrides.lock().map_err(|_| {
+                ApiError::internal("SAML runtime overrides lock poisoned".to_string())
+            })?;
+            for (k, v) in patch_map {
+                guard.insert(k, v);
+            }
+        }
+
+        Ok(self.effective_config())
+    }
+
+    /// Hydrate the in-memory runtime-override cache from persistent storage.
+    ///
+    /// Called once at server boot (see `SynapseServer::warmup`) so the
+    /// first synchronous `effective_config()` call observes any overrides
+    /// that were written by a previous process.
+    pub async fn hydrate_runtime_overrides(&self) -> Result<(), ApiError> {
+        let persisted = self.storage.get_all_config_overrides().await?;
+        let mut guard = self
+            .runtime_overrides
+            .lock()
+            .map_err(|_| ApiError::internal("SAML runtime overrides lock poisoned".to_string()))?;
+        guard.clear();
+        for (k, v) in persisted {
+            guard.insert(k, v);
+        }
+        Ok(())
     }
 
     pub async fn get_auth_redirect(

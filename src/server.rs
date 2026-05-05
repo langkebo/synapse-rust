@@ -19,8 +19,7 @@ use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, panic_catcher_middleware,
-    set_config_allowed_origins,
-    request_timeout_middleware, validate_bind_address_for_dev_mode,
+    request_timeout_middleware, set_config_allowed_origins, validate_bind_address_for_dev_mode,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
@@ -85,10 +84,13 @@ impl SynapseServer {
         // 运行数据库 Schema 健康检查
         let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK")
             .unwrap_or_default()
-            .to_lowercase() == "true";
+            .to_lowercase()
+            == "true";
 
         if skip_schema_check {
-            ::tracing::warn!("⚠️  Skipping database schema health check (SYNAPSE_SKIP_SCHEMA_CHECK=true)");
+            ::tracing::warn!(
+                "⚠️  Skipping database schema health check (SYNAPSE_SKIP_SCHEMA_CHECK=true)"
+            );
         } else {
             ::tracing::info!("Running database schema health check...");
             match run_schema_health_check(&pool, false).await {
@@ -272,7 +274,10 @@ impl SynapseServer {
                     if !origins.is_empty() {
                         layer = layer.allow_origin(origins);
                     } else {
-                        layer = layer.allow_origin(Any);
+                        ::tracing::warn!(
+                            "CORS: no allowed_origins configured — defaulting to same-origin. \
+                             Set cors.allowed_origins explicitly to allow cross-origin requests."
+                        );
                     }
                 }
 
@@ -292,7 +297,9 @@ impl SynapseServer {
                     if !methods.is_empty() {
                         layer = layer.allow_methods(methods);
                     } else {
-                        layer = layer.allow_methods(Any);
+                        ::tracing::warn!(
+                            "CORS: no allowed_methods configured — no cross-origin methods will be permitted."
+                        );
                     }
                 }
                 if cors.allowed_headers.iter().any(|h| h == "*") {
@@ -306,7 +313,9 @@ impl SynapseServer {
                     if !headers.is_empty() {
                         layer = layer.allow_headers(headers);
                     } else {
-                        layer = layer.allow_headers(Any);
+                        ::tracing::warn!(
+                            "CORS: no allowed_headers configured — no cross-origin headers will be permitted."
+                        );
                     }
                 }
                 layer
@@ -411,6 +420,26 @@ impl SynapseServer {
         let fed_router = self.router.clone();
         let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
 
+        // MSC3814 — periodically sweep dehydrated devices whose `expires_at`
+        // has passed. Cheap query (indexed on expires_at), so a 1h cadence is
+        // plenty for the timeouts clients typically set (days/weeks).
+        {
+            let dehydrated_service = self.app_state.services.dehydrated_device_service.clone();
+            tokio::spawn(async move {
+                let mut interval_timer = tokio::time::interval(Duration::from_secs(3600));
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval_timer.tick().await; // skip immediate tick
+                loop {
+                    interval_timer.tick().await;
+                    match dehydrated_service.sweep_expired().await {
+                        Ok(0) => {}
+                        Ok(n) => ::tracing::info!("Swept {} expired dehydrated device(s)", n),
+                        Err(e) => ::tracing::warn!("Dehydrated device expiry sweep failed: {}", e),
+                    }
+                }
+            });
+        }
+
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
         let prometheus_config = self.app_state.services.config.prometheus.clone();
@@ -501,6 +530,22 @@ impl SynapseServer {
         let _ = sqlx::query("SELECT count(*) FROM users")
             .fetch_one(&**pool)
             .await?;
+
+        #[cfg(feature = "saml-sso")]
+        {
+            if let Err(e) = self
+                .app_state
+                .services
+                .saml_service
+                .hydrate_runtime_overrides()
+                .await
+            {
+                ::tracing::warn!(
+                    "Failed to hydrate SAML runtime config overrides: {}. Continuing with base config.",
+                    e
+                );
+            }
+        }
 
         ::tracing::info!("Warmup completed successfully.");
         Ok(())
