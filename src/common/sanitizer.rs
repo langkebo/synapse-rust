@@ -1,6 +1,14 @@
-//! 内容净化模块 - 防止 XSS 攻击
+//! 内容净化模块 - 防止 XSS 攻击 (LEGACY)
 //!
 //! 提供 Matrix 事件内容的净化功能，移除危险的 HTML 和 JavaScript
+//!
+//! # 弃用说明
+//!
+//! 这是基于正则的黑名单实现，无法覆盖所有 XSS 混淆向量
+//! (HTML 实体、注释截断、嵌套大小写等)。所有新代码请使用
+//! [`crate::common::sanitizer_v2`] 中基于 `ammonia` 白名单解析的实现，
+//! 它已通过 `pub use sanitizer_v2::*` 在 `crate::common` 顶层导出。
+#![allow(deprecated)]
 
 use once_cell::sync::Lazy;
 use regex::Regex;

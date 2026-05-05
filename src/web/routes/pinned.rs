@@ -20,6 +20,31 @@ pub struct PinnedEventsResponse {
     pub pinned_events: Vec<String>,
 }
 
+/// 从 `m.room.pinned_events` state event 的 `content` 中读取已 pin 的事件列表。
+///
+/// Matrix 规范要求 content 形如 `{ "pinned": ["$evt1", "$evt2", ...] }`
+/// （key 为 `pinned`，不是 `pinned_events`）。同时对早期错误写入的
+/// `{ "pinned_events": [...] }` 做向后兼容读取，避免历史数据丢失。
+fn extract_pinned_from_content(raw: &str) -> Vec<String> {
+    let value: Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let array = value
+        .get("pinned")
+        .or_else(|| value.get("pinned_events"))
+        .and_then(|v| v.as_array());
+
+    match array {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 pub async fn get_pinned_events(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -47,10 +72,10 @@ pub async fn get_pinned_events(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let pinned_list: Vec<String> = match pinned {
-        Some(p) => serde_json::from_str(&p).unwrap_or_default(),
-        None => vec![],
-    };
+    let pinned_list: Vec<String> = pinned
+        .as_deref()
+        .map(extract_pinned_from_content)
+        .unwrap_or_default();
 
     Ok(Json(PinnedEventsResponse {
         pinned_events: pinned_list,
@@ -94,10 +119,10 @@ pub async fn pin_event(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let mut pinned_list: Vec<String> = match existing_pinned {
-        Some(p) => serde_json::from_str(&p).unwrap_or_default(),
-        None => vec![],
-    };
+    let mut pinned_list: Vec<String> = existing_pinned
+        .as_deref()
+        .map(extract_pinned_from_content)
+        .unwrap_or_default();
 
     if !pinned_list.contains(&body.event_id) {
         pinned_list.push(body.event_id.clone());
@@ -113,7 +138,7 @@ pub async fn pin_event(
     .bind(&event_id)
     .bind(&room_id)
     .bind(&auth_user.user_id)
-    .bind(serde_json::json!({ "pinned_events": pinned_list }))
+    .bind(serde_json::json!({ "pinned": pinned_list }))
     .bind(now)
     .bind(&auth_user.user_id)
     .execute(&*state.services.event_storage.pool)
@@ -161,10 +186,10 @@ pub async fn unpin_event(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let mut pinned_list: Vec<String> = match existing_pinned {
-        Some(p) => serde_json::from_str(&p).unwrap_or_default(),
-        None => vec![],
-    };
+    let mut pinned_list: Vec<String> = existing_pinned
+        .as_deref()
+        .map(extract_pinned_from_content)
+        .unwrap_or_default();
 
     pinned_list.retain(|e| e != &event_id);
 
@@ -178,7 +203,7 @@ pub async fn unpin_event(
     .bind(&new_event_id)
     .bind(&room_id)
     .bind(&auth_user.user_id)
-    .bind(serde_json::json!({ "pinned_events": pinned_list }))
+    .bind(serde_json::json!({ "pinned": pinned_list }))
     .bind(now)
     .bind(&auth_user.user_id)
     .execute(&*state.services.event_storage.pool)

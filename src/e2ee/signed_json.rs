@@ -82,9 +82,8 @@ pub fn verify_signed_json(
 ) -> Result<bool, CryptoError> {
     let public_key = Ed25519PublicKey::from_base64(public_key_base64)?;
 
-    let signature_bytes =
-        base64::Engine::decode(&MATRIX_BASE64, signature_base64)
-            .map_err(|_| CryptoError::InvalidBase64)?;
+    let signature_bytes = base64::Engine::decode(&MATRIX_BASE64, signature_base64)
+        .map_err(|_| CryptoError::InvalidBase64)?;
 
     if signature_bytes.len() != 64 {
         return Err(CryptoError::InvalidKeyLength);

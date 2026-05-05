@@ -379,6 +379,42 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     public_routes.merge(admin_routes).with_state(state)
 }
 
+pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::GET, "/_synapse/admin/v1/external_services"),
+        (Method::POST, "/_synapse/admin/v1/external_services"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/external_services/{as_id}/health",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/external_services/{as_id}/health/check",
+        ),
+        (Method::PUT, "/_synapse/admin/v1/external_services/{as_id}"),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/external_services/{as_id}",
+        ),
+        (Method::GET, "/_synapse/admin/v1/external_services/health"),
+        (
+            Method::POST,
+            "/_synapse/external/trendradar/{service_id}/webhook",
+        ),
+        (
+            Method::POST,
+            "/_synapse/external/openclaw/{service_id}/webhook",
+        ),
+        (Method::POST, "/_synapse/external/webhook/{service_id}"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "external_service"))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

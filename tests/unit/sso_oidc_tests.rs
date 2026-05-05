@@ -15,9 +15,7 @@ mod tests {
                 "email".to_string(),
             ],
             attribute_mapping: Default::default(),
-            callback_url: Some(
-                "http://localhost:8008/_matrix/client/v3/oidc/callback".to_string(),
-            ),
+            callback_url: Some("http://localhost:8008/_matrix/client/v3/oidc/callback".to_string()),
             allow_existing_users: true,
             block_unknown_users: false,
             authorization_endpoint: Some(

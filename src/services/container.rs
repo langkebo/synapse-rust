@@ -47,6 +47,8 @@ pub struct ServiceContainer {
     pub megolm_service: MegolmService,
     pub cross_signing_service: CrossSigningService,
     pub backup_service: KeyBackupService,
+    pub dehydrated_device_service:
+        crate::services::dehydrated_device_service::DehydratedDeviceService,
     pub secure_backup_service: crate::e2ee::secure_backup::SecureBackupService,
     pub to_device_service: ToDeviceService,
     pub verification_service: VerificationService,
@@ -187,8 +189,10 @@ impl ServiceContainer {
         let device_key_storage_for_cs = Arc::new(device_key_storage.clone());
         let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_storage_arc = Arc::new(cross_signing_storage.clone());
+        let dehydrated_device_storage = crate::storage::DehydratedDeviceStorage::new(pool);
         let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone())
-            .with_cross_signing_storage(cross_signing_storage_arc);
+            .with_cross_signing_storage(cross_signing_storage_arc)
+            .with_dehydrated_device_storage(dehydrated_device_storage.clone());
         let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
         let encryption_key = generate_encryption_key();
         let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
@@ -199,6 +203,10 @@ impl ServiceContainer {
             .with_device_keys_storage(device_key_storage_for_cs);
         let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
         let backup_service = KeyBackupService::new(key_backup_storage);
+        let dehydrated_device_service =
+            crate::services::dehydrated_device_service::DehydratedDeviceService::new(
+                dehydrated_device_storage,
+            );
         let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let user_storage = UserStorage::new(pool, cache.clone());
@@ -302,6 +310,8 @@ impl ServiceContainer {
                 cache.clone(),
                 event_storage.clone(),
                 typing_service.clone(),
+                presence_storage.clone(),
+                member_storage.clone(),
             ),
         );
         let media_service = crate::services::media_service::MediaService::new(
@@ -347,6 +357,9 @@ impl ServiceContainer {
                 friend_storage.clone(),
                 room_service.clone(),
                 event_storage.clone(),
+                user_storage.clone(),
+                presence_storage.clone(),
+                cache.clone(),
                 config.server.name.clone(),
                 Arc::new(key_rotation_manager.clone()),
             ),
@@ -521,11 +534,15 @@ impl ServiceContainer {
             None
         };
         let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
-            Some(Arc::new(
-                crate::services::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(
-                    config.builtin_oidc.clone(),
-                )),
-            ))
+            match crate::services::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(
+                config.builtin_oidc.clone(),
+            )) {
+                Ok(p) => Some(Arc::new(p)),
+                Err(e) => {
+                    ::tracing::error!("Failed to initialize BuiltinOidcProvider, disabling: {}", e);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -555,6 +572,7 @@ impl ServiceContainer {
             megolm_service,
             cross_signing_service,
             backup_service,
+            dehydrated_device_service,
             secure_backup_service,
             to_device_service,
             verification_service,
@@ -847,9 +865,102 @@ fn build_test_config() -> Config {
 }
 
 fn generate_encryption_key() -> [u8; 32] {
-    let mut key = [0u8; 32];
-    for byte in key.iter_mut() {
-        *byte = rand::random();
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+    // Persistence is required for megolm session decryption to survive restarts.
+    // Path is taken from SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH; if unset we fall back
+    // to an ephemeral key with a loud warning (dev only — restart will lose all
+    // existing encrypted megolm sessions).
+    let path = std::env::var("SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH").ok();
+
+    if let Some(ref p) = path {
+        let path_buf = std::path::PathBuf::from(p);
+        if path_buf.exists() {
+            match std::fs::read_to_string(&path_buf) {
+                Ok(content) => {
+                    let trimmed = content.trim();
+                    match B64.decode(trimmed) {
+                        Ok(bytes) if bytes.len() == 32 => {
+                            let mut key = [0u8; 32];
+                            key.copy_from_slice(&bytes);
+                            ::tracing::info!(
+                                "Loaded megolm encryption key from {}",
+                                path_buf.display()
+                            );
+                            return key;
+                        }
+                        Ok(bytes) => {
+                            ::tracing::error!(
+                                "Megolm key at {} has wrong length ({} != 32); refusing to \
+                                 overwrite — fix or remove the file",
+                                path_buf.display(),
+                                bytes.len()
+                            );
+                        }
+                        Err(e) => {
+                            ::tracing::error!(
+                                "Megolm key at {} is not valid base64: {} — refusing to \
+                                 overwrite",
+                                path_buf.display(),
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    ::tracing::error!(
+                        "Failed to read megolm key {}: {} — generating ephemeral key",
+                        path_buf.display(),
+                        e
+                    );
+                }
+            }
+        }
     }
+
+    let mut key = [0u8; 32];
+    use rand::RngCore;
+    rand::rngs::OsRng.fill_bytes(&mut key);
+
+    if let Some(ref p) = path {
+        let path_buf = std::path::PathBuf::from(p);
+        if !path_buf.exists() {
+            if let Some(parent) = path_buf.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let encoded = B64.encode(key);
+            match std::fs::write(&path_buf, encoded.as_bytes()) {
+                Ok(_) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            &path_buf,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
+                    }
+                    ::tracing::info!(
+                        "Persisted new megolm encryption key to {}",
+                        path_buf.display()
+                    );
+                }
+                Err(e) => {
+                    ::tracing::error!(
+                        "Failed to persist megolm key to {}: {} — key is ephemeral, \
+                         existing encrypted sessions will be lost on restart",
+                        path_buf.display(),
+                        e
+                    );
+                }
+            }
+        }
+    } else {
+        ::tracing::warn!(
+            "SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH not set; megolm encryption key is ephemeral \
+             — all encrypted megolm sessions will be unreadable after server restart. \
+             Set this env var to a writable file path for production."
+        );
+    }
+
     key
 }

@@ -365,6 +365,9 @@ pub enum ApiError {
     #[error("Room in use: {0}")]
     RoomInUse(String),
 
+    #[error("User in use: {0}")]
+    UserInUse(String),
+
     #[error("Invalid room state: {0}")]
     InvalidRoomState(String),
 
@@ -501,7 +504,7 @@ impl ApiError {
     }
 
     pub fn user_in_use(message: impl Into<String>) -> Self {
-        Self::Conflict(message.into())
+        Self::UserInUse(message.into())
     }
 
     pub fn room_in_use(message: impl Into<String>) -> Self {
@@ -608,6 +611,7 @@ impl ApiError {
             ApiError::UserDeactivated(_) => MatrixErrorCode::UserDeactivated,
             ApiError::InvalidUsername(_) => MatrixErrorCode::InvalidUsername,
             ApiError::RoomInUse(_) => MatrixErrorCode::RoomInUse,
+            ApiError::UserInUse(_) => MatrixErrorCode::UserInUse,
             ApiError::InvalidRoomState(_) => MatrixErrorCode::InvalidRoomState,
             ApiError::ThreepidInUse(_) => MatrixErrorCode::ThreepidInUse,
             ApiError::ThreepidNotFound(_) => MatrixErrorCode::ThreepidNotFound,
@@ -666,6 +670,7 @@ impl ApiError {
             ApiError::UserDeactivated(msg) => msg.clone(),
             ApiError::InvalidUsername(msg) => msg.clone(),
             ApiError::RoomInUse(msg) => msg.clone(),
+            ApiError::UserInUse(msg) => msg.clone(),
             ApiError::InvalidRoomState(msg) => msg.clone(),
             ApiError::ThreepidInUse(msg) => msg.clone(),
             ApiError::ThreepidNotFound(msg) => msg.clone(),

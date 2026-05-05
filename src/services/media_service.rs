@@ -53,6 +53,28 @@ pub struct MediaService {
 }
 
 impl MediaService {
+    /// Reject media_id values that could escape the media directory or
+    /// otherwise be embedded into a filesystem path. Matrix MXC IDs are
+    /// `[A-Za-z0-9_-]+` per spec; we additionally accept `+`/`=` for the
+    /// common base64-derived ids. Everything else (including '/', '\\',
+    /// '..', NUL, control bytes) is rejected.
+    fn validate_media_id(media_id: &str) -> Result<(), ApiError> {
+        if media_id.is_empty() || media_id.len() > 255 {
+            return Err(ApiError::bad_request(
+                "media_id must be 1..=255 chars".to_string(),
+            ));
+        }
+        let ok = media_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'='));
+        if !ok {
+            return Err(ApiError::bad_request(
+                "media_id contains illegal characters".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn new(
         media_path: &str,
         task_queue: Option<Arc<RedisTaskQueue>>,
@@ -145,6 +167,7 @@ impl MediaService {
         content_type: &str,
         _filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
+        Self::validate_media_id(media_id)?;
         self.store_media_with_id(user_id, media_id, content, content_type)
             .await
     }
@@ -297,6 +320,7 @@ impl MediaService {
         _server_name: &str,
         media_id: &str,
     ) -> Result<Vec<u8>, ApiError> {
+        Self::validate_media_id(media_id)?;
         self.get_media(_server_name, media_id)
             .await
             .ok_or(ApiError::not_found("Media not found".to_string()))
@@ -310,6 +334,7 @@ impl MediaService {
         height: u32,
         method: &str,
     ) -> Result<Vec<u8>, ApiError> {
+        Self::validate_media_id(media_id)?;
         let thumbnail_method = ThumbnailMethod::from_str(method).map_err(ApiError::bad_request)?;
         let thumbnail_filename = format!("{}_{}x{}_{}.jpg", media_id, width, height, method);
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
@@ -376,6 +401,7 @@ impl MediaService {
     }
 
     pub async fn generate_all_thumbnails(&self, media_id: &str) -> Result<Vec<String>, ApiError> {
+        Self::validate_media_id(media_id)?;
         let original_content = self.download_media("", media_id).await?;
         let mut generated = Vec::new();
 
@@ -448,6 +474,9 @@ impl MediaService {
         _server_name: &str,
         media_id: &str,
     ) -> Option<serde_json::Value> {
+        if Self::validate_media_id(media_id).is_err() {
+            return None;
+        }
         let media_path = self.media_path.clone();
         let media_id = media_id.to_string();
 
@@ -502,6 +531,7 @@ impl MediaService {
         server_name: &str,
         media_id: &str,
     ) -> ApiResult<serde_json::Value> {
+        Self::validate_media_id(media_id)?;
         let media_path = self.media_path.clone();
         let server_name = server_name.to_string();
         let media_id = media_id.to_string();
@@ -548,6 +578,7 @@ impl MediaService {
     }
 
     pub async fn delete_media(&self, server_name: &str, media_id: &str) -> ApiResult<()> {
+        Self::validate_media_id(media_id)?;
         let media_path = self.media_path.clone();
         let media_id = media_id.to_string();
         let server_name = server_name.to_string();

@@ -16,6 +16,26 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             post(upload_voice_message),
         )
         .route("/_matrix/client/r0/voice/config", get(get_voice_config))
+        .route(
+            "/_matrix/client/v3/voice/upload",
+            post(upload_voice_message),
+        )
+        .route("/_matrix/client/v3/voice/config", get(get_voice_config))
+}
+
+pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::POST, "/_matrix/client/r0/voice/upload"),
+        (Method::GET, "/_matrix/client/r0/voice/config"),
+        (Method::POST, "/_matrix/client/v3/voice/upload"),
+        (Method::GET, "/_matrix/client/v3/voice/config"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "voice"))
+    .collect()
 }
 
 #[axum::debug_handler]

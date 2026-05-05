@@ -49,6 +49,43 @@ pub fn create_token_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+pub fn admin_token_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/registration_tokens"),
+        (Method::POST, "/_synapse/admin/v1/registration_tokens"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/registration_tokens/{token}",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/registration_tokens/{token}",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/registration_tokens/{token}",
+        ),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/tokens"),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/users/{user_id}/tokens/{token_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/users/{user_id}/refresh_tokens",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::token"))
+    .collect()
+}
+
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let user = state
         .services

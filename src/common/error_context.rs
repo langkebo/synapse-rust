@@ -132,6 +132,7 @@ impl ErrorContext for ApiError {
             ApiError::UserDeactivated(msg) => msg.clone(),
             ApiError::InvalidUsername(msg) => msg.clone(),
             ApiError::RoomInUse(msg) => msg.clone(),
+            ApiError::UserInUse(msg) => msg.clone(),
             ApiError::InvalidRoomState(msg) => msg.clone(),
             ApiError::ThreepidInUse(msg) => msg.clone(),
             ApiError::ThreepidNotFound(msg) => msg.clone(),

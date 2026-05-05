@@ -29,6 +29,9 @@ server:
   http_port: 8008
   https_port: 8448
   bind_address: "127.0.0.1"
+  # Must match the URL Element actually uses to reach this homeserver.
+  # If you place a reverse proxy in front, set this to the proxy URL instead
+  # of the bind address below.
   public_baseurl: "http://localhost:8008"
   signing_key_path: "data/signing.key"
   # Local-only secrets. Replace with `openssl rand -hex 32` values for any

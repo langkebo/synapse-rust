@@ -2,6 +2,8 @@ use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::services::TypingService;
+use crate::storage::membership::RoomMemberStorage;
+use crate::storage::presence::PresenceStorage;
 use crate::storage::sliding_sync::{
     AdminRoomTokenSyncEntry, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
     SlidingSyncRoom, SlidingSyncStorage,
@@ -18,6 +20,8 @@ pub struct SlidingSyncService {
     cache: Arc<CacheManager>,
     event_storage: EventStorage,
     typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+    presence_storage: PresenceStorage,
+    member_storage: RoomMemberStorage,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -44,12 +48,16 @@ impl SlidingSyncService {
         cache: Arc<CacheManager>,
         event_storage: EventStorage,
         typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+        presence_storage: PresenceStorage,
+        member_storage: RoomMemberStorage,
     ) -> Self {
         Self {
             storage,
             cache,
             event_storage,
             typing_service,
+            presence_storage,
+            member_storage,
         }
     }
 
@@ -59,6 +67,13 @@ impl SlidingSyncService {
         device_id: &str,
         request: SlidingSyncRequest,
     ) -> Result<SlidingSyncResponse, ApiError> {
+        // Update user presence to online
+        tracing::info!("Updating presence for user: {}", user_id);
+        let _ = self
+            .presence_storage
+            .set_presence(user_id, "online", None)
+            .await;
+
         let conn_id = request.conn_id.as_deref();
 
         if let Some(pos_str) = &request.pos {
@@ -551,6 +566,59 @@ impl SlidingSyncService {
                 .build_e2ee_extension(user_id, device_id, conn_id, since_pos)
                 .await?;
             response_extensions.insert("e2ee".to_string(), e2ee);
+        }
+
+        let presence_enabled = request_extensions
+            .get("presence")
+            .and_then(|v| {
+                if v.as_bool() == Some(true) {
+                    Some(true)
+                } else {
+                    v.as_object()
+                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                }
+            })
+            .unwrap_or(false);
+
+        if presence_enabled {
+            let room_ids: Vec<String> = rooms_response
+                .as_object()
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+
+            let mut all_members = std::collections::HashSet::new();
+            all_members.insert(user_id.to_string()); // Always include self
+
+            for room_id in &room_ids {
+                if let Ok(members) = self.member_storage.get_room_members(room_id, "join").await {
+                    for member in members {
+                        all_members.insert(member.user_id);
+                    }
+                }
+            }
+
+            let member_list: Vec<String> = all_members.into_iter().collect();
+            let presences = self.presence_storage.get_presences(&member_list).await?;
+
+            let mut presence_events = Vec::new();
+            for (uid, (presence, status_msg)) in presences {
+                presence_events.push(serde_json::json!({
+                    "sender": uid,
+                    "type": "m.presence",
+                    "content": {
+                        "presence": presence,
+                        "status_msg": status_msg,
+                        "last_active_ago": 0, // Mocked for now
+                    }
+                }));
+            }
+
+            response_extensions.insert(
+                "presence".to_string(),
+                serde_json::json!({
+                    "events": presence_events
+                }),
+            );
         }
 
         if response_extensions.is_empty() {
@@ -1297,6 +1365,24 @@ mod tests {
                 "localhost".to_string(),
             ),
             typing_service: Arc::new(crate::services::typing_service::TypingServiceImpl::new()),
+            presence_storage: PresenceStorage::new(
+                Arc::new(
+                    sqlx::postgres::PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect_lazy("postgres://localhost/test")
+                        .unwrap(),
+                ),
+                Arc::new(CacheManager::new(crate::cache::CacheConfig::default())),
+            ),
+            member_storage: RoomMemberStorage::new(
+                &Arc::new(
+                    sqlx::postgres::PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect_lazy("postgres://localhost/test")
+                        .unwrap(),
+                ),
+                "localhost",
+            ),
         }
     }
 

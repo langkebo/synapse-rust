@@ -22,6 +22,8 @@ pub struct CreateDmRequest {
     pub is_direct: Option<bool>,
     #[validate(length(max = 255))]
     pub name: Option<String>,
+    #[validate(length(max = 1024))]
+    pub topic: Option<String>,
     #[validate(length(max = 50))]
     pub visibility: Option<String>,
 }
@@ -228,6 +230,7 @@ pub async fn create_dm_room(
 
     let config = CreateRoomConfig {
         name: body.name.clone(),
+        topic: body.topic.clone(),
         visibility: Some(
             body.visibility
                 .clone()
@@ -235,7 +238,7 @@ pub async fn create_dm_room(
         ),
         preset: Some("private_chat".to_string()),
         invite_list: Some(users_to_invite.clone()),
-        is_direct: Some(true),
+        is_direct: Some(body.is_direct.unwrap_or(true)),
         room_type: Some("m.direct".to_string()),
         ..Default::default()
     };
@@ -422,6 +425,24 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/r0/direct/{room_id}", put(update_dm_room))
         .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
+}
+
+pub fn dm_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_matrix/client/r0/create_dm"),
+        (Method::POST, "/_matrix/client/v3/create_dm"),
+        (Method::GET, "/_matrix/client/r0/direct"),
+        (Method::PUT, "/_matrix/client/r0/direct/{room_id}"),
+        (Method::GET, "/_matrix/client/v3/direct"),
+        (Method::PUT, "/_matrix/client/v3/direct/{room_id}"),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/dm"),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/dm/partner"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "dm"))
+    .collect()
 }
 
 #[cfg(test)]

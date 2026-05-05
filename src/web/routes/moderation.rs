@@ -35,6 +35,36 @@ pub fn create_moderation_router() -> Router<AppState> {
         .nest("/_matrix/client/v3", create_moderation_v3_router())
 }
 
+pub fn moderation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    use axum::http::Method;
+
+    let compat: &[(Method, &str)] = &[
+        (Method::POST, "/rooms/{room_id}/report/{event_id}"),
+        (Method::PUT, "/rooms/{room_id}/report/{event_id}/score"),
+    ];
+
+    let mut out = expand_under_prefixes("moderation", &["/_matrix/client/r0"], compat);
+    let mut v1 = compat.to_vec();
+    v1.push((
+        Method::GET,
+        "/rooms/{room_id}/report/{event_id}/scanner_info",
+    ));
+    out.extend(expand_under_prefixes(
+        "moderation",
+        &["/_matrix/client/v1"],
+        &v1,
+    ));
+    let mut v3 = compat.to_vec();
+    v3.push((Method::POST, "/rooms/{room_id}/report"));
+    out.extend(expand_under_prefixes(
+        "moderation",
+        &["/_matrix/client/v3"],
+        &v3,
+    ));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

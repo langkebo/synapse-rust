@@ -77,6 +77,8 @@ vodozemac = "0.9"
 config = "0.14"
 
 jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["pem", "sha2"] }
+subtle = "2.5"
 
 metrics = "0.23"
 

@@ -46,6 +46,36 @@ pub fn create_verification_router(_state: AppState) -> Router<AppState> {
         .nest("/_matrix/client/r0", compat_router)
 }
 
+/// Nest prefixes used by `create_verification_router`. v3 is intentionally
+/// excluded — the spec endpoints under `/_matrix/client/v3/keys/device_signing/*`
+/// are owned by `e2ee_routes`, not this module.
+const VERIFICATION_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0"];
+
+fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/keys/device_signing/verify_start"),
+        (Method::PUT, "/keys/device_signing/verify_accept"),
+        (Method::POST, "/keys/device_signing/verify_key_agreement"),
+        (Method::POST, "/keys/device_signing/verify_mac"),
+        (Method::POST, "/keys/device_signing/verify_done"),
+        (Method::POST, "/keys/device_signing/verify_cancel"),
+        (Method::GET, "/keys/device_signing/requests"),
+        (Method::GET, "/keys/qr_code/show"),
+        (Method::POST, "/keys/qr_code/scan"),
+    ]
+}
+
+/// Manifest of every `(method, absolute_path)` tuple `create_verification_router`
+/// registers.
+pub fn verification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    crate::web::routes::route_ledger::expand_under_prefixes(
+        "verification_routes",
+        VERIFICATION_NEST_PREFIXES,
+        &verification_compat_relative_routes(),
+    )
+}
+
 #[derive(Debug, Deserialize)]
 pub struct VerificationStartBody {
     pub transaction_id: Option<String>,

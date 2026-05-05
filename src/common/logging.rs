@@ -28,11 +28,9 @@ pub fn init_logging(
             // Only attach noise-suppression overrides when the operator chose
             // a verbose level globally. At INFO/WARN/ERROR the base directives
             // already keep sqlx quiet enough.
-            if matches!(
-                base.to_lowercase().as_str(),
-                "trace" | "debug"
-            ) {
-                directive.push_str(",sqlx::query=warn,sqlx_core=warn,hyper=info,tower_http::trace=info");
+            if matches!(base.to_lowercase().as_str(), "trace" | "debug") {
+                directive
+                    .push_str(",sqlx::query=warn,sqlx_core=warn,hyper=info,tower_http::trace=info");
             }
             EnvFilter::new(directive)
         }

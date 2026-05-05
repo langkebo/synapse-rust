@@ -115,7 +115,7 @@ async fn put_beacon_info(
             json!({
                 "m.beacon_info": {
                     "description": "Test beacon",
-                    "timeout": 60000,
+                    "timeout": 3_600_000,
                     "live": true
                 },
                 "m.ts": chrono::Utc::now().timestamp_millis(),

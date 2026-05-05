@@ -93,6 +93,57 @@ pub fn create_user_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
+pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/users"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}"),
+        (Method::PUT, "/_synapse/admin/v1/users/{user_id}/admin"),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/evict"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/users/{user_id}/deactivate",
+        ),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/password"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/rooms"),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/login"),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/logout"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/devices"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/users/{user_id}/devices/delete",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
+        ),
+        (Method::GET, "/_synapse/admin/v2/users"),
+        (Method::GET, "/_synapse/admin/v2/users/{user_id}"),
+        (Method::PUT, "/_synapse/admin/v2/users/{user_id}"),
+        (Method::DELETE, "/_synapse/admin/v2/users/{user_id}"),
+        (Method::GET, "/_synapse/admin/v1/user_stats"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/stats"),
+        (Method::POST, "/_synapse/admin/v1/users/batch"),
+        (Method::POST, "/_synapse/admin/v1/users/batch_deactivate"),
+        (Method::GET, "/_synapse/admin/v1/user_sessions/{user_id}"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/user_sessions/{user_id}/invalidate",
+        ),
+        (Method::GET, "/_synapse/admin/v1/account/{user_id}"),
+        (Method::POST, "/_synapse/admin/v1/account/{user_id}"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::user"))
+    .collect()
+}
+
 #[axum::debug_handler]
 async fn evict_user(
     _admin: AdminUser,
@@ -259,8 +310,6 @@ async fn delete_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let user = resolve_user(&state, &user_id).await?;
 
     tracing::info!(
@@ -395,8 +444,6 @@ pub async fn deactivate_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let user = resolve_user(&state, &user_id).await?;
 
     tracing::info!(
@@ -536,14 +583,13 @@ pub async fn delete_user_device_admin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let result = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = $2")
-        .bind(&user.user_id)
-        .bind(&device_id)
-        .execute(&*state.services.device_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let rows = state
+        .services
+        .auth_service
+        .revoke_device(&user.user_id, &device_id)
+        .await?;
 
-    if result.rows_affected() == 0 {
+    if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
     }
 
@@ -581,12 +627,10 @@ pub async fn delete_user_device_admin_compat(
 
 #[axum::debug_handler]
 pub async fn login_as_user(
-    admin: AdminUser,
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let user = state
         .services
         .user_storage
@@ -618,21 +662,29 @@ pub async fn login_as_user(
 
 #[axum::debug_handler]
 pub async fn logout_user_devices(
-    admin: AdminUser,
+    _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let user = resolve_user(&state, &user_id).await?;
-    let result = sqlx::query("DELETE FROM devices WHERE user_id = $1")
+
+    let device_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
         .bind(&user.user_id)
-        .execute(&*state.services.device_storage.pool)
+        .fetch_one(&*state.services.device_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
+    // refresh token 全量吊销、设备清理、logout_all 标记 —
+    // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
+    state
+        .services
+        .auth_service
+        .logout_all(&user.user_id)
+        .await?;
+
     Ok(Json(json!({
-        "devices_deleted": result.rows_affected()
+        "devices_deleted": device_count
     })))
 }
 
@@ -1029,12 +1081,10 @@ pub struct BatchDeactivateRequest {
 
 #[axum::debug_handler]
 pub async fn batch_deactivate_users(
-    admin: AdminUser,
+    _admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_super_admin_for_privilege_change(&admin)?;
-
     let mut deactivated = Vec::new();
     let mut failed = Vec::new();
 

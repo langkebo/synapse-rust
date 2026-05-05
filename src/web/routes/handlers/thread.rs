@@ -214,6 +214,83 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn thread_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::GET, "/_matrix/client/v1/threads"),
+        (Method::POST, "/_matrix/client/v1/threads"),
+        (Method::GET, "/_matrix/client/v1/threads/subscribed"),
+        (Method::GET, "/_matrix/client/v1/threads/unread"),
+        (
+            Method::GET,
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
+        ),
+        (Method::POST, "/_matrix/client/v1/rooms/{room_id}/threads"),
+        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads"),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/threads/search",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/threads/unread",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "thread"))
+    .collect()
+}
+
 fn build_legacy_threads_response(response: ThreadListResponse) -> Value {
     let chunk = response
         .threads

@@ -27,7 +27,7 @@ impl RegistrationService {
         // HP-2 FIX: Construct base URL from server_name, but make it configurable
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL")
-            .unwrap_or_else(|_| format!("https://{}:8448", server_name));
+            .unwrap_or_else(|_| format!("https://{}", server_name));
 
         Self {
             user_storage,

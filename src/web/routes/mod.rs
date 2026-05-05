@@ -24,6 +24,7 @@ pub mod handlers;
 pub mod invite_blocklist;
 pub mod key_backup;
 pub mod key_rotation;
+pub mod ledger_export;
 pub mod media;
 pub mod moderation;
 pub mod module;
@@ -41,6 +42,8 @@ mod response_helpers;
 pub mod room;
 mod room_access;
 pub mod room_summary;
+pub mod route_ledger;
+pub mod route_module;
 pub mod sliding_sync;
 pub mod space;
 pub mod state;
@@ -88,15 +91,18 @@ pub mod external_service;
 pub use crate::common::ApiError;
 pub(crate) use account_compat::{
     add_threepid, change_password_uia, deactivate_account, delete_threepid, get_avatar_url,
-    get_displayname, get_profile, get_threepids, request_password_email_verification,
-    unbind_threepid, update_avatar, update_displayname, whoami,
+    get_displayname, get_profile, get_threepids, request_3pid_add_email_verification,
+    request_password_email_verification, unbind_threepid, update_avatar, update_displayname,
+    whoami,
 };
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
 #[cfg(feature = "openclaw-routes")]
 pub use ai_connection::create_ai_connection_router;
 pub use app_service::create_app_service_router;
-pub use assembly::create_router;
+pub use assembly::{
+    create_router, declared_route_manifest_for, declared_route_manifest_for_profile,
+};
 pub(crate) use auth_compat::{
     check_username_availability, get_login_flows, get_register_flows, login, logout, logout_all,
     refresh_token, register, request_email_verification, submit_email_token,
@@ -174,6 +180,7 @@ pub(crate) use room_access::{
     is_joined_room_member_or_creator,
 };
 pub use room_summary::create_room_summary_router;
+pub use route_module::ProfileFlags;
 #[cfg(feature = "saml-sso")]
 pub use saml::create_saml_router;
 pub use sliding_sync::create_sliding_sync_router;

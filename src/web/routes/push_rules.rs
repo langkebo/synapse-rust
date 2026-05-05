@@ -2,7 +2,7 @@ use crate::common::ApiError;
 use crate::web::extractors::AuthenticatedUser;
 use crate::web::routes::AppState;
 use axum::{extract::State, Json};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub async fn get_push_rules_default(
     State(state): State<AppState>,
@@ -16,37 +16,64 @@ pub async fn get_push_rules_default(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
 
+    let username = auth_user
+        .user_id
+        .trim_start_matches('@')
+        .split(':')
+        .next()
+        .unwrap_or("");
+
     if let Some(row) = rows {
         use sqlx::Row;
-        let content: Value = row.get("content");
+        let mut content: Value = row.get("content");
+        merge_default_push_rules(&mut content, &auth_user.user_id, username);
         return Ok(Json(content));
     }
 
-    Ok(Json(get_default_push_rules()))
+    Ok(Json(default_push_rules_for_user(
+        &auth_user.user_id,
+        username,
+    )))
 }
 
 pub async fn get_push_rules_global_default(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let username = auth_user
+        .user_id
+        .trim_start_matches('@')
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let user_id = auth_user.user_id.clone();
     let rules = get_push_rules_default(State(state), auth_user).await?;
     if let Some(global) = rules.0.get("global") {
         Ok(Json(global.clone()))
     } else {
-        Ok(Json(get_default_push_rules()["global"].clone()))
+        Ok(Json(
+            default_push_rules_for_user(&user_id, &username)["global"].clone(),
+        ))
     }
 }
 
-pub fn get_default_push_rules() -> Value {
-    serde_json::json!({
+/// Returns the Matrix v1.11 default push-rule set, parameterised with this
+/// user's localpart so `.m.rule.contains_user_name` matches their own MXID.
+pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
+    json!({
         "global": {
             "content": [
                 {
-                    "rule_id": ".m.rule.contains_display_name",
+                    "rule_id": ".m.rule.contains_user_name",
                     "default": true,
                     "enabled": true,
-                    "conditions": [{"kind": "contains_display_name"}],
-                    "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}]
+                    "pattern": username,
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "highlight"},
+                        {"set_tweak": "sound", "value": "default"}
+                    ]
                 }
             ],
             "override": [
@@ -62,7 +89,7 @@ pub fn get_default_push_rules() -> Value {
                     "default": true,
                     "enabled": true,
                     "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
-                    "actions": ["dont_notify"]
+                    "actions": []
                 },
                 {
                     "rule_id": ".m.rule.invite_for_me",
@@ -71,41 +98,129 @@ pub fn get_default_push_rules() -> Value {
                     "conditions": [
                         {"kind": "event_match", "key": "type", "pattern": "m.room.member"},
                         {"kind": "event_match", "key": "content.membership", "pattern": "invite"},
-                        {"kind": "event_state_key_is_me"}
+                        {"kind": "event_match", "key": "state_key", "pattern": user_id}
                     ],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "sound", "value": "default"},
+                        {"set_tweak": "highlight", "value": false}
+                    ]
                 },
                 {
                     "rule_id": ".m.rule.member_event",
                     "default": true,
                     "enabled": true,
                     "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}],
-                    "actions": ["dont_notify"]
+                    "actions": []
                 },
                 {
-                    "rule_id": ".m.rule.call",
+                    "rule_id": ".m.rule.is_user_mention",
                     "default": true,
                     "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "ring"}]
+                    "conditions": [
+                        {"kind": "event_property_contains", "key": "content.m\\.mentions.user_ids", "value": user_id}
+                    ],
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "highlight"},
+                        {"set_tweak": "sound", "value": "default"}
+                    ]
+                },
+                {
+                    "rule_id": ".m.rule.contains_display_name",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "contains_display_name"}],
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "highlight"},
+                        {"set_tweak": "sound", "value": "default"}
+                    ]
+                },
+                {
+                    "rule_id": ".m.rule.is_room_mention",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_property_is", "key": "content.m\\.mentions.room", "value": true},
+                        {"kind": "sender_notification_permission", "key": "room"}
+                    ],
+                    "actions": ["notify", {"set_tweak": "highlight"}]
+                },
+                {
+                    "rule_id": ".m.rule.roomnotif",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_match", "key": "content.body", "pattern": "@room"},
+                        {"kind": "sender_notification_permission", "key": "room"}
+                    ],
+                    "actions": ["notify", {"set_tweak": "highlight"}]
+                },
+                {
+                    "rule_id": ".m.rule.tombstone",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.tombstone"},
+                        {"kind": "event_match", "key": "state_key", "pattern": ""}
+                    ],
+                    "actions": ["notify", {"set_tweak": "highlight"}]
+                },
+                {
+                    "rule_id": ".m.rule.reaction",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.reaction"}],
+                    "actions": []
+                },
+                {
+                    "rule_id": ".m.rule.room.server_acl",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.server_acl"},
+                        {"kind": "event_match", "key": "state_key", "pattern": ""}
+                    ],
+                    "actions": []
+                },
+                {
+                    "rule_id": ".m.rule.suppress_edits",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_property_is", "key": "content.m\\.relates_to.rel_type", "value": "m.replace"}
+                    ],
+                    "actions": []
                 }
             ],
             "room": [],
             "sender": [],
             "underride": [
                 {
-                    "rule_id": ".m.rule.message",
+                    "rule_id": ".m.rule.call",
                     "default": true,
                     "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "sound", "value": "ring"},
+                        {"set_tweak": "highlight", "value": false}
+                    ]
                 },
                 {
-                    "rule_id": ".m.rule.encrypted",
+                    "rule_id": ".m.rule.encrypted_room_one_to_one",
                     "default": true,
                     "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                    "conditions": [
+                        {"kind": "room_member_count", "is": "2"},
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}
+                    ],
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "sound", "value": "default"},
+                        {"set_tweak": "highlight", "value": false}
+                    ]
                 },
                 {
                     "rule_id": ".m.rule.room_one_to_one",
@@ -115,11 +230,114 @@ pub fn get_default_push_rules() -> Value {
                         {"kind": "room_member_count", "is": "2"},
                         {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
                     ],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
+                    "actions": [
+                        "notify",
+                        {"set_tweak": "sound", "value": "default"},
+                        {"set_tweak": "highlight", "value": false}
+                    ]
+                },
+                {
+                    "rule_id": ".m.rule.message",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
+                    "actions": ["notify", {"set_tweak": "highlight", "value": false}]
+                },
+                {
+                    "rule_id": ".m.rule.encrypted",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
+                    "actions": ["notify", {"set_tweak": "highlight", "value": false}]
                 }
             ]
         }
     })
+}
+
+/// Merge any spec-default rules that the persisted user rule set is missing,
+/// and ensure the resulting array is in matrix-js-sdk's expected canonical
+/// order (otherwise its `mergeRulesWithDefaults` will keep warning about
+/// "missing" rules whenever the order differs from `EXPECTED_DEFAULT_*_RULE_IDS`).
+///
+/// User-customised rules (those without `default: true`) are appended after the
+/// default rules. For default rules already present in the stored set, the
+/// stored `enabled` / `actions` values are preserved so the user's tweaks
+/// survive the merge.
+pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &str) {
+    let defaults = default_push_rules_for_user(user_id, username);
+    let Some(default_global) = defaults.get("global").and_then(|g| g.as_object()) else {
+        return;
+    };
+    let global = content.as_object_mut().and_then(|m| {
+        m.entry("global")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+    });
+    let Some(global) = global else { return };
+
+    for kind in ["content", "override", "underride"] {
+        let Some(canonical) = default_global.get(kind).and_then(|v| v.as_array()) else {
+            continue;
+        };
+
+        let stored = global
+            .entry(kind.to_string())
+            .or_insert_with(|| json!([]))
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+
+        let stored_by_id: std::collections::HashMap<String, Value> = stored
+            .iter()
+            .filter_map(|r| {
+                r.get("rule_id")
+                    .and_then(|v| v.as_str())
+                    .map(|id| (id.to_string(), r.clone()))
+            })
+            .collect();
+
+        let mut merged: Vec<Value> = Vec::with_capacity(canonical.len() + stored.len());
+        for rule in canonical {
+            let rid = rule
+                .get("rule_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if let Some(existing) = stored_by_id.get(rid) {
+                let mut canonical_rule = rule.clone();
+                if let Some(enabled) = existing.get("enabled") {
+                    canonical_rule["enabled"] = enabled.clone();
+                }
+                if let Some(actions) = existing.get("actions") {
+                    canonical_rule["actions"] = actions.clone();
+                }
+                merged.push(canonical_rule);
+            } else {
+                merged.push(rule.clone());
+            }
+        }
+
+        for rule in stored {
+            let is_default = rule
+                .get("default")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !is_default {
+                merged.push(rule);
+            }
+        }
+
+        global.insert(kind.to_string(), Value::Array(merged));
+    }
+
+    for kind in ["room", "sender"] {
+        global.entry(kind.to_string()).or_insert_with(|| json!([]));
+    }
+}
+
+/// Back-compat for callers that don't have a user context.
+pub fn get_default_push_rules() -> Value {
+    default_push_rules_for_user("@user:localhost", "user")
 }
 
 #[cfg(test)]
@@ -127,27 +345,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_default_push_rules_returns_valid_structure() {
-        let rules = get_default_push_rules();
-        assert!(rules.get("global").is_some());
+    fn default_rules_have_required_top_level_keys() {
+        let rules = default_push_rules_for_user("@alice:example.com", "alice");
         let global = rules.get("global").unwrap();
-        assert!(global.get("content").is_some());
-        assert!(global.get("override").is_some());
-        assert!(global.get("room").is_some());
-        assert!(global.get("sender").is_some());
-        assert!(global.get("underride").is_some());
+        for k in ["content", "override", "room", "sender", "underride"] {
+            assert!(global.get(k).is_some(), "missing {k}");
+        }
     }
 
     #[test]
-    fn test_default_push_rules_have_required_fields() {
-        let rules = get_default_push_rules();
-        let global = rules.get("global").unwrap();
-        let content = global.get("content").unwrap().as_array().unwrap();
-        assert!(!content.is_empty());
-        let first_rule = &content[0];
-        assert!(first_rule.get("rule_id").is_some());
-        assert!(first_rule.get("enabled").is_some());
-        assert!(first_rule.get("conditions").is_some());
-        assert!(first_rule.get("actions").is_some());
+    fn default_rules_include_v1_11_required_ids() {
+        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let override_rules = rules["global"]["override"].as_array().unwrap();
+        let ids: Vec<&str> = override_rules
+            .iter()
+            .filter_map(|r| r["rule_id"].as_str())
+            .collect();
+        for required in [
+            ".m.rule.master",
+            ".m.rule.suppress_notices",
+            ".m.rule.invite_for_me",
+            ".m.rule.member_event",
+            ".m.rule.is_user_mention",
+            ".m.rule.is_room_mention",
+            ".m.rule.tombstone",
+            ".m.rule.reaction",
+            ".m.rule.room.server_acl",
+            ".m.rule.suppress_edits",
+        ] {
+            assert!(ids.contains(&required), "missing override {required}");
+        }
+    }
+
+    #[test]
+    fn merge_adds_missing_rules_without_clobbering() {
+        let mut content = json!({
+            "global": {
+                "override": [
+                    {"rule_id": ".m.rule.master", "default": true, "enabled": true, "conditions": [], "actions": []}
+                ]
+            }
+        });
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        let overrides = content["global"]["override"].as_array().unwrap();
+        let master = overrides
+            .iter()
+            .find(|r| r["rule_id"] == ".m.rule.master")
+            .unwrap();
+        assert_eq!(master["enabled"], true, "user-customised value preserved");
+        let ids: Vec<&str> = overrides
+            .iter()
+            .filter_map(|r| r["rule_id"].as_str())
+            .collect();
+        assert!(ids.contains(&".m.rule.suppress_edits"));
     }
 }

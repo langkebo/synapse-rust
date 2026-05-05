@@ -162,6 +162,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
                 last_seen_ip TEXT,
                 created_ts BIGINT NOT NULL,
                 first_seen_ts BIGINT NOT NULL,
+                user_agent TEXT,
                 appservice_id TEXT,
                 ignored_user_list TEXT
             )

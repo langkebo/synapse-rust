@@ -1613,7 +1613,7 @@ async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
     )
     .await
     .expect("failed to register admin user");
-    promote_to_admin(&pool, &admin_user_id).await;
+    promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let existing_username = format!("batch_existing_{}", rand::random::<u32>());
     register_user(&app, &existing_username)

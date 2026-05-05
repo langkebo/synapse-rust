@@ -399,6 +399,61 @@ fn validate_inbound_transaction_pdu<'a>(
     Ok((room_id, sender, event_type, state_key))
 }
 
+/// 验证 PDU 上发件人服务器的 ed25519 签名。语义对齐本地 sign_json：
+/// 把 PDU 去掉 signatures + unsigned 后做 canonical JSON，再用
+/// signatures[sender_server] 下任意一把可解析的密钥校验。任一密钥通过即放行；
+/// 全部缺失或失败则拒绝。
+async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<(), String> {
+    let sender = pdu
+        .get("sender")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing sender on PDU".to_string())?;
+    let sender_server =
+        sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {}", sender))?;
+
+    let signatures = pdu
+        .get("signatures")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| "PDU missing signatures field".to_string())?;
+    let server_sigs = signatures
+        .get(sender_server)
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| format!("PDU has no signatures from sender server {}", sender_server))?;
+    if server_sigs.is_empty() {
+        return Err(format!("PDU signatures.{} is empty", sender_server));
+    }
+
+    let mut signing_payload = pdu.clone();
+    if let Some(obj) = signing_payload.as_object_mut() {
+        obj.remove("signatures");
+        obj.remove("unsigned");
+    }
+    let signed_bytes =
+        crate::federation::signing::canonical_json_string(&signing_payload).into_bytes();
+
+    let mut last_error: Option<String> = None;
+    for (key_id, sig_value) in server_sigs {
+        let Some(signature) = sig_value.as_str() else {
+            continue;
+        };
+        match crate::web::middleware::verify_federation_signature_with_cache(
+            state,
+            sender_server,
+            key_id,
+            signature,
+            &signed_bytes,
+            false,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(e) => last_error = Some(e.message().to_string()),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "No verifiable PDU signature".to_string()))
+}
+
 async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiResult<String> {
     let effective_join_rule =
         if let Some(content) = get_effective_room_join_rule_content(state, room_id).await? {
@@ -990,6 +1045,143 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     public.merge(protected)
 }
 
+fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/_matrix/federation/v2/server"),
+        (Method::GET, "/_matrix/key/v2/server"),
+        (Method::POST, "/_matrix/federation/v2/key/clone"),
+        (
+            Method::GET,
+            "/_matrix/federation/v2/query/{server_name}/{key_id}",
+        ),
+        (Method::GET, "/_matrix/key/v2/query/{server_name}/{key_id}"),
+        (Method::GET, "/_matrix/federation/v1/version"),
+        (Method::GET, "/_matrix/federation/v1"),
+        (Method::GET, "/_matrix/federation/v1/publicRooms"),
+        (Method::GET, "/_matrix/federation/v1/query/destination"),
+        (Method::GET, "/_matrix/federation/v1/openid/userinfo"),
+    ]
+}
+
+fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/_matrix/federation/v1/members/{room_id}"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/members/{room_id}/joined",
+        ),
+        (Method::GET, "/_matrix/federation/v1/user/devices/{user_id}"),
+        (Method::GET, "/_matrix/federation/v1/room_auth/{room_id}"),
+        (
+            Method::PUT,
+            "/_matrix/federation/v1/knock/{room_id}/{user_id}",
+        ),
+        (Method::POST, "/_matrix/federation/v1/thirdparty/invite"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/get_joining_rules/{room_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v2/invite/{room_id}/{event_id}",
+        ),
+        (Method::PUT, "/_matrix/federation/v1/send/{txn_id}"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/make_join/{room_id}/{user_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/make_leave/{room_id}/{user_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v1/send_join/{room_id}/{event_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v1/invite/{room_id}/{event_id}",
+        ),
+        (
+            Method::POST,
+            "/_matrix/federation/v1/get_missing_events/{room_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/room/{room_id}/{event_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/timestamp_to_event/{room_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}",
+        ),
+        (Method::GET, "/_matrix/federation/v1/query/auth"),
+        (Method::GET, "/_matrix/federation/v1/event_auth"),
+        (Method::GET, "/_matrix/federation/v1/state/{room_id}"),
+        (Method::GET, "/_matrix/federation/v1/event/{event_id}"),
+        (Method::GET, "/_matrix/federation/v1/state_ids/{room_id}"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/query/directory/room/{room_id}",
+        ),
+        (Method::GET, "/_matrix/federation/v1/query/profile"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/query/profile/{user_id}",
+        ),
+        (Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}"),
+        (Method::GET, "/_matrix/federation/v1/backfill/{room_id}"),
+        (Method::POST, "/_matrix/federation/v1/keys/claim"),
+        (Method::POST, "/_matrix/federation/v1/keys/query"),
+        (Method::POST, "/_matrix/federation/v1/keys/upload"),
+        (Method::POST, "/_matrix/federation/v1/user/keys/upload"),
+        (Method::POST, "/_matrix/federation/v1/user/keys/claim"),
+        (Method::POST, "/_matrix/federation/v1/user/keys/query"),
+        (Method::POST, "/_matrix/federation/v2/user/keys/query"),
+        (
+            Method::PUT,
+            "/_matrix/federation/v2/send_join/{room_id}/{event_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v2/send_leave/{room_id}/{event_id}",
+        ),
+        (Method::POST, "/_matrix/federation/v1/publicRooms"),
+        (Method::GET, "/_matrix/federation/v1/query/directory"),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/media/download/{server_name}/{media_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
+        ),
+    ]
+}
+
+pub fn federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+
+    federation_public_relative_routes()
+        .into_iter()
+        .chain(federation_protected_relative_routes())
+        .map(|(m, p)| RouteEntry::new(m, p, "federation"))
+        .collect()
+}
+
 async fn federation_version(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -1559,6 +1751,30 @@ async fn send_transaction(
             results.push(json!({
                 "event_id": event_id,
                 "error": e
+            }));
+            continue;
+        }
+
+        // 内容哈希只能证明 PDU 没在传输中被改动，不能证明它真的来自 sender
+        // 所属的服务器。X-Matrix 事务签名只覆盖整个事务，不绑定单条 PDU 的发件人。
+        // 没有这一步校验，攻击者服务器可以在自己的事务里塞 sender=@victim:other-server.org
+        // 的 PDU，被我们接收并落库后再被其他对端 backfill 到，从而完成跨服务器伪造。
+        // 这里要求 PDU 在 signatures[sender_server] 下至少有一把可验证的密钥签名，
+        // 与本地 sign_json (剥离 signatures/unsigned 后对 canonical JSON 做 ed25519)
+        // 的语义对齐；任何缺签或错签的 PDU 都直接拒绝并审计。
+        if let Err(e) = verify_pdu_sender_signature(&state, pdu).await {
+            increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "federation_pdu_signature_invalid",
+                event_id = event_id,
+                origin = origin,
+                error = %e,
+                "Inbound PDU sender-server signature verification failed - rejecting potential impersonation"
+            );
+            results.push(json!({
+                "event_id": event_id,
+                "error": format!("Invalid PDU signature: {}", e)
             }));
             continue;
         }

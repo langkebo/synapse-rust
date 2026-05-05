@@ -12,6 +12,22 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
+/// Route manifest for the sticky_event module. The handlers are mounted by
+/// `room.rs` because MSC4354 paths are scoped under `/rooms/...`, but the
+/// list of (method, path) tuples lives here so the ledger tracks changes
+/// next to the handlers instead of in a sibling file.
+pub fn sticky_event_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/rooms/{room_id}/sticky_events"),
+        (Method::POST, "/rooms/{room_id}/sticky_events"),
+        (
+            Method::DELETE,
+            "/rooms/{room_id}/sticky_events/{event_type}",
+        ),
+    ]
+}
+
 /// Query parameters for sticky events
 #[derive(Deserialize)]
 pub struct StickyEventQuery {

@@ -628,6 +628,68 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+fn room_summary_read_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/rooms/{room_id}/summary"),
+        (Method::GET, "/rooms/{room_id}/summary/members"),
+        (Method::GET, "/rooms/{room_id}/summary/state"),
+        (Method::GET, "/rooms/{room_id}/summary/stats"),
+    ]
+}
+
+fn room_summary_v3_extra_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/rooms/{room_id}/summary"),
+        (Method::PUT, "/rooms/{room_id}/summary"),
+        (Method::DELETE, "/rooms/{room_id}/summary"),
+        (Method::POST, "/rooms/{room_id}/summary/sync"),
+        (Method::POST, "/rooms/{room_id}/summary/members"),
+        (Method::PUT, "/rooms/{room_id}/summary/members/{user_id}"),
+        (Method::DELETE, "/rooms/{room_id}/summary/members/{user_id}"),
+        (
+            Method::GET,
+            "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+        ),
+        (
+            Method::PUT,
+            "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+        ),
+        (Method::POST, "/rooms/{room_id}/summary/stats/recalculate"),
+        (Method::POST, "/rooms/{room_id}/summary/heroes/recalculate"),
+        (Method::POST, "/rooms/{room_id}/summary/unread/clear"),
+    ]
+}
+
+pub fn room_summary_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
+    use axum::http::Method;
+
+    let mut out = expand_under_prefixes(
+        "room_summary",
+        &["/_matrix/client/r0"],
+        &room_summary_read_relative_routes(),
+    );
+    let mut v3_routes = room_summary_read_relative_routes();
+    v3_routes.extend(room_summary_v3_extra_relative_routes());
+    out.extend(expand_under_prefixes(
+        "room_summary",
+        &["/_matrix/client/v3"],
+        &v3_routes,
+    ));
+    out.extend(
+        [
+            (Method::GET, "/_synapse/room_summary/v1/summaries"),
+            (Method::POST, "/_synapse/room_summary/v1/summaries"),
+            (Method::POST, "/_synapse/room_summary/v1/updates/process"),
+        ]
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "room_summary")),
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

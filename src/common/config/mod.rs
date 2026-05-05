@@ -775,6 +775,10 @@ pub struct BuiltinOidcConfig {
     pub allow_client_ids: Vec<String>,
     #[serde(default)]
     pub users: Vec<BuiltinOidcUser>,
+    /// 内置 OIDC Provider 的 RSA 签名密钥持久化路径 (PKCS#8 PEM)。
+    /// 若为空则在进程内生成临时密钥；进程重启后旧 token 失效。
+    #[serde(default)]
+    pub signing_key_path: Option<std::path::PathBuf>,
 }
 
 fn default_builtin_oidc_client_id() -> String {
@@ -785,7 +789,12 @@ fn default_builtin_oidc_client_id() -> String {
 pub struct BuiltinOidcUser {
     pub id: String,
     pub username: String,
-    pub password: String,
+    /// 明文密码 (仅开发/测试)。生产请使用 password_hash。
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Argon2 PHC 字符串。优先于 password 使用。
+    #[serde(default)]
+    pub password_hash: Option<String>,
     pub email: String,
     pub displayname: Option<String>,
 }
@@ -799,6 +808,7 @@ impl Default for BuiltinOidcConfig {
             allow_redirect_uris: vec![],
             allow_client_ids: vec![],
             users: vec![],
+            signing_key_path: None,
         }
     }
 }
@@ -1322,12 +1332,20 @@ impl ServerConfig {
     /// 获取公开基础 URL。
     ///
     /// 如果未配置 public_baseurl，则根据 host 和 port 构造默认值。
+    /// `0.0.0.0` 是绑定地址而非可达地址，会被回退到 `localhost` 以避免
+    /// 客户端拿到一个无法访问的 URL。
     pub fn get_public_baseurl(&self) -> String {
         if let Some(baseurl) = &self.public_baseurl {
-            baseurl.clone()
-        } else {
-            format!("http://{}:{}", self.host, self.port)
+            if !baseurl.is_empty() {
+                return baseurl.clone();
+            }
         }
+        let host = if self.host == "0.0.0.0" || self.host == "::" {
+            "localhost"
+        } else {
+            self.host.as_str()
+        };
+        format!("http://{}:{}", host, self.port)
     }
 
     /// 获取事件 ID 生成用的服务器名称。
@@ -2299,7 +2317,10 @@ impl Config {
         let server_lifetime = self.server.expire_access_token_lifetime;
         let security_lifetime = self.security.expiry_time;
         if server_lifetime > 0 && server_lifetime != 3600 {
-            if security_lifetime > 0 && security_lifetime != 3600 && security_lifetime != server_lifetime {
+            if security_lifetime > 0
+                && security_lifetime != 3600
+                && security_lifetime != server_lifetime
+            {
                 tracing::warn!(
                     "Both server.expire_access_token_lifetime ({}) and security.expiry_time ({}) are set and differ. \
                      Using server.expire_access_token_lifetime as the canonical value.",

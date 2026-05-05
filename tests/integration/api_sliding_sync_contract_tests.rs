@@ -2,9 +2,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::CacheManager;
+use synapse_rust::common::config::RateLimitRule;
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::sliding_sync::SlidingSyncStorage;
 use synapse_rust::web::routes::state::AppState;
@@ -13,6 +16,22 @@ use tower::ServiceExt;
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
     let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let cache = Arc::new(CacheManager::new(Default::default()));
+    let state = AppState::new(container, cache);
+    Some((synapse_rust::web::create_router(state), pool))
+}
+
+async fn setup_test_app_with_sliding_sync_rate_limit(
+    initial: RateLimitRule,
+    incremental: RateLimitRule,
+) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = super::get_test_pool().await?;
+    let mut container = ServiceContainer::new_test_with_pool(pool.clone());
+    container.config.rate_limit.enabled = false;
+    container.config.rate_limit.sync.enabled = true;
+    container.config.rate_limit.sync.initial = initial;
+    container.config.rate_limit.sync.incremental = incremental;
+
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
@@ -146,6 +165,42 @@ async fn upload_device_keys(
     device_id: &str,
     key_suffix: &str,
 ) {
+    let mut seed = [0u8; 32];
+    let suffix_bytes = key_suffix.as_bytes();
+    for (i, b) in suffix_bytes.iter().take(32).enumerate() {
+        seed[i] = *b;
+    }
+    let signing_key = SigningKey::from_bytes(&seed);
+    let verifying_key = signing_key.verifying_key();
+    let ed25519_pk_b64 = base64::engine::general_purpose::STANDARD.encode(verifying_key.as_bytes());
+    let curve25519_pk = format!("curve25519-{}", key_suffix);
+    let otk_pk = format!("otk-{}", key_suffix);
+
+    let mut device_keys = json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+        "keys": {
+            format!("curve25519:{}", device_id): curve25519_pk,
+            format!("ed25519:{}", device_id): ed25519_pk_b64,
+        }
+    });
+    let dk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&device_keys);
+    let dk_signature = base64::engine::general_purpose::STANDARD
+        .encode(signing_key.sign(&dk_canonical).to_bytes());
+    device_keys["signatures"] = json!({
+        user_id: { format!("ed25519:{}", device_id): dk_signature }
+    });
+
+    let otk_id = format!("signed_curve25519:{}", key_suffix);
+    let mut otk_payload = json!({ "key": otk_pk });
+    let otk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&otk_payload);
+    let otk_signature = base64::engine::general_purpose::STANDARD
+        .encode(signing_key.sign(&otk_canonical).to_bytes());
+    otk_payload["signatures"] = json!({
+        user_id: { format!("ed25519:{}", device_id): otk_signature }
+    });
+
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/keys/upload")
@@ -153,24 +208,9 @@ async fn upload_device_keys(
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "device_keys": {
-                    "user_id": user_id,
-                    "device_id": device_id,
-                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
-                    "keys": {
-                        format!("curve25519:{}", device_id): format!("curve25519-{}", key_suffix),
-                        format!("ed25519:{}", device_id): format!("ed25519-{}", key_suffix)
-                    },
-                    "signatures": {
-                        user_id: {
-                            format!("ed25519:{}", device_id): format!("signature-{}", key_suffix)
-                        }
-                    }
-                },
+                "device_keys": device_keys,
                 "one_time_keys": {
-                    format!("signed_curve25519:{}", key_suffix): {
-                        "key": format!("otk-{}", key_suffix)
-                    }
+                    otk_id: otk_payload
                 }
             })
             .to_string(),
@@ -452,7 +492,18 @@ async fn test_sliding_sync_requires_authentication() {
 
 #[tokio::test]
 async fn test_sliding_sync_rate_limit_returns_backoff() {
-    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+    let Some((app, _pool)) = setup_test_app_with_sliding_sync_rate_limit(
+        RateLimitRule {
+            per_second: 1,
+            burst_size: 1,
+        },
+        RateLimitRule {
+            per_second: 10,
+            burst_size: 10,
+        },
+    )
+    .await
+    else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -460,7 +511,7 @@ async fn test_sliding_sync_rate_limit_returns_backoff() {
     let token = super::create_test_user(&app).await;
     let mut limited_body: Option<Value> = None;
 
-    for _ in 0..40 {
+    for _ in 0..3 {
         let (status, body) = post_sliding_sync(&app, Some(&token), json!({ "lists": {} })).await;
         if status == StatusCode::TOO_MANY_REQUESTS {
             limited_body = Some(body);

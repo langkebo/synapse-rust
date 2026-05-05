@@ -510,7 +510,20 @@ pub async fn select_worker(
 }
 
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
-    let admin_router = Router::new()
+    let admin = create_worker_admin_router(state.clone());
+    if state.services.config.worker.enabled {
+        admin
+            .merge(create_worker_body_router(state.clone()))
+            .with_state(state)
+    } else {
+        admin.with_state(state)
+    }
+}
+
+/// Always-on admin surface of the worker router. Wired unconditionally by
+/// `create_router`. `worker_route_manifest()` covers exactly these routes.
+pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
+    Router::new()
         .route("/_synapse/worker/v1/register", post(register_worker))
         .route("/_synapse/worker/v1/workers", get(list_workers))
         .route(
@@ -543,11 +556,17 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
         .route_layer(middleware::from_fn_with_state(
-            state.clone(),
+            state,
             crate::web::middleware::admin_auth_middleware,
-        ));
+        ))
+}
 
-    let worker_router = Router::new()
+/// Conditional worker-body surface, only merged when
+/// `state.services.config.worker.enabled` is true. Backed by
+/// `worker_body_route_manifest()` and aggregated via
+/// `route_module::WorkerBodyModule`.
+pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
+    Router::new()
         .route(
             "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
             post(heartbeat),
@@ -587,16 +606,96 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
         )
         .route("/_synapse/worker/v1/events", get(get_events))
         .route_layer(middleware::from_fn_with_state(
-            state.clone(),
+            state,
             replication_http_auth_middleware,
-        ));
+        ))
+}
 
-    let router = Router::new().merge(admin_router);
-    if state.services.config.worker.enabled {
-        router.merge(worker_router).with_state(state)
-    } else {
-        router.with_state(state)
-    }
+/// Manifest of every `(method, absolute_path)` tuple `create_worker_router`
+/// **always** registers — i.e. the admin_router subset. The body subset is
+/// state-gated (`config.worker.enabled`) and is reported by
+/// `worker_body_route_manifest()`, aggregated through
+/// `route_module::WorkerBodyModule` so the duplicate-guard and live-probe
+/// test cover it whenever the feature is on.
+pub fn worker_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/worker/v1/register"),
+        (Method::GET, "/_synapse/worker/v1/workers"),
+        (
+            Method::GET,
+            "/_synapse/worker/v1/workers/type/{worker_type}",
+        ),
+        (Method::GET, "/_synapse/worker/v1/workers/{worker_id}"),
+        (Method::DELETE, "/_synapse/worker/v1/workers/{worker_id}"),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/workers/{worker_id}/commands",
+        ),
+        (Method::POST, "/_synapse/worker/v1/tasks"),
+        (Method::GET, "/_synapse/worker/v1/tasks"),
+        (Method::POST, "/_synapse/worker/v1/tasks/claim/{worker_id}"),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
+        ),
+        (Method::GET, "/_synapse/worker/v1/statistics"),
+        (Method::GET, "/_synapse/worker/v1/statistics/types"),
+        (Method::GET, "/_synapse/worker/v1/select/{task_type}"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "worker"))
+    .collect()
+}
+
+/// Manifest for the worker body branch (heartbeat / connect / commands /
+/// task completion / replication / event tail). Returned by
+/// `route_module::WorkerBodyModule::manifest_for` only when
+/// `config.worker.enabled` is true.
+pub fn worker_body_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (
+            Method::POST,
+            "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
+        ),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/workers/{worker_id}/connect",
+        ),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/workers/{worker_id}/disconnect",
+        ),
+        (
+            Method::GET,
+            "/_synapse/worker/v1/workers/{worker_id}/commands",
+        ),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/commands/{command_id}/complete",
+        ),
+        (
+            Method::POST,
+            "/_synapse/worker/v1/commands/{command_id}/fail",
+        ),
+        (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/complete"),
+        (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/fail"),
+        (
+            Method::GET,
+            "/_synapse/worker/v1/replication/{worker_id}/position",
+        ),
+        (
+            Method::PUT,
+            "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
+        ),
+        (Method::GET, "/_synapse/worker/v1/events"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "worker_body"))
+    .collect()
 }
 
 #[cfg(test)]

@@ -959,6 +959,7 @@ impl SyncService {
                 since_ts,
                 is_incremental,
                 lazy_load_members,
+                user_id,
             ),
             self.get_room_ephemeral_events_batch(&rooms_to_include),
             self.get_room_account_data_events_batch(user_id, &rooms_to_include),
@@ -1152,6 +1153,7 @@ impl SyncService {
                         since_ts,
                         is_incremental,
                         lazy_load_members,
+                        user_id,
                     )
                     .await?;
                 Ok(state_by_room.get(room_id).cloned().unwrap_or_default())
@@ -1841,6 +1843,7 @@ impl SyncService {
         since_ts: i64,
         is_incremental: bool,
         lazy_load_members: bool,
+        user_id: &str,
     ) -> ApiResult<HashMap<String, Vec<Value>>> {
         if room_ids.is_empty() {
             return Ok(HashMap::new());
@@ -1858,17 +1861,63 @@ impl SyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
 
+        // Detect "newly visible" rooms in this incremental sync — rooms where
+        // the syncing user just joined or was invited. Their state delta will
+        // not contain `m.room.create` and other foundational state because
+        // those events predate `since_ts`. matrix-js-sdk treats a room without
+        // an `m.room.create` event as malformed, so for these rooms we fall
+        // back to returning full state instead of the delta.
+        let newly_visible_rooms: Vec<String> = delta_state_by_room
+            .iter()
+            .filter_map(|(room_id, events)| {
+                let user_just_joined = events.iter().any(|e| {
+                    e.event_type.as_deref() == Some("m.room.member")
+                        && e.state_key.as_deref() == Some(user_id)
+                        && matches!(
+                            e.content.get("membership").and_then(|v| v.as_str()),
+                            Some("join") | Some("invite")
+                        )
+                });
+                if user_just_joined {
+                    Some(room_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let full_state_for_newly_visible = if newly_visible_rooms.is_empty() {
+            HashMap::new()
+        } else {
+            self.event_storage
+                .get_state_events_batch(&newly_visible_rooms)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!(
+                        "Failed to get full state for newly visible rooms: {}",
+                        e
+                    ))
+                })?
+        };
+
         if !lazy_load_members {
-            return Ok(delta_state_by_room
-                .into_iter()
-                .map(|(room_id, events)| {
+            let mut result: HashMap<String, Vec<Value>> = HashMap::new();
+            for (room_id, events) in delta_state_by_room {
+                if let Some(full_state) = full_state_for_newly_visible.get(&room_id) {
+                    let values = full_state
+                        .iter()
+                        .map(|event| self.state_event_to_json(event, event_format))
+                        .collect();
+                    result.insert(room_id, values);
+                } else {
                     let values = events
                         .iter()
                         .map(|event| self.state_event_to_json(event, event_format))
                         .collect();
-                    (room_id, values)
-                })
-                .collect());
+                    result.insert(room_id, values);
+                }
+            }
+            return Ok(result);
         }
 
         let current_member_state_by_room = self
@@ -1881,11 +1930,22 @@ impl SyncService {
         for room_id in room_ids {
             let mut values = Vec::new();
 
-            for event in delta_state_by_room.get(room_id).into_iter().flatten() {
-                if event.event_type.as_deref() == Some("m.room.member") {
-                    continue;
+            if let Some(full_state) = full_state_for_newly_visible.get(room_id) {
+                // For newly visible rooms emit full non-member state plus current
+                // members; the lazy-load filter applied later trims members.
+                for event in full_state {
+                    if event.event_type.as_deref() == Some("m.room.member") {
+                        continue;
+                    }
+                    values.push(self.state_event_to_json(event, event_format));
                 }
-                values.push(self.state_event_to_json(event, event_format));
+            } else {
+                for event in delta_state_by_room.get(room_id).into_iter().flatten() {
+                    if event.event_type.as_deref() == Some("m.room.member") {
+                        continue;
+                    }
+                    values.push(self.state_event_to_json(event, event_format));
+                }
             }
 
             for event in current_member_state_by_room
@@ -1940,144 +2000,60 @@ impl SyncService {
             })
             .collect();
 
-        // If no push rules exist yet, inject the Matrix spec default push rules
-        let has_push_rules = events.iter().any(|e| e["type"] == "m.push_rules");
-        if !has_push_rules {
+        // Strip stale `m.direct` entries pointing at rooms the user is no
+        // longer a member of (left/forgot/banned). Without this scrub
+        // matrix-js-sdk's UserIdentityWarning hits "leading sigil incorrect
+        // or missing" or logs "found in DMs but the room is not in the store"
+        // on every sync.
+        let joined_room_ids: HashSet<String> = self
+            .member_storage
+            .get_joined_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load joined rooms: {}", e)))?
+            .into_iter()
+            .collect();
+        if let Some(direct) = events.iter_mut().find(|e| e["type"] == "m.direct") {
+            if let Some(map) = direct.get_mut("content").and_then(|c| c.as_object_mut()) {
+                map.retain(|_, value| {
+                    if let Some(rooms) = value.as_array_mut() {
+                        rooms.retain(|room| {
+                            room.as_str()
+                                .map(|id| {
+                                    !id.is_empty()
+                                        && id.starts_with('!')
+                                        && joined_room_ids.contains(id)
+                                })
+                                .unwrap_or(false)
+                        });
+                        !rooms.is_empty()
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+
+        // Ensure account_data always exposes a Matrix v1.11-compliant push
+        // rule set. If the user already has stored rules, merge any spec
+        // defaults the row is missing so older accounts don't keep emitting
+        // "missing rule" warnings in clients.
+        let username = user_id
+            .trim_start_matches('@')
+            .split(':')
+            .next()
+            .unwrap_or("");
+        if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
+            if let Some(content) = existing.get_mut("content") {
+                crate::web::routes::push_rules::merge_default_push_rules(
+                    content, user_id, username,
+                );
+            }
+        } else {
             events.push(json!({
                 "type": "m.push_rules",
-                "content": {
-                    "global": {
-                        "content": [
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
-                                "default": true,
-                                "enabled": true,
-                                "pattern": user_id.trim_start_matches('@').split(':').next().unwrap_or(""),
-                                "rule_id": ".m.rule.contains_user_name"
-                            }
-                        ],
-                        "override": [
-                            {
-                                "actions": [],
-                                "conditions": [],
-                                "default": true,
-                                "enabled": false,
-                                "rule_id": ".m.rule.master"
-                            },
-                            {
-                                "actions": [],
-                                "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.suppress_notices"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
-                                "conditions": [
-                                    {"kind": "event_match", "key": "type", "pattern": "m.room.member"},
-                                    {"kind": "event_match", "key": "content.membership", "pattern": "invite"},
-                                    {"kind": "event_match", "key": "state_key", "pattern": user_id}
-                                ],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.invite_for_me"
-                            },
-                            {
-                                "actions": [],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.member"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.member_event"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}],
-                                "conditions": [{"kind": "event_property_is", "key": "content.m\\.mentions.user_ids", "value": user_id}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.is_user_mention"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight"}],
-                                "conditions": [
-                                    {"kind": "event_property_is", "key": "content.m\\.mentions.room", "value": true},
-                                    {"kind": "sender_notification_permission", "key": "room"}
-                                ],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.is_room_mention"
-                            },
-                            {
-                                "actions": [],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.tombstone"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.tombstone"
-                            },
-                            {
-                                "actions": [],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.reaction"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.reaction"
-                            },
-                            {
-                                "actions": [],
-                                "conditions": [
-                                    {"kind": "event_match", "key": "type", "pattern": "m.room.server_acl"},
-                                    {"kind": "event_match", "key": "state_key", "pattern": ""}
-                                ],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.room.server_acl"
-                            }
-                        ],
-                        "room": [],
-                        "sender": [],
-                        "underride": [
-                            {
-                                "actions": ["notify", {"set_tweak": "sound", "value": "ring"}, {"set_tweak": "highlight", "value": false}],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.call"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}, {"set_tweak": "highlight"}],
-                                "conditions": [
-                                    {"kind": "room_member_count", "is": "2"},
-                                    {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
-                                ],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.room_one_to_one"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "sound", "value": "default"}, {"set_tweak": "highlight"}],
-                                "conditions": [
-                                    {"kind": "room_member_count", "is": "2"},
-                                    {"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}
-                                ],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.encrypted_room_one_to_one"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.message"
-                            },
-                            {
-                                "actions": ["notify", {"set_tweak": "highlight", "value": false}],
-                                "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                                "default": true,
-                                "enabled": true,
-                                "rule_id": ".m.rule.encrypted"
-                            }
-                        ]
-                    }
-                }
+                "content": crate::web::routes::push_rules::default_push_rules_for_user(
+                    user_id, username,
+                ),
             }));
         }
 

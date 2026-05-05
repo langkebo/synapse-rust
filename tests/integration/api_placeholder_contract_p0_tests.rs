@@ -685,7 +685,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     .await;
     assert_eq!(
         retry_body["error"],
-        "Invalid session ID or session not found"
+        "Verification session is invalid, expired, or has not been submitted"
     );
 }
 
@@ -757,7 +757,7 @@ async fn test_admin_server_placeholder_contract_returns_unrecognized_for_admin()
         return;
     };
 
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
 
     for path in [
         "/_synapse/admin/v1/backups",
@@ -771,7 +771,7 @@ async fn test_admin_server_placeholder_contract_returns_unrecognized_for_admin()
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::BAD_REQUEST,
+            StatusCode::NOT_FOUND,
             "M_UNRECOGNIZED",
         )
         .await;
@@ -825,7 +825,7 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::BAD_REQUEST,
+            StatusCode::NOT_FOUND,
             "M_UNRECOGNIZED",
         )
         .await;

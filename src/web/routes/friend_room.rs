@@ -1,7 +1,9 @@
 use crate::common::ApiError;
-use crate::web::routes::{validate_user_id, AppState, AuthenticatedUser};
+use crate::web::routes::{
+    account_compat::can_view_profile_for_requester, validate_user_id, AppState, AuthenticatedUser,
+};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -14,6 +16,10 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/friends", get(get_friends))
         .route("/_matrix/client/v3/friends", post(send_friend_request))
         .route(
+            "/_matrix/client/v3/friends/search",
+            get(search_friend_directory),
+        )
+        .route(
             "/_matrix/client/v3/friends/requests/incoming",
             get(get_incoming_requests),
         )
@@ -24,8 +30,16 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         // v1 和 r0 路径 - 主路由
         .route("/_matrix/client/v1/friends", get(get_friends))
         .route("/_matrix/client/v1/friends", post(send_friend_request))
+        .route(
+            "/_matrix/client/v1/friends/search",
+            get(search_friend_directory),
+        )
         .route("/_matrix/client/r0/friendships", get(get_friends))
         .route("/_matrix/client/r0/friendships", post(send_friend_request))
+        .route(
+            "/_matrix/client/r0/friends/search",
+            get(search_friend_directory),
+        )
         // 好友请求
         .route(
             "/_matrix/client/v1/friends/request",
@@ -210,6 +224,128 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::GET, "/_matrix/client/v3/friends"),
+        (Method::POST, "/_matrix/client/v3/friends"),
+        (Method::GET, "/_matrix/client/v3/friends/search"),
+        (Method::GET, "/_matrix/client/v3/friends/requests/incoming"),
+        (Method::GET, "/_matrix/client/v3/friends/requests/outgoing"),
+        (Method::GET, "/_matrix/client/v1/friends"),
+        (Method::POST, "/_matrix/client/v1/friends"),
+        (Method::GET, "/_matrix/client/v1/friends/search"),
+        (Method::GET, "/_matrix/client/r0/friendships"),
+        (Method::POST, "/_matrix/client/r0/friendships"),
+        (Method::GET, "/_matrix/client/r0/friends/search"),
+        (Method::POST, "/_matrix/client/v1/friends/request"),
+        (Method::GET, "/_matrix/client/v1/friends/request/received"),
+        (
+            Method::POST,
+            "/_matrix/client/v1/friends/request/{user_id}/accept",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/friends/request/{user_id}/reject",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/friends/request/{user_id}/cancel",
+        ),
+        (Method::POST, "/_matrix/client/r0/friends/request"),
+        (Method::GET, "/_matrix/client/r0/friends/request/received"),
+        (
+            Method::POST,
+            "/_matrix/client/r0/friends/request/{user_id}/accept",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/r0/friends/request/{user_id}/reject",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/r0/friends/request/{user_id}/cancel",
+        ),
+        (Method::GET, "/_matrix/client/v1/friends/requests/incoming"),
+        (Method::GET, "/_matrix/client/v1/friends/requests/outgoing"),
+        (Method::GET, "/_matrix/client/r0/friends/requests/incoming"),
+        (Method::GET, "/_matrix/client/r0/friends/requests/outgoing"),
+        (Method::GET, "/_matrix/client/v1/friends/check/{user_id}"),
+        (Method::GET, "/_matrix/client/r0/friends/check/{user_id}"),
+        (Method::GET, "/_matrix/client/v1/friends/suggestions"),
+        (Method::GET, "/_matrix/client/r0/friends/suggestions"),
+        (Method::DELETE, "/_matrix/client/v1/friends/{user_id}"),
+        (Method::DELETE, "/_matrix/client/r0/friends/{user_id}"),
+        (Method::PUT, "/_matrix/client/v1/friends/{user_id}/note"),
+        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/note"),
+        (Method::GET, "/_matrix/client/v1/friends/{user_id}/status"),
+        (Method::PUT, "/_matrix/client/v1/friends/{user_id}/status"),
+        (Method::GET, "/_matrix/client/r0/friends/{user_id}/status"),
+        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/status"),
+        (Method::GET, "/_matrix/client/v1/friends/{user_id}/info"),
+        (Method::GET, "/_matrix/client/r0/friends/{user_id}/info"),
+        (
+            Method::PUT,
+            "/_matrix/client/v1/friends/{user_id}/displayname",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/r0/friends/{user_id}/displayname",
+        ),
+        (Method::GET, "/_matrix/client/v1/friends/groups"),
+        (Method::POST, "/_matrix/client/v1/friends/groups"),
+        (Method::GET, "/_matrix/client/r0/friends/groups"),
+        (Method::POST, "/_matrix/client/r0/friends/groups"),
+        (
+            Method::DELETE,
+            "/_matrix/client/v1/friends/groups/{group_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/r0/friends/groups/{group_id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/v1/friends/groups/{group_id}/name",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/r0/friends/groups/{group_id}/name",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/friends/groups/{group_id}/friends",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/r0/friends/groups/{group_id}/friends",
+        ),
+        (Method::GET, "/_matrix/client/v1/friends/{user_id}/groups"),
+        (Method::GET, "/_matrix/client/r0/friends/{user_id}/groups"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "friend_room"))
+    .collect()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddFriendRequest {
     pub user_id: String,
@@ -230,6 +366,25 @@ pub struct UpdateStatusRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateDisplaynameRequest {
     pub displayname: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct FriendListQueryParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub sort_by: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FriendSearchQuery {
+    pub q: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -254,23 +409,100 @@ pub enum FriendRequestStatus {
 async fn get_friends(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    Query(params): Query<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = state
+    let page = state
         .services
         .friend_room_service
-        .create_friend_list_room(&auth_user.user_id)
+        .get_friends_page(
+            &auth_user.user_id,
+            crate::services::friend_room_service::FriendListRequest {
+                limit: params.limit.unwrap_or(50),
+                offset: params.offset.unwrap_or(0),
+                sort_by: params.sort_by.unwrap_or_else(|| "alphabet".to_string()),
+            },
+        )
         .await?;
-
-    let friends = state
-        .services
-        .friend_room_service
-        .get_friends(&auth_user.user_id)
-        .await?;
+    let items = serde_json::to_value(&page.items)
+        .map_err(|e| ApiError::internal(format!("Failed to serialize friend list: {}", e)))?;
 
     Ok(Json(json!({
-        "friends": friends,
-        "total": friends.len(),
-        "room_id": room_id
+        "friends": items,
+        "items": items,
+        "total": page.total,
+        "limit": page.limit,
+        "offset": page.offset,
+        "next_offset": page.next_offset,
+        "room_id": page.room_id,
+        "version": page.version,
+        "cached": page.cached,
+        "generated_ts": page.generated_ts
+    })))
+}
+
+async fn search_friend_directory(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(query): Query<FriendSearchQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let search_term = query.q.trim();
+    if search_term.is_empty() {
+        return Err(ApiError::bad_request("Search term cannot be empty"));
+    }
+
+    let exact_only = matches!(query.mode.as_deref(), Some("exact"));
+    let rate_limit_key = format!("ratelimit:friend-search:{}", auth_user.user_id);
+    let decision = state
+        .cache
+        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
+        .await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many friend search requests"));
+    }
+
+    let mut results = state
+        .services
+        .user_storage
+        .search_directory_users(search_term, query.limit.unwrap_or(20) as i64, exact_only)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to search users: {}", e)))?;
+
+    let mut visible = Vec::new();
+    for result in results.drain(..) {
+        if result.user_id == auth_user.user_id {
+            continue;
+        }
+        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &result.user_id)
+            .await?
+        {
+            continue;
+        }
+        let presence = result.presence.unwrap_or_else(|| "offline".to_string());
+        let online = presence == "online";
+
+        visible.push(json!({
+            "user_id": result.user_id,
+            "username": result.username,
+            "displayname": result.displayname,
+            "avatar_url": result.avatar_url,
+            "presence": presence,
+            "online": online,
+            "last_active_ts": result.last_active_ts,
+            "last_seen_ts": result.last_active_ts,
+            "created_ts": result.created_ts,
+            "match_score": result.match_score,
+            "match_type": result.match_type
+        }));
+    }
+    let count = visible.len();
+    let limit = query.limit.unwrap_or(20);
+
+    Ok(Json(json!({
+        "results": visible,
+        "count": count,
+        "mode": if exact_only { "exact" } else { "fuzzy" },
+        "limited": count == limit,
+        "retry_after_seconds": if decision.allowed { 0 } else { decision.retry_after_seconds }
     })))
 }
 
@@ -544,14 +776,20 @@ async fn check_friendship(
     })))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FriendSuggestionsQuery {
+    pub limit: Option<i64>,
+}
+
 async fn get_friend_suggestions(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    Query(query): Query<FriendSuggestionsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let suggestions = state
         .services
         .friend_room_service
-        .get_friend_suggestions(&auth_user.user_id)
+        .get_friend_suggestions(&auth_user.user_id, query.limit)
         .await?;
 
     Ok(Json(json!({

@@ -47,6 +47,58 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+const PUSH_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+
+fn push_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/pushers"),
+        (Method::POST, "/pushers"),
+        (Method::POST, "/pushers/set"),
+        (Method::GET, "/pushrules"),
+        (Method::GET, "/pushrules/{scope}"),
+        (Method::GET, "/pushrules/{scope}/{kind}"),
+        (Method::GET, "/pushrules/{scope}/{kind}/{rule_id}"),
+        (Method::POST, "/pushrules/{scope}/{kind}/{rule_id}"),
+        (Method::PUT, "/pushrules/{scope}/{kind}/{rule_id}"),
+        (Method::DELETE, "/pushrules/{scope}/{kind}/{rule_id}"),
+        (Method::GET, "/notifications"),
+        (Method::POST, "/notifications/{notification_id}/ack"),
+    ]
+}
+
+fn push_v3_only_absolute_routes() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (
+            Method::PUT,
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "push"))
+    .collect()
+}
+
+pub fn push_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    let mut out = crate::web::routes::route_ledger::expand_under_prefixes(
+        "push",
+        PUSH_COMPAT_NEST_PREFIXES,
+        &push_compat_relative_routes(),
+    );
+    out.extend(push_v3_only_absolute_routes());
+    out
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetPusherRequest {
     pub pushkey: String,
@@ -195,7 +247,8 @@ async fn get_push_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    // Try to load user-specific push rules from DB
+    use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
+
     let row = sqlx::query(
         "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
     )
@@ -204,60 +257,23 @@ async fn get_push_rules(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
 
+    let username = auth_user
+        .user_id
+        .trim_start_matches('@')
+        .split(':')
+        .next()
+        .unwrap_or("");
+
     if let Some(row) = row {
-        let content: Value = row.get("content");
+        let mut content: Value = row.get("content");
+        merge_default_push_rules(&mut content, &auth_user.user_id, username);
         return Ok(Json(content));
     }
 
-    // Return default push rules per Matrix spec
-    Ok(Json(json!({
-        "global": {
-            "content": [
-                {
-                    "rule_id": ".m.rule.contains_display_name",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "contains_display_name"}],
-                    "actions": ["notify", {"set_tweak": "highlight"}, {"set_tweak": "sound", "value": "default"}]
-                }
-            ],
-            "override": [
-                {
-                    "rule_id": ".m.rule.master",
-                    "default": true,
-                    "enabled": false,
-                    "conditions": [],
-                    "actions": []
-                },
-                {
-                    "rule_id": ".m.rule.suppress_notices",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "content.msgtype", "pattern": "m.notice"}],
-                    "actions": ["dont_notify"]
-                }
-            ],
-            "room": [],
-            "sender": [],
-            "underride": [
-                {
-                    "rule_id": ".m.rule.message",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.message"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                },
-                {
-                    "rule_id": ".m.rule.encrypted",
-                    "default": true,
-                    "enabled": true,
-                    "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.room.encrypted"}],
-                    "actions": ["notify", {"set_tweak": "sound", "value": "default"}]
-                }
-            ]
-        },
-        "device": {}
-    })))
+    Ok(Json(default_push_rules_for_user(
+        &auth_user.user_id,
+        username,
+    )))
 }
 
 async fn get_push_rules_scope(

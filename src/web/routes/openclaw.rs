@@ -341,6 +341,109 @@ pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn openclaw_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}/test",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/messages/{id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "openclaw"))
+    .collect()
+}
+
 fn ensure_openclaw_user_allowed(auth: &AuthInfo) -> Result<(), ApiError> {
     if auth.is_guest {
         return Err(ApiError::forbidden(
@@ -1105,22 +1208,6 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
     Ok(BASE64_STANDARD.encode(&combined))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::derive_api_key_encryption_key;
-
-    #[test]
-    fn test_derive_api_key_encryption_key_is_deterministic_and_hashed() {
-        let first = derive_api_key_encryption_key("short-secret");
-        let second = derive_api_key_encryption_key("short-secret");
-        let different = derive_api_key_encryption_key("different-secret");
-
-        assert_eq!(first, second);
-        assert_ne!(first, different);
-        assert_ne!(&first[..12], b"short-secret");
-    }
-}
-
 async fn test_openclaw_health(base_url: &str) -> bool {
     use reqwest::Client;
     use std::time::Duration;
@@ -1135,5 +1222,21 @@ async fn test_openclaw_health(base_url: &str) -> bool {
     match client.get(&health_url).send().await {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_api_key_encryption_key;
+
+    #[test]
+    fn test_derive_api_key_encryption_key_is_deterministic_and_hashed() {
+        let first = derive_api_key_encryption_key("short-secret");
+        let second = derive_api_key_encryption_key("short-secret");
+        let different = derive_api_key_encryption_key("different-secret");
+
+        assert_eq!(first, second);
+        assert_ne!(first, different);
+        assert_ne!(&first[..12], b"short-secret");
     }
 }

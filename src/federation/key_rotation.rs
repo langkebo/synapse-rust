@@ -14,6 +14,17 @@ const KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
 const KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
 const KEY_GRACE_PERIOD_MINUTES: i64 = 5;
 
+/// Build a fresh ed25519 key id of form `ed25519:<ms-timestamp>_<rand-hex>`.
+///
+/// Two rotations within the same wall-clock millisecond would otherwise produce
+/// the same id, which silently overwrites the prior entry in `historical_keys`
+/// and breaks signature verification of in-flight requests.
+fn new_key_id() -> String {
+    let ts = Utc::now().timestamp_millis();
+    let rand: u32 = rand::random();
+    format!("ed25519:{:x}_{:08x}", ts, rand)
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SigningKey {
     pub server_name: String,
@@ -220,7 +231,7 @@ impl KeyRotationManager {
             }
         }
 
-        let key_id = format!("ed25519:{}", Utc::now().timestamp());
+        let key_id = new_key_id();
         let secret_key =
             base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
 
@@ -328,7 +339,7 @@ impl KeyRotationManager {
         }
     }
 
-    pub async fn rotate_keys(&self, new_key_id: Option<String>) -> Result<(), anyhow::Error> {
+    pub async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), anyhow::Error> {
         let current = self.current_key.read().await;
         if let Some(key) = current.as_ref() {
             self.historical_keys
@@ -338,7 +349,7 @@ impl KeyRotationManager {
         }
         drop(current);
 
-        let key_id = new_key_id.unwrap_or_else(|| format!("ed25519:{}", Utc::now().timestamp()));
+        let key_id = requested_key_id.unwrap_or_else(new_key_id);
         let (key_id, secret_key) = self.generate_new_key_pair(&key_id).await;
 
         self.initialize(&secret_key, &key_id).await?;

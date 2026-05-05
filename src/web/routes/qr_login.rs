@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 /// Get login QR code
 /// Generates a QR code for login confirmation
-/// POST /_matrix/client/v1/login/get_qr_code
+/// GET /_matrix/client/v1/login/get_qr_code
 pub async fn get_qr_code(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,

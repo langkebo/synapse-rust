@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
+const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
+
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct User {
     pub user_id: String,
@@ -67,6 +69,19 @@ pub struct UserSearchResultWithPresence {
     pub created_ts: i64,
     pub presence: Option<String>,
     pub last_active_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserDirectorySearchResult {
+    pub user_id: String,
+    pub username: String,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_ts: i64,
+    pub presence: Option<String>,
+    pub last_active_ts: Option<i64>,
+    pub match_score: i32,
+    pub match_type: String,
 }
 
 #[derive(Clone)]
@@ -562,6 +577,126 @@ impl UserStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
+    }
+
+    pub async fn search_directory_users(
+        &self,
+        query: &str,
+        limit: i64,
+        exact_only: bool,
+    ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error> {
+        let normalized = query.trim().to_lowercase();
+        if normalized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let safe_limit = limit.clamp(1, 100);
+        let prefix_pattern = format!("{}%", normalized);
+        let contains_pattern = format!("%{}%", normalized);
+        let cache_key = format!(
+            "user:directory_search:v1:{}:{}:{}",
+            normalized, safe_limit, exact_only
+        );
+
+        if let Ok(Some(cached)) = self
+            .cache
+            .get::<Vec<UserDirectorySearchResult>>(&cache_key)
+            .await
+        {
+            return Ok(cached);
+        }
+
+        let rows = sqlx::query_as::<_, UserDirectorySearchResult>(
+            r#"
+            SELECT
+                u.user_id,
+                u.username,
+                COALESCE(u.displayname, u.username) AS displayname,
+                u.avatar_url,
+                u.created_ts,
+                p.presence,
+                p.last_active_ts,
+                (
+                    CASE
+                        WHEN LOWER(u.username) = $1 THEN 1000
+                        WHEN LOWER(COALESCE(u.displayname, '')) = $1 THEN 950
+                        WHEN LOWER(COALESCE(u.email, '')) = $1 THEN 900
+                        WHEN LOWER(u.user_id) = $1 THEN 875
+                        WHEN LOWER(u.username) LIKE $2 THEN 820
+                        WHEN LOWER(COALESCE(u.displayname, '')) LIKE $2 THEN 780
+                        WHEN LOWER(COALESCE(u.email, '')) LIKE $2 THEN 740
+                        WHEN LOWER(u.user_id) LIKE $2 THEN 710
+                        WHEN LOWER(u.username) LIKE $3 THEN 650
+                        WHEN LOWER(COALESCE(u.displayname, '')) LIKE $3 THEN 610
+                        WHEN LOWER(COALESCE(u.email, '')) LIKE $3 THEN 580
+                        WHEN LOWER(u.user_id) LIKE $3 THEN 550
+                        ELSE 0
+                    END
+                    +
+                    CASE
+                        WHEN COALESCE(p.presence, 'offline') = 'online' THEN 50
+                        WHEN COALESCE(p.presence, 'offline') = 'unavailable' THEN 20
+                        ELSE 0
+                    END
+                )::INTEGER AS match_score,
+                CASE
+                    WHEN LOWER(u.username) = $1
+                        OR LOWER(COALESCE(u.displayname, '')) = $1
+                        OR LOWER(COALESCE(u.email, '')) = $1
+                        OR LOWER(u.user_id) = $1 THEN 'exact'
+                    WHEN LOWER(u.username) LIKE $2
+                        OR LOWER(COALESCE(u.displayname, '')) LIKE $2
+                        OR LOWER(COALESCE(u.email, '')) LIKE $2
+                        OR LOWER(u.user_id) LIKE $2 THEN 'prefix'
+                    ELSE 'fuzzy'
+                END AS match_type
+            FROM users u
+            LEFT JOIN presence p ON p.user_id = u.user_id
+            WHERE COALESCE(u.is_deactivated, FALSE) = FALSE
+              AND (
+                    LOWER(u.username) = $1
+                    OR LOWER(COALESCE(u.displayname, '')) = $1
+                    OR LOWER(COALESCE(u.email, '')) = $1
+                    OR LOWER(u.user_id) = $1
+                    OR (
+                        NOT $4 AND (
+                            LOWER(u.username) LIKE $2
+                            OR LOWER(COALESCE(u.displayname, '')) LIKE $2
+                            OR LOWER(COALESCE(u.email, '')) LIKE $2
+                            OR LOWER(u.user_id) LIKE $2
+                            OR LOWER(u.username) LIKE $3
+                            OR LOWER(COALESCE(u.displayname, '')) LIKE $3
+                            OR LOWER(COALESCE(u.email, '')) LIKE $3
+                            OR LOWER(u.user_id) LIKE $3
+                        )
+                    )
+              )
+            ORDER BY
+                match_score DESC,
+                COALESCE(p.last_active_ts, 0) DESC,
+                u.created_ts DESC,
+                u.username ASC
+            LIMIT $5
+            "#,
+        )
+        .bind(&normalized)
+        .bind(&prefix_pattern)
+        .bind(&contains_pattern)
+        .bind(exact_only)
+        .bind(safe_limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let _ = self
+            .cache
+            .set(
+                &cache_key,
+                rows.clone(),
+                USER_DIRECTORY_SEARCH_CACHE_TTL_SECS,
+            )
+            .await;
+
+        Ok(rows)
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {

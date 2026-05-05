@@ -1,0 +1,69 @@
+# cargo-audit configuration (this is the canonical filename cargo-audit looks for).
+# Keep cargo-audit.toml in sync if you continue maintaining it for tooling history.
+
+[advisories]
+
+[[advisories.ignore]]
+id = "RUSTSEC-2023-0071"
+reason = """
+rsa 0.9.10 — Marvin Attack (timing side-channel on PKCS#1 v1.5 *decryption*).
+
+Why this is accepted in this repo:
+1. The Marvin attack requires a decryption oracle: an attacker submits chosen
+   ciphertexts and observes whether/how long PKCS#1 v1.5 unpadding takes.
+2. Direct usage of the `rsa` crate in this codebase is in
+   src/services/builtin_oidc_provider.rs and is restricted to
+   `pkcs1v15::SigningKey` / `RsaPrivateKey::to_pkcs8_pem` — i.e. *signature
+   generation* over OIDC ID tokens. There is no PKCS#1 v1.5 *decryption* code
+   path exposed to network input.
+3. The remaining transitive path is through sqlx-mysql (pulled in by
+   sqlx-macros-core's driver detection). That code is not invoked at runtime
+   because the project connects only to PostgreSQL.
+4. No upstream fix is available in the rsa 0.9.x line.
+
+Mitigation tracking: a future migration of the OIDC signing keys from RS256 to
+ES256 (ed25519/ECDSA, already used elsewhere in the project) will let us drop
+the direct rsa dependency entirely. Tracked separately, not blocking releases.
+
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+See: https://rustsec.org/advisories/RUSTSEC-2023-0071
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0436"
+reason = """
+paste 1.0.15 — unmaintained.
+Transitive dependency: image -> ravif -> rav1e -> paste. Used only at
+compile time for macro generation in image processing. No runtime risk.
+Will resolve when upstream `image` updates its rav1e dep tree.
+
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+See: https://rustsec.org/advisories/RUSTSEC-2024-0436
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2025-0123"
+reason = """
+opentelemetry-jaeger 0.20.0 — unmaintained. Optional tracing exporter only.
+Codebase already uses opentelemetry-otlp; jaeger path is non-default.
+
+Owner: synapse-rust maintainers
+Review-by: 2026-06-30
+See: https://rustsec.org/advisories/RUSTSEC-2025-0123
+"""
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0097"
+reason = """
+rand 0.8.5 / 0.10.0 — unsoundness when combined with a custom logger that
+calls rand::rng() during a panic. This codebase does not install a custom
+logger of that shape (uses tracing_subscriber::fmt). No fixed release exists
+in the dependency graph. Block new rand::rng() usages and re-evaluate when
+upstream patches.
+
+Owner: synapse-rust maintainers
+Review-by: 2026-05-15
+See: https://rustsec.org/advisories/RUSTSEC-2026-0097
+"""

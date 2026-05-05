@@ -108,7 +108,8 @@ pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
 }
 
 pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
-    let valid_statuses = ["online", "offline", "unavailable", "away"];
+    // "busy" 对应 MSC3026 以及 SDK PresenceManager 的 PresenceState 枚举。
+    let valid_statuses = ["online", "offline", "unavailable", "away", "busy"];
     if !valid_statuses.contains(&presence) {
         return Err(ApiError::invalid_input(format!(
             "Invalid presence status. Must be one of: {}",
@@ -193,7 +194,8 @@ mod tests {
         assert!(validate_presence_status("offline").is_ok());
         assert!(validate_presence_status("unavailable").is_ok());
         assert!(validate_presence_status("away").is_ok());
-        assert!(validate_presence_status("busy").is_err());
+        assert!(validate_presence_status("busy").is_ok());
+        assert!(validate_presence_status("sleeping").is_err());
     }
 
     #[test]

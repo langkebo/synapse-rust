@@ -120,6 +120,34 @@ impl EmailVerificationStorage {
         Ok(())
     }
 
+    /// 原子地"消费"一次已校验的会话：DELETE ... RETURNING 在单条 SQL 中
+    /// 完成"取出 + 删除"，保证两个并发请求里只有一个能拿到行，另一个
+    /// 拿到 `Ok(None)`。配合 `expires_at > now` 与 `used = TRUE`
+    /// 一并放在 WHERE 里，避免单独 SELECT/UPDATE 之间的 TOCTOU 窗口。
+    ///
+    /// 仅返回 `email`、`user_id`、`session_data`，调用方据此完成业务校验
+    /// （client_secret、purpose 等）。一旦此函数返回 `Some`，行就已物理
+    /// 删除，无法被重放。
+    pub async fn claim_used_token(
+        &self,
+        token_id: i64,
+    ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
+        let now = Utc::now();
+        let row = sqlx::query_as::<_, EmailVerificationToken>(
+            r#"
+            DELETE FROM email_verification_tokens
+            WHERE id = $1 AND used = TRUE AND expires_at > $2
+            RETURNING id, user_id, email, token, expires_at, created_ts, used, session_data
+            "#,
+        )
+        .bind(token_id)
+        .bind(now)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now();
         let result = sqlx::query(
