@@ -21,6 +21,7 @@ pub mod cache;
 pub mod captcha_service;
 pub mod content_scanner;
 pub mod database_initializer;
+pub mod dehydrated_device_service;
 pub mod e2ee;
 pub mod event_report_service;
 pub mod feature_flag_service;
@@ -62,6 +63,7 @@ pub use builtin_oidc_provider::{
     AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken,
 };
 pub use database_initializer::*;
+pub use dehydrated_device_service::*;
 pub use directory_service::*;
 pub use dm_service::*;
 pub use feature_flag_service::*;

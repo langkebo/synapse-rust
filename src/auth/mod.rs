@@ -264,32 +264,68 @@ impl AuthService {
         device_id: Option<&str>,
         _initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        let user = self.get_user_by_username(username).await?;
+        // Resolve the user. Critically, we do NOT short-circuit on "user not
+        // found" or "user deactivated" — both branches still run an argon2
+        // verify (against a dummy hash for the missing-user path) and return
+        // an opaque "Invalid credentials" so an attacker cannot enumerate
+        // existing accounts via timing or distinct error codes.
+        //
+        // Lockout remains observable on purpose so legitimate clients can
+        // surface a retry-after; lockout is keyed on user_id so it only
+        // kicks in after the username is known to exist anyway.
+        let user_opt = self
+            .user_storage
+            .get_user_by_identifier(username)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        if self.is_user_deactivated(&user) {
-            return Err(ApiError::user_deactivated(
-                "User account has been deactivated",
-            ));
-        }
+        let invalid = || ApiError::unauthorized("Invalid credentials".to_string());
 
-        if self.is_account_locked(&user.user_id).await? {
+        let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
+            Some(u) if !u.is_deactivated => match u.password_hash.as_deref() {
+                Some(h) => (h.to_string(), Some(u.clone())),
+                None => (Self::dummy_password_hash().to_string(), None),
+            },
+            // Either no user, or user is deactivated. Run a dummy verify to
+            // equalise wall-clock timing against the success path.
+            _ => (Self::dummy_password_hash().to_string(), None),
+        };
+
+        // Lockout check happens after the timing-equalised verify so that the
+        // existence of a lockout entry does not itself become an oracle. We
+        // record the lookup but defer acting on the result.
+        let lock_user_id = user_opt.as_ref().map(|u| u.user_id.clone());
+        let is_locked = match &lock_user_id {
+            Some(uid) => self.is_account_locked(uid).await?,
+            None => false,
+        };
+
+        let password_ok = self
+            .verify_user_password(password, &password_hash_owned)
+            .await?;
+
+        // From here on, every "no" path returns the same opaque error.
+        if is_locked {
             self.log_login_failure(username, "account_locked");
             return Err(ApiError::rate_limited(
                 "Account is temporarily locked due to too many failed login attempts. Please try again later.".to_string(),
             ));
         }
 
-        let password_hash = self.get_user_password_hash(&user)?;
-
-        if !self.verify_user_password(password, password_hash).await? {
-            self.record_login_failure(&user.user_id).await?;
-            self.log_login_failure(username, "invalid_credentials");
-            return Err(ApiError::unauthorized("Invalid credentials".to_string()));
-        }
+        let user = match user_for_success {
+            Some(u) if password_ok => u,
+            _ => {
+                if let Some(uid) = lock_user_id.as_deref() {
+                    self.record_login_failure(uid).await?;
+                }
+                self.log_login_failure(username, "invalid_credentials");
+                return Err(invalid());
+            }
+        };
 
         self.clear_login_failures(&user.user_id).await?;
 
-        if is_legacy_hash(password_hash) {
+        if is_legacy_hash(&password_hash_owned) {
             if let Err(e) = self.migrate_password(&user.user_id, password).await {
                 ::tracing::warn!(
                     target: "password_migration",
@@ -314,6 +350,20 @@ impl AuthService {
             .await?;
 
         Ok((user, access_token, refresh_token, device_id))
+    }
+
+    /// Argon2 PHC of the literal string "no-such-user" with default params.
+    /// Used to keep `login` constant-time when the requested username does
+    /// not exist or has no password set. Generated once at startup and held
+    /// by `OnceLock`; the hash itself is non-secret.
+    fn dummy_password_hash() -> &'static str {
+        use std::sync::OnceLock;
+        static DUMMY: OnceLock<String> = OnceLock::new();
+        DUMMY
+            .get_or_init(|| {
+                hash_password_with_params("no-such-user", 65536, 3, 1).expect("argon2 dummy hash")
+            })
+            .as_str()
     }
 
     async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
@@ -369,22 +419,6 @@ impl AuthService {
         Ok(())
     }
 
-    async fn get_user_by_username(&self, username: &str) -> ApiResult<User> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(username)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        user.ok_or_else(|| ApiError::unauthorized("Invalid credentials".to_string()))
-    }
-
-    fn get_user_password_hash<'a>(&self, user: &'a User) -> ApiResult<&'a str> {
-        user.password_hash
-            .as_deref()
-            .ok_or_else(|| ApiError::unauthorized("Invalid credentials".to_string()))
-    }
-
     async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {
         let auth = Arc::new(self.clone());
         let password_str = password.to_string();
@@ -394,10 +428,6 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))?
             .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
-    }
-
-    fn is_user_deactivated(&self, user: &User) -> bool {
-        user.is_deactivated
     }
 
     fn log_login_failure(&self, username: &str, reason: &str) {
@@ -479,6 +509,32 @@ impl AuthService {
                 .map_err(|e| {
                     ApiError::internal(format!("Failed to delete device tokens: {}", e))
                 })?;
+
+            // RFC 6819 §5.1.5: 单设备登出也必须吊销该设备的 refresh token，
+            // 否则被盗 refresh token 仍可在登出后继续换发新 access token。
+            // 仅当解析出 user_id 时才能精准吊销；解析失败时退化为
+            // 仅删除 access token（攻击者再次使用 refresh 时会被
+            // refresh_token() 的 reuse-detection 兜底）。
+            if let Some(c) = claims.as_ref() {
+                if let Err(e) = self
+                    .refresh_token_storage
+                    .revoke_device_tokens(&c.sub, d_id, "user_logout")
+                    .await
+                {
+                    ::tracing::error!(
+                        target: "security_audit",
+                        event = "refresh_token_revoke_failed_after_logout",
+                        user_id = c.sub.as_str(),
+                        device_id = d_id,
+                        error = %e,
+                        "Failed to revoke device refresh tokens during logout"
+                    );
+                    return Err(ApiError::internal(format!(
+                        "Failed to invalidate refresh tokens: {}",
+                        e
+                    )));
+                }
+            }
         }
 
         ::tracing::info!(
@@ -550,7 +606,32 @@ impl AuthService {
 
         match token_data {
             Some(t) => {
+                // Reuse-detection: a refresh token already marked revoked being
+                // presented again is a strong signal of token theft (legitimate
+                // client got a new token; attacker is replaying the stolen old
+                // one — or vice versa). Revoke EVERY refresh token for this
+                // user so the real client is forced to re-authenticate, then
+                // bail. RFC 6819 §5.2.2.3.
                 if t.is_revoked {
+                    if let Err(e) = self
+                        .refresh_token_storage
+                        .revoke_all_user_tokens(&t.user_id, "refresh_token_reuse_detected")
+                        .await
+                    {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "refresh_token_reuse_revoke_failed",
+                            user_id = t.user_id.as_str(),
+                            error = %e,
+                            "Failed to revoke user tokens after reuse detection"
+                        );
+                    }
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "refresh_token_reuse_detected",
+                        user_id = t.user_id.as_str(),
+                        "Revoked refresh token replayed; revoking all user refresh tokens"
+                    );
                     return Err(ApiError::unauthorized(
                         "Refresh token has been revoked".to_string(),
                     ));
@@ -576,22 +657,44 @@ impl AuthService {
                             ));
                         }
 
-                        let device_id = t.device_id.clone().unwrap_or_default();
+                        // Atomically claim the refresh token BEFORE issuing
+                        // anything new. Two concurrent requests with the same
+                        // token will see exactly one CAS succeed; the loser
+                        // gets `false` and exits without leaking new tokens.
+                        let claimed = self
+                            .refresh_token_storage
+                            .revoke_token_cas(&token_hash, "Rotated")
+                            .await
+                            .map_err(|e| {
+                                ApiError::internal(format!("Failed to claim refresh token: {}", e))
+                            })?;
+                        if !claimed {
+                            // Lost the race: another concurrent request already
+                            // rotated this token. Treat as reuse for safety.
+                            ::tracing::warn!(
+                                target: "security_audit",
+                                event = "refresh_token_concurrent_use",
+                                user_id = u.user_id.as_str(),
+                                "Concurrent refresh of the same token rejected"
+                            );
+                            return Err(ApiError::unauthorized(
+                                "Refresh token has been revoked".to_string(),
+                            ));
+                        }
+
+                        let device_id = match t.device_id.clone() {
+                            Some(d) if !d.is_empty() => d,
+                            _ => {
+                                return Err(ApiError::unauthorized(
+                                    "Refresh token has no associated device".to_string(),
+                                ));
+                            }
+                        };
                         let new_access_token = self
                             .generate_access_token(&u.user_id, &device_id, u.is_admin)
                             .await?;
                         let new_refresh_token =
                             self.generate_refresh_token(&u.user_id, &device_id).await?;
-
-                        self.refresh_token_storage
-                            .revoke_token(&token_hash, "Rotated")
-                            .await
-                            .map_err(|e| {
-                                ApiError::internal(format!(
-                                    "Failed to revoke old refresh token: {}",
-                                    e
-                                ))
-                            })?;
 
                         Ok((new_access_token, new_refresh_token, device_id))
                     }
@@ -634,6 +737,15 @@ impl AuthService {
             ApiError::unauthorized(format!("Invalid token: {}", e))
         })?;
 
+        // Enforce JWT exp BEFORE the cache shortcut. The cache TTL is decoupled
+        // from the token's actual expiry (a 5-minute token can sit in a 1-hour
+        // cache entry), so without this check an expired token would still
+        // validate on the cache hit path below.
+        if claims.exp < Utc::now().timestamp() {
+            ::tracing::debug!(target: "token_validation", "Token expired");
+            return Err(ApiError::unauthorized("Token expired".to_string()));
+        }
+
         // Check if user has been logged out from all devices
         let logout_marker = format!("user:logout_all:{}", claims.sub);
         if let Some(marker_val) = self.cache.get_raw(&logout_marker) {
@@ -654,44 +766,43 @@ impl AuthService {
             if let Some(active) = self.cache.is_user_active(&cached_claims.sub).await {
                 ::tracing::debug!(target: "token_validation", "Cache hit for user active: {:?}", active);
                 return if active {
-                    let is_admin = if let Some(is_admin) =
-                        self.cache.get::<bool>(&admin_cache_key).await?
-                    {
-                        is_admin
-                    } else {
-                        let user = self
-                            .user_storage
-                            .get_user_by_id(&cached_claims.sub)
-                            .await
-                            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-                            .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
-                        self.cache.set(&admin_cache_key, user.is_admin, 60).await?;
-                        self.cache
-                            .set(
-                                &format!("user:shadow_banned:{}", cached_claims.sub),
-                                user.is_shadow_banned,
-                                60,
-                            )
-                            .await?;
-                        self.cache
-                            .set(
-                                &format!("user:guest:{}", cached_claims.sub),
-                                user.is_guest,
-                                60,
-                            )
-                            .await?;
-                        user.is_admin
-                    };
-                    let is_shadow_banned = self
-                        .cache
-                        .get::<bool>(&format!("user:shadow_banned:{}", cached_claims.sub))
-                        .await?
-                        .unwrap_or(false);
-                    let is_guest = self
-                        .cache
-                        .get::<bool>(&format!("user:guest:{}", cached_claims.sub))
-                        .await?
-                        .unwrap_or(false);
+                    // Resolve all three flags atomically: either every per-flag
+                    // entry is present in cache, or we go to the database and
+                    // refresh all three at once. Reading them independently
+                    // with `.unwrap_or(false)` would silently downgrade
+                    // shadow_banned/guest to `false` when only their cache
+                    // entries had been evicted (different TTLs / Redis LRU),
+                    // letting a banned user pass.
+                    let shadow_key = format!("user:shadow_banned:{}", cached_claims.sub);
+                    let guest_key = format!("user:guest:{}", cached_claims.sub);
+
+                    let cached_admin = self.cache.get::<bool>(&admin_cache_key).await?;
+                    let cached_shadow = self.cache.get::<bool>(&shadow_key).await?;
+                    let cached_guest = self.cache.get::<bool>(&guest_key).await?;
+
+                    let (is_admin, is_shadow_banned, is_guest) =
+                        match (cached_admin, cached_shadow, cached_guest) {
+                            (Some(a), Some(s), Some(g)) => (a, s, g),
+                            _ => {
+                                let user = self
+                                    .user_storage
+                                    .get_user_by_id(&cached_claims.sub)
+                                    .await
+                                    .map_err(|e| {
+                                        ApiError::internal(format!("Database error: {}", e))
+                                    })?
+                                    .ok_or_else(|| {
+                                        ApiError::unauthorized("User not found".to_string())
+                                    })?;
+                                self.cache.set(&admin_cache_key, user.is_admin, 60).await?;
+                                self.cache
+                                    .set(&shadow_key, user.is_shadow_banned, 60)
+                                    .await?;
+                                self.cache.set(&guest_key, user.is_guest, 60).await?;
+                                (user.is_admin, user.is_shadow_banned, user.is_guest)
+                            }
+                        };
+
                     Ok((
                         cached_claims.user_id,
                         cached_claims.device_id.clone(),
@@ -755,10 +866,7 @@ impl AuthService {
 
         ::tracing::debug!(target: "token_validation", "Token not found in cache, using decoded JWT");
 
-        if claims.exp < Utc::now().timestamp() {
-            ::tracing::debug!(target: "token_validation", "Token expired");
-            return Err(ApiError::unauthorized("Token expired".to_string()));
-        }
+        // claims.exp already enforced at the top of this function.
 
         ::tracing::debug!(target: "token_validation", "Decoded JWT for user: {}", claims.sub);
 
@@ -823,12 +931,18 @@ impl AuthService {
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
                 .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-            if let Some(ref password_hash) = user.password_hash {
-                if !self.verify_user_password(pwd, password_hash).await? {
-                    return Err(ApiError::unauthorized(
-                        "Current password is incorrect".to_string(),
-                    ));
-                }
+            // 当调用方提供 current_password 时，账户必须设置过密码 —
+            // 否则 SSO/OIDC-only 账户可被绕过验证直接设置密码。
+            let password_hash = user.password_hash.as_deref().ok_or_else(|| {
+                ApiError::forbidden(
+                    "Cannot verify current password: account has no password set".to_string(),
+                )
+            })?;
+
+            if !self.verify_user_password(pwd, password_hash).await? {
+                return Err(ApiError::unauthorized(
+                    "Current password is incorrect".to_string(),
+                ));
             }
         }
 
@@ -845,10 +959,40 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update password: {}", e)))?;
 
+        // RFC 6819 §5.1.5: 修改密码后所有现存令牌都应失效，
+        // 包括 access token 与 refresh token —
+        // 否则被盗的 refresh token 仍可在新密码生效后继续换发新 access token。
         self.token_storage
             .delete_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to invalidate tokens: {}", e)))?;
+            .map_err(|e| {
+                ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
+            })?;
+
+        if let Err(e) = self
+            .refresh_token_storage
+            .revoke_all_user_tokens(user_id, "password_changed")
+            .await
+        {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "refresh_token_revoke_failed_after_password_change",
+                user_id = user_id,
+                error = %e,
+                "Failed to revoke refresh tokens after password change — investigate immediately"
+            );
+            return Err(ApiError::internal(format!(
+                "Failed to invalidate refresh tokens: {}",
+                e
+            )));
+        }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "password_changed",
+            user_id = user_id,
+            "Password changed; access and refresh tokens revoked"
+        );
 
         Ok(())
     }
@@ -864,6 +1008,26 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
 
+        // RFC 6819 §5.1.5: 注销账户必须吊销所有 refresh token，
+        // 否则被盗令牌仍可在停用之后继续换发新 access token。
+        if let Err(e) = self
+            .refresh_token_storage
+            .revoke_all_user_tokens(user_id, "account_deactivated")
+            .await
+        {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "refresh_token_revoke_failed_after_deactivation",
+                user_id = user_id,
+                error = %e,
+                "Failed to revoke refresh tokens during account deactivation"
+            );
+            return Err(ApiError::internal(format!(
+                "Failed to invalidate refresh tokens: {}",
+                e
+            )));
+        }
+
         self.device_storage
             .delete_user_devices(user_id)
             .await
@@ -872,7 +1036,132 @@ impl AuthService {
         self.cache.delete(&format!("user:active:{}", user_id)).await;
         self.cache.delete(&format!("user:admin:{}", user_id)).await;
 
+        ::tracing::info!(
+            target: "security_audit",
+            event = "account_deactivated",
+            user_id = user_id,
+            "Account deactivated; all tokens and devices revoked"
+        );
+
         Ok(())
+    }
+
+    /// 单设备注销：删除设备行 + 该设备的 access token + 该设备的 refresh token。
+    ///
+    /// `delete_device` / `delete_devices` 路由调用本方法替代直接调用
+    /// `device_storage`，以确保 RFC 6819 §5.1.5 要求的令牌全链路撤销。
+    pub async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
+        let rows = self
+            .device_storage
+            .delete_user_device(user_id, device_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
+
+        if rows == 0 {
+            return Ok(0);
+        }
+
+        self.token_storage
+            .delete_device_tokens(device_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {}", e)))?;
+
+        if let Err(e) = self
+            .refresh_token_storage
+            .revoke_device_tokens(user_id, device_id, "device_deleted")
+            .await
+        {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "refresh_token_revoke_failed_after_device_delete",
+                user_id = user_id,
+                device_id = device_id,
+                error = %e,
+                "Failed to revoke device refresh tokens after device delete"
+            );
+            return Err(ApiError::internal(format!(
+                "Failed to invalidate refresh tokens: {}",
+                e
+            )));
+        }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "device_revoked",
+            user_id = user_id,
+            device_id = device_id,
+            "Device deleted; tokens revoked"
+        );
+
+        Ok(rows)
+    }
+
+    /// 批量单设备注销：与 `revoke_device` 相同的清理顺序，但只对
+    /// 给定 `user_id` 拥有的设备生效（防止越权删除其他用户设备）。
+    pub async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
+        if device_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let rows = self
+            .device_storage
+            .delete_user_devices_batch(user_id, device_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+
+        if rows == 0 {
+            return Ok(0);
+        }
+
+        for device_id in device_ids {
+            if let Err(e) = self
+                .token_storage
+                .delete_user_device_tokens(user_id, device_id)
+                .await
+            {
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "access_token_delete_failed_after_device_delete",
+                    user_id = user_id,
+                    device_id = device_id.as_str(),
+                    error = %e,
+                    "Failed to delete access tokens after batch device delete"
+                );
+                return Err(ApiError::internal(format!(
+                    "Failed to delete device tokens: {}",
+                    e
+                )));
+            }
+
+            if let Err(e) = self
+                .refresh_token_storage
+                .revoke_device_tokens(user_id, device_id, "device_deleted")
+                .await
+            {
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "refresh_token_revoke_failed_after_device_delete",
+                    user_id = user_id,
+                    device_id = device_id.as_str(),
+                    error = %e,
+                    "Failed to revoke device refresh tokens after batch delete"
+                );
+                return Err(ApiError::internal(format!(
+                    "Failed to invalidate refresh tokens: {}",
+                    e
+                )));
+            }
+        }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "devices_revoked",
+            user_id = user_id,
+            count = device_ids.len(),
+            "Devices deleted; tokens revoked"
+        );
+
+        Ok(rows)
     }
 
     pub async fn generate_access_token(

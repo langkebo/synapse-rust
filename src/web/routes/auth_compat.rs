@@ -411,11 +411,7 @@ pub(crate) async fn login(
         "user_id": user.user_id(),
         "well_known": {
             "m.homeserver": {
-                "base_url": format!(
-                    "http://{}:{}",
-                    state.services.config.server.host,
-                    state.services.config.server.port
-                )
+                "base_url": state.services.config.server.get_public_baseurl()
             }
         }
     })))

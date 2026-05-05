@@ -227,12 +227,16 @@ async fn test_admin_flow() {
 
 #[tokio::test]
 async fn test_admin_info_is_public() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
+
     let request = Request::builder()
         .uri("/_synapse/admin/info")
+        .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
@@ -640,11 +644,12 @@ async fn test_worker_claim_route_is_atomic_over_http() {
 
 #[tokio::test]
 async fn test_telemetry_routes_require_admin_permissions() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let user_token = create_test_user(&app).await;
 
     let request = Request::builder()
@@ -1238,8 +1243,8 @@ async fn test_admin_sensitive_user_and_room_routes_require_super_admin() {
     let shutdown_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), shutdown_request)
         .await
         .unwrap();
-    // shutdown_room is in is_admin_only, admin role is allowed
-    assert_ne!(shutdown_response.status(), StatusCode::FORBIDDEN);
+    // shutdown_room is destructive — gated as super_admin only.
+    assert_eq!(shutdown_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -1767,11 +1772,12 @@ async fn test_admin_retention_run_requires_existing_room() {
 
 #[tokio::test]
 async fn test_admin_user_notification_write_requires_existing_user() {
-    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let missing_user_id = format!("@missing_notification_{}:localhost", rand::random::<u32>());
     let encoded_user_id = encode_path_segment(&missing_user_id);
 
@@ -2116,11 +2122,12 @@ async fn test_admin_user_presence_queries_require_existing_user() {
 
 #[tokio::test]
 async fn test_admin_delete_user_media_requires_existing_user() {
-    let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let missing_user_id = format!("@missing_media_{}:localhost", rand::random::<u32>());
     let encoded_missing_user_id = encode_path_segment(&missing_user_id);
 
@@ -2233,11 +2240,12 @@ async fn test_admin_delete_user_media_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_delete_user_pusher_requires_existing_user() {
-    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let missing_user_id = format!("@missing_pusher_{}:localhost", rand::random::<u32>());
     let encoded_missing_user_id = encode_path_segment(&missing_user_id);
     let orphan_pushkey = format!("orphan-pushkey-{}", rand::random::<u32>());
@@ -2372,11 +2380,12 @@ async fn test_admin_delete_user_pusher_requires_existing_user() {
 
 #[tokio::test]
 async fn test_admin_user_token_routes_require_existing_user() {
-    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+    let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, admin_username) = get_admin_token(&app).await;
+    promote_admin_role(&pool, &cache, &admin_username, "super_admin").await;
     let missing_user_id = format!("@missing_tokens_{}:localhost", rand::random::<u32>());
     let encoded_missing_user_id = encode_path_segment(&missing_user_id);
 

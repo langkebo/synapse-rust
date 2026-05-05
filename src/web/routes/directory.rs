@@ -8,7 +8,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -173,38 +172,79 @@ pub async fn get_alias_servers(
 
 pub async fn get_public_rooms_handler(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(20);
+    query
+        .validate()
+        .map_err(|e| ApiError::bad_request(format!("Invalid query: {}", e)))?;
 
-    let rooms = state
-        .services
-        .room_storage
-        .get_public_rooms(limit)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
+    let limit = query.limit as i64;
+    // `since` 目前只承载简单 offset（整数字符串）；未支持复杂游标时静默 fallback 到 0。
+    let offset = query
+        .since
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0)
+        .max(0);
+
+    let (rooms, total) = tokio::try_join!(
+        async {
+            state
+                .services
+                .room_storage
+                .get_public_rooms_paginated(limit, offset)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        },
+        async {
+            state
+                .services
+                .room_storage
+                .count_public_rooms()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        }
+    )?;
 
     let chunk: Vec<Value> = rooms
         .into_iter()
         .map(|r| {
+            // `world_readable` 按 Matrix 规范应映射 `m.room.history_visibility == "world_readable"`；
+            // guest_can_join 依赖 `m.room.guest_access` 状态事件，若未实现则按 join_rule != "invite" 近似。
+            let world_readable = r.history_visibility == "world_readable";
+            let guest_can_join = r.join_rule == "public";
             json!({
                 "room_id": r.room_id,
                 "name": r.name,
                 "topic": r.topic,
                 "avatar_url": r.avatar_url,
+                "canonical_alias": r.canonical_alias,
                 "num_joined_members": r.member_count,
-                "world_readable": r.is_public,
-                "guest_can_join": true,
+                "world_readable": world_readable,
+                "guest_can_join": guest_can_join,
+                "join_rule": r.join_rule,
+                "room_type": Option::<String>::None,
             })
         })
         .collect();
 
+    let next_offset = offset + limit;
+    let next_batch = if next_offset < total {
+        Some(next_offset.to_string())
+    } else {
+        None
+    };
+    let prev_batch = if offset > 0 {
+        Some((offset - limit).max(0).to_string())
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "chunk": chunk,
-        "total_room_count_estimate": chunk.len(),
+        "total_room_count_estimate": total,
+        "next_batch": next_batch,
+        "prev_batch": prev_batch,
     })))
 }
 

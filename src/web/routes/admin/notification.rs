@@ -68,6 +68,55 @@ pub fn create_notification_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/admin/v1/notifications"),
+        (Method::GET, "/_synapse/admin/v1/notifications"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/notifications/{notification_id}",
+        ),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/notifications/{notification_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/notifications/{notification_id}",
+        ),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+        ),
+        (Method::GET, "/_synapse/admin/v1/notifications/active"),
+        (Method::POST, "/_synapse/admin/v1/send_server_notice"),
+        (Method::GET, "/_synapse/admin/v1/server_notices"),
+        (Method::GET, "/_synapse/admin/v1/server_notices/{notice_id}"),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/server_notices/{notice_id}",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/users/{user_id}/notification",
+        ),
+        (
+            Method::PUT,
+            "/_synapse/admin/v1/users/{user_id}/notification",
+        ),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/pushers"),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::notification"))
+    .collect()
+}
+
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let user = state
         .services

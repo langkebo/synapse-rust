@@ -276,6 +276,15 @@ impl RoomStorage {
     }
 
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
+        self.get_public_rooms_paginated(limit, 0).await
+    }
+
+    /// 支持分页的 public rooms 列表。`offset` 为 0 时等价于 `get_public_rooms`。
+    pub async fn get_public_rooms_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r#"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
@@ -284,10 +293,11 @@ impl RoomStorage {
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
             ORDER BY r.created_ts DESC
-            LIMIT $1
+            LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit)
+        .bind(offset)
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows
@@ -317,6 +327,18 @@ impl RoomStorage {
                 is_flagged: false,
             })
             .collect())
+    }
+
+    /// 返回公开房间总数，用于 `total_room_count_estimate` 字段。
+    pub async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
+        let count: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*) FROM rooms WHERE is_public = TRUE
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count.0)
     }
 
     pub async fn get_all_rooms_with_members(
@@ -1014,6 +1036,90 @@ impl RoomStorage {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    /// 清理异常数据（孤儿数据、空房间等）
+    ///
+    /// # 参数
+    ///
+    /// * `min_age_ms` - 房间最小存活时间（毫秒），小于此时间的空房间不会被清理。默认 24h。
+    pub async fn cleanup_abnormal_data(
+        &self,
+        min_age_ms: Option<i64>,
+    ) -> Result<serde_json::Value, sqlx::Error> {
+        let min_age = min_age_ms.unwrap_or(24 * 60 * 60 * 1000);
+        let now = chrono::Utc::now().timestamp_millis();
+        let cutoff = now - min_age;
+
+        let mut results = serde_json::Map::new();
+
+        // 1. 清理没有成员且存活超过 min_age 的房间
+        let deleted_empty_rooms = sqlx::query(
+            r#"
+            DELETE FROM rooms 
+            WHERE created_ts < $1 
+            AND NOT EXISTS (
+                SELECT 1 FROM room_memberships 
+                WHERE room_memberships.room_id = rooms.room_id 
+                AND membership = 'join'
+            )
+            "#,
+        )
+        .bind(cutoff)
+        .execute(&*self.pool)
+        .await?
+        .rows_affected();
+        results.insert(
+            "deleted_empty_rooms".to_string(),
+            json!(deleted_empty_rooms),
+        );
+
+        // 2. 清理孤儿事件 (events 指向不存在的 rooms)
+        let deleted_orphan_events = sqlx::query(
+            r#"
+            DELETE FROM events 
+            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = events.room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?
+        .rows_affected();
+        results.insert(
+            "deleted_orphan_events".to_string(),
+            json!(deleted_orphan_events),
+        );
+
+        // 3. 清理孤儿成员关系
+        let deleted_orphan_memberships = sqlx::query(
+            r#"
+            DELETE FROM room_memberships 
+            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_memberships.room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?
+        .rows_affected();
+        results.insert(
+            "deleted_orphan_memberships".to_string(),
+            json!(deleted_orphan_memberships),
+        );
+
+        // 4. 清理孤儿状态
+        let deleted_orphan_state = sqlx::query(
+            r#"
+            DELETE FROM room_state_events 
+            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_state_events.room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?
+        .rows_affected();
+        results.insert(
+            "deleted_orphan_state".to_string(),
+            json!(deleted_orphan_state),
+        );
+
+        Ok(serde_json::Value::Object(results))
     }
 
     pub async fn get_public_rooms_with_aliases(

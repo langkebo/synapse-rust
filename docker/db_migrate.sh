@@ -88,7 +88,25 @@ load_env() {
     export DB_PORT="${DB_PORT:-5432}"
     export DB_NAME="${DB_NAME:-synapse}"
     export DB_USER="${DB_USER:-synapse}"
-    export DB_PASSWORD="${DB_PASSWORD:-synapse}"
+    if [ -z "$DB_PASSWORD" ]; then
+        log_error "DB_PASSWORD must be set explicitly (no insecure default). Example: DB_PASSWORD=$(head -c 16 /dev/urandom | base64 | tr -d '=/+' | head -c 24)"
+        exit 1
+    fi
+
+    # Reject identifiers that cannot be safely interpolated into "CREATE DATABASE \"$DB_NAME\""
+    # or appear in table/column lookups. Postgres unquoted identifiers are [A-Za-z_][A-Za-z0-9_]*.
+    if ! [[ "$DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        log_error "DB_NAME 含非法字符，仅允许 [A-Za-z_][A-Za-z0-9_]*: $DB_NAME"
+        exit 1
+    fi
+    if ! [[ "$DB_USER" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        log_error "DB_USER 含非法字符，仅允许 [A-Za-z_][A-Za-z0-9_]*: $DB_USER"
+        exit 1
+    fi
+    if ! [[ "$DB_PORT" =~ ^[0-9]+$ ]]; then
+        log_error "DB_PORT 必须为数字: $DB_PORT"
+        exit 1
+    fi
     export DATABASE_URL="${DATABASE_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME}"
     export POSTGRES_ADMIN_URL="${POSTGRES_ADMIN_URL:-postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/postgres}"
     export DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"
@@ -167,22 +185,26 @@ PY
 
 table_exists() {
     local table_name="$1"
-    psql_db -tAc "SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = '$table_name'
-    )" 2>/dev/null | grep -q '^t$'
+    psql_db -v ON_ERROR_STOP=1 -v tname="$table_name" -tA <<'SQL' 2>/dev/null | grep -q '^t$'
+SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = :'tname'
+);
+SQL
 }
 
 schema_migrations_has_column() {
     local column_name="$1"
-    psql_db -tAc "SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'schema_migrations'
-          AND column_name = '$column_name'
-    )" 2>/dev/null | grep -q '^t$'
+    psql_db -v ON_ERROR_STOP=1 -v cname="$column_name" -tA <<'SQL' 2>/dev/null | grep -q '^t$'
+SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'schema_migrations'
+      AND column_name = :'cname'
+);
+SQL
 }
 
 ensure_database_exists() {
@@ -237,32 +259,42 @@ record_migration() {
     local duration_ms="$3"
     local success="$4"
 
-    psql_db -v ON_ERROR_STOP=1 -c "
-        INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
-        VALUES (
-            '$version',
-            '$filename',
-            md5('$filename'),
-            EXTRACT(EPOCH FROM NOW()) * 1000,
-            $duration_ms,
-            $success,
-            '$filename',
-            NOW()
-        )
-        ON CONFLICT (version) DO UPDATE SET
-            name = EXCLUDED.name,
-            checksum = EXCLUDED.checksum,
-            applied_ts = EXCLUDED.applied_ts,
-            execution_time_ms = EXCLUDED.execution_time_ms,
-            success = EXCLUDED.success,
-            description = EXCLUDED.description,
-            executed_at = EXCLUDED.executed_at
-    " >/dev/null
+    if ! [[ "$duration_ms" =~ ^[0-9]+$ ]]; then duration_ms=0; fi
+    if [ "$success" != "TRUE" ] && [ "$success" != "FALSE" ]; then success="FALSE"; fi
+
+    psql_db -v ON_ERROR_STOP=1 \
+        -v ver="$version" \
+        -v fname="$filename" \
+        -v dur="$duration_ms" \
+        -v ok="$success" \
+        <<'SQL' >/dev/null
+INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
+VALUES (
+    :'ver',
+    :'fname',
+    md5(:'fname'),
+    EXTRACT(EPOCH FROM NOW()) * 1000,
+    :'dur'::BIGINT,
+    :'ok'::BOOLEAN,
+    :'fname',
+    NOW()
+)
+ON CONFLICT (version) DO UPDATE SET
+    name = EXCLUDED.name,
+    checksum = EXCLUDED.checksum,
+    applied_ts = EXCLUDED.applied_ts,
+    execution_time_ms = EXCLUDED.execution_time_ms,
+    success = EXCLUDED.success,
+    description = EXCLUDED.description,
+    executed_at = EXCLUDED.executed_at;
+SQL
 }
 
 is_migration_applied() {
     local version="$1"
-    psql_db -tAc "SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
+    psql_db -v ON_ERROR_STOP=1 -v ver="$version" -tA <<'SQL' 2>/dev/null | grep -q '^t$'
+SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = :'ver';
+SQL
 }
 
 apply_sql_file() {
@@ -431,22 +463,22 @@ validate_schema() {
 cleanup_stale_connections() {
     log_info "检查并清理异常连接..."
     local stale_count
-    stale_count="$(psql_db -tAc "
+    stale_count="$(psql_db -v ON_ERROR_STOP=1 -tAc "
         SELECT COUNT(*)
         FROM pg_stat_activity
         WHERE state = 'idle in transaction'
           AND query_start < NOW() - INTERVAL '5 minutes'
-          AND datname = '$DB_NAME'
-    " 2>/dev/null | tr -d '[:space:]')"
+          AND datname = current_database()
+    " 2>/dev/null | tr -d '[:space:]' || true)"
 
-    if [ -n "${stale_count:-}" ] && [ "$stale_count" -gt 0 ]; then
+    if [ -n "${stale_count:-}" ] && [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -gt 0 ]; then
         log_warning "发现 $stale_count 个空闲事务连接，正在清理..."
         psql_db -c "
             SELECT pg_terminate_backend(pid)
             FROM pg_stat_activity
             WHERE state = 'idle in transaction'
               AND query_start < NOW() - INTERVAL '5 minutes'
-              AND datname = '$DB_NAME'
+              AND datname = current_database()
         " >/dev/null 2>&1 || true
         log_success "异常连接已清理"
     else

@@ -155,3 +155,24 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/rooms/typing", post(bulk_get_typing))
         .with_state(state)
 }
+
+pub fn typing_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (
+            Method::PUT,
+            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+        ),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/typing"),
+        (Method::POST, "/_matrix/client/v3/rooms/typing"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "typing"))
+    .collect()
+}

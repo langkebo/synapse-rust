@@ -555,8 +555,8 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let (admin_token, _username) = super::get_admin_token(&app).await;
     let server_name = format!("sensitive-fed-{}.example.com", rand::random::<u32>());
 
-    // Federation resolve, blacklist, and cache/clear are open to admin role
-    // (commit 7a8fdb5: 开放 Federation Blacklist/Cache Clear 给 admin 角色)
+    // Federation resolve / blacklist / cache-clear are super_admin-only —
+    // the role gate must block a regular admin role with 403.
     let resolve_request = Request::builder()
         .method("POST")
         .uri("/_synapse/admin/v1/federation/resolve")
@@ -569,7 +569,7 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let resolve_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), resolve_request)
         .await
         .unwrap();
-    assert_ne!(resolve_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resolve_response.status(), StatusCode::FORBIDDEN);
 
     let blacklist_request = Request::builder()
         .method("POST")
@@ -583,7 +583,7 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
     let blacklist_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), blacklist_request)
         .await
         .unwrap();
-    assert_ne!(blacklist_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(blacklist_response.status(), StatusCode::FORBIDDEN);
 
     let clear_cache_request = Request::builder()
         .method("POST")
@@ -595,7 +595,7 @@ async fn test_admin_federation_sensitive_routes_require_super_admin() {
         ServiceExt::<Request<Body>>::oneshot(app.clone(), clear_cache_request)
             .await
             .unwrap();
-    assert_ne!(clear_cache_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(clear_cache_response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

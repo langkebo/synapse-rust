@@ -1,15 +1,352 @@
-use super::*;
+use super::route_ledger::{RouteEntry, RouteLedger};
+use super::route_module::{route_modules, ProfileFlags};
+use super::{
+    account_data, background_update, captcha, device, dm, e2ee_routes, ephemeral, event_report,
+    feature_flags, guest, key_backup, key_rotation, media, moderation, presence, push,
+    push_notification, reactions, relations, rendezvous, room_summary, sliding_sync, space, sync,
+    tags, telemetry, thirdparty, typing, verification_routes, worker, *,
+};
+use crate::services::VoipService;
 use crate::web::middleware::{
     cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
     shadow_ban_middleware,
 };
 use axum::{
-    extract::State,
+    extract::{Path, State},
+    http::Method,
     routing::{get, post, put},
     Json, Router,
 };
 use serde_json::json;
+use std::sync::Arc;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
+
+/// Manifest of every `(method, absolute_path)` tuple the assembled top-level
+/// [`Router`] is supposed to expose.
+///
+/// This is the substitute for the axum route-walker API we don't have — see
+/// R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`. Today it
+/// covers the inline routes defined directly in [`create_router`] plus the
+/// static always-on router modules with explicit `*_route_manifest()` helpers.
+/// State-aware modules such as `room`, `federation`, `oidc`, and selected
+/// feature-gated routers are appended by [`declared_route_manifest_for`] so
+/// the ledger reflects the actual router assembly path for the current
+/// [`AppState`]. `create_router` validates this ledger at startup and aborts
+/// on duplicates.
+///
+/// Adding a new always-registered router to the top-level assembly? Define
+/// `fn my_route_manifest() -> Vec<RouteEntry>` in the router module and push
+/// its output into `base_route_manifest` or wire it through `route_module`.
+/// Leaving it out means the duplicate detector won't catch your router
+/// clashing with an existing one.
+fn base_route_manifest() -> RouteLedger {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    let mut ledger = RouteLedger::new();
+    ledger.extend(top_level_inline_manifest());
+    ledger.extend(assembly_compat_manifest());
+    ledger.extend(key_backup::key_backup_route_manifest());
+    ledger.extend(device::device_route_manifest());
+    ledger.extend(e2ee_routes::e2ee_route_manifest());
+    ledger.extend(verification_routes::verification_route_manifest());
+    ledger.extend(sync::sync_route_manifest());
+    ledger.extend(account_data::account_data_route_manifest());
+    ledger.extend(push::push_route_manifest());
+    ledger.extend(tags::tags_route_manifest());
+    ledger.extend(reactions::reactions_route_manifest());
+    ledger.extend(relations::relations_route_manifest());
+    ledger.extend(presence::presence_route_manifest());
+    ledger.extend(typing::typing_route_manifest());
+    ledger.extend(ephemeral::ephemeral_route_manifest());
+    ledger.extend(sliding_sync::sliding_sync_route_manifest());
+    ledger.extend(dm::dm_route_manifest());
+    ledger.extend(key_rotation::key_rotation_route_manifest());
+    ledger.extend(room_summary::room_summary_route_manifest());
+    ledger.extend(feature_flags::feature_flags_route_manifest());
+    ledger.extend(event_report::event_report_route_manifest());
+    ledger.extend(space::space_route_manifest());
+    ledger.extend(moderation::moderation_route_manifest());
+    ledger.extend(guest::guest_route_manifest());
+    ledger.extend(captcha::captcha_route_manifest());
+    ledger.extend(rendezvous::rendezvous_route_manifest());
+    ledger.extend(telemetry::telemetry_route_manifest());
+    ledger.extend(thirdparty::thirdparty_route_manifest());
+    ledger.extend(background_update::background_update_route_manifest());
+    ledger.extend(push_notification::push_notification_route_manifest());
+    ledger.extend(media::media_route_manifest());
+    ledger.extend(worker::worker_route_manifest());
+    ledger.extend(crate::web::routes::admin::admin_module_route_manifest());
+    ledger.extend(module::module_route_manifest());
+    ledger.extend(app_service::app_service_route_manifest());
+    ledger.extend(crate::web::routes::handlers::thread::thread_route_manifest());
+    ledger.extend(crate::web::routes::handlers::search::search_route_manifest());
+    ledger.extend(expand_under_prefixes(
+        "ai_connection",
+        &["/_matrix/client/v1/ai", "/_matrix/client/v3/ai"],
+        &[
+            (Method::GET, "/connections"),
+            (Method::POST, "/connections"),
+            (Method::GET, "/connections/{id}"),
+            (Method::DELETE, "/connections/{id}"),
+            (Method::GET, "/mcp/tools"),
+            (Method::POST, "/mcp/tools/call"),
+        ],
+    ));
+    ledger
+}
+
+pub fn declared_route_manifest_for(state: &AppState) -> RouteLedger {
+    declared_route_manifest_for_profile(&ProfileFlags::from_state(state))
+}
+
+/// Pure-data flavour of [`declared_route_manifest_for`] for offline tools
+/// (e.g. the `synapse_ledger_export` binary) that need the manifest without
+/// constructing a live `AppState`. Composes `base_route_manifest()` with the
+/// profile-driven entries each `RouteModule` emits via
+/// `manifest_for_profile`. The live `create_router` path goes through
+/// [`declared_route_manifest_for`] so this and live routing stay aligned by
+/// construction.
+pub fn declared_route_manifest_for_profile(flags: &ProfileFlags) -> RouteLedger {
+    let mut ledger = base_route_manifest();
+    for module in route_modules() {
+        ledger.extend(module.manifest_for_profile(flags));
+    }
+    ledger
+}
+
+/// Manifest for routes declared inline inside [`create_router`] — i.e. those
+/// registered with `.route(...)` directly on the top-level `Router` rather
+/// than through a `create_*_router()` helper.
+fn top_level_inline_manifest() -> Vec<RouteEntry> {
+    const MODULE: &str = "assembly::create_router";
+    [
+        (Method::GET, "/"),
+        (Method::GET, "/health"),
+        (Method::GET, "/_health"),
+        (Method::GET, "/_matrix/client/versions"),
+        (Method::GET, "/_matrix/client/v3/versions"),
+        (Method::GET, "/_matrix/client/r0/version"),
+        (Method::GET, "/_matrix/server_version"),
+        (Method::GET, "/_matrix/client/v1/config/client"),
+        (Method::GET, "/_matrix/client/v3/pushrules/"),
+        (Method::GET, "/_matrix/client/v3/pushrules/global/"),
+        (Method::GET, "/.well-known/matrix/server"),
+        (Method::GET, "/.well-known/matrix/client"),
+        (Method::GET, "/.well-known/matrix/support"),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
+        ),
+        (
+            Method::PUT,
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, MODULE))
+    .collect()
+}
+
+/// Manifest for the inline compat sub-routers built directly inside this file
+/// (`create_client_capabilities_router`, `create_client_media_config_router`,
+/// `create_voip_compat_router`, `create_auth_router`, `create_account_router`,
+/// `create_directory_router`). They are part of the assembly file rather than
+/// independent route modules, so their manifests live here.
+///
+/// Notes:
+/// - `create_directory_router` also merges the `guest` router; that surface
+///   is manifested in `guest::guest_route_manifest` and is *not* duplicated
+///   here.
+fn assembly_compat_manifest() -> Vec<RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    let mut out = Vec::new();
+
+    // /capabilities — under r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::capabilities",
+        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &[(Method::GET, "/capabilities")],
+    ));
+
+    // /media/config — under v1 + r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::media_config",
+        &[
+            "/_matrix/client/v1",
+            "/_matrix/client/r0",
+            "/_matrix/client/v3",
+        ],
+        &[(Method::GET, "/media/config")],
+    ));
+
+    // Base VoIP compat surface — under r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::voip_compat",
+        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &[
+            (Method::GET, "/voip/turnServer"),
+            (Method::POST, "/voip/turnServer"),
+            (Method::GET, "/voip/config"),
+            (Method::GET, "/voip/turnServer/guest"),
+        ],
+    ));
+    #[cfg(feature = "voip-tracking")]
+    out.extend(expand_under_prefixes(
+        "assembly::voip_tracking",
+        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &[
+            (Method::PUT, "/rooms/{room_id}/send/m.call.invite/{txn_id}"),
+            (
+                Method::PUT,
+                "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+            ),
+            (Method::PUT, "/rooms/{room_id}/send/m.call.answer/{txn_id}"),
+            (Method::PUT, "/rooms/{room_id}/send/m.call.hangup/{txn_id}"),
+            (Method::GET, "/rooms/{room_id}/call/{call_id}"),
+        ],
+    ));
+
+    // Auth compat — under r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::auth_compat",
+        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &[
+            (Method::GET, "/register"),
+            (Method::POST, "/register"),
+            (Method::GET, "/register/available"),
+            (Method::POST, "/register/email/requestToken"),
+            (Method::POST, "/register/email/submitToken"),
+            (Method::GET, "/login"),
+            (Method::POST, "/login"),
+            (Method::POST, "/logout"),
+            (Method::POST, "/logout/all"),
+            (Method::POST, "/refresh"),
+        ],
+    ));
+
+    // Auth standalone routes (QR login + login fallback) — absolute paths
+    out.extend(
+        [
+            (Method::GET, "/_matrix/static/client/login/"),
+            (Method::GET, "/_matrix/client/v1/login/get_qr_code"),
+            (Method::POST, "/_matrix/client/v1/login/qr/confirm"),
+            (Method::POST, "/_matrix/client/v1/login/qr/start"),
+            (
+                Method::GET,
+                "/_matrix/client/v1/login/qr/{transaction_id}/status",
+            ),
+            (Method::POST, "/_matrix/client/v1/login/qr/invalidate"),
+        ]
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "assembly::auth_router")),
+    );
+
+    // Account compat — under v1 + r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::account_compat",
+        &[
+            "/_matrix/client/v1",
+            "/_matrix/client/r0",
+            "/_matrix/client/v3",
+        ],
+        &[
+            (Method::GET, "/account/whoami"),
+            (Method::POST, "/account/password"),
+            (Method::POST, "/account/password/email/requestToken"),
+            (Method::POST, "/account/password/email/submitToken"),
+            (Method::POST, "/account/deactivate"),
+            (Method::GET, "/account/3pid"),
+            (Method::POST, "/account/3pid"),
+            (Method::POST, "/account/3pid/add"),
+            (Method::POST, "/account/3pid/bind"),
+            (Method::POST, "/account/3pid/email/requestToken"),
+            (Method::POST, "/account/3pid/email/submitToken"),
+            (Method::POST, "/account/3pid/delete"),
+            (Method::POST, "/account/3pid/unbind"),
+            (Method::GET, "/profile/{user_id}"),
+            (Method::GET, "/profile/{user_id}/displayname"),
+            (Method::PUT, "/profile/{user_id}/displayname"),
+            (Method::GET, "/profile/{user_id}/avatar_url"),
+            (Method::PUT, "/profile/{user_id}/avatar_url"),
+        ],
+    ));
+
+    // Account r0-only extras
+    out.extend(expand_under_prefixes(
+        "assembly::account_r0_only",
+        &["/_matrix/client/r0"],
+        &[
+            (Method::GET, "/account/profile/{user_id}"),
+            (Method::PUT, "/account/profile/{user_id}/displayname"),
+            (Method::PUT, "/account/profile/{user_id}/avatar_url"),
+        ],
+    ));
+
+    // Directory compat — under r0 + v3
+    out.extend(expand_under_prefixes(
+        "assembly::directory_compat",
+        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &[
+            (Method::POST, "/user_directory/search"),
+            (Method::POST, "/user_directory/list"),
+            (Method::GET, "/user_directory/profiles/{user_id}"),
+            (Method::GET, "/directory/list/room/{room_id}"),
+            (Method::PUT, "/directory/list/room/{room_id}"),
+            (Method::GET, "/directory/room/{room_alias}"),
+            (Method::PUT, "/directory/room/{room_alias}"),
+            (Method::DELETE, "/directory/room/{room_alias}"),
+            (Method::GET, "/publicRooms"),
+            (Method::POST, "/publicRooms"),
+        ],
+    ));
+
+    // Directory r0-only extras
+    out.extend(expand_under_prefixes(
+        "assembly::directory_r0_only",
+        &["/_matrix/client/r0"],
+        &[
+            (Method::GET, "/directory/room/{room_id}/alias"),
+            (Method::PUT, "/directory/room/{room_id}/alias/{room_alias}"),
+            (
+                Method::DELETE,
+                "/directory/room/{room_id}/alias/{room_alias}",
+            ),
+        ],
+    ));
+
+    out
+}
 
 async fn get_client_config(
     State(state): State<AppState>,
@@ -46,13 +383,152 @@ async fn get_client_config(
     })))
 }
 
-async fn get_openid_configuration(
+/// MSC3814 — dehydrated devices. Element probes this on startup. We now expose
+/// a minimal persisted implementation so clients can upload and resume the
+/// dehydrated device state instead of seeing a permanent 404.
+async fn get_dehydrated_device(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let base_url = state.services.config.server.get_public_baseurl();
+    let device = state
+        .services
+        .dehydrated_device_service
+        .get_device(&auth_user.user_id)
+        .await?;
+
+    match device {
+        Some(device) => Ok(Json(device)),
+        None => Err(ApiError::not_found("No dehydrated device for this user")),
+    }
+}
+
+async fn put_dehydrated_device(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let device_id = state
+        .services
+        .dehydrated_device_service
+        .put_device(&auth_user.user_id, body)
+        .await?;
+
     Ok(Json(json!({
-        "issuer": base_url
+        "device_id": device_id
     })))
+}
+
+async fn delete_dehydrated_device(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let _deleted = state
+        .services
+        .dehydrated_device_service
+        .delete_device(&auth_user.user_id)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+/// MSC3814 — claim pending to-device events addressed to a dehydrated device.
+///
+/// Clients call this after restoring a session backed by a dehydrated device,
+/// to drain the queue of `m.room_key` (and other) to-device messages that were
+/// delivered while the user was offline. We page by `stream_id` of the
+/// underlying `to_device_messages` table, returning the cursor as a string in
+/// `next_batch`. When the cursor stops advancing the queue is empty and the
+/// client is expected to `DELETE` the dehydrated device.
+async fn post_dehydrated_device_events(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(device_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let next_batch = body.get("next_batch").and_then(|v| v.as_str());
+    let response = state
+        .services
+        .dehydrated_device_service
+        .claim_events(&auth_user.user_id, &device_id, next_batch, 100)
+        .await?;
+    Ok(Json(response))
+}
+
+/// MSC4143 — `org.matrix.msc4143/rtc/transports`. Element calls this when a
+/// VoIP focus call is started. We return standard ICE server transport (MSC4403)
+/// based on our VoIP/TURN/STUN configuration so clients can use them for
+/// MatrixRTC calls even without a dedicated SFU.
+async fn get_rtc_transports(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let voip_service = VoipService::new(Arc::new(state.services.config.voip.clone()));
+
+    if !voip_service.is_enabled() {
+        return Ok(Json(json!({ "transports": [] })));
+    }
+
+    let mut ice_servers = Vec::new();
+
+    // Add STUN servers
+    let stun_uris = voip_service.get_stun_uris();
+    if !stun_uris.is_empty() {
+        ice_servers.push(json!({
+            "urls": stun_uris,
+        }));
+    }
+
+    // Add TURN servers with credentials
+    if let Ok(creds) = voip_service.generate_turn_credentials(&auth_user.user_id) {
+        ice_servers.push(json!({
+            "urls": creds.uris,
+            "username": creds.username,
+            "credential": creds.password,
+        }));
+    }
+
+    if ice_servers.is_empty() {
+        return Ok(Json(json!({ "transports": [] })));
+    }
+
+    Ok(Json(json!({
+        "transports": [
+            {
+                "type": "org.matrix.msc4403.ice-server-transport",
+                "ice_servers": ice_servers,
+            }
+        ]
+    })))
+}
+
+/// MSC4133 — extended profile properties.
+///
+/// We do not currently persist extended profile data. For Element compatibility
+/// we keep these routes as explicit no-op stubs so startup/profile probes do not
+/// surface transport errors, while `/_matrix/client/versions` still advertises
+/// `uk.tcpip.msc4133: false` to avoid claiming full support.
+async fn get_extended_profile(
+    Path(_user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(json!({})))
+}
+
+async fn get_extended_profile_field(
+    Path(_params): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(json!({})))
+}
+
+async fn put_extended_profile_field(
+    Path(_params): Path<(String, String)>,
+    Json(_body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(json!({})))
+}
+
+async fn delete_extended_profile_field(
+    Path(_params): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(json!({})))
 }
 
 /// MSC2965 — `auth_metadata`. Used by clients (e.g. Element) to discover whether
@@ -62,24 +538,10 @@ async fn get_openid_configuration(
 async fn get_auth_metadata(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let oidc_enabled = state.services.oidc_service.is_some()
-        || state.services.builtin_oidc_provider.is_some();
-
-    if !oidc_enabled {
-        return Err(ApiError::unrecognized(
-            "OAuth2/OIDC discovery is not enabled on this homeserver",
-        ));
-    }
-
-    let base_url = state.services.config.server.get_public_baseurl();
-    Ok(Json(json!({
-        "issuer": base_url,
-        "authorization_endpoint": format!("{}/_matrix/client/v3/login/sso/redirect", base_url),
-        "token_endpoint": format!("{}/_matrix/client/v3/login", base_url),
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported": ["S256"],
-    })))
+    let discovery = oidc::openid_discovery(State(state)).await?;
+    Ok(Json(
+        serde_json::to_value(discovery.0).map_err(|e| ApiError::internal(e.to_string()))?,
+    ))
 }
 
 fn create_client_capabilities_router() -> Router<AppState> {
@@ -127,6 +589,33 @@ fn create_voip_compat_router() -> Router<AppState> {
 }
 
 pub fn create_router(state: AppState) -> Router {
+    // Validate the declared route manifest before assembling the live router.
+    // A duplicate (method, path) here is the exact class of bug that made
+    // the key_backup routes dead for months in §1.1/§1.2 of the spec plan.
+    let ledger = declared_route_manifest_for(&state);
+    match ledger.validate() {
+        Ok(report) => {
+            let registered_by_counts = ledger.registered_by_counts();
+            let registered_by_summary = registered_by_counts
+                .iter()
+                .map(|count| format!("{}={}", count.registered_by, count.entries))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ::tracing::info!(
+                target: "synapse_rust::routes",
+                unique_tuples = report.unique_tuples,
+                total_entries = report.total_entries,
+                registered_by_namespaces = registered_by_counts.len(),
+                registered_by_summary = %registered_by_summary,
+                "route manifest validated: {} declared (method, path) tuples, 0 duplicates",
+                report.unique_tuples,
+            );
+        }
+        Err(err) => {
+            panic!("route manifest contains duplicate entries — refusing to start:\n{err}");
+        }
+    }
+
     let mut router = Router::new()
         .without_v07_checks()
         .route(
@@ -175,22 +664,45 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
             get(get_auth_metadata),
         )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+            get(get_dehydrated_device)
+                .put(put_dehydrated_device)
+                .delete(delete_dehydrated_device),
+        )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
+            post(post_dehydrated_device_events),
+        )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
+            get(get_rtc_transports),
+        )
+        .route(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
+            get(get_extended_profile),
+        )
+        .route(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
+            get(get_extended_profile_field)
+                .put(put_extended_profile_field)
+                .delete(delete_extended_profile_field),
+        )
         .merge(create_auth_router())
         .merge(create_account_router())
         .merge(create_account_data_router(state.clone()))
         .merge(create_directory_router(state.clone()))
-        .merge(create_room_router())
         .merge(create_sync_router())
         .merge(create_moderation_router())
         .merge(create_device_router())
         .merge(create_media_router(state.clone()))
         .merge(create_e2ee_router(state.clone()))
+        .merge(create_key_backup_router(state.clone()))
         .merge(create_key_rotation_router(state.clone()))
         .merge(create_verification_router(state.clone()))
         .merge(create_relations_router(state.clone()))
         .merge(create_reactions_router(state.clone()))
         .merge(create_admin_module_router(state.clone()))
-        .merge(create_federation_router(state.clone()))
         .merge(create_push_router(state.clone()))
         .merge(crate::web::routes::handlers::search::create_search_router(
             state.clone(),
@@ -204,36 +716,12 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router(state.clone()));
 
-    router = router.merge(create_worker_router(state.clone()));
+    router = router.merge(worker::create_worker_admin_router(state.clone()));
 
     // Optional authentication capabilities - only expose when enabled
-    #[cfg(feature = "saml-sso")]
-    if state.services.saml_service.is_enabled() {
-        router = router.merge(create_saml_router(state.clone()));
+    for module in route_modules() {
+        router = module.merge_into(router, state.clone());
     }
-    #[cfg(feature = "saml-sso")]
-    let saml_enabled = state.services.saml_service.is_enabled();
-    #[cfg(not(feature = "saml-sso"))]
-    let saml_enabled = false;
-    if state.services.oidc_service.is_some()
-        || state.services.builtin_oidc_provider.is_some()
-        || saml_enabled
-    {
-        router = router.merge(create_oidc_router(state.clone()));
-    } else {
-        // 即使没有启用 OIDC，也需要提供基本的端点以符合规范
-        router = router
-            .route(
-                "/.well-known/openid-configuration",
-                get(get_openid_configuration),
-            )
-            .route("/.well-known/jwks.json", get(oidc::jwks_fallback));
-    }
-    #[cfg(feature = "openclaw-routes")]
-    if state.services.config.experimental.openclaw_routes_enabled {
-        router = router.merge(create_openclaw_router(state.clone()));
-    }
-
     router = router
         .merge(create_captcha_router(state.clone()))
         .merge(create_push_notification_router(state.clone()))
@@ -254,38 +742,15 @@ pub fn create_router(state: AppState) -> Router {
             state.clone(),
         ))
         .merge(create_rendezvous_router(state.clone()))
-        .route("/_matrix/client/v3/createRoom", post(create_room))
-        .merge(create_presence_router());
-
-    // Feature-gated extension routers
-    #[cfg(feature = "friends")]
-    {
-        router = router.merge(create_friend_router(state.clone()));
-    }
-    #[cfg(feature = "voice-extended")]
-    {
-        router = router.merge(create_voice_router(state.clone()));
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        router = router.merge(cas_routes(state.clone()));
-    }
-    #[cfg(feature = "external-services")]
-    {
-        router = router.merge(create_external_service_router(state.clone()));
-    }
-    #[cfg(feature = "burn-after-read")]
-    {
-        router = router.merge(create_burn_after_read_router(state.clone()));
-    }
-    #[cfg(feature = "widgets")]
-    {
-        router = router.merge(create_widget_router());
-    }
-    #[cfg(feature = "openclaw-routes")]
-    {
-        router = router.merge(create_ai_connection_router());
-    }
+        .merge(create_presence_router())
+        .nest(
+            "/_matrix/client/v1/ai",
+            create_ai_connection_router().with_state(state.clone()),
+        )
+        .nest(
+            "/_matrix/client/v3/ai",
+            create_ai_connection_router().with_state(state.clone()),
+        );
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))
@@ -367,6 +832,11 @@ fn create_account_compat_router() -> Router<AppState> {
         .route("/account/3pid", get(get_threepids).post(add_threepid))
         .route("/account/3pid/add", post(add_threepid))
         .route("/account/3pid/bind", post(add_threepid))
+        .route(
+            "/account/3pid/email/requestToken",
+            post(request_3pid_add_email_verification),
+        )
+        .route("/account/3pid/email/submitToken", post(submit_email_token))
         .route("/account/3pid/delete", post(delete_threepid))
         .route("/account/3pid/unbind", post(unbind_threepid))
         .route("/profile/{user_id}", get(get_profile))

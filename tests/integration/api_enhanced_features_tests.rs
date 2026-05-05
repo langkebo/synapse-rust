@@ -246,7 +246,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request)
                 .await
                 .unwrap();
-        assert_eq!(v3_location_response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(v3_location_response.status(), StatusCode::NOT_FOUND);
 
         let body = axum::body::to_bytes(v3_location_response.into_body(), 1024)
             .await

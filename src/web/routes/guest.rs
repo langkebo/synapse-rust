@@ -148,3 +148,16 @@ pub fn create_guest_router(state: AppState) -> Router<AppState> {
         )
         .with_state(state)
 }
+
+pub fn guest_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_matrix/client/v3/register/guest"),
+        (Method::GET, "/_matrix/client/v3/account/guest"),
+        (Method::POST, "/_matrix/client/v3/account/guest/upgrade"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "guest"))
+    .collect()
+}

@@ -1134,3 +1134,243 @@ async fn test_room_key_forward_and_backward_routes() {
         json!("abc123")
     );
 }
+
+#[tokio::test]
+async fn test_dehydrated_device_put_get_delete_roundtrip() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _) = register_user(&app, &format!("dehydrated_{}", rand::random::<u32>())).await;
+
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "algorithm": "org.matrix.msc3814.v1.olm",
+                "account": {
+                    "pickle": "opaque-account"
+                },
+                "device_data": {
+                    "device_keys": {
+                        "algorithms": ["m.olm.v1.curve25519-aes-sha2"]
+                    },
+                    "initial_device_display_name": "Dehydrated Test Device"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let put_body = axum::body::to_bytes(put_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let put_json: Value = serde_json::from_slice(&put_body).unwrap();
+    let device_id = put_json["device_id"].as_str().unwrap().to_string();
+    assert!(device_id.starts_with("DEHYDRATED"));
+
+    let get_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
+        .await
+        .unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let get_body = axum::body::to_bytes(get_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let get_json: Value = serde_json::from_slice(&get_body).unwrap();
+    assert_eq!(get_json["device_id"], device_id);
+    assert_eq!(get_json["algorithm"], "org.matrix.msc3814.v1.olm");
+    assert_eq!(get_json["account"]["pickle"], "opaque-account");
+    assert_eq!(
+        get_json["device_data"]["initial_device_display_name"],
+        "Dehydrated Test Device"
+    );
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let get_after_delete_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let get_after_delete_response =
+        ServiceExt::<Request<Body>>::oneshot(app, get_after_delete_request)
+            .await
+            .unwrap();
+    assert_eq!(get_after_delete_response.status(), StatusCode::NOT_FOUND);
+}
+
+/// MSC3814 — once a user uploads a dehydrated device, `/keys/query` must
+/// surface its `device_keys` so other clients can address to-device messages
+/// to it. This locks in the enrichment added to `query_keys_internal`.
+#[tokio::test]
+async fn test_dehydrated_device_appears_in_keys_query() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, user_id) =
+        register_user(&app, &format!("dh_query_{}", rand::random::<u32>())).await;
+
+    let dehydrated_device_id = "DEHYDRATEDQUERY1";
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": dehydrated_device_id,
+                "algorithm": "org.matrix.msc3814.v1.olm",
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": dehydrated_device_id,
+                    "algorithms": [
+                        "m.olm.v1.curve25519-aes-sha2",
+                        "m.megolm.v1.aes-sha2"
+                    ],
+                    "keys": {
+                        format!("curve25519:{}", dehydrated_device_id): "AAAA",
+                        format!("ed25519:{}", dehydrated_device_id): "BBBB"
+                    },
+                    "signatures": {}
+                },
+                "device_data": { "algorithm": "org.matrix.msc3814.v1.olm" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let query_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/query")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": { user_id.clone(): [] }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let query_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request)
+        .await
+        .unwrap();
+    assert_eq!(query_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(query_response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let user_devices = json["device_keys"][&user_id]
+        .as_object()
+        .expect("user entry must be present in /keys/query response");
+    assert!(
+        user_devices.contains_key(dehydrated_device_id),
+        "expected dehydrated device {} in /keys/query response, got keys {:?}",
+        dehydrated_device_id,
+        user_devices.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        user_devices[dehydrated_device_id]["device_id"],
+        dehydrated_device_id
+    );
+}
+
+/// MSC3814 — `POST .../dehydrated_device/{device_id}/events` returns an empty
+/// page with a `next_batch` cursor when no to-device messages are pending.
+#[tokio::test]
+async fn test_dehydrated_device_events_endpoint_empty_batch() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let (token, _user_id) =
+        register_user(&app, &format!("dh_events_{}", rand::random::<u32>())).await;
+
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "algorithm": "org.matrix.msc3814.v1.olm",
+                "device_data": {
+                    "device_keys": { "algorithms": ["m.olm.v1.curve25519-aes-sha2"] }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let put_body = axum::body::to_bytes(put_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let put_json: Value = serde_json::from_slice(&put_body).unwrap();
+    let device_id = put_json["device_id"].as_str().unwrap().to_string();
+
+    let events_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{}/events",
+            device_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let events_response = ServiceExt::<Request<Body>>::oneshot(app, events_request)
+        .await
+        .unwrap();
+    assert_eq!(events_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(events_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["events"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(usize::MAX),
+        0,
+        "expected no pending events"
+    );
+    assert!(
+        json["next_batch"].is_string(),
+        "next_batch must be a string cursor: {}",
+        json
+    );
+}

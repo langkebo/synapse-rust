@@ -272,33 +272,11 @@ pub(crate) async fn change_password_uia(
                     return Err(ApiError::forbidden("User mismatch".to_string()));
                 }
 
-                state
-                    .services
-                    .auth_service
-                    .validator
-                    .validate_password(new_password)?;
-
-                let user = state
-                    .services
-                    .user_storage
-                    .get_user_by_id(&user_id)
-                    .await
-                    .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
-                    .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
-
-                let password_hash = user
-                    .password_hash
-                    .ok_or_else(|| ApiError::forbidden("User has no password set".to_string()))?;
-
-                let valid = crate::common::crypto::verify_password(password, &password_hash, false)
-                    .map_err(|e| {
-                        ApiError::internal(format!("Password verification failed: {}", e))
-                    })?;
-
-                if !valid {
-                    return Err(ApiError::forbidden("Invalid password".to_string()));
-                }
-
+                // 不在路由层提前校验当前密码 / 提前调 validate_password —
+                // change_password 内部已经做这两件事，并且通过
+                // spawn_blocking 把 argon2 verify 放到独立线程；
+                // 之前路由里又同步跑了一遍 verify_password，既阻塞 tokio worker
+                // 又把 argon2 计算量翻倍。这里只保留 user_id 一致性检查。
                 state
                     .services
                     .registration_service
@@ -327,33 +305,36 @@ pub(crate) async fn change_password_uia(
                 .parse()
                 .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
+            // 原子消费：claim_used_token 在一条 DELETE ... RETURNING 里完成
+            // "校验 used=TRUE && 未过期 → 返回行 → 物理删除"。
+            // 这样两个并发请求里只有一个会拿到 Some，另一个拿到 None；
+            // 即便后续 change_password 失败，token 也已被销毁，不会被重放。
             let verification_token = state
                 .services
                 .email_verification_storage
-                .get_verification_token_by_id(sid_int)
+                .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get verification token: {}", e))
+                    ApiError::internal(format!("Failed to claim verification token: {}", e))
                 })?
                 .ok_or_else(|| {
-                    ApiError::bad_request("Invalid session ID or session not found".to_string())
+                    ApiError::bad_request(
+                        "Verification session is invalid, expired, or has not been submitted"
+                            .to_string(),
+                    )
                 })?;
 
-            if !verification_token.used {
-                return Err(ApiError::bad_request(
-                    "Verification token has not been submitted yet".to_string(),
-                ));
-            }
-
-            if verification_token.expires_at < chrono::Utc::now() {
-                return Err(ApiError::bad_request(
-                    "Verification token has expired".to_string(),
-                ));
-            }
-
+            // client_secret 必须跟会话一致 —— 在 claim 之后再校验是为了
+            // 在校验失败时已经物理消耗掉 token（防止穷举 client_secret）。
             if session_client_secret(verification_token.session_data.as_ref())
                 != Some(client_secret)
             {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "password_reset_client_secret_mismatch",
+                    sid = sid_int,
+                    "client_secret mismatch on consumed verification token"
+                );
                 return Err(ApiError::bad_request("Client secret mismatch".to_string()));
             }
 
@@ -368,15 +349,6 @@ pub(crate) async fn change_password_uia(
                 .registration_service
                 .change_password(&user_id, None, new_password)
                 .await?;
-
-            state
-                .services
-                .email_verification_storage
-                .delete_token_by_id(sid_int)
-                .await
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to consume verification session: {}", e))
-                })?;
 
             Ok(Json(json!({})))
         }
@@ -395,30 +367,54 @@ pub(crate) async fn request_password_email_verification(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    let user_id = match state
+    // 不向客户端暴露"邮箱是否注册"。即便查不到对应账户也照样创建一个
+    // user_id=None 的占位验证会话；下游 change_password_uia 在
+    // m.login.email.identity 分支显式拒绝 user_id 为空的 session，
+    // 所以占位会话无法被用来重置任何账户的密码，但响应却与命中账户
+    // 的情况完全一致 —— 切断 OWASP A07 类账户枚举通道。
+    let verified = state
         .services
         .threepid_storage
         .get_verified_threepid_by_address("email", email)
-        .await?
-    {
-        Some(threepid) => threepid.user_id,
-        None => state
-            .services
-            .user_storage
-            .get_user_by_email(email)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to resolve email owner: {}", e)))?
-            .map(|user| user.user_id)
-            .ok_or_else(|| {
-                ApiError::not_found("No account is associated with this email address".to_string())
-            })?,
+        .await;
+    let resolved_user_id = match verified {
+        Ok(Some(threepid)) => Some(threepid.user_id),
+        Ok(None) => match state.services.user_storage.get_user_by_email(email).await {
+            Ok(user) => user.map(|u| u.user_id),
+            Err(e) => {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "password_reset_email_lookup_failed",
+                    "Failed to resolve email owner during password reset request: {}",
+                    e
+                );
+                None
+            }
+        },
+        Err(e) => {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "password_reset_threepid_lookup_failed",
+                "Failed to resolve verified threepid during password reset request: {}",
+                e
+            );
+            None
+        }
     };
+
+    if resolved_user_id.is_none() {
+        ::tracing::info!(
+            target: "security_audit",
+            event = "password_reset_email_not_registered",
+            "Password reset requested for an email with no associated account"
+        );
+    }
 
     request_email_verification_with_submit_path(
         &state,
         &body,
         "/_matrix/client/v3/account/password/email/submitToken",
-        Some(user_id.as_str()),
+        resolved_user_id.as_deref(),
         "password_reset",
     )
     .await
@@ -496,40 +492,93 @@ pub(crate) async fn add_threepid(
     let user_id = &auth_user.user_id;
     let now = chrono::Utc::now().timestamp_millis();
 
-    let medium = body
-        .get("medium")
+    let sid = body
+        .get("sid")
         .and_then(|v| v.as_str())
-        .unwrap_or("email");
-    let address = body.get("address").and_then(|v| v.as_str()).unwrap_or("");
+        .ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
+    let client_secret = body
+        .get("client_secret")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
 
-    if address.is_empty() {
-        return Err(ApiError::bad_request("Address is required".to_string()));
+    let sid_int: i64 = sid
+        .parse()
+        .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
+
+    // 原子消费已校验会话：DELETE ... RETURNING 在单条 SQL 中完成"取出 + 删除",
+    // 任何后续校验失败时 token 都已物理销毁，不能被重放。
+    let verification_token = state
+        .services
+        .email_verification_storage
+        .claim_used_token(sid_int)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to claim verification token: {}", e)))?
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "Verification session is invalid, expired, or has not been submitted".to_string(),
+            )
+        })?;
+
+    if session_client_secret(verification_token.session_data.as_ref()) != Some(client_secret) {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "threepid_add_client_secret_mismatch",
+            sid = sid_int,
+            user_id = user_id.as_str(),
+            "client_secret mismatch on consumed verification token"
+        );
+        return Err(ApiError::bad_request("Client secret mismatch".to_string()));
     }
 
-    let id_server = body.get("id_server").and_then(|v| v.as_str());
-    let sid = body.get("sid").and_then(|v| v.as_str());
-    let id_access_token = body.get("id_access_token").and_then(|v| v.as_str());
-    let client_secret = body.get("client_secret").and_then(|v| v.as_str());
-
-    if let (Some(id_server), Some(sid), Some(id_access_token), Some(client_secret)) =
-        (id_server, sid, id_access_token, client_secret)
-    {
-        if let Err(e) = state
-            .services
-            .identity_service
-            .bind_three_pid(id_server, id_access_token, sid, client_secret, user_id)
-            .await
-        {
-            ::tracing::warn!("Failed to bind 3PID via Identity Server: {}", e);
-        }
+    let session_purpose = verification_token
+        .session_data
+        .as_ref()
+        .and_then(|d| d.get("purpose"))
+        .and_then(|v| v.as_str());
+    if session_purpose != Some("3pid_add") {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "threepid_add_session_purpose_mismatch",
+            sid = sid_int,
+            user_id = user_id.as_str(),
+            purpose = session_purpose,
+            "Verification session was not requested for 3PID add"
+        );
+        return Err(ApiError::bad_request(
+            "Verification session is not valid for adding a 3PID".to_string(),
+        ));
     }
 
-    sqlx::query(
+    let session_user = verification_token.user_id.as_deref().ok_or_else(|| {
+        ApiError::bad_request("Verification session is not bound to a user".to_string())
+    })?;
+    if session_user != user_id {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "threepid_add_user_mismatch",
+            sid = sid_int,
+            authenticated_user = user_id.as_str(),
+            session_user = session_user,
+            "Verification session belongs to a different user"
+        );
+        return Err(ApiError::forbidden(
+            "Verification session belongs to a different user".to_string(),
+        ));
+    }
+
+    let medium = "email";
+    let address = verification_token.email.as_str();
+
+    // ON CONFLICT 上的 WHERE 谓词保证：地址若已被另一个账户占用，UPDATE 不会
+    // 命中——rows_affected == 0，路由抛 409。本账户重复绑定则幂等更新时间戳。
+    let result = sqlx::query(
         r#"
-        INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts, is_verified)
+        VALUES ($1, $2, $3, $4, $5, TRUE)
         ON CONFLICT (medium, address) DO UPDATE
-        SET validated_ts = EXCLUDED.validated_ts
+        SET validated_ts = EXCLUDED.validated_ts,
+            is_verified = TRUE
+        WHERE user_threepids.user_id = EXCLUDED.user_id
         "#,
     )
     .bind(user_id)
@@ -541,7 +590,61 @@ pub(crate) async fn add_threepid(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to add threepid: {}", e)))?;
 
+    if result.rows_affected() == 0 {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "threepid_add_address_already_bound",
+            user_id = user_id.as_str(),
+            medium = medium,
+            "3PID address is already bound to a different account"
+        );
+        return Err(ApiError::conflict(
+            "This 3PID is already bound to a different account".to_string(),
+        ));
+    }
+
+    // 仅在本地校验通过后，才可选地把 3PID 推到身份服务器。这里使用与本地校验
+    // 解耦的独立 IS 会话凭证 (is_sid / is_client_secret)，避免误把 HS 的 sid
+    // 当成 IS 的 sid 来用。
+    let id_server = body.get("id_server").and_then(|v| v.as_str());
+    let is_sid = body.get("is_sid").and_then(|v| v.as_str());
+    let id_access_token = body.get("id_access_token").and_then(|v| v.as_str());
+    let is_client_secret = body.get("is_client_secret").and_then(|v| v.as_str());
+    if let (Some(id_server), Some(is_sid), Some(id_access_token), Some(is_client_secret)) =
+        (id_server, is_sid, id_access_token, is_client_secret)
+    {
+        if let Err(e) = state
+            .services
+            .identity_service
+            .bind_three_pid(
+                id_server,
+                id_access_token,
+                is_sid,
+                is_client_secret,
+                user_id,
+            )
+            .await
+        {
+            ::tracing::warn!("Failed to bind 3PID via Identity Server: {}", e);
+        }
+    }
+
     Ok(Json(json!({})))
+}
+
+pub(crate) async fn request_3pid_add_email_verification(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    request_email_verification_with_submit_path(
+        &state,
+        &body,
+        "/_matrix/client/v3/account/3pid/email/submitToken",
+        Some(auth_user.user_id.as_str()),
+        "3pid_add",
+    )
+    .await
 }
 
 #[derive(Debug, Deserialize)]

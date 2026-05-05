@@ -6,20 +6,23 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::OnceCell;
+use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
 static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
+static SHARED_CLONE_SEMAPHORE: Lazy<Semaphore> =
+    Lazy::new(|| Semaphore::new(configured_shared_clone_concurrency()));
 const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
+const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 2;
 
 pub struct EnvLockGuard {
     _guard: tokio::sync::MutexGuard<'static, ()>,
@@ -119,6 +122,12 @@ fn env_u64(key: &str) -> Option<u64> {
         .and_then(|value| value.trim().parse::<u64>().ok())
 }
 
+fn env_usize(key: &str) -> Option<usize> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+}
+
 pub fn configured_test_pool_max_connections() -> u32 {
     env_u32("TEST_DB_MAX_CONNECTIONS")
         .filter(|value| *value > 0)
@@ -153,6 +162,12 @@ pub fn configured_test_pool_max_lifetime() -> Duration {
     Duration::from_secs(
         env_u64("TEST_DB_MAX_LIFETIME_SECS").unwrap_or(DEFAULT_TEST_DB_MAX_LIFETIME_SECS),
     )
+}
+
+pub fn configured_shared_clone_concurrency() -> usize {
+    env_usize("TEST_DB_SHARED_CLONE_CONCURRENCY")
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY)
 }
 
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
@@ -239,6 +254,10 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
         .clone();
 
     // Step 2: Clone template into a fresh per-test schema
+    let _permit = SHARED_CLONE_SEMAPHORE
+        .acquire()
+        .await
+        .map_err(|_| "shared clone semaphore closed".to_string())?;
     clone_schema_from_template(&database_url, &template).await
 }
 
@@ -493,9 +512,14 @@ fn candidate_database_urls() -> Vec<String> {
 }
 
 fn next_test_schema_name() -> String {
+    let timestamp_nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before unix epoch")
+        .as_nanos();
     format!(
-        "test_{}_{}",
+        "test_{}_{}_{}",
         std::process::id(),
-        TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst)
+        TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst),
+        timestamp_nanos,
     )
 }

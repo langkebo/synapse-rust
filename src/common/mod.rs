@@ -30,8 +30,13 @@ pub mod types;
 pub mod validation;
 pub mod xml_parser;
 
+// HTML/text sanitizer: v2 (ammonia-based) is the canonical implementation.
+// The regex-based v1 (`crate::common::sanitizer`) is retained only for
+// historical reference and should NOT be used for new code — its blocklist
+// approach misses obfuscation vectors that ammonia's whitelist correctly
+// strips. Reach for v1 explicitly via its module path if absolutely needed.
 #[allow(ambiguous_glob_reexports)]
-pub use sanitizer::*;
+pub use sanitizer_v2::*;
 
 #[allow(ambiguous_glob_reexports)]
 pub use argon2_config::*;

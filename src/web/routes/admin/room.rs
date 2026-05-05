@@ -152,8 +152,8 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
 }
 
 pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use axum::http::Method;
     use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
     [
         (Method::GET, "/_synapse/admin/v1/rooms"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}"),
@@ -167,9 +167,15 @@ pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/block"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/block"),
         (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/unblock"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/make_admin",
+        ),
         (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/purge_history"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/purge_history",
+        ),
         (Method::POST, "/_synapse/admin/v1/purge_history"),
         (Method::POST, "/_synapse/admin/v1/purge_room"),
         (Method::POST, "/_synapse/admin/v1/shutdown_room"),
@@ -189,7 +195,10 @@ pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
             Method::DELETE,
             "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
         ),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}",
+        ),
         (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban"),
         (
             Method::POST,
@@ -1555,8 +1564,14 @@ pub async fn kick_user(
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(
-        kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref())
-            .await?,
+        kick_user_internal(
+            &state,
+            &room_id,
+            &user_id,
+            &admin.user_id,
+            body.reason.as_deref(),
+        )
+        .await?,
     ))
 }
 

@@ -46,6 +46,44 @@ pub fn create_account_data_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+const ACCOUNT_DATA_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+
+fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/user/{user_id}/account_data/"),
+        (Method::GET, "/user/{user_id}/account_data/{type}"),
+        (Method::PUT, "/user/{user_id}/account_data/{type}"),
+        (Method::DELETE, "/user/{user_id}/account_data/{type}"),
+        (
+            Method::GET,
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+        ),
+        (
+            Method::PUT,
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+        ),
+        (
+            Method::DELETE,
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+        ),
+        (Method::PUT, "/user/{user_id}/filter"),
+        (Method::POST, "/user/{user_id}/filter"),
+        (Method::GET, "/user/{user_id}/filter/{filter_id}"),
+        (Method::DELETE, "/user/{user_id}/filter/{filter_id}"),
+        (Method::GET, "/user/{user_id}/openid/request_token"),
+        (Method::POST, "/user/{user_id}/openid/request_token"),
+    ]
+}
+
+pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    crate::web::routes::route_ledger::expand_under_prefixes(
+        "account_data",
+        ACCOUNT_DATA_NEST_PREFIXES,
+        &account_data_compat_relative_routes(),
+    )
+}
+
 async fn list_account_data(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -173,6 +211,22 @@ async fn set_room_account_data(
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden(
             "Cannot set account data for other users".to_string(),
+        ));
+    }
+
+    // 对称于 set_account_data 的尺寸/长度校验——避免其他客户端通过
+    // room account data 路径绕过限制写入巨大或非法 key。
+    if data_type.len() > 128 {
+        return Err(ApiError::bad_request(
+            "data_type too long (max 128 characters)".to_string(),
+        ));
+    }
+
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {}", e)))?;
+    if body_str.len() > 65536 {
+        return Err(ApiError::bad_request(
+            "Account data too large (max 64KB)".to_string(),
         ));
     }
 

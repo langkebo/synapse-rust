@@ -204,6 +204,84 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn oidc_enabled(state: &AppState) -> bool {
+    #[cfg(feature = "saml-sso")]
+    let saml_enabled = state.services.saml_service.is_enabled();
+    #[cfg(not(feature = "saml-sso"))]
+    let saml_enabled = false;
+
+    state.services.oidc_service.is_some()
+        || state.services.builtin_oidc_provider.is_some()
+        || saml_enabled
+}
+
+pub fn create_oidc_fallback_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            get(get_openid_configuration),
+        )
+        .route("/.well-known/jwks.json", get(jwks_fallback))
+}
+
+/// Manifest for `create_oidc_router`. Note that this router is only merged
+/// into the assembly when OIDC / built-in OIDC / SAML is enabled — when none
+/// is, `assembly` falls back to a smaller pair of `/.well-known/*` routes
+/// declared inline. The ledger entries below match the *enabled* path; if
+/// you exercise the manifest in the always-fallback path, expect the
+/// `/.well-known/*` entries to overlap with the inline assembly fallback.
+pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_matrix/client/v3/login/sso/redirect"),
+        (Method::GET, "/_matrix/client/r0/login/sso/redirect"),
+        (Method::GET, "/_matrix/client/v3/login/sso/userinfo"),
+        (Method::GET, "/_matrix/client/r0/login/sso/userinfo"),
+        (Method::GET, "/_matrix/client/v3/oidc/userinfo"),
+        (Method::POST, "/_matrix/client/v3/oidc/token"),
+        (Method::POST, "/_matrix/client/v3/oidc/logout"),
+        (Method::GET, "/_matrix/client/v3/oidc/authorize"),
+        (Method::POST, "/_matrix/client/v3/oidc/register"),
+        (Method::GET, "/_matrix/client/v3/oidc/callback"),
+        (Method::GET, "/_matrix/client/r0/oidc/userinfo"),
+        (Method::POST, "/_matrix/client/r0/oidc/token"),
+        (Method::POST, "/_matrix/client/r0/oidc/logout"),
+        (Method::GET, "/_matrix/client/r0/oidc/authorize"),
+        (Method::POST, "/_matrix/client/r0/oidc/register"),
+        (Method::GET, "/_matrix/client/r0/oidc/callback"),
+        (Method::POST, "/_matrix/client/v3/oidc/login"),
+        (Method::GET, "/.well-known/openid-configuration"),
+        (Method::GET, "/.well-known/jwks.json"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "oidc"))
+    .collect()
+}
+
+pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    [
+        (Method::GET, "/.well-known/openid-configuration"),
+        (Method::GET, "/.well-known/jwks.json"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "oidc_fallback"))
+    .collect()
+}
+
+pub fn oidc_route_manifest_for(
+    state: &AppState,
+) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    if oidc_enabled(state) {
+        oidc_route_manifest()
+    } else {
+        oidc_fallback_manifest()
+    }
+}
+
 async fn builtin_oidc_login(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
@@ -277,6 +355,12 @@ pub async fn jwks_fallback(
     Ok(Json(serde_json::json!({
         "keys": []
     })))
+}
+
+pub async fn get_openid_configuration(
+    State(state): State<AppState>,
+) -> Result<Json<OpenIdDiscovery>, ApiError> {
+    openid_discovery(State(state)).await
 }
 
 /// OIDC UserInfo Response
@@ -443,6 +527,8 @@ async fn oidc_token(
             let oidc_user = oidc_service.map_user(&user_info);
 
             let localpart = oidc_user.localpart.clone();
+            let issuer = oidc_service.get_config().issuer.clone();
+            let subject = oidc_user.subject.clone();
             let server_name = state
                 .services
                 .config
@@ -452,21 +538,61 @@ async fn oidc_token(
                 .unwrap_or_else(|| "localhost".to_string());
             let matrix_user_id = format!("@{}:{}", localpart, server_name);
             let displayname = oidc_user.displayname.clone().unwrap_or(localpart.clone());
+            let now_ts = current_unix_ts() as i64;
 
-            // 检查用户是否存在，如果不存在则注册
-            if state
-                .services
-                .user_storage
-                .get_user_by_id(&matrix_user_id)
+            // 查询 (issuer, subject) -> user_id 绑定，防止外部 IdP 攻击者通过
+            // 控制 preferred_username 等映射字段冒用本地已存在账号。
+            let pool = &*state.services.user_storage.pool;
+            let bound_user_id: Option<String> = sqlx::query_scalar(
+                "SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
+            )
+            .bind(&issuer)
+            .bind(&subject)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to query OIDC user mapping: {}", e)))?;
+
+            let matrix_user_id = if let Some(existing) = bound_user_id {
+                // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
+                sqlx::query(
+                    "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
+                     authentication_count = authentication_count + 1 \
+                     WHERE issuer = $2 AND subject = $3",
+                )
+                .bind(now_ts)
+                .bind(&issuer)
+                .bind(&subject)
+                .execute(pool)
                 .await
-                .unwrap_or(None)
-                .is_none()
-            {
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to update OIDC user mapping: {}", e))
+                })?;
+                existing
+            } else {
+                // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
+                if state
+                    .services
+                    .user_storage
+                    .get_user_by_id(&matrix_user_id)
+                    .await
+                    .unwrap_or(None)
+                    .is_some()
+                {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "oidc_localpart_collision_refused",
+                        issuer = %issuer,
+                        subject = %subject,
+                        matrix_user_id = %matrix_user_id,
+                        "Refusing OIDC token: localpart already taken by a non-OIDC-bound account",
+                    );
+                    return Err(ApiError::unauthorized(
+                        "OIDC subject is not authorized for this Matrix user".to_string(),
+                    ));
+                }
+
                 tracing::info!("Creating new Matrix user from OIDC: {}", matrix_user_id);
-
-                // 为了注册，我们需要创建一个随机的、长且安全的占位密码
                 let random_password = uuid::Uuid::new_v4().to_string();
-
                 state
                     .services
                     .registration_service
@@ -475,7 +601,29 @@ async fn oidc_token(
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to register OIDC user: {}", e))
                     })?;
-            }
+
+                sqlx::query(
+                    "INSERT INTO oidc_user_mapping \
+                     (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count) \
+                     VALUES ($1, $2, $3, $4, $4, 1)",
+                )
+                .bind(&issuer)
+                .bind(&subject)
+                .bind(&matrix_user_id)
+                .bind(now_ts)
+                .execute(pool)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to insert OIDC user mapping: {}", e))
+                })?;
+                matrix_user_id
+            };
+
+            let localpart = matrix_user_id
+                .strip_prefix('@')
+                .and_then(|s| s.split(':').next())
+                .unwrap_or(&localpart)
+                .to_string();
 
             // 生成设备ID
             let device_id = format!(
@@ -725,6 +873,8 @@ pub struct OpenIdDiscovery {
     pub userinfo_endpoint: String,
     pub jwks_uri: String,
     pub registration_endpoint: Option<String>,
+    pub revocation_endpoint: Option<String>,
+    pub end_session_endpoint: Option<String>,
     pub scopes_supported: Vec<String>,
     pub response_types_supported: Vec<String>,
     pub response_modes_supported: Vec<String>,
@@ -732,22 +882,54 @@ pub struct OpenIdDiscovery {
     pub token_endpoint_auth_methods_supported: Vec<String>,
     pub claims_supported: Vec<String>,
     pub ui_locales_supported: Vec<String>,
+    pub subject_types_supported: Vec<String>,
+    pub id_token_signing_alg_values_supported: Vec<String>,
+    pub code_challenge_methods_supported: Vec<String>,
 }
 
 /// OpenID Connect Server Discovery
 pub async fn openid_discovery(
     State(state): State<AppState>,
 ) -> Result<Json<OpenIdDiscovery>, ApiError> {
-    let server_name = &state.services.server_name;
-    let issuer = format!("https://{}", server_name);
+    // 如果启用了内置 OIDC Provider，直接使用其发现文档
+    if let Some(provider) = &state.services.builtin_oidc_provider {
+        let doc = provider.get_discovery_document();
+        return Ok(Json(OpenIdDiscovery {
+            issuer: doc.issuer,
+            authorization_endpoint: doc.authorization_endpoint,
+            token_endpoint: doc.token_endpoint,
+            userinfo_endpoint: doc.userinfo_endpoint,
+            jwks_uri: doc.jwks_uri,
+            registration_endpoint: doc.registration_endpoint,
+            revocation_endpoint: doc.revocation_endpoint,
+            end_session_endpoint: doc.end_session_endpoint,
+            scopes_supported: doc.scopes_supported,
+            response_types_supported: doc.response_types_supported,
+            response_modes_supported: vec!["query".to_string(), "fragment".to_string()],
+            grant_types_supported: vec![
+                "authorization_code".to_string(),
+                "refresh_token".to_string(),
+            ],
+            token_endpoint_auth_methods_supported: doc.token_endpoint_auth_methods_supported,
+            claims_supported: doc.claims_supported,
+            ui_locales_supported: vec!["en".to_string()],
+            subject_types_supported: doc.subject_types_supported,
+            id_token_signing_alg_values_supported: doc.id_token_signing_alg_values_supported,
+            code_challenge_methods_supported: doc.code_challenge_methods_supported,
+        }));
+    }
+
+    let issuer = state.services.config.server.get_public_baseurl();
 
     Ok(Json(OpenIdDiscovery {
         issuer: issuer.clone(),
         authorization_endpoint: format!("{}/_matrix/client/v3/oidc/authorize", issuer),
         token_endpoint: format!("{}/_matrix/client/v3/oidc/token", issuer),
         userinfo_endpoint: format!("{}/_matrix/client/v3/oidc/userinfo", issuer),
-        jwks_uri: format!("{}/_matrix/keys/v1", issuer),
+        jwks_uri: format!("{}/.well-known/jwks.json", issuer),
         registration_endpoint: None,
+        revocation_endpoint: Some(format!("{}/_matrix/client/v3/oidc/revoke", issuer)),
+        end_session_endpoint: Some(format!("{}/_matrix/client/v3/oidc/logout", issuer)),
         scopes_supported: vec![
             "openid".to_string(),
             "profile".to_string(),
@@ -767,6 +949,9 @@ pub async fn openid_discovery(
             "email".to_string(),
         ],
         ui_locales_supported: vec!["en".to_string()],
+        subject_types_supported: vec!["public".to_string()],
+        id_token_signing_alg_values_supported: vec!["RS256".to_string()],
+        code_challenge_methods_supported: vec!["S256".to_string()],
     }))
 }
 
@@ -1055,8 +1240,10 @@ mod tests {
                 .to_string(),
             token_endpoint: "https://example.com/_matrix/client/v3/oidc/token".to_string(),
             userinfo_endpoint: "https://example.com/_matrix/client/v3/oidc/userinfo".to_string(),
-            jwks_uri: "https://example.com/_matrix/keys/v1".to_string(),
+            jwks_uri: "https://example.com/.well-known/jwks.json".to_string(),
             registration_endpoint: None,
+            revocation_endpoint: None,
+            end_session_endpoint: None,
             scopes_supported: vec!["openid".to_string()],
             response_types_supported: vec!["code".to_string()],
             response_modes_supported: vec!["query".to_string()],
@@ -1064,6 +1251,9 @@ mod tests {
             token_endpoint_auth_methods_supported: vec!["client_secret_basic".to_string()],
             claims_supported: vec!["sub".to_string()],
             ui_locales_supported: vec!["en".to_string()],
+            subject_types_supported: vec!["public".to_string()],
+            id_token_signing_alg_values_supported: vec!["RS256".to_string()],
+            code_challenge_methods_supported: vec!["S256".to_string()],
         };
 
         assert_eq!(discovery.issuer, "https://example.com");

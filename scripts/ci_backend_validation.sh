@@ -225,6 +225,10 @@ run_docker_smoke() {
     wait_for_http "http://localhost:${FEDERATION_PORT}/_matrix/federation/v1/version" 20 3
     curl -fsS "http://localhost:${SYNAPSE_PORT}/_matrix/client/versions" >/dev/null
     curl -fsS "http://localhost:${FEDERATION_PORT}/_matrix/federation/v1/version" >/dev/null
+
+    log "运行 /room_keys/* 端到端测试"
+    BASE="http://localhost:${SYNAPSE_PORT}" \
+        bash "$ROOT_DIR/tests/e2e/scripts/key_backup.sh"
 }
 
 trap cleanup EXIT

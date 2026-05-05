@@ -115,6 +115,24 @@ impl AccessTokenStorage {
         Ok(())
     }
 
+    pub async fn delete_user_device_tokens(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE access_tokens SET is_revoked = TRUE
+            WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let result = sqlx::query_scalar::<_, i32>(
@@ -206,6 +224,19 @@ impl AccessTokenStorage {
             "#,
         )
         .bind(cutoff)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let result = sqlx::query(
+            r#"
+            DELETE FROM access_tokens WHERE expires_at IS NOT NULL AND expires_at < $1
+            "#,
+        )
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())

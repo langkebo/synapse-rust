@@ -1,6 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+fn default_json_object() -> serde_json::Value {
+    serde_json::json!({})
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceKey {
     pub id: i64,
@@ -28,6 +32,7 @@ pub struct DeviceKeys {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyQueryRequest {
     pub timeout: Option<u64>,
+    #[serde(default = "default_json_object")]
     pub device_keys: serde_json::Value,
     pub token: Option<String>,
 }
@@ -57,6 +62,7 @@ pub struct KeyUploadResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyClaimRequest {
     pub timeout: Option<u64>,
+    #[serde(default = "default_json_object")]
     pub one_time_keys: serde_json::Value,
 }
 

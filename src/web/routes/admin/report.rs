@@ -27,6 +27,24 @@ pub fn create_report_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/reports"),
+        (Method::GET, "/_synapse/admin/v1/reports/{report_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/reports/{report_id}"),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports"),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::report"))
+    .collect()
+}
+
 #[axum::debug_handler]
 pub async fn get_all_reports(
     _admin: AdminUser,

@@ -559,3 +559,65 @@ pub fn create_background_update_router(state: AppState) -> Router<AppState> {
         ))
         .with_state(state)
 }
+
+pub fn background_update_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/admin/v1/background_updates"),
+        (Method::GET, "/_synapse/admin/v1/background_updates"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/count"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/pending"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/running"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/next"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/status"),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/retry_failed",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/cleanup_locks",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/background_updates/status/{status}/count",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/background_updates/{job_name}",
+        ),
+        (
+            Method::DELETE,
+            "/_synapse/admin/v1/background_updates/{job_name}",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/{job_name}/start",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/{job_name}/progress",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/{job_name}/complete",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/{job_name}/fail",
+        ),
+        (
+            Method::POST,
+            "/_synapse/admin/v1/background_updates/{job_name}/cancel",
+        ),
+        (
+            Method::GET,
+            "/_synapse/admin/v1/background_updates/{job_name}/history",
+        ),
+        (Method::GET, "/_synapse/admin/v1/background_updates/stats"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "background_update"))
+    .collect()
+}

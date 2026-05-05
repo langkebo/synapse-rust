@@ -2,11 +2,74 @@ use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+
+/// Run the User-Interactive Authentication challenge for destructive device
+/// operations. Returns `Ok(())` if the supplied `auth` dict satisfies an
+/// `m.login.password` flow against the caller's account, otherwise returns
+/// a 401 response carrying the UIA flow descriptor that clients are expected
+/// to round-trip back as the `auth` dict (Matrix CS-API §UIA).
+async fn require_password_uia(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    body: &Value,
+) -> Result<(), Response> {
+    let challenge = || {
+        let session = uuid::Uuid::new_v4().to_string();
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "errcode": "M_UIA_REQUIRED",
+                "error": "User-Interactive Authentication required",
+                "flows": [{ "stages": ["m.login.password"] }],
+                "params": {},
+                "session": session,
+                "completed": []
+            })),
+        )
+            .into_response()
+    };
+
+    let Some(auth) = body.get("auth") else {
+        return Err(challenge());
+    };
+
+    if auth.get("type").and_then(|v| v.as_str()) != Some("m.login.password") {
+        return Err(challenge());
+    }
+
+    let password = match auth.get("password").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return Err(challenge()),
+    };
+
+    let identifier_user = auth
+        .get("identifier")
+        .and_then(|i| i.get("user"))
+        .and_then(|v| v.as_str())
+        .or_else(|| auth.get("user").and_then(|v| v.as_str()))
+        .unwrap_or(auth_user.user_id.as_str());
+
+    if identifier_user != auth_user.user_id {
+        return Err(challenge());
+    }
+
+    match state
+        .services
+        .auth_service
+        .login(&auth_user.user_id, password, None, None)
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(_) => Err(challenge()),
+    }
+}
 
 fn parse_device_ids(body: &Value) -> Result<Vec<String>, ApiError> {
     let raw_device_ids = body
@@ -108,26 +171,22 @@ pub async fn update_device(
     Path(device_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let display_name = body
-        .get("display_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing display_name".to_string()))?;
+    if let Some(display_name) = body.get("display_name").and_then(|v| v.as_str()) {
+        state
+            .services
+            .device_storage
+            .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))
+            .and_then(|rows_affected| {
+                if rows_affected == 0 {
+                    Err(ApiError::not_found("Device not found".to_string()))
+                } else {
+                    Ok(())
+                }
+            })?;
+    }
 
-    state
-        .services
-        .device_storage
-        .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))
-        .and_then(|rows_affected| {
-            if rows_affected == 0 {
-                Err(ApiError::not_found("Device not found".to_string()))
-            } else {
-                Ok(())
-            }
-        })?;
-
-    // Fetch updated device to return confirmation
     let device = state
         .services
         .device_storage
@@ -147,39 +206,43 @@ pub async fn delete_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .device_storage
-        .delete_user_device(&auth_user.user_id, &device_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))
-        .and_then(|rows_affected| {
-            if rows_affected == 0 {
-                Err(ApiError::not_found("Device not found".to_string()))
-            } else {
-                Ok(())
-            }
-        })?;
+    Json(body): Json<Value>,
+) -> Result<Response, ApiError> {
+    if let Err(challenge) = require_password_uia(&state, &auth_user, &body).await {
+        return Ok(challenge);
+    }
 
-    Ok(Json(json!({})))
+    let rows = state
+        .services
+        .auth_service
+        .revoke_device(&auth_user.user_id, &device_id)
+        .await?;
+
+    if rows == 0 {
+        return Err(ApiError::not_found("Device not found".to_string()));
+    }
+
+    Ok(Json(json!({})).into_response())
 }
 
 pub async fn delete_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
+    if let Err(challenge) = require_password_uia(&state, &auth_user, &body).await {
+        return Ok(challenge);
+    }
+
     let device_ids = parse_device_ids(&body)?;
 
     state
         .services
-        .device_storage
-        .delete_user_devices_batch(&auth_user.user_id, &device_ids)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+        .auth_service
+        .revoke_devices(&auth_user.user_id, &device_ids)
+        .await?;
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({})).into_response())
 }
 
 pub async fn get_device_list_updates(
@@ -341,6 +404,32 @@ pub fn create_device_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/r0", compat_router.clone())
         .nest("/_matrix/client/v3", compat_router)
+}
+
+/// Nest prefixes `create_device_router` mounts its inner compat router under.
+const DEVICE_NEST_PREFIXES: &[&str] = &["/_matrix/client/r0", "/_matrix/client/v3"];
+
+fn device_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/devices"),
+        (Method::POST, "/delete_devices"),
+        (Method::GET, "/devices/{device_id}"),
+        (Method::PUT, "/devices/{device_id}"),
+        (Method::DELETE, "/devices/{device_id}"),
+        (Method::POST, "/keys/device_list_updates"),
+    ]
+}
+
+/// Manifest of every `(method, absolute_path)` tuple `create_device_router`
+/// registers. Mirrors `create_device_compat_router` one-for-one — adding a
+/// `.route(...)` there MUST add an entry here.
+pub fn device_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    crate::web::routes::route_ledger::expand_under_prefixes(
+        "device",
+        DEVICE_NEST_PREFIXES,
+        &device_compat_relative_routes(),
+    )
 }
 
 #[cfg(test)]

@@ -186,7 +186,7 @@ mod cache_integration_tests {
                 .expect("Redis-backed cache should configure invalidation");
             assert_eq!(
                 invalidation_manager.config().redis_url,
-                "redis://:secret@redis.example.com:6380"
+                "redis://:secret@redis.example.com:6380/"
             );
         });
     }

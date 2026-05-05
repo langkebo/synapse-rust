@@ -57,6 +57,53 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn search_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
+    use axum::http::Method;
+
+    let search_compat: &[(Method, &'static str)] = &[
+        (Method::POST, "/search"),
+        (Method::POST, "/search_recipients"),
+        (Method::POST, "/search_rooms"),
+    ];
+    let room_context: &[(Method, &'static str)] =
+        &[(Method::GET, "/rooms/{room_id}/context/{event_id}")];
+    let v1_extras: &[(Method, &'static str)] = &[
+        (Method::GET, "/rooms/{room_id}/hierarchy"),
+        (Method::GET, "/rooms/{room_id}/timestamp_to_event"),
+    ];
+    let v3_extras: &[(Method, &'static str)] = &[(Method::GET, "/rooms/{room_id}/hierarchy")];
+
+    let mut entries: Vec<RouteEntry> =
+        expand_under_prefixes("search", &["/_matrix/client/r0"], search_compat);
+    entries.extend(expand_under_prefixes(
+        "search",
+        &["/_matrix/client/v1"],
+        room_context,
+    ));
+    entries.extend(expand_under_prefixes(
+        "search",
+        &["/_matrix/client/v1"],
+        v1_extras,
+    ));
+    entries.extend(expand_under_prefixes(
+        "search",
+        &["/_matrix/client/v3"],
+        search_compat,
+    ));
+    entries.extend(expand_under_prefixes(
+        "search",
+        &["/_matrix/client/v3"],
+        room_context,
+    ));
+    entries.extend(expand_under_prefixes(
+        "search",
+        &["/_matrix/client/v3"],
+        v3_extras,
+    ));
+    entries
+}
+
 fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
     if let Some(room_events) = &body.search_categories.room_events {
         if room_events.search_term.len() > MAX_SEARCH_TERM_LENGTH {
@@ -363,29 +410,26 @@ async fn search_users(
     search: &UsersSearch,
 ) -> Result<Value, ApiError> {
     let limit = search.limit.unwrap_or(10) as i64;
-    let search_pattern = format!("%{}%", search.search_term.to_lowercase());
+    let rate_limit_key = format!("ratelimit:search-users:{}", user_id);
+    let decision = state
+        .cache
+        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
+        .await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many user search requests"));
+    }
 
-    let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-        r#"
-        SELECT user_id, displayname, avatar_url
-        FROM users
-        WHERE LOWER(user_id) LIKE $1 OR LOWER(displayname) LIKE $1
-        ORDER BY user_id
-        LIMIT $2
-        "#,
-    )
-    .bind(&search_pattern)
-    .bind(limit)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let rows = state
+        .services
+        .user_storage
+        .search_directory_users(&search.search_term, limit, false)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let mut results = Vec::new();
     for row in rows {
-        let target_user_id = match row.get::<Option<String>, _>("user_id") {
-            Some(user_id) => user_id,
-            None => continue,
-        };
+        let target_user_id = row.user_id;
+        let presence = row.presence.unwrap_or_else(|| "offline".to_string());
 
         if !can_view_profile_for_requester(state, Some(user_id), &target_user_id).await? {
             continue;
@@ -393,8 +437,12 @@ async fn search_users(
 
         results.push(json!({
             "user_id": target_user_id,
-            "display_name": row.get::<Option<String>, _>("displayname"),
-            "avatar_url": row.get::<Option<String>, _>("avatar_url")
+            "display_name": row.displayname,
+            "avatar_url": row.avatar_url,
+            "presence": presence,
+            "last_active_ts": row.last_active_ts,
+            "match_score": row.match_score,
+            "match_type": row.match_type
         }));
     }
 
@@ -933,25 +981,27 @@ async fn search_recipients(
         ));
     }
 
-    let search_pattern = format!("%{}%", search_term.to_lowercase());
+    let rate_limit_key = format!("ratelimit:search-recipients:{}", auth_user.user_id);
+    let decision = state
+        .cache
+        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
+        .await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many recipient search requests"));
+    }
 
-    let users = sqlx::query(
-        r#"
-        SELECT user_id, username, displayname, avatar_url
-        FROM users
-        WHERE LOWER(username) LIKE $1 OR LOWER(displayname) LIKE $1
-        LIMIT $2
-        "#,
-    )
-    .bind(&search_pattern)
-    .bind(limit)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+    let users = state
+        .services
+        .user_storage
+        .search_directory_users(search_term, limit, false)
+        .await
+        .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
     let mut results = Vec::new();
     for row in users {
-        let target_user_id = row.get::<String, _>("user_id");
+        let target_user_id = row.user_id;
+        let presence = row.presence.unwrap_or_else(|| "offline".to_string());
+        let online = presence == "online";
         if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &target_user_id)
             .await?
         {
@@ -960,9 +1010,14 @@ async fn search_recipients(
 
         results.push(json!({
             "user_id": target_user_id,
-            "username": row.get::<String, _>("username"),
-            "display_name": row.get::<Option<String>, _>("displayname"),
-            "avatar_url": row.get::<Option<String>, _>("avatar_url"),
+            "username": row.username,
+            "display_name": row.displayname,
+            "avatar_url": row.avatar_url,
+            "presence": presence,
+            "online": online,
+            "last_active_ts": row.last_active_ts,
+            "match_score": row.match_score,
+            "match_type": row.match_type,
         }));
     }
 

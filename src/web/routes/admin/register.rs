@@ -50,6 +50,18 @@ pub fn create_register_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn admin_register_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_synapse/admin/v1/register/nonce"),
+        (Method::POST, "/_synapse/admin/v1/register"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "admin::register"))
+    .collect()
+}
+
 #[derive(Serialize)]
 struct NonceResponse {
     nonce: String,
@@ -129,6 +141,9 @@ fn generate_nonce() -> String {
 }
 
 /// 验证 HMAC-SHA256
+///
+/// 使用 `Mac::verify_slice` 进行常量时间比较，避免基于 hex 字符串
+/// 的逐字节比较带来的额外分配与潜在的时序信号。
 fn verify_mac(
     shared_secret: &str,
     nonce: &str,
@@ -138,36 +153,29 @@ fn verify_mac(
     user_type: &Option<String>,
     mac_hex: &str,
 ) -> bool {
-    let mut message = nonce.as_bytes().to_vec();
-    message.push(b'\x00');
-    message.extend(username.as_bytes());
-    message.push(b'\x00');
-    message.extend(password.as_bytes());
-    message.push(b'\x00');
-    match admin {
-        true => message.extend(b"admin\x00\x00\x00"),
-        false => message.extend(b"notadmin"),
-    }
-
-    if let Some(ref ut) = user_type {
-        message.push(b'\x00');
-        message.extend(ut.as_bytes());
-    }
+    let Ok(provided) = hex::decode(mac_hex) else {
+        return false;
+    };
 
     let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
         .expect("HMAC accepts keys of any size");
-    mac.update(&message);
-    let result = mac.finalize();
+    mac.update(nonce.as_bytes());
+    mac.update(b"\x00");
+    mac.update(username.as_bytes());
+    mac.update(b"\x00");
+    mac.update(password.as_bytes());
+    mac.update(b"\x00");
+    if admin {
+        mac.update(b"admin\x00\x00\x00");
+    } else {
+        mac.update(b"notadmin");
+    }
+    if let Some(ref ut) = user_type {
+        mac.update(b"\x00");
+        mac.update(ut.as_bytes());
+    }
 
-    let expected = {
-        use std::fmt::Write;
-        let mut s = String::with_capacity(64);
-        for byte in &result.into_bytes().to_vec() {
-            let _ = write!(&mut s, "{:02x}", byte);
-        }
-        s
-    };
-    expected == mac_hex
+    mac.verify_slice(&provided).is_ok()
 }
 
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {

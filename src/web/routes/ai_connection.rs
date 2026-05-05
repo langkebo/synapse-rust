@@ -30,6 +30,22 @@ pub fn create_ai_connection_router() -> Router<AppState> {
         .route("/mcp/tools/call", post(call_tool))
 }
 
+pub fn ai_connection_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/connections"),
+        (Method::POST, "/connections"),
+        (Method::GET, "/connections/{id}"),
+        (Method::DELETE, "/connections/{id}"),
+        (Method::GET, "/mcp/tools"),
+        (Method::POST, "/mcp/tools/call"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "ai_connection"))
+    .collect()
+}
+
 async fn get_connections(
     State(state): State<AppState>,
     user: AuthenticatedUser,

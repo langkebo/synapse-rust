@@ -19,7 +19,10 @@ exempt_path_prefixes:
 endpoint_aliases: {}
 fail_open_on_error: true
 sync:
-  enabled: true
+  # Sliding sync performs long-polling and bursty catch-up after login. Disabling
+  # the dedicated sync limiter avoids false-positive 429s during local use of
+  # https://matrix.test while keeping the general limiter enabled elsewhere.
+  enabled: false
   initial:
     per_second: 5
     burst_size: 10

@@ -149,6 +149,52 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// Spec-compliant upload: stores the full KeyBackupData JSON object verbatim.
+    /// `key_backup_data` is the per-session object Element sends:
+    /// `{first_message_index, forwarded_count, is_verified, session_data}`.
+    pub async fn upload_session(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+        session_id: &str,
+        key_backup_data: serde_json::Value,
+    ) -> Result<(), ApiError> {
+        let backup = self
+            .storage
+            .get_backup_version(user_id, version)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+
+        let first_message_index = key_backup_data
+            .get("first_message_index")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let forwarded_count = key_backup_data
+            .get("forwarded_count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let is_verified = key_backup_data
+            .get("is_verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        self.key_storage
+            .upload_backup_key(BackupKeyInsertParams {
+                user_id: user_id.to_string(),
+                backup_id: backup.backup_id,
+                room_id: room_id.to_string(),
+                session_id: session_id.to_string(),
+                first_message_index,
+                forwarded_count,
+                is_verified,
+                backup_data: key_backup_data,
+            })
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn delete_backup_key(
         &self,
         user_id: &str,
@@ -160,6 +206,42 @@ impl KeyBackupService {
             .await?;
 
         Ok(())
+    }
+
+    /// Delete one session within a specific backup version. Returns deleted-row count.
+    pub async fn delete_session_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+        session_id: &str,
+    ) -> Result<u64, ApiError> {
+        self.key_storage
+            .delete_session_for_version(user_id, version, room_id, session_id)
+            .await
+    }
+
+    /// Delete all sessions for a room within a specific backup version. Returns deleted-row count.
+    pub async fn delete_room_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+    ) -> Result<u64, ApiError> {
+        self.key_storage
+            .delete_room_for_version(user_id, version, room_id)
+            .await
+    }
+
+    /// Delete every session within a specific backup version. Returns deleted-row count.
+    pub async fn delete_all_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<u64, ApiError> {
+        self.key_storage
+            .delete_all_for_version(user_id, version)
+            .await
     }
 
     pub async fn upload_room_key(
@@ -288,9 +370,9 @@ impl KeyBackupService {
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
                 bk.room_id,
                 bk.session_id,
-                0::BIGINT AS first_message_index,
-                0::BIGINT AS forwarded_count,
-                FALSE AS is_verified,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
@@ -301,6 +383,58 @@ impl KeyBackupService {
         .fetch_all(&*self.storage.pool)
         .await?;
         Ok(rows)
+    }
+
+    /// Return every stored session for a single backup version.
+    pub async fn get_keys_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<Vec<BackupKeyInfo>, ApiError> {
+        let rows = sqlx::query_as::<_, BackupKeyInfo>(
+            r#"
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            "#,
+        )
+        .bind(user_id)
+        .bind(version)
+        .fetch_all(&*self.storage.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_backup_key_count_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<i64, ApiError> {
+        let row = sqlx::query(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) as count
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            "#,
+        )
+        .bind(user_id)
+        .bind(version)
+        .fetch_one(&*self.storage.pool)
+        .await?;
+
+        Ok(row.try_get::<i64, _>("count")?)
     }
 
     pub async fn get_backup_count_per_room(

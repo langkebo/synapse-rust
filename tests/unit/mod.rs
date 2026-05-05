@@ -22,6 +22,7 @@ mod federation_service_tests;
 mod friend_api_tests;
 mod invite_blocklist_tests;
 mod key_backup_api_tests;
+mod ledger_export_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
 mod module_api_tests;

@@ -37,6 +37,28 @@ pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+pub fn rendezvous_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_matrix/client/v1/rendezvous"),
+        (Method::GET, "/_matrix/client/v1/rendezvous/{session_id}"),
+        (Method::PUT, "/_matrix/client/v1/rendezvous/{session_id}"),
+        (Method::DELETE, "/_matrix/client/v1/rendezvous/{session_id}"),
+        (
+            Method::POST,
+            "/_matrix/client/v1/rendezvous/{session_id}/messages",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/v1/rendezvous/{session_id}/messages",
+        ),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "rendezvous"))
+    .collect()
+}
+
 async fn create_session(
     State(state): State<AppState>,
     Json(body): Json<Value>,

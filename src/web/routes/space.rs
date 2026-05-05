@@ -146,6 +146,54 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+const SPACE_NEST_PREFIXES: &[&str] = &[
+    "/_matrix/client/v1",
+    "/_matrix/client/r0",
+    "/_matrix/client/v3",
+];
+
+fn space_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        // lifecycle / query
+        (Method::POST, "/spaces"),
+        (Method::GET, "/spaces/public"),
+        (Method::GET, "/spaces/search"),
+        (Method::GET, "/spaces/statistics"),
+        (Method::GET, "/spaces/user"),
+        (Method::GET, "/spaces/{space_id}"),
+        (Method::PUT, "/spaces/{space_id}"),
+        (Method::DELETE, "/spaces/{space_id}"),
+        (Method::GET, "/spaces/room/{room_id}"),
+        // children / hierarchy
+        (Method::GET, "/spaces/{space_id}/children"),
+        (Method::POST, "/spaces/{space_id}/children"),
+        (Method::DELETE, "/spaces/{space_id}/children/{room_id}"),
+        (Method::GET, "/spaces/{space_id}/hierarchy"),
+        (Method::GET, "/spaces/{space_id}/hierarchy/v1"),
+        (Method::GET, "/spaces/{space_id}/tree_path"),
+        (Method::GET, "/spaces/room/{room_id}/parents"),
+        // membership / state
+        (Method::GET, "/spaces/{space_id}/members"),
+        (Method::GET, "/spaces/{space_id}/rooms"),
+        (Method::GET, "/spaces/{space_id}/state"),
+        (Method::POST, "/spaces/{space_id}/invite"),
+        (Method::POST, "/spaces/{space_id}/join"),
+        (Method::POST, "/spaces/{space_id}/leave"),
+        // summary
+        (Method::GET, "/spaces/{space_id}/summary"),
+        (Method::GET, "/spaces/{space_id}/summary/with_children"),
+    ]
+}
+
+pub fn space_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    crate::web::routes::route_ledger::expand_under_prefixes(
+        "space",
+        SPACE_NEST_PREFIXES,
+        &space_relative_routes(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

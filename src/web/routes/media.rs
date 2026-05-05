@@ -79,6 +79,83 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .nest("/_matrix/media/r1", create_media_r1_router())
 }
 
+// ---------------------------------------------------------------------------
+// Route ledger manifest
+//
+// Each nested router exposes a different subset of the media surface:
+//   - v1:  upload_v1, /config, preview/delete, legacy download, /quota/*
+//   - v3:  modern upload, /config, preview/delete, /upload/{...},
+//          download (modern), thumbnail
+//   - r0:  modern upload + /config (subset)
+//   - r1:  legacy download only
+// We enumerate each per-prefix below rather than using
+// `expand_under_prefixes` because the relative-path sets differ.
+// ---------------------------------------------------------------------------
+
+fn media_v1_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/upload"),
+        (Method::GET, "/config"),
+        (Method::GET, "/preview_url"),
+        (Method::POST, "/delete/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+        (Method::GET, "/quota/check"),
+        (Method::GET, "/quota/stats"),
+        (Method::GET, "/quota/alerts"),
+    ]
+}
+
+fn media_v3_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::POST, "/upload"),
+        (Method::GET, "/config"),
+        (Method::GET, "/preview_url"),
+        (Method::POST, "/delete/{server_name}/{media_id}"),
+        (Method::PUT, "/upload/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+        (Method::GET, "/thumbnail/{server_name}/{media_id}"),
+    ]
+}
+
+fn media_r0_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![(Method::POST, "/upload"), (Method::GET, "/config")]
+}
+
+fn media_r1_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/download/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+    ]
+}
+
+pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    let mut out =
+        expand_under_prefixes("media", &["/_matrix/media/v1"], &media_v1_relative_routes());
+    out.extend(expand_under_prefixes(
+        "media",
+        &["/_matrix/media/v3"],
+        &media_v3_relative_routes(),
+    ));
+    out.extend(expand_under_prefixes(
+        "media",
+        &["/_matrix/media/r0"],
+        &media_r0_relative_routes(),
+    ));
+    out.extend(expand_under_prefixes(
+        "media",
+        &["/_matrix/media/r1"],
+        &media_r1_relative_routes(),
+    ));
+    out
+}
+
 async fn upload_media_common(
     state: &AppState,
     user_id: &str,
@@ -168,26 +245,155 @@ async fn download_media_common(
         .media_service
         .download_media(server_name, media_id)
         .await?;
-    let content_type = guess_content_type(media_id).to_string();
+
+    // 媒体在磁盘上的文件名是 "<media_id>.<ext>",由上传时根据真实 Content-Type 派生。
+    // 所以正确的做法是从这个文件名而不是不带扩展名的 media_id 上猜 MIME。
+    // 之前直接 guess_content_type(media_id) 会让所有文件都落到 octet-stream 默认值,
+    // 进而触发 build_media_headers 的非白名单分支,把图片也强制改成 attachment 下载。
+    let stored_filename = state
+        .services
+        .media_service
+        .get_media_metadata(server_name, media_id)
+        .await
+        .and_then(|m| {
+            m.get("filename")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| media_id.to_string());
+    let content_type = guess_content_type(&stored_filename).to_string();
     Ok((content_type, content))
 }
 
-fn media_response_headers(content_type: String, content_length: usize) -> [(String, String); 2] {
-    [
-        ("Content-Type".to_string(), content_type),
-        ("Content-Length".to_string(), content_length.to_string()),
-    ]
+fn media_response_headers(
+    content_type: String,
+    content_length: usize,
+    filename: Option<&str>,
+) -> HeaderMap {
+    build_media_headers(content_type, content_length, filename)
 }
 
-fn media_error_response(error: ApiError) -> (StatusCode, [(String, String); 2], Vec<u8>) {
+fn media_error_response(error: ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
     let status = error.http_status();
     let error_body = serde_json::to_vec(&json!({
         "errcode": error.code(),
         "error": error.message()
     }))
     .unwrap_or_else(|_| br#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_vec());
-    let headers = media_response_headers("application/json".to_string(), error_body.len());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    if let Ok(v) = axum::http::HeaderValue::from_str(&error_body.len().to_string()) {
+        headers.insert(header::CONTENT_LENGTH, v);
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
     (status, headers, error_body)
+}
+
+// 媒体下载响应必须像 Synapse 上游那样在所有浏览器路径上锁死 XSS：
+// 1) 仅对一组明确的"惰性"媒体类型保留原始 Content-Type 并允许 inline；
+//    其余类型一律强制改写为 application/octet-stream + Content-Disposition: attachment，
+//    这样即便用户上传 .svg / .html / .js / .xhtml，浏览器也只会下载、不会执行。
+// 2) 永远附带 X-Content-Type-Options: nosniff，阻止旧版 Edge/IE 的 MIME 嗅探回退到 HTML。
+// 3) 永远附带强 sandbox CSP，封掉脚本/插件/同源对象，作为最后一道兜底——
+//    历史上多次的媒体 XSS（CVE-2018-16868 等）都是因为缺这层防御才被打穿。
+// 4) Cross-Origin-Resource-Policy: cross-origin 让客户端 SDK 仍可跨源加载缩略图，
+//    Referrer-Policy: no-referrer 防止媒体 URL 把房间/用户标识泄给第三方。
+const MEDIA_CONTENT_SECURITY_POLICY: &str = "sandbox; default-src 'none'; script-src 'none'; \
+plugin-types application/pdf; style-src 'unsafe-inline'; media-src 'self'; \
+object-src 'self'; img-src 'self';";
+
+const SAFE_INLINE_MEDIA_TYPES: &[&str] = &[
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/ogg",
+    "audio/flac",
+    "video/mp4",
+    "video/webm",
+    "application/pdf",
+];
+
+fn sanitize_attachment_filename(filename: &str) -> String {
+    filename
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(*c, '"' | '\\' | '/' | '\0'))
+        .take(200)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn build_media_headers(
+    content_type: String,
+    content_length: usize,
+    filename: Option<&str>,
+) -> HeaderMap {
+    use axum::http::HeaderValue;
+
+    let primary_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let inline_safe = SAFE_INLINE_MEDIA_TYPES
+        .iter()
+        .any(|safe| *safe == primary_type);
+
+    let (final_type, disposition_kind) = if inline_safe {
+        (content_type, "inline")
+    } else {
+        ("application/octet-stream".to_string(), "attachment")
+    };
+
+    let disposition = match filename {
+        Some(name) if !name.is_empty() => {
+            let safe = sanitize_attachment_filename(name);
+            if safe.is_empty() {
+                disposition_kind.to_string()
+            } else {
+                format!("{}; filename=\"{}\"", disposition_kind, safe)
+            }
+        }
+        _ => disposition_kind.to_string(),
+    };
+
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&final_type) {
+        headers.insert(header::CONTENT_TYPE, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&content_length.to_string()) {
+        headers.insert(header::CONTENT_LENGTH, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        headers.insert(header::CONTENT_DISPOSITION, v);
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(MEDIA_CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("cross-origin"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers
 }
 
 async fn upload_media_v3(
@@ -308,16 +514,16 @@ async fn download_media(
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     let (content_type, content) = download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len());
+    let headers = media_response_headers(content_type, content.len(), None);
     Ok((StatusCode::OK, headers, content))
 }
 
 async fn download_media_with_filename(
     State(state): State<AppState>,
-    Path((server_name, media_id, _filename)): Path<(String, String, String)>,
+    Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     let (content_type, content) = download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len());
+    let headers = media_response_headers(content_type, content.len(), Some(&filename));
     Ok((StatusCode::OK, headers, content))
 }
 
@@ -357,12 +563,10 @@ async fn get_thumbnail(
         .get_thumbnail(&server_name, &media_id, width, height, method)
         .await
     {
+        // 缩略图始终编码为 JPEG（generate_thumbnail 内固定 ImageFormat::Jpeg），
+        // 走与 download_media 同一套安全头，避免出现"主资源加固、缩略图裸奔"的不对称。
         Ok(content) => {
-            let content_type = guess_content_type(&media_id);
-            let headers = [
-                ("Content-Type".to_string(), content_type.to_string()),
-                ("Content-Length".to_string(), content.len().to_string()),
-            ];
+            let headers = media_response_headers("image/jpeg".to_string(), content.len(), None);
             Ok((StatusCode::OK, headers, content))
         }
         Err(e) => Err(e),
@@ -385,7 +589,7 @@ async fn download_media_v1(
 ) -> impl IntoResponse {
     match download_media_common(&state, &server_name, &media_id).await {
         Ok((content_type, content)) => {
-            let headers = media_response_headers(content_type, content.len());
+            let headers = media_response_headers(content_type, content.len(), None);
             (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),
@@ -394,11 +598,11 @@ async fn download_media_v1(
 
 async fn download_media_v1_with_filename(
     State(state): State<AppState>,
-    Path((server_name, media_id, _filename)): Path<(String, String, String)>,
+    Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match download_media_common(&state, &server_name, &media_id).await {
         Ok((content_type, content)) => {
-            let headers = media_response_headers(content_type, content.len());
+            let headers = media_response_headers(content_type, content.len(), Some(&filename));
             (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),

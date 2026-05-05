@@ -1,0 +1,9 @@
+# Temporary override: expose db/redis to host so host-run cargo can connect.
+# Delete this file when going back to fully-containerised mode.
+services:
+  db:
+    ports:
+      - "15432:5432"
+  redis:
+    ports:
+      - "16379:6379"

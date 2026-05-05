@@ -26,6 +26,19 @@ pub struct CreateRoomConfig {
     pub history_visibility: Option<String>,
     pub is_direct: Option<bool>,
     pub room_type: Option<String>,
+    /// Per Matrix C-S spec, additional state events the client wants applied
+    /// after the standard set (m.room.create, m.room.member, power_levels,
+    /// join_rules, history_visibility, guest_access, name, topic). Element
+    /// uses this to install `m.room.encryption` for DMs.
+    pub initial_state: Option<Vec<serde_json::Value>>,
+    /// Extra top-level fields for the m.room.create event (e.g. `type`,
+    /// `predecessor`). Merged into the create content.
+    pub creation_content: Option<serde_json::Value>,
+    /// Room version to record on m.room.create. Defaults to the server's
+    /// capabilities default ("10") when None.
+    pub room_version: Option<String>,
+    /// Power level overrides applied on top of the spec defaults.
+    pub power_level_content_override: Option<serde_json::Value>,
 }
 
 pub struct RoomServiceConfig {
@@ -186,7 +199,14 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
 
         let result = self
-            .create_room_in_db(&room_id, user_id, join_rule, is_public, Some(&mut tx))
+            .create_room_in_db(
+                &room_id,
+                user_id,
+                join_rule,
+                is_public,
+                config.room_version.as_deref().unwrap_or("10"),
+                Some(&mut tx),
+            )
             .await;
         if result.is_err() {
             let _ = tx.rollback().await;
@@ -195,12 +215,26 @@ impl RoomService {
                 .unwrap_err());
         }
 
-        // Create m.room.create event
+        // Create m.room.create event. Honor the client's `room_version` /
+        // `creation_content` if provided, otherwise default to room v10
+        // (matches /capabilities). `creation_content.type` ("m.space" etc.)
+        // and the legacy top-level `room_type` shortcut are both supported.
         let now = chrono::Utc::now().timestamp_millis();
+        let room_version = config
+            .room_version
+            .clone()
+            .unwrap_or_else(|| "10".to_string());
         let mut create_content = json!({
             "creator": user_id,
-            "room_version": "1"
+            "room_version": room_version,
         });
+        if let Some(extra) = config.creation_content.as_ref().and_then(|v| v.as_object()) {
+            if let Some(map) = create_content.as_object_mut() {
+                for (k, v) in extra {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
+        }
         if let Some(ref room_type) = config.room_type {
             create_content["type"] = json!(room_type);
         }
@@ -269,6 +303,38 @@ impl RoomService {
         }
 
         // m.room.power_levels with Matrix spec defaults for a new room.
+        let mut power_levels = json!({
+            "users": { user_id: 100 },
+            "users_default": 0,
+            "events": {
+                "m.room.name": 50,
+                "m.room.power_levels": 100,
+                "m.room.history_visibility": 100,
+                "m.room.canonical_alias": 50,
+                "m.room.avatar": 50,
+                "m.room.tombstone": 100,
+                "m.room.server_acl": 100,
+                "m.room.encryption": 100,
+            },
+            "events_default": 0,
+            "state_default": 50,
+            "ban": 50,
+            "kick": 50,
+            "redact": 50,
+            "invite": 0,
+            "historical": 100,
+        });
+        if let Some(override_obj) = config
+            .power_level_content_override
+            .as_ref()
+            .and_then(|v| v.as_object())
+        {
+            if let Some(target) = power_levels.as_object_mut() {
+                for (k, v) in override_obj {
+                    target.insert(k.clone(), v.clone());
+                }
+            }
+        }
         let result = self
             .event_storage
             .create_event(
@@ -277,27 +343,7 @@ impl RoomService {
                     room_id: room_id.clone(),
                     user_id: user_id.to_string(),
                     event_type: "m.room.power_levels".to_string(),
-                    content: json!({
-                        "users": { user_id: 100 },
-                        "users_default": 0,
-                        "events": {
-                            "m.room.name": 50,
-                            "m.room.power_levels": 100,
-                            "m.room.history_visibility": 100,
-                            "m.room.canonical_alias": 50,
-                            "m.room.avatar": 50,
-                            "m.room.tombstone": 100,
-                            "m.room.server_acl": 100,
-                            "m.room.encryption": 100,
-                        },
-                        "events_default": 0,
-                        "state_default": 50,
-                        "ban": 50,
-                        "kick": 50,
-                        "redact": 50,
-                        "invite": 0,
-                        "historical": 100,
-                    }),
+                    content: power_levels,
                     state_key: Some("".to_string()),
                     origin_server_ts: now + 2,
                 },
@@ -340,16 +386,13 @@ impl RoomService {
 
         // m.room.history_visibility — default "shared" matches Element's expectations.
         // For trusted_private_chat preset, history is restricted to "invited" only.
-        let history_visibility = config
-            .history_visibility
-            .clone()
-            .unwrap_or_else(|| {
-                if is_trusted_private {
-                    "invited".to_string()
-                } else {
-                    "shared".to_string()
-                }
-            });
+        let history_visibility = config.history_visibility.clone().unwrap_or_else(|| {
+            if is_trusted_private {
+                "invited".to_string()
+            } else {
+                "shared".to_string()
+            }
+        });
         let result = self
             .event_storage
             .create_event(
@@ -421,13 +464,62 @@ impl RoomService {
         }
 
         let result = self
-            .process_invites(&room_id, config.invite_list.as_ref(), user_id, now + 7, Some(&mut tx))
+            .process_invites(
+                &room_id,
+                config.invite_list.as_ref(),
+                user_id,
+                now + 7,
+                Some(&mut tx),
+            )
             .await;
         if result.is_err() {
             let _ = tx.rollback().await;
             return Err(result
                 .map_err(|e| ApiError::internal(format!("Failed to process invites: {}", e)))
                 .unwrap_err());
+        }
+
+        // Replay any client-supplied `initial_state` events (e.g. Element's
+        // `m.room.encryption` for DMs, or `m.room.canonical_alias` overrides).
+        // These are applied AFTER the spec-mandated defaults so the client can
+        // intentionally override e.g. history_visibility. Standard m.room.*
+        // events with the same (type, state_key) shadow the earlier event in
+        // the timeline, which matches Synapse's behavior.
+        if let Some(extra_state) = config.initial_state.as_ref() {
+            for (idx, evt) in extra_state.iter().enumerate() {
+                let Some(obj) = evt.as_object() else { continue };
+                let Some(event_type) = obj.get("type").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let state_key = obj
+                    .get("state_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let content = obj.get("content").cloned().unwrap_or_else(|| json!({}));
+                let result = self
+                    .event_storage
+                    .create_event(
+                        CreateEventParams {
+                            event_id: generate_event_id(&self.server_name),
+                            room_id: room_id.clone(),
+                            user_id: user_id.to_string(),
+                            event_type: event_type.to_string(),
+                            content,
+                            state_key: Some(state_key),
+                            origin_server_ts: now + 9 + idx as i64,
+                        },
+                        Some(&mut tx),
+                    )
+                    .await;
+                if let Err(e) = result {
+                    let _ = tx.rollback().await;
+                    return Err(ApiError::internal(format!(
+                        "Failed to apply initial_state event {}: {}",
+                        event_type, e
+                    )));
+                }
+            }
         }
 
         // Handle trusted private chat specific logic. The standard state
@@ -523,15 +615,16 @@ impl RoomService {
         user_id: &str,
         join_rule: &str,
         is_public: bool,
+        room_version: &str,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         let result = if let Some(tx) = tx {
             self.room_storage
-                .create_room_in_tx(tx, room_id, user_id, join_rule, "1", is_public)
+                .create_room_in_tx(tx, room_id, user_id, join_rule, room_version, is_public)
                 .await
         } else {
             self.room_storage
-                .create_room(room_id, user_id, join_rule, "1", is_public)
+                .create_room(room_id, user_id, join_rule, room_version, is_public)
                 .await
         };
 
@@ -584,6 +677,7 @@ impl RoomService {
         Ok(())
     }
 
+    #[allow(clippy::needless_option_as_deref)]
     async fn set_room_metadata(
         &self,
         room_id: &str,
@@ -1381,7 +1475,10 @@ impl RoomService {
             )
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to record m.room.member invite event: {}", e))
+                ApiError::internal(format!(
+                    "Failed to record m.room.member invite event: {}",
+                    e
+                ))
             })?;
 
         Ok(())
@@ -1722,7 +1819,9 @@ impl RoomService {
             encryption: old_room.encryption.clone(),
             history_visibility: Some(old_room.history_visibility.clone()),
             is_direct: None,
-            room_type: Some(new_version.to_string()),
+            room_type: None,
+            room_version: Some(new_version.to_string()),
+            ..Default::default()
         };
 
         self.create_room(user_id, create_config).await?;

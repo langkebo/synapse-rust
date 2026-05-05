@@ -107,7 +107,7 @@ List Devices (r0),200,pass,200,pass,200,pass
 Delete Devices (r0),,skip,,skip,,skip
 Admin Federation Destinations,200,pass,200,pass,403,pass
 Admin Federation Destination Details,,skip,,skip,,skip
-Admin Federation Resolve,200,pass,200,fail,403,pass
+Admin Federation Resolve,200,pass,200,pass,403,pass
 List Registration Tokens,200,pass,200,pass,403,pass
 Get Active Registration Tokens,200,pass,200,pass,403,pass
 Get Push Rules,200,pass,200,pass,200,pass
@@ -132,17 +132,17 @@ Get Capabilities,200,pass,200,pass,200,pass
 Get Room Version,200,pass,200,pass,200,pass
 Admin Block Room,200,pass,200,pass,403,pass
 Ensure Deactivate Target (@deactivate_probe_super_admin:localhost),409,pass,N/A,N/A,N/A,N/A
-Admin User Deactivate,200,pass,200,fail,403,pass
+Admin User Deactivate,200,pass,200,pass,403,pass
 List Devices v3,200,pass,200,pass,200,pass
 Get Keys Changes,200,pass,200,pass,200,pass
 Get Friends,,pass,,pass,,pass
 Friend Request,409,pass,409,pass,200,pass
 Incoming Friend Requests,200,pass,200,pass,200,pass
 Refresh Token,200,pass,200,pass,200,pass
-Admin Shutdown Room,200,pass,200,fail,403,pass
-Admin Room Make Admin,200,pass,200,fail,403,pass
-Admin Federation Blacklist,200,pass,200,fail,403,pass
-Admin Federation Cache Clear,200,pass,200,fail,403,pass
+Admin Shutdown Room,200,pass,200,pass,403,pass
+Admin Room Make Admin,200,pass,403,pass,403,pass
+Admin Federation Blacklist,200,pass,200,pass,403,pass
+Admin Federation Cache Clear,200,pass,200,pass,403,pass
 Admin Reset Connection,404,pass,404,pass,403,pass
 Search v3,200,pass,200,pass,200,pass
 Room Context,,pass,,pass,,pass
@@ -154,8 +154,8 @@ OpenID Userinfo,200,pass,200,pass,200,pass
 Events,200,pass,200,pass,200,pass
 Room Version,200,pass,200,pass,200,pass
 VoIP TURN Server,200,pass,200,pass,200,pass
-Admin User Login,200,pass,200,fail,403,pass
-Admin User Logout,200,pass,200,fail,403,pass
+Admin User Login,200,pass,200,pass,403,pass
+Admin User Logout,200,pass,200,pass,403,pass
 Admin Batch Users,200,pass,200,pass,403,pass
 Federation Version,200,pass,200,pass,200,pass
 Federation Backfill,200,pass,200,pass,200,pass
@@ -429,15 +429,15 @@ Federation v2 User Keys Query,200,pass,200,pass,200,pass
 Federation Hierarchy,401,skip,401,skip,401,skip
 Federation Exchange Third Party Invite,200,pass,200,pass,200,pass
 Federation Knock,200,pass,200,pass,200,pass
-Admin Add Federation Blacklist,200,pass,403,pass,403,pass
-Admin Remove Federation Blacklist,200,pass,403,pass,403,pass
+Admin Add Federation Blacklist,200,pass,200,pass,403,pass
+Admin Remove Federation Blacklist,200,pass,200,pass,403,pass
 Admin Reset Federation Connection,,skip,,skip,,skip
 Admin Delete Room,200,pass,200,pass,403,pass
 Admin Room Member Add,200,pass,200,pass,403,pass
 Admin Room Ban User,200,pass,200,pass,403,pass
 Admin Room Kick User,200,pass,200,pass,403,pass
 Admin Set Room Public,200,pass,200,pass,403,pass
-Admin Purge History,200,pass,403,pass,403,pass
+Admin Set User Admin,200,pass,403,pass,403,pass
 Admin Delete User,,skip,,skip,,skip
 Admin Session Invalidate,,skip,,skip,,skip
 Admin Delete User Device,200,pass,200,pass,403,pass

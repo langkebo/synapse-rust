@@ -192,5 +192,29 @@ db-logs:
 db-reset: db-stop db-start
 	@echo "Database reset complete"
 
+# Docker image build — tags both the generic `synapse-rust:latest` and the
+# `${SYNAPSE_IMAGE}:${SYNAPSE_IMAGE_TAG}` pair from docker/.env so that
+# `docker compose up` picks up the freshly built binary.
+# See docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md §1.6 for why this
+# target exists.
+docker-build:
+	@set -eu; \
+	IMAGE=$$(grep -E '^SYNAPSE_IMAGE=' docker/.env | cut -d= -f2); \
+	TAG=$$(grep -E '^SYNAPSE_IMAGE_TAG=' docker/.env | cut -d= -f2); \
+	BUILDER=$${SYNAPSE_BUILDX_BUILDER:-amd64builder}; \
+	echo "Building $${IMAGE}:$${TAG} (also tagged synapse-rust:latest) via $${BUILDER}..."; \
+	docker buildx build \
+	    --builder $${BUILDER} \
+	    --platform linux/amd64 \
+	    -f docker/Dockerfile \
+	    -t synapse-rust:latest \
+	    -t $${IMAGE}:$${TAG} \
+	    --load \
+	    .
+
+docker-redeploy: docker-build
+	@cd docker && docker compose -f docker-compose.yml -f docker-compose.web.yml \
+	    up -d --no-deps --force-recreate synapse-rust
+
 # Help
 .DEFAULT_GOAL := help

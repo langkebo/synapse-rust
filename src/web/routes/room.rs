@@ -291,10 +291,7 @@ fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)
 
 fn room_power_levels_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
-    vec![(
-        Method::GET,
-        "/rooms/{room_id}/state/m.room.power_levels/",
-    )]
+    vec![(Method::GET, "/rooms/{room_id}/state/m.room.power_levels/")]
 }
 
 fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {

@@ -105,6 +105,24 @@ pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
         .with_state(state)
 }
 
+pub fn feature_flags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::POST, "/_synapse/admin/v1/feature-flags"),
+        (Method::GET, "/_synapse/admin/v1/feature-flags"),
+        (Method::GET, "/_synapse/admin/v1/feature-flags/{flag_key}"),
+        // PATCH would normally be the probe method we use to detect 405; the
+        // ledger probe test treats non-405 statuses as "route is wired" so a
+        // real PATCH handler here is fine — we just won't get an Allow-header
+        // assertion for this entry.
+        (Method::PATCH, "/_synapse/admin/v1/feature-flags/{flag_key}"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "feature_flags"))
+    .collect()
+}
+
 fn request_id(headers: &HeaderMap) -> String {
     headers
         .get("x-request-id")

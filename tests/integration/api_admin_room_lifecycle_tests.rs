@@ -166,7 +166,7 @@ async fn test_admin_room_history_purge() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
 
     // 1. 创建测试用户
     let username = format!("historyuser_{}", rand::random::<u32>());
@@ -285,7 +285,7 @@ async fn test_admin_purge_history_requires_existing_room() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
 
     let missing_room_id = format!("!missingpurge{}:localhost", rand::random::<u32>());
     let encoded_room_id = missing_room_id.replace('!', "%21").replace(':', "%3A");

@@ -37,6 +37,9 @@ pub struct RelationsResponse {
     pub chunk: Vec<Value>,
     pub next_batch: Option<String>,
     pub prev_batch: Option<String>,
+    /// 规范未强制，但 SDK `getRelationCount` 依赖此字段；缺省时 SDK 永远读到 0。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,6 +262,12 @@ impl RelationsService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get relations: {}", e)))?;
 
+        let total = self
+            .storage
+            .count_relations(room_id, relates_to_event_id, rel_type)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to count relations: {}", e)))?;
+
         let chunk: Vec<Value> = relations
             .into_iter()
             .map(|r| {
@@ -280,6 +289,7 @@ impl RelationsService {
             chunk,
             next_batch: None,
             prev_batch: None,
+            total: Some(total),
         })
     }
 

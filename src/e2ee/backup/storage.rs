@@ -197,8 +197,11 @@ impl BackupKeyStorage {
 
         sqlx::query(
             r#"
-            INSERT INTO backup_keys (backup_id, room_id, session_id, session_data, created_ts)
-            SELECT kb.backup_id, $3, $4, $5, $6
+            INSERT INTO backup_keys (
+                backup_id, room_id, session_id, session_data, created_ts,
+                first_message_index, forwarded_count, is_verified
+            )
+            SELECT kb.backup_id, $3, $4, $5, $6, $7, $8, $9
             FROM key_backups kb
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
@@ -210,6 +213,9 @@ impl BackupKeyStorage {
         .bind(&params.session_id)
         .bind(&params.backup_data)
         .bind(chrono::Utc::now().timestamp_millis())
+        .bind(params.first_message_index)
+        .bind(params.forwarded_count)
+        .bind(params.is_verified)
         .execute(&mut *tx)
         .await?;
 
@@ -230,9 +236,9 @@ impl BackupKeyStorage {
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
                 bk.room_id,
                 bk.session_id,
-                0::BIGINT AS first_message_index,
-                0::BIGINT AS forwarded_count,
-                FALSE AS is_verified,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
@@ -260,9 +266,9 @@ impl BackupKeyStorage {
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
                 bk.room_id,
                 bk.session_id,
-                0::BIGINT AS first_message_index,
-                0::BIGINT AS forwarded_count,
-                FALSE AS is_verified,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
@@ -293,9 +299,9 @@ impl BackupKeyStorage {
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
                 bk.room_id,
                 bk.session_id,
-                0::BIGINT AS first_message_index,
-                0::BIGINT AS forwarded_count,
-                FALSE AS is_verified,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
@@ -325,9 +331,9 @@ impl BackupKeyStorage {
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
                 bk.room_id,
                 bk.session_id,
-                0::BIGINT AS first_message_index,
-                0::BIGINT AS forwarded_count,
-                FALSE AS is_verified,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
@@ -370,6 +376,82 @@ impl BackupKeyStorage {
         .await?;
 
         Ok(())
+    }
+
+    /// Spec-scoped delete: limit to the given backup version.
+    pub async fn delete_session_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+        session_id: &str,
+    ) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM backup_keys bk
+            USING key_backups kb
+            WHERE kb.backup_id = bk.backup_id
+              AND kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+              AND bk.room_id = $3
+              AND bk.session_id = $4
+            "#,
+        )
+        .bind(user_id)
+        .bind(version)
+        .bind(room_id)
+        .bind(session_id)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn delete_room_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+        room_id: &str,
+    ) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM backup_keys bk
+            USING key_backups kb
+            WHERE kb.backup_id = bk.backup_id
+              AND kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+              AND bk.room_id = $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(version)
+        .bind(room_id)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn delete_all_for_version(
+        &self,
+        user_id: &str,
+        version: &str,
+    ) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM backup_keys bk
+            USING key_backups kb
+            WHERE kb.backup_id = bk.backup_id
+              AND kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+            "#,
+        )
+        .bind(user_id)
+        .bind(version)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 }
 
