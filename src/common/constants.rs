@@ -59,7 +59,7 @@ pub const BURN_AFTER_READ_DELAY_SECS: u64 = 30;
 // ============================================================================
 
 /// Minimum username length
-pub const MIN_USERNAME_LENGTH: usize = 3;
+pub const MIN_USERNAME_LENGTH: usize = 1;
 
 /// Maximum username length
 pub const MAX_USERNAME_LENGTH: usize = 255;
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_validation_limits() {
-        assert_eq!(MIN_USERNAME_LENGTH, 3);
+        assert_eq!(MIN_USERNAME_LENGTH, 1);
         assert_eq!(MAX_USERNAME_LENGTH, 255);
         assert_eq!(MAX_PASSWORD_LENGTH, 128);
         assert_eq!(MIN_PASSWORD_LENGTH, 8);

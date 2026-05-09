@@ -7,6 +7,7 @@ pub mod friend;
 pub mod key_rotation;
 pub mod memory_tracker;
 pub mod signing;
+pub mod state_resolution;
 
 pub use client::FederationClient;
 pub use device_sync::DeviceSyncManager;

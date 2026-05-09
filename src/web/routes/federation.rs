@@ -1184,7 +1184,6 @@ pub fn federation_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 
 async fn federation_version(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "version": env!("CARGO_PKG_VERSION"),
         "server": {
             "name": "synapse-rust",
             "version": env!("CARGO_PKG_VERSION")
@@ -1593,6 +1592,25 @@ async fn send_transaction(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
     validate_federation_origin(&auth.origin, Some(origin))?;
+
+    {
+        let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
+        let already_processed: Option<bool> = state
+            .services
+            .cache
+            .get(&dedup_key)
+            .await
+            .unwrap_or(None);
+        if already_processed.unwrap_or(false) {
+            ::tracing::debug!(
+                "Dedup: transaction {} from {} already processed, returning empty result",
+                txn_id,
+                origin
+            );
+            increment_counter(&state, "federation_inbound_txn_dedup_total");
+            return Ok(Json(json!({ "results": [] })));
+        }
+    }
     let pdus = body
         .get("pdus") // Matrix spec uses 'pdus'
         .or_else(|| body.get("pdu")) // Fallback to 'pdu'
@@ -1902,6 +1920,15 @@ async fn send_transaction(
         pdus.len()
     );
 
+    {
+        let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
+        let _ = state
+            .services
+            .cache
+            .set(&dedup_key, true, 86400)
+            .await;
+    }
+
     Ok(Json(json!({
         "results": results
     })))
@@ -1949,18 +1976,28 @@ async fn make_join(
             })
             .collect();
 
-        Ok(Json(json!({
-            "room_version": "1",
-            "auth_events": auth_events_json,
-            "event": {
-                "type": "m.room.member",
-                "content": {
-                    "membership": "join"
-                },
-                "sender": user_id,
-                "state_key": user_id
-            }
-        })))
+        let room_version = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.room_version)
+        .unwrap_or_else(|| "10".to_string());
+
+    Ok(Json(json!({
+        "room_version": room_version,
+        "auth_events": auth_events_json,
+        "event": {
+            "type": "m.room.member",
+            "content": {
+                "membership": "join"
+            },
+            "sender": user_id,
+            "state_key": user_id
+        }
+    })))
     }
     .await;
 
@@ -2002,8 +2039,18 @@ async fn make_leave(
         })
         .collect();
 
+    let room_version = state
+        .services
+        .room_storage
+        .get_room(&room_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.room_version)
+        .unwrap_or_else(|| "10".to_string());
+
     Ok(Json(json!({
-        "room_version": "1",
+        "room_version": room_version,
         "auth_events": auth_events_json,
         "event": {
             "type": "m.room.member",
@@ -3682,7 +3729,7 @@ async fn media_download(
         .media_service
         .download_media(&server_name, &media_id)
         .await?;
-    let content_type = federation_guess_content_type(&media_id).to_string();
+    let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 
     Ok((headers, content))
@@ -3721,7 +3768,7 @@ async fn media_thumbnail(
         .media_service
         .get_thumbnail(&server_name, &media_id, width as u32, height as u32, method)
         .await?;
-    let content_type = federation_guess_content_type(&media_id).to_string();
+    let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 
     Ok((headers, content))
@@ -3737,7 +3784,11 @@ fn federation_media_response_headers(
     ]
 }
 
-fn federation_guess_content_type(filename: &str) -> &'static str {
+fn federation_guess_content_type(filename: &str, data: &[u8]) -> &'static str {
+    if let Some(kind) = infer::get(data) {
+        return kind.mime_type();
+    }
+
     let lower = filename.to_ascii_lowercase();
 
     if lower.ends_with(".png") {

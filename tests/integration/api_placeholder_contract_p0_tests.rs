@@ -528,7 +528,7 @@ async fn test_change_password_uia_rejects_dummy_auth() {
             ))
             .unwrap(),
         StatusCode::UNAUTHORIZED,
-        "M_UNAUTHORIZED",
+        "M_UIA_REQUIRED",
     )
     .await;
 }
@@ -552,7 +552,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
             medium: "email".to_string(),
             address: email.clone(),
             verification_token: None,
-            verification_expires_ts: None,
+            verification_expires_at: None,
         })
         .await
         .expect("failed to add test email threepid");
@@ -808,7 +808,20 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
             .await
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(json.get("irc").is_some() || json.get("instances").is_some());
+
+        match path {
+            "/_matrix/client/v3/thirdparty/protocols" => {
+                assert_eq!(json, json!({}));
+            },
+            "/_matrix/client/r0/thirdparty/protocol/irc" => {
+                assert_eq!(json, json!({
+                    "instances": [],
+                    "user_fields": [],
+                    "location_fields": []
+                }));
+            },
+            _ => unreachable!(),
+        }
     }
 
     for path in [

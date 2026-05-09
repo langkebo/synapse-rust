@@ -246,11 +246,14 @@ impl RouteModule for SamlModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
+        #[cfg(feature = "saml-sso")]
         if state.services.saml_service.is_enabled() {
             router.merge(saml::create_saml_router(state))
         } else {
             router
         }
+        #[cfg(not(feature = "saml-sso"))]
+        router
     }
 }
 

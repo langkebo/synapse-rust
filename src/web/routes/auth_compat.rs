@@ -1,4 +1,6 @@
 use crate::common::ApiError;
+use crate::storage::device::DeviceStorage;
+use crate::storage::user::UserStorage;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;
@@ -15,13 +17,67 @@ pub(crate) async fn register(
     Query(query): Query<Value>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
-    if query.get("kind").and_then(|v| v.as_str()) == Some("guest") {
-        // Guest registration is not supported. Per Matrix spec, return 403
-        // M_GUEST_ACCESS_FORBIDDEN rather than 401 UIA so clients know to
-        // stop retrying instead of looping on auth flows.
-        return Err(ApiError::guest_access_forbidden(
-            "Guest registration is not enabled on this homeserver".to_string(),
-        ));
+    let is_guest = query.get("kind").and_then(|v| v.as_str()) == Some("guest")
+        || body.get("kind").and_then(|v| v.as_str()) == Some("guest");
+
+    if is_guest {
+        if !state.services.config.server.enable_registration {
+            return Err(ApiError::forbidden("Registration is disabled".to_string()));
+        }
+
+        let guest_num = rand::random::<u64>();
+        let username = format!("guest_{}", guest_num);
+        let user_id = format!("@{}:{}", username, state.services.server_name);
+        let device_id = format!("guest_device_{}", guest_num);
+
+        let user = UserStorage::create_user(
+            &state.services.user_storage,
+            &user_id,
+            &username,
+            None,
+            false,
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create guest user: {}", e)))?;
+
+        sqlx::query(
+            r#"
+            UPDATE users SET is_guest = TRUE WHERE user_id = $1
+            "#,
+        )
+        .bind(&user.user_id)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to mark guest user: {}", e)))?;
+
+        DeviceStorage::create_device(
+            &state.services.device_storage,
+            &device_id,
+            &user.user_id,
+            Some("Guest Device"),
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+
+        let access_token = state
+            .services
+            .auth_service
+            .generate_access_token(&user.user_id, &device_id, false)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to generate guest token: {}", e)))?;
+
+        return Ok(Json(json!({
+            "access_token": access_token,
+            "device_id": device_id,
+            "user_id": user.user_id,
+            "is_guest": true,
+            "expires_in": state.services.auth_service.token_expiry,
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": state.services.config.server.get_public_baseurl()
+                }
+            }
+        })).into_response());
     }
 
     let auth = body.get("auth").cloned();
@@ -75,12 +131,15 @@ pub(crate) async fn register(
         .validate_password(password)?;
 
     let displayname = body.get("displayname").and_then(|v| v.as_str());
+    let initial_device_display_name = body
+        .get("initial_device_display_name")
+        .and_then(|v| v.as_str());
 
     Ok(Json(
         state
             .services
             .registration_service
-            .register_user(username, password, displayname)
+            .register_user(username, password, displayname, initial_device_display_name)
             .await?,
     )
     .into_response())

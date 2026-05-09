@@ -247,6 +247,17 @@ fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
         return true;
     }
 
+    // Sensitive federation admin operations
+    if path == "/_synapse/admin/v1/federation/resolve" && *method == Method::POST {
+        return true;
+    }
+    if path == "/_synapse/admin/v1/federation/cache/clear" && *method == Method::POST {
+        return true;
+    }
+    if path.starts_with("/_synapse/admin/v1/federation/blacklist/") && is_write {
+        return true;
+    }
+
     false
 }
 

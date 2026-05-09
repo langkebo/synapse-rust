@@ -43,7 +43,7 @@ impl AdminAuditService {
     pub async fn list_events(
         &self,
         filters: AuditEventFilters,
-    ) -> Result<(Vec<AuditEvent>, i64), ApiError> {
+    ) -> Result<(Vec<AuditEvent>, i64, Option<String>), ApiError> {
         self.storage
             .list_events(&filters)
             .await
@@ -58,16 +58,6 @@ fn validate_request(request: &CreateAuditEventRequest) -> Result<(), ApiError> {
 
     if is_blank(&request.action) {
         return Err(ApiError::bad_request("action is required"));
-    }
-
-    if !request.action.chars().all(|c| {
-        c.is_ascii_alphanumeric()
-            || matches!(
-                c,
-                '.' | '_' | '-' | ':' | '/' | ' ' | '!' | '@' | '#' | '$' | '%'
-            )
-    }) {
-        return Err(ApiError::bad_request("action contains invalid characters"));
     }
 
     if is_blank(&request.resource_type) {

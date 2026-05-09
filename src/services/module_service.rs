@@ -214,14 +214,18 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_all_modules(&self, limit: i64, offset: i64) -> Result<Vec<Module>, ApiError> {
-        let modules = self
+    pub async fn get_all_modules(
+        &self,
+        limit: i64,
+        from: Option<String>,
+    ) -> Result<(Vec<Module>, Option<String>), ApiError> {
+        let (modules, next_from) = self
             .storage
-            .get_all_modules(limit, offset)
+            .get_all_modules(limit, from)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get modules: {}", e)))?;
 
-        Ok(modules)
+        Ok((modules, next_from))
     }
 
     #[instrument(skip(self))]

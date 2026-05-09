@@ -220,6 +220,50 @@ interface UserInfo {
 
 ---
 
+## 举报管理
+
+### 获取举报列表
+
+**端点:** `GET /_synapse/admin/v1/reports`
+
+**需要认证:** 是 (管理员)
+
+**查询参数:**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| limit | number | 否 | 每页数量，默认 `100` |
+| since_score | number | 否 | Keyset 游标的评分字段，用于全量/状态排序分页 |
+| since_ts | number | 否 | Keyset 游标时间戳，按 `received_ts DESC` 分页 |
+| since_id | number | 否 | Keyset 游标主键，解决相同时间戳并列 |
+
+**说明:**
+- 原 `offset` 分页已收敛为 Keyset 分页，避免深分页带来的线性扫描退化。
+- `/_synapse/admin/v1/rooms/{room_id}/reports` 使用 `since_ts + since_id`。
+- `/_synapse/admin/v1/reports` 与状态筛选接口使用 `since_score + since_ts + since_id`。
+
+**请求示例:**
+```typescript
+const getReports = async (accessToken: string, cursor?: {
+  limit?: number;
+  since_score?: number;
+  since_ts?: number;
+  since_id?: number;
+}) => {
+  const url = new URL(`${BASE_URL}/_synapse/admin/v1/reports`);
+  if (cursor?.limit) url.searchParams.set('limit', cursor.limit.toString());
+  if (cursor?.since_score !== undefined) url.searchParams.set('since_score', cursor.since_score.toString());
+  if (cursor?.since_ts !== undefined) url.searchParams.set('since_ts', cursor.since_ts.toString());
+  if (cursor?.since_id !== undefined) url.searchParams.set('since_id', cursor.since_id.toString());
+
+  const response = await fetch(url.toString(), {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  return handleApiResponse<{ reports: ReportInfo[]; total: number }>(response);
+};
+```
+
+---
+
 ### 获取用户详情
 
 **端点:** `GET /_synapse/admin/v1/users/{user_id}`

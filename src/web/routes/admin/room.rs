@@ -1,6 +1,12 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
+use crate::storage::room::{
+    decode_room_search_cursor, encode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
+};
+use crate::storage::sliding_sync::{
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
+};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -11,6 +17,91 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_search_cursor,
+        encode_room_token_sync_cursor, RoomSearchCursor, RoomTokenSyncCursor,
+    };
+
+    #[test]
+    fn test_room_search_created_cursor_round_trip() {
+        let cursor = encode_room_search_cursor(&RoomSearchCursor::Created {
+            created_ts: 1_700_000_000_000,
+            room_id: "!room:example.com".to_string(),
+        });
+        assert_eq!(
+            decode_room_search_cursor(Some(&cursor)),
+            Some(RoomSearchCursor::Created {
+                created_ts: 1_700_000_000_000,
+                room_id: "!room:example.com".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_room_search_name_cursor_round_trip() {
+        let cursor = encode_room_search_cursor(&RoomSearchCursor::Name {
+            name: Some("Alpha|Beta".to_string()),
+            created_ts: 1_700_000_000_000,
+            room_id: "!room:example.com".to_string(),
+        });
+        assert_eq!(
+            decode_room_search_cursor(Some(&cursor)),
+            Some(RoomSearchCursor::Name {
+                name: Some("Alpha|Beta".to_string()),
+                created_ts: 1_700_000_000_000,
+                room_id: "!room:example.com".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_room_search_size_cursor_round_trip() {
+        let cursor = encode_room_search_cursor(&RoomSearchCursor::Size {
+            member_count: 42,
+            created_ts: 1_700_000_000_000,
+            room_id: "!room:example.com".to_string(),
+        });
+        assert_eq!(
+            decode_room_search_cursor(Some(&cursor)),
+            Some(RoomSearchCursor::Size {
+                member_count: 42,
+                created_ts: 1_700_000_000_000,
+                room_id: "!room:example.com".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_room_search_cursor_rejects_invalid_value() {
+        assert_eq!(decode_room_search_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_room_search_cursor(Some("created|123|")), None);
+        assert_eq!(
+            decode_room_search_cursor(Some("name|0|bad%%%|123|!room:example.com")),
+            None
+        );
+    }
+
+    #[test]
+    fn test_room_token_sync_cursor_round_trip() {
+        let cursor = RoomTokenSyncCursor {
+            room_updated_ts: 1_700_000_000_000,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE".to_string(),
+            conn_id: Some("main|conn".to_string()),
+        };
+        let encoded = encode_room_token_sync_cursor(&cursor);
+        assert_eq!(decode_room_token_sync_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn test_room_token_sync_cursor_rejects_invalid_value() {
+        assert_eq!(decode_room_token_sync_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_room_token_sync_cursor(Some("123|")), None);
+    }
+}
 
 pub fn create_room_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -310,16 +401,29 @@ pub async fn get_rooms(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
-        .clamp(0, i64::MAX);
+    let order = RoomSearchOrder::from_query(params.get("order_by").map(String::as_str));
+    let cursor = decode_room_search_cursor(params.get("from").map(String::as_str));
 
-    let rooms_with_members = state
+    if params.contains_key("from") && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+
+    match (&order, &cursor) {
+        (RoomSearchOrder::Created, Some(RoomSearchCursor::Created { .. }))
+        | (RoomSearchOrder::Name, Some(RoomSearchCursor::Name { .. }))
+        | (RoomSearchOrder::Size, Some(RoomSearchCursor::Size { .. }))
+        | (_, None) => {}
+        _ => {
+            return Err(ApiError::bad_request(
+                "Cursor does not match requested order_by".to_string(),
+            ))
+        }
+    }
+
+    let (rooms_with_members, next_batch) = state
         .services
         .room_storage
-        .get_all_rooms_with_members(limit, offset)
+        .get_all_rooms_with_members(limit, cursor, order)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -347,7 +451,8 @@ pub async fn get_rooms(
 
     Ok(Json(json!({
         "rooms": room_list,
-        "total": total
+        "total": total,
+        "next_batch": next_batch
     })))
 }
 
@@ -1361,6 +1466,7 @@ async fn ban_user_internal(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     }
 
+    #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
         .friend_room_service
@@ -1485,6 +1591,7 @@ async fn kick_user_internal(
         None => {}
     }
 
+    #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
         .friend_room_service
@@ -1797,6 +1904,7 @@ pub async fn get_event_context_admin(
 pub struct RoomTokenSyncQueryParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -1821,31 +1929,61 @@ pub async fn get_room_token_sync_admin(
         .limit
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let offset = params.offset.unwrap_or(0).max(0);
+    let cursor = decode_room_token_sync_cursor(params.from.as_deref());
+    if params.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+    if params.offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request(
+            "Offset pagination is no longer supported for this endpoint; use from".to_string(),
+        ));
+    }
 
     let (entries, total) = state
         .services
         .sliding_sync_service
-        .get_room_token_sync(&room_id, limit, offset)
+        .get_room_token_sync(&room_id, limit, cursor)
         .await?;
 
-    let active_token_count = entries
+    let has_more = entries.len() as i64 > limit;
+    let visible_entries = if has_more {
+        &entries[..limit as usize]
+    } else {
+        &entries[..]
+    };
+    let next_batch = if has_more {
+        visible_entries.last().map(|entry| {
+            encode_room_token_sync_cursor(&RoomTokenSyncCursor {
+                room_updated_ts: entry.room_updated_ts,
+                user_id: entry.user_id.clone(),
+                device_id: entry.device_id.clone(),
+                conn_id: entry.conn_id.clone(),
+            })
+        })
+    } else {
+        None
+    };
+
+    let active_token_count = visible_entries
         .iter()
         .filter(|entry| entry.pos.is_some() && !entry.is_expired)
         .count();
-    let expired_token_count = entries.iter().filter(|entry| entry.is_expired).count();
-    let distinct_users = entries
+    let expired_token_count = visible_entries
+        .iter()
+        .filter(|entry| entry.is_expired)
+        .count();
+    let distinct_users = visible_entries
         .iter()
         .map(|entry| entry.user_id.clone())
         .collect::<std::collections::HashSet<_>>()
         .len();
-    let distinct_devices = entries
+    let distinct_devices = visible_entries
         .iter()
         .map(|entry| format!("{}|{}", entry.user_id, entry.device_id))
         .collect::<std::collections::HashSet<_>>()
         .len();
 
-    let results = entries
+    let results = visible_entries
         .iter()
         .map(|entry| {
             json!({
@@ -1876,6 +2014,7 @@ pub async fn get_room_token_sync_admin(
         "room_id": room_id,
         "results": results,
         "total": total,
+        "next_batch": next_batch,
         "summary": {
             "active_token_count": active_token_count,
             "expired_token_count": expired_token_count,
@@ -2022,6 +2161,7 @@ pub struct SearchAllRoomsRequest {
     pub search_term: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    pub from: Option<String>,
     pub order_by: Option<String>,
     pub is_public: Option<bool>,
     pub is_encrypted: Option<bool>,
@@ -2050,8 +2190,25 @@ async fn search_all_rooms_impl(
     body: SearchAllRoomsRequest,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(50).min(200) as i64;
-    let offset = body.offset.unwrap_or(0) as i64;
     let pool = &*state.services.room_storage.pool;
+    let order = RoomSearchOrder::from_query(body.order_by.as_deref());
+    let cursor = decode_room_search_cursor(body.from.as_deref());
+
+    if body.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+
+    match (&order, &cursor) {
+        (RoomSearchOrder::Created, Some(RoomSearchCursor::Created { .. }))
+        | (RoomSearchOrder::Name, Some(RoomSearchCursor::Name { .. }))
+        | (RoomSearchOrder::Size, Some(RoomSearchCursor::Size { .. }))
+        | (_, None) => {}
+        _ => {
+            return Err(ApiError::bad_request(
+                "Cursor does not match requested order_by".to_string(),
+            ))
+        }
+    }
 
     let search_pattern = body.search_term.as_ref().map(|term| format!("%{}%", term));
 
@@ -2096,18 +2253,82 @@ async fn search_all_rooms_impl(
 
     query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts");
 
-    let order_by_clause = match body.order_by.as_deref() {
-        Some("name") => " ORDER BY r.name ASC NULLS LAST, r.created_ts DESC",
-        Some("size") => " ORDER BY member_count DESC, r.created_ts DESC",
-        Some("created") => " ORDER BY r.created_ts DESC",
-        _ => " ORDER BY r.created_ts DESC",
+    match &cursor {
+        Some(RoomSearchCursor::Created {
+            created_ts,
+            room_id,
+        }) => {
+            query.push(" HAVING (r.created_ts < ");
+            query.push_bind(*created_ts);
+            query.push(" OR (r.created_ts = ");
+            query.push_bind(*created_ts);
+            query.push(" AND r.room_id < ");
+            query.push_bind(room_id);
+            query.push("))");
+        }
+        Some(RoomSearchCursor::Name {
+            name,
+            created_ts,
+            room_id,
+        }) => {
+            match name {
+                Some(name) => {
+                    query.push(" HAVING (r.name IS NULL OR r.name > ");
+                    query.push_bind(name);
+                    query.push(" OR (r.name = ");
+                    query.push_bind(name);
+                    query.push(" AND (r.created_ts < ");
+                    query.push_bind(*created_ts);
+                    query.push(" OR (r.created_ts = ");
+                    query.push_bind(*created_ts);
+                    query.push(" AND r.room_id < ");
+                    query.push_bind(room_id);
+                    query.push("))))");
+                }
+                None => {
+                    query.push(" HAVING r.name IS NULL AND (r.created_ts < ");
+                    query.push_bind(*created_ts);
+                    query.push(" OR (r.created_ts = ");
+                    query.push_bind(*created_ts);
+                    query.push(" AND r.room_id < ");
+                    query.push_bind(room_id);
+                    query.push("))");
+                }
+            };
+        }
+        Some(RoomSearchCursor::Size {
+            member_count,
+            created_ts,
+            room_id,
+        }) => {
+            query.push(" HAVING (COUNT(DISTINCT rm.user_id) < ");
+            query.push_bind(*member_count);
+            query.push(" OR (COUNT(DISTINCT rm.user_id) = ");
+            query.push_bind(*member_count);
+            query.push(" AND r.created_ts < ");
+            query.push_bind(*created_ts);
+            query.push(") OR (COUNT(DISTINCT rm.user_id) = ");
+            query.push_bind(*member_count);
+            query.push(" AND r.created_ts = ");
+            query.push_bind(*created_ts);
+            query.push(" AND r.room_id < ");
+            query.push_bind(room_id);
+            query.push("))");
+        }
+        None => {}
+    }
+
+    let order_by_clause = match order {
+        RoomSearchOrder::Name => {
+            " ORDER BY r.name ASC NULLS LAST, r.created_ts DESC, r.room_id DESC"
+        }
+        RoomSearchOrder::Size => " ORDER BY member_count DESC, r.created_ts DESC, r.room_id DESC",
+        RoomSearchOrder::Created => " ORDER BY r.created_ts DESC, r.room_id DESC",
     };
     query.push(order_by_clause);
 
     query.push(" LIMIT ");
     query.push_bind(limit);
-    query.push(" OFFSET ");
-    query.push_bind(offset);
 
     let rooms = query
         .build()
@@ -2169,11 +2390,32 @@ async fn search_all_rooms_impl(
         })
         .collect();
 
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last().map(|r| match order {
+            RoomSearchOrder::Created => encode_room_search_cursor(&RoomSearchCursor::Created {
+                created_ts: r.get::<i64, _>("creation_ts"),
+                room_id: r.get::<String, _>("room_id"),
+            }),
+            RoomSearchOrder::Name => encode_room_search_cursor(&RoomSearchCursor::Name {
+                name: r.get::<Option<String>, _>("name"),
+                created_ts: r.get::<i64, _>("creation_ts"),
+                room_id: r.get::<String, _>("room_id"),
+            }),
+            RoomSearchOrder::Size => encode_room_search_cursor(&RoomSearchCursor::Size {
+                member_count: r.get::<i64, _>("member_count"),
+                created_ts: r.get::<i64, _>("creation_ts"),
+                room_id: r.get::<String, _>("room_id"),
+            }),
+        })
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "results": results,
         "count": results.len(),
         "total": total,
-        "offset": offset,
-        "limit": limit
+        "limit": limit,
+        "next_batch": next_batch
     })))
 }

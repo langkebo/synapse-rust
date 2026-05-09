@@ -13,7 +13,8 @@ use url::Url;
 
 use crate::common::ApiError;
 use crate::storage::openclaw::{
-    AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection, OpenClawStorage,
+    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation,
+    AiGeneration, AiMessage, OpenClawConnection, OpenClawStorage,
 };
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::AppState;
@@ -259,6 +260,8 @@ pub struct PaginationQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    #[serde(default)]
+    pub from: Option<String>,
     pub before: Option<i64>,
     pub r#type: Option<String>,
 }
@@ -273,6 +276,7 @@ pub struct PaginatedResponse<T> {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+    pub next_batch: Option<String>,
 }
 
 pub struct OpenClawState {
@@ -731,10 +735,15 @@ async fn list_conversations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
     ensure_openclaw_user_allowed(&auth)?;
+    let from = decode_conversation_cursor(query.from.as_deref());
 
-    let conversations = state
+    if query.from.is_some() && from.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor"));
+    }
+
+    let (conversations, next_batch) = state
         .storage
-        .get_user_conversations(&auth.user_id, query.limit, query.offset)
+        .get_user_conversations(&auth.user_id, query.limit, from)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get conversations: {}", e)))?;
 
@@ -742,6 +751,7 @@ async fn list_conversations(
         total: conversations.len() as i64,
         limit: query.limit,
         offset: query.offset,
+        next_batch,
         items: conversations
             .into_iter()
             .map(ConversationResponse::from)
@@ -888,6 +898,7 @@ async fn list_messages(
         total: messages.len() as i64,
         limit: query.limit,
         offset: query.offset,
+        next_batch: None,
         items: messages.into_iter().map(MessageResponse::from).collect(),
     }))
 }
@@ -965,14 +976,19 @@ async fn list_generations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
     ensure_openclaw_user_allowed(&auth)?;
+    let from = decode_generation_cursor(query.from.as_deref());
 
-    let generations = state
+    if query.from.is_some() && from.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor"));
+    }
+
+    let (generations, next_batch) = state
         .storage
         .get_user_generations(
             &auth.user_id,
             query.r#type.as_deref(),
             query.limit,
-            query.offset,
+            from,
         )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get generations: {}", e)))?;
@@ -981,6 +997,7 @@ async fn list_generations(
         total: generations.len() as i64,
         limit: query.limit,
         offset: query.offset,
+        next_batch,
         items: generations
             .into_iter()
             .map(GenerationResponse::from)

@@ -11,6 +11,20 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (ts, room_id) = cursor.split_once('|')?;
+    let ts = ts.parse::<i64>().ok()?;
+    if room_id.is_empty() {
+        return None;
+    }
+    Some((ts, room_id))
+}
+
+fn encode_public_rooms_cursor(created_ts: i64, room_id: &str) -> String {
+    format!("{created_ts}|{room_id}")
+}
+
 async fn ensure_room_alias_write_allowed(
     state: &AppState,
     auth_user: &AuthenticatedUser,
@@ -107,6 +121,20 @@ pub(crate) async fn search_user_directory(
     })))
 }
 
+fn decode_user_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (ts, user_id) = cursor.split_once('|')?;
+    let ts = ts.parse::<i64>().ok()?;
+    if user_id.is_empty() {
+        return None;
+    }
+    Some((ts, user_id))
+}
+
+fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
+    format!("{created_ts}|{user_id}")
+}
+
 pub(crate) async fn list_user_directory(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -116,15 +144,27 @@ pub(crate) async fn list_user_directory(
     let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as i64;
-    let offset = body.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+    let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
 
     let total_count = state.services.user_storage.get_user_count().await?;
 
     let users = state
         .services
         .user_storage
-        .get_users_paginated(limit, offset)
+        .get_users_paginated(
+            limit,
+            cursor.map(|(ts, _)| ts),
+            cursor.map(|(_, user_id)| user_id),
+        )
         .await?;
+
+    let next_batch = if users.len() as i64 == limit {
+        users
+            .last()
+            .map(|user| encode_user_cursor(user.created_ts, &user.user_id))
+    } else {
+        None
+    };
 
     let mut users_json = Vec::new();
     for u in users {
@@ -141,7 +181,7 @@ pub(crate) async fn list_user_directory(
 
     Ok(Json(json!({
         "total": total_count,
-        "offset": offset,
+        "next_batch": next_batch,
         "users": users_json
     })))
 }
@@ -460,16 +500,100 @@ pub(crate) async fn get_public_rooms(
     _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
-    let _since = params.get("since").and_then(|v| v.as_str());
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .min(1000) as i64;
+    let cursor = decode_public_rooms_cursor(params.get("since").and_then(|v| v.as_str()));
 
-    Ok(Json(
-        state
-            .services
-            .room_service
-            .get_public_rooms(limit as i64)
-            .await?,
-    ))
+    let (rooms, total) = tokio::try_join!(
+        async {
+            state
+                .services
+                .room_storage
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                )
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        },
+        async {
+            state
+                .services
+                .room_storage
+                .count_public_rooms()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        }
+    )?;
+
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last()
+            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+    } else {
+        None
+    };
+
+    let chunk: Vec<Value> = rooms
+        .into_iter()
+        .map(|r| {
+            let world_readable = r.history_visibility == "world_readable";
+            let guest_can_join = r.join_rule == "public";
+            json!({
+                "room_id": r.room_id,
+                "name": r.name,
+                "topic": r.topic,
+                "avatar_url": r.avatar_url,
+                "canonical_alias": r.canonical_alias,
+                "num_joined_members": r.member_count,
+                "world_readable": world_readable,
+                "guest_can_join": guest_can_join,
+                "join_rule": r.join_rule,
+                "room_type": Option::<String>::None,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "chunk": chunk,
+        "total_room_count_estimate": total,
+        "next_batch": next_batch,
+    })))
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_public_rooms_cursor, decode_user_cursor, encode_public_rooms_cursor,
+        encode_user_cursor,
+    };
+
+    #[test]
+    fn test_public_rooms_cursor_round_trip() {
+        let cursor = encode_public_rooms_cursor(1_700_000_000_000, "!room:example.com");
+        assert_eq!(
+            decode_public_rooms_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "!room:example.com"))
+        );
+    }
+
+    #[test]
+    fn test_user_directory_cursor_round_trip() {
+        let cursor = encode_user_cursor(1_700_000_000_000, "@alice:example.com");
+        assert_eq!(
+            decode_user_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "@alice:example.com"))
+        );
+    }
+
+    #[test]
+    fn test_user_directory_cursor_rejects_invalid_value() {
+        assert_eq!(decode_user_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
 }
 
 #[axum::debug_handler]
@@ -478,15 +602,67 @@ pub(crate) async fn query_public_rooms(
     _auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
-    let _since = body.get("since").and_then(|v| v.as_str());
+    let limit = body
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .min(1000) as i64;
+    let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
     let _filter = body.get("filter");
 
-    Ok(Json(
-        state
-            .services
-            .room_service
-            .get_public_rooms(limit as i64)
-            .await?,
-    ))
+    let (rooms, total) = tokio::try_join!(
+        async {
+            state
+                .services
+                .room_storage
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                )
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        },
+        async {
+            state
+                .services
+                .room_storage
+                .count_public_rooms()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        }
+    )?;
+
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last()
+            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+    } else {
+        None
+    };
+
+    let chunk: Vec<Value> = rooms
+        .into_iter()
+        .map(|r| {
+            let world_readable = r.history_visibility == "world_readable";
+            let guest_can_join = r.join_rule == "public";
+            json!({
+                "room_id": r.room_id,
+                "name": r.name,
+                "topic": r.topic,
+                "avatar_url": r.avatar_url,
+                "canonical_alias": r.canonical_alias,
+                "num_joined_members": r.member_count,
+                "world_readable": world_readable,
+                "guest_can_join": guest_can_join,
+                "join_rule": r.join_rule,
+                "room_type": Option::<String>::None,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "chunk": chunk,
+        "total_room_count_estimate": total,
+        "next_batch": next_batch,
+    })))
 }

@@ -278,19 +278,48 @@ async fn get_push_rules(
 
 async fn get_push_rules_scope(
     Path(scope): Path<String>,
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if scope == "global" {
-        Ok(Json(json!({
-            "global": {
+        let username = auth_user
+            .user_id
+            .strip_prefix('@')
+            .and_then(|s| s.split(':').next())
+            .unwrap_or("");
+
+        let result = sqlx::query(
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"
+        )
+        .bind(&auth_user.user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        if let Some(row) = result {
+            let content: Option<Value> = row.get("content");
+            if let Some(content) = content {
+                if let Some(global) = content.get("global") {
+                    return Ok(Json(global.clone()));
+                }
+            }
+        }
+
+        let defaults = crate::web::routes::push_rules::default_push_rules_for_user(
+            &auth_user.user_id,
+            username,
+        );
+        if let Some(global) = defaults.get("global") {
+            Ok(Json(global.clone()))
+        } else {
+            Ok(Json(json!({
                 "content": [],
                 "override": [],
                 "room": [],
                 "sender": [],
                 "underride": []
-            }
-        })))
+            })))
+        }
     } else {
         Err(ApiError::invalid_input(format!(
             "Unsupported push rules scope: {}",

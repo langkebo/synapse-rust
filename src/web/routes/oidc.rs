@@ -2,6 +2,7 @@
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
 use crate::common::error::ApiError;
+#[cfg(feature = "builtin-oidc")]
 use crate::services::builtin_oidc_provider::{
     AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest,
 };
@@ -178,7 +179,8 @@ async fn sso_redirect(
 }
 
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
-    Router::new()
+    #[allow(unused_mut)]
+    let mut router = Router::new()
         .route("/_matrix/client/v3/login/sso/redirect", get(sso_redirect))
         .route("/_matrix/client/r0/login/sso/redirect", get(sso_redirect))
         .route("/_matrix/client/v3/login/sso/userinfo", get(oidc_userinfo))
@@ -196,12 +198,16 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/r0/oidc/logout", post(oidc_logout))
         .route("/_matrix/client/r0/oidc/authorize", get(oidc_authorize))
         .route("/_matrix/client/r0/oidc/register", post(oidc_register))
-        .route("/_matrix/client/r0/oidc/callback", get(oidc_callback))
-        // 内置 OIDC Provider 端点
-        .route("/_matrix/client/v3/oidc/login", post(builtin_oidc_login))
-        .route("/.well-known/openid-configuration", get(openid_discovery))
-        .route("/.well-known/jwks.json", get(jwks))
-        .with_state(state)
+        .route("/_matrix/client/r0/oidc/callback", get(oidc_callback));
+    // 内置 OIDC Provider 端点
+    #[cfg(feature = "builtin-oidc")]
+    {
+        router = router
+            .route("/_matrix/client/v3/oidc/login", post(builtin_oidc_login))
+            .route("/.well-known/openid-configuration", get(openid_discovery))
+            .route("/.well-known/jwks.json", get(jwks));
+    }
+    router.with_state(state)
 }
 
 pub fn oidc_enabled(state: &AppState) -> bool {
@@ -250,12 +256,23 @@ pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
         (Method::GET, "/_matrix/client/r0/oidc/authorize"),
         (Method::POST, "/_matrix/client/r0/oidc/register"),
         (Method::GET, "/_matrix/client/r0/oidc/callback"),
-        (Method::POST, "/_matrix/client/v3/oidc/login"),
-        (Method::GET, "/.well-known/openid-configuration"),
-        (Method::GET, "/.well-known/jwks.json"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "oidc"))
+    .chain({
+        #[cfg(feature = "builtin-oidc")]
+        {
+            vec![
+                RouteEntry::new(Method::POST, "/_matrix/client/v3/oidc/login", "oidc"),
+                RouteEntry::new(Method::GET, "/.well-known/openid-configuration", "oidc"),
+                RouteEntry::new(Method::GET, "/.well-known/jwks.json", "oidc"),
+            ]
+        }
+        #[cfg(not(feature = "builtin-oidc"))]
+        {
+            vec![]
+        }
+    }.into_iter())
     .collect()
 }
 
@@ -282,6 +299,7 @@ pub fn oidc_route_manifest_for(
     }
 }
 
+#[cfg(feature = "builtin-oidc")]
 async fn builtin_oidc_login(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
@@ -335,6 +353,7 @@ async fn builtin_oidc_login(
     Ok(Json(serde_json::json!({ "code": code })))
 }
 
+#[cfg(feature = "builtin-oidc")]
 async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     if let Some(provider) = &state.services.builtin_oidc_provider {
         let jwks = provider.get_jwks();
@@ -461,6 +480,7 @@ async fn oidc_token(
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     // 优先使用内置 OIDC Provider
+    #[cfg(feature = "builtin-oidc")]
     if let Some(builtin_provider) = &state.services.builtin_oidc_provider {
         let request = BuiltinOidcTokenRequest {
             grant_type: body.grant_type.clone(),
@@ -596,7 +616,7 @@ async fn oidc_token(
                 state
                     .services
                     .registration_service
-                    .register_user(&localpart, &random_password, Some(&displayname))
+                    .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to register OIDC user: {}", e))
@@ -892,6 +912,7 @@ pub async fn openid_discovery(
     State(state): State<AppState>,
 ) -> Result<Json<OpenIdDiscovery>, ApiError> {
     // 如果启用了内置 OIDC Provider，直接使用其发现文档
+    #[cfg(feature = "builtin-oidc")]
     if let Some(provider) = &state.services.builtin_oidc_provider {
         let doc = provider.get_discovery_document();
         return Ok(Json(OpenIdDiscovery {

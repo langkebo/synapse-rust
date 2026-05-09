@@ -55,6 +55,8 @@ COPY docker/config/rate_limit.yaml ./docker/config_defaults/rate_limit.yaml
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
+    find target/release/.fingerprint -name '*synapse*' -delete 2>/dev/null; \
+    find target/release/deps -name '*synapse*' -delete 2>/dev/null; \
     touch src/main.rs && \
     cargo build --release --locked --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \

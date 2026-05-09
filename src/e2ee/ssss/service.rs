@@ -3,20 +3,32 @@ use super::storage::SecretStorage;
 use crate::e2ee::crypto::aes::{Aes256GcmCipher, Aes256GcmKey};
 use crate::e2ee::crypto::x25519::X25519KeyPair;
 use crate::error::ApiError;
+use crate::services::dehydrated_device_service::DehydratedDeviceService;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rand::Rng;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 const SSSS_KEY_LENGTH: usize = 32;
 const SSSS_IV_LENGTH: usize = 12;
 
+#[derive(Clone)]
 pub struct SecretStorageService {
     storage: SecretStorage,
+    dehydrated_device_service: Option<Arc<DehydratedDeviceService>>,
 }
 
 impl SecretStorageService {
     pub fn new(storage: SecretStorage) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            dehydrated_device_service: None,
+        }
+    }
+
+    pub fn with_dehydrated_device_service(mut self, service: Arc<DehydratedDeviceService>) -> Self {
+        self.dehydrated_device_service = Some(service);
+        self
     }
 
     pub fn create_key(
@@ -155,7 +167,11 @@ impl SecretStorageService {
     }
 
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
-        self.storage.delete_key(user_id, key_id).await
+        self.storage.delete_key(user_id, key_id).await?;
+        if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
+            dehydrated_device_service.delete_all_for_user(user_id).await?;
+        }
+        Ok(())
     }
 
     pub fn encrypt_secret(

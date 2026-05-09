@@ -4,6 +4,25 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerNotificationCursor {
+    pub created_ts: i64,
+    pub id: i64,
+}
+
+pub fn encode_server_notification_cursor(cursor: &ServerNotificationCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.id)
+}
+
+pub fn decode_server_notification_cursor(cursor: Option<&str>) -> Option<ServerNotificationCursor> {
+    let cursor = cursor?;
+    let (created_ts, id) = cursor.split_once('|')?;
+    Some(ServerNotificationCursor {
+        created_ts: created_ts.parse::<i64>().ok()?,
+        id: id.parse::<i64>().ok()?,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ServerNotification {
     pub id: i64,
@@ -196,24 +215,44 @@ impl ServerNotificationStorage {
 
     pub async fn list_all_notifications(
         &self,
+        audience: Option<&str>,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<ServerNotification>, ApiError> {
+        from: Option<ServerNotificationCursor>,
+    ) -> Result<(Vec<ServerNotification>, Option<String>), ApiError> {
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
             SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
             FROM server_notifications
-            ORDER BY created_ts DESC
-            LIMIT $1 OFFSET $2
+            WHERE ($1::text IS NULL OR target_audience = $1)
+              AND (
+                ($2::BIGINT IS NULL AND $3::BIGINT IS NULL)
+                OR created_ts < $2
+                OR (created_ts = $2 AND id < $3)
+              )
+            ORDER BY created_ts DESC, id DESC
+            LIMIT $4
             "#,
         )
+        .bind(audience)
+        .bind(from.as_ref().map(|cursor| cursor.created_ts))
+        .bind(from.as_ref().map(|cursor| cursor.id))
         .bind(limit)
-        .bind(offset)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to list notifications: {}", e)))?;
 
-        Ok(notifications)
+        let next_batch = if notifications.len() as i64 == limit {
+            notifications.last().map(|notification| {
+                encode_server_notification_cursor(&ServerNotificationCursor {
+                    created_ts: notification.created_ts,
+                    id: notification.id,
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok((notifications, next_batch))
     }
 
     pub async fn update_notification(
@@ -622,6 +661,33 @@ impl ServerNotificationStorage {
         .map_err(|e| ApiError::internal(format!("Failed to mark scheduled as sent: {}", e)))?;
 
         Ok(result.rows_affected() > 0)
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_server_notification_cursor, encode_server_notification_cursor,
+        ServerNotificationCursor,
+    };
+
+    #[test]
+    fn server_notification_cursor_round_trip() {
+        let cursor = ServerNotificationCursor {
+            created_ts: 1_700_000_000_000,
+            id: 7,
+        };
+        let encoded = encode_server_notification_cursor(&cursor);
+        assert_eq!(
+            decode_server_notification_cursor(Some(&encoded)),
+            Some(cursor)
+        );
+    }
+
+    #[test]
+    fn server_notification_cursor_rejects_invalid_value() {
+        assert_eq!(decode_server_notification_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_server_notification_cursor(Some("123|")), None);
     }
 }
 

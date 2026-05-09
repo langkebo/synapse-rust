@@ -42,6 +42,18 @@ fn parse_mxc_uri(content_uri: &str) -> (String, String) {
     (server_name.to_string(), media_id.to_string())
 }
 
+fn tiny_png() -> Vec<u8> {
+    use image::{ImageBuffer, ImageFormat, Rgb};
+
+    let image = ImageBuffer::from_pixel(2, 2, Rgb([0_u8, 200_u8, 0_u8]));
+    let dynamic = image::DynamicImage::ImageRgb8(image);
+    let mut output = Vec::new();
+    dynamic
+        .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Png)
+        .expect("encode test png");
+    output
+}
+
 #[tokio::test]
 async fn test_media_routes_share_content_across_versions() {
     let Some(app) = setup_test_app().await else {
@@ -221,6 +233,141 @@ async fn test_media_preview_and_delete_boundaries() {
         download_after_delete_response.status(),
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn test_client_v1_authenticated_media_download_requires_access_token() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_auth_download_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=auth-download.txt")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("authenticated-media"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let anonymous_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v1/media/download/{}/{}",
+            server_name, media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let anonymous_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request)
+        .await
+        .unwrap();
+    assert_eq!(anonymous_response.status(), StatusCode::UNAUTHORIZED);
+
+    let authed_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v1/media/download/{}/{}",
+            server_name, media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let authed_response = ServiceExt::<Request<Body>>::oneshot(app, authed_request)
+        .await
+        .unwrap();
+    assert_eq!(authed_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(authed_response.into_body(), 2048)
+        .await
+        .unwrap();
+    assert_eq!(body.as_ref(), b"authenticated-media");
+}
+
+#[tokio::test]
+async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(
+        &app,
+        &format!("media_auth_thumbnail_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=thumb.png")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "image/png")
+        .body(Body::from(tiny_png()))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request)
+        .await
+        .unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let preview_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v1/media/preview_url?url=https://example.com")
+        .body(Body::empty())
+        .unwrap();
+    let preview_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), preview_request)
+        .await
+        .unwrap();
+    assert_eq!(preview_response.status(), StatusCode::OK);
+
+    let thumbnail_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v1/media/thumbnail/{}/{}?width=32&height=32&method=scale",
+            server_name, media_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let thumbnail_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), thumbnail_request)
+            .await
+            .unwrap();
+    assert_eq!(thumbnail_response.status(), StatusCode::OK);
+    assert_eq!(
+        thumbnail_response.headers().get("content-type").unwrap(),
+        "image/jpeg"
+    );
+
+    let anonymous_thumbnail_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/v1/media/thumbnail/{}/{}?width=32&height=32&method=scale",
+            server_name, media_id
+        ))
+        .body(Body::empty())
+        .unwrap();
+    let anonymous_thumbnail_response =
+        ServiceExt::<Request<Body>>::oneshot(app, anonymous_thumbnail_request)
+            .await
+            .unwrap();
+    assert_eq!(anonymous_thumbnail_response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::{de::Deserializer, Deserialize, Serialize};
 use sqlx::{Pool, Postgres, QueryBuilder};
 use std::collections::HashMap;
@@ -85,6 +87,62 @@ pub struct AdminRoomTokenSyncEntry {
     pub is_expired: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomTokenSyncCursor {
+    pub room_updated_ts: i64,
+    pub user_id: String,
+    pub device_id: String,
+    pub conn_id: Option<String>,
+}
+
+pub fn encode_room_token_sync_cursor(cursor: &RoomTokenSyncCursor) -> String {
+    let encoded_user_id = URL_SAFE_NO_PAD.encode(cursor.user_id.as_bytes());
+    let encoded_device_id = URL_SAFE_NO_PAD.encode(cursor.device_id.as_bytes());
+    let is_conn_id_null = if cursor.conn_id.is_none() { 1 } else { 0 };
+    let encoded_conn_id = URL_SAFE_NO_PAD.encode(cursor.conn_id.as_deref().unwrap_or("").as_bytes());
+
+    format!(
+        "{}|{}|{}|{}|{}",
+        cursor.room_updated_ts,
+        encoded_user_id,
+        encoded_device_id,
+        is_conn_id_null,
+        encoded_conn_id
+    )
+}
+
+pub fn decode_room_token_sync_cursor(cursor: Option<&str>) -> Option<RoomTokenSyncCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.split('|');
+    let room_updated_ts = parts.next()?.parse::<i64>().ok()?;
+    let encoded_user_id = parts.next()?;
+    let encoded_device_id = parts.next()?;
+    let is_conn_id_null = parts.next()?.parse::<u8>().ok()?;
+    let encoded_conn_id = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+
+    let user_id = String::from_utf8(URL_SAFE_NO_PAD.decode(encoded_user_id).ok()?).ok()?;
+    let device_id = String::from_utf8(URL_SAFE_NO_PAD.decode(encoded_device_id).ok()?).ok()?;
+    let conn_id = if is_conn_id_null == 1 {
+        None
+    } else {
+        Some(String::from_utf8(URL_SAFE_NO_PAD.decode(encoded_conn_id).ok()?).ok()?)
+    };
+
+    if user_id.is_empty() || device_id.is_empty() {
+        return None;
+    }
+
+    Some(RoomTokenSyncCursor {
+        room_updated_ts,
+        user_id,
+        device_id,
+        conn_id,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlidingSyncRequest {
     pub conn_id: Option<String>,
@@ -131,6 +189,8 @@ where
                         filters: list.filters,
                         timeline_limit: list.limit,
                         required_state: None,
+                        slow_by: None,
+                        bump_event_types: None,
                     },
                 );
             }
@@ -146,10 +206,14 @@ pub struct SlidingSyncListData {
     #[serde(default)]
     pub sort: Vec<String>,
     pub filters: Option<SlidingSyncFilters>,
-    #[serde(rename = "timeline_limit")]
+    #[serde(rename = "timeline_limit", alias = "timelineLimit", default)]
     pub timeline_limit: Option<u32>,
-    #[serde(rename = "required_state")]
+    #[serde(rename = "required_state", alias = "requiredState", default)]
     pub required_state: Option<Vec<Vec<String>>>,
+    #[serde(default)]
+    pub slow_by: Option<u32>,
+    #[serde(default)]
+    pub bump_event_types: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,24 +228,26 @@ pub struct SlidingSyncListRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SlidingSyncFilters {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub is_dm: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub is_encrypted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub is_invite: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub is_tombstoned: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub room_types: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub not_room_types: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub room_name_like: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub not_tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub room_state_types: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -715,49 +781,104 @@ impl SlidingSyncStorage {
         &self,
         room_id: &str,
         limit: i64,
-        offset: i64,
+        from: Option<&RoomTokenSyncCursor>,
     ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error> {
         self.ensure_schema().await?;
         let now = chrono::Utc::now().timestamp_millis();
+        let fetch_limit = limit.saturating_add(1);
 
-        sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
-            r#"
-            SELECT
-                rooms.user_id,
-                rooms.device_id,
-                rooms.conn_id,
-                rooms.list_key,
-                tokens.pos,
-                tokens.created_ts AS token_created_ts,
-                tokens.expires_at AS token_expires_at,
-                rooms.timestamp AS room_timestamp,
-                rooms.updated_ts AS room_updated_ts,
-                rooms.bump_stamp,
-                rooms.highlight_count,
-                rooms.notification_count,
-                rooms.is_dm,
-                rooms.is_encrypted,
-                rooms.is_tombstoned,
-                rooms.invited,
-                rooms.name,
-                rooms.avatar,
-                COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired
-            FROM sliding_sync_rooms rooms
-            LEFT JOIN sliding_sync_tokens tokens
-                ON tokens.user_id = rooms.user_id
-               AND tokens.device_id = rooms.device_id
-               AND COALESCE(tokens.conn_id, '') = COALESCE(rooms.conn_id, '')
-            WHERE rooms.room_id = $1
-            ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, rooms.conn_id ASC
-            LIMIT $3 OFFSET $4
-            "#,
-        )
-        .bind(room_id)
-        .bind(now)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await
+        if let Some(cursor) = from {
+            sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
+                r#"
+                SELECT
+                    rooms.user_id,
+                    rooms.device_id,
+                    rooms.conn_id,
+                    rooms.list_key,
+                    tokens.pos,
+                    tokens.created_ts AS token_created_ts,
+                    tokens.expires_at AS token_expires_at,
+                    rooms.timestamp AS room_timestamp,
+                    rooms.updated_ts AS room_updated_ts,
+                    rooms.bump_stamp,
+                    rooms.highlight_count,
+                    rooms.notification_count,
+                    rooms.is_dm,
+                    rooms.is_encrypted,
+                    rooms.is_tombstoned,
+                    rooms.invited,
+                    rooms.name,
+                    rooms.avatar,
+                    COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired
+                FROM sliding_sync_rooms rooms
+                LEFT JOIN sliding_sync_tokens tokens
+                    ON tokens.user_id = rooms.user_id
+                   AND tokens.device_id = rooms.device_id
+                   AND COALESCE(tokens.conn_id, '') = COALESCE(rooms.conn_id, '')
+                WHERE rooms.room_id = $1
+                  AND (
+                    rooms.updated_ts < $3
+                    OR (rooms.updated_ts = $3 AND rooms.user_id > $4)
+                    OR (rooms.updated_ts = $3 AND rooms.user_id = $4 AND rooms.device_id > $5)
+                    OR (
+                        rooms.updated_ts = $3
+                        AND rooms.user_id = $4
+                        AND rooms.device_id = $5
+                        AND COALESCE(rooms.conn_id, '') > $6
+                    )
+                  )
+                ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, COALESCE(rooms.conn_id, '') ASC
+                LIMIT $7
+                "#,
+            )
+            .bind(room_id)
+            .bind(now)
+            .bind(cursor.room_updated_ts)
+            .bind(&cursor.user_id)
+            .bind(&cursor.device_id)
+            .bind(cursor.conn_id.as_deref().unwrap_or(""))
+            .bind(fetch_limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
+                r#"
+                SELECT
+                    rooms.user_id,
+                    rooms.device_id,
+                    rooms.conn_id,
+                    rooms.list_key,
+                    tokens.pos,
+                    tokens.created_ts AS token_created_ts,
+                    tokens.expires_at AS token_expires_at,
+                    rooms.timestamp AS room_timestamp,
+                    rooms.updated_ts AS room_updated_ts,
+                    rooms.bump_stamp,
+                    rooms.highlight_count,
+                    rooms.notification_count,
+                    rooms.is_dm,
+                    rooms.is_encrypted,
+                    rooms.is_tombstoned,
+                    rooms.invited,
+                    rooms.name,
+                    rooms.avatar,
+                    COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired
+                FROM sliding_sync_rooms rooms
+                LEFT JOIN sliding_sync_tokens tokens
+                    ON tokens.user_id = rooms.user_id
+                   AND tokens.device_id = rooms.device_id
+                   AND COALESCE(tokens.conn_id, '') = COALESCE(rooms.conn_id, '')
+                WHERE rooms.room_id = $1
+                ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, COALESCE(rooms.conn_id, '') ASC
+                LIMIT $3
+                "#,
+            )
+            .bind(room_id)
+            .bind(now)
+            .bind(fetch_limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
     }
 
     pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
@@ -900,6 +1021,32 @@ impl SlidingSyncStorage {
 }
 
 #[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
+    };
+
+    #[test]
+    fn room_token_sync_cursor_round_trip() {
+        let cursor = RoomTokenSyncCursor {
+            room_updated_ts: 1_700_000_000_000,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE".to_string(),
+            conn_id: Some("main|conn".to_string()),
+        };
+
+        let encoded = encode_room_token_sync_cursor(&cursor);
+        assert_eq!(decode_room_token_sync_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn room_token_sync_cursor_rejects_invalid_values() {
+        assert_eq!(decode_room_token_sync_cursor(Some("bad")), None);
+        assert_eq!(decode_room_token_sync_cursor(Some("123|||")), None);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -953,6 +1100,8 @@ mod tests {
                 filters: None,
                 timeline_limit: Some(100),
                 required_state: None,
+                slow_by: None,
+                bump_event_types: None,
             },
         );
 

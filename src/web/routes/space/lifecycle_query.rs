@@ -1,5 +1,39 @@
 use super::*;
 
+fn decode_public_space_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (created_ts, space_id) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if space_id.is_empty() {
+        return None;
+    }
+    Some((created_ts, space_id))
+}
+
+fn encode_public_space_cursor(created_ts: i64, space_id: &str) -> String {
+    format!("{created_ts}|{space_id}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_public_space_cursor, encode_public_space_cursor};
+
+    #[test]
+    fn test_public_space_cursor_round_trip() {
+        let cursor = encode_public_space_cursor(1_700_000_000_000, "!space:example.com");
+        assert_eq!(
+            decode_public_space_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "!space:example.com"))
+        );
+    }
+
+    #[test]
+    fn test_public_space_cursor_rejects_invalid_value() {
+        assert_eq!(decode_public_space_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_public_space_cursor(Some("123|")), None);
+    }
+}
+
 pub(super) async fn create_space(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -97,15 +131,38 @@ pub(super) async fn get_public_spaces(
     Query(query): Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
+    let cursor = decode_public_space_cursor(query.from.as_deref());
+    if query.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
 
     let spaces = state
         .services
         .space_service
-        .get_public_spaces(limit, offset)
+        .get_public_spaces(
+            limit,
+            cursor.map(|(created_ts, _)| created_ts),
+            cursor.map(|(_, space_id)| space_id),
+        )
         .await?;
 
-    Ok(json_vec_from::<_, SpaceResponse>(spaces))
+    let next_batch = if spaces.len() as i64 == limit {
+        spaces
+            .last()
+            .map(|space| encode_public_space_cursor(space.created_ts, &space.space_id))
+    } else {
+        None
+    };
+
+    let payload = spaces
+        .into_iter()
+        .map(SpaceResponse::from)
+        .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "spaces": payload,
+        "next_batch": next_batch
+    })))
 }
 
 pub(super) async fn search_spaces(

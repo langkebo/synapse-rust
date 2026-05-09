@@ -1,10 +1,12 @@
 use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
 use crate::common::ApiError;
+use crate::services::uia_service::UiaService;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::web::routes::{extract_token_from_headers, validate_user_id, AppState};
 use axum::{
     extract::{Json, Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -233,7 +235,7 @@ pub(crate) async fn change_password_uia(
     State(state): State<AppState>,
     auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
     let new_password = body
         .get("new_password")
         .and_then(|v| v.as_str())
@@ -241,6 +243,27 @@ pub(crate) async fn change_password_uia(
 
     let auth = body.get("auth").cloned().unwrap_or(serde_json::json!({}));
     let auth_type = auth.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    if auth_type.is_empty() {
+        let user_id = auth_user
+            .user_id
+            .as_deref()
+            .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
+        let session = state
+            .services
+            .uia_service
+            .create_session(user_id, UiaService::get_password_change_flows())
+            .await;
+        return Ok((
+            StatusCode::UNAUTHORIZED,
+            Json(state.services.uia_service.build_uia_response(
+                &session,
+                "M_UIA_REQUIRED",
+                "User-Interactive Authentication required",
+            )),
+        )
+            .into_response());
+    }
 
     match auth_type {
         "m.login.password" => {
@@ -272,22 +295,15 @@ pub(crate) async fn change_password_uia(
                     return Err(ApiError::forbidden("User mismatch".to_string()));
                 }
 
-                // 不在路由层提前校验当前密码 / 提前调 validate_password —
-                // change_password 内部已经做这两件事，并且通过
-                // spawn_blocking 把 argon2 verify 放到独立线程；
-                // 之前路由里又同步跑了一遍 verify_password，既阻塞 tokio worker
-                // 又把 argon2 计算量翻倍。这里只保留 user_id 一致性检查。
                 state
                     .services
                     .registration_service
                     .change_password(authenticated_user_id, Some(password), new_password)
                     .await?;
 
-                Ok(Json(json!({})))
+                Ok(Json(json!({})).into_response())
             } else {
-                Err(ApiError::bad_request(
-                    "User identifier required".to_string(),
-                ))
+                Err(ApiError::bad_request("User identifier required".to_string()))
             }
         }
         "m.login.email.identity" => {
@@ -305,10 +321,6 @@ pub(crate) async fn change_password_uia(
                 .parse()
                 .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-            // 原子消费：claim_used_token 在一条 DELETE ... RETURNING 里完成
-            // "校验 used=TRUE && 未过期 → 返回行 → 物理删除"。
-            // 这样两个并发请求里只有一个会拿到 Some，另一个拿到 None；
-            // 即便后续 change_password 失败，token 也已被销毁，不会被重放。
             let verification_token = state
                 .services
                 .email_verification_storage
@@ -324,8 +336,6 @@ pub(crate) async fn change_password_uia(
                     )
                 })?;
 
-            // client_secret 必须跟会话一致 —— 在 claim 之后再校验是为了
-            // 在校验失败时已经物理消耗掉 token（防止穷举 client_secret）。
             if session_client_secret(verification_token.session_data.as_ref())
                 != Some(client_secret)
             {
@@ -350,11 +360,28 @@ pub(crate) async fn change_password_uia(
                 .change_password(&user_id, None, new_password)
                 .await?;
 
-            Ok(Json(json!({})))
+            Ok(Json(json!({})).into_response())
         }
-        _ => Err(ApiError::unauthorized(
-            "m.login.password or m.login.email.identity authentication required".to_string(),
-        )),
+        _ => {
+            let user_id = auth_user
+                .user_id
+                .as_deref()
+                .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
+            let session = state
+                .services
+                .uia_service
+                .create_session(user_id, UiaService::get_password_change_flows())
+                .await;
+            Ok((
+                StatusCode::UNAUTHORIZED,
+                Json(state.services.uia_service.build_uia_response(
+                    &session,
+                    "M_UIA_REQUIRED",
+                    "m.login.password or m.login.email.identity authentication required",
+                )),
+            )
+                .into_response())
+        }
     }
 }
 
@@ -423,7 +450,79 @@ pub(crate) async fn request_password_email_verification(
 pub(crate) async fn deactivate_account(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
+    Json(body): Json<Value>,
+) -> Result<axum::response::Response, ApiError> {
+    let flows = UiaService::get_deactivate_account_flows();
+    let auth = body.get("auth");
+
+    match auth {
+        None => {
+            let session = state
+                .services
+                .uia_service
+                .create_session(&auth_user.user_id, flows)
+                .await;
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                Json(state.services.uia_service.build_uia_response(
+                    &session,
+                    "M_UIA_REQUIRED",
+                    "User-Interactive Authentication required",
+                )),
+            )
+                .into_response());
+        }
+        Some(auth_val) => {
+            let result = state
+                .services
+                .uia_service
+                .validate_auth(auth_val, &auth_user.user_id, flows)
+                .await;
+
+            match result {
+                Ok(_) => {}
+                Err(uia_response) => {
+                    return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+                }
+            }
+
+            let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match auth_type {
+                "m.login.password" => {
+                    if let Err(e) = state
+                        .services
+                        .uia_service
+                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .await
+                    {
+                        let session = state
+                            .services
+                            .uia_service
+                            .create_session(
+                                &auth_user.user_id,
+                                UiaService::get_deactivate_account_flows(),
+                            )
+                            .await;
+                        return Ok((
+                            StatusCode::UNAUTHORIZED,
+                            Json(state.services.uia_service.build_uia_response(
+                                &session,
+                                "M_FORBIDDEN",
+                                &e.to_string(),
+                            )),
+                        )
+                            .into_response());
+                    }
+                }
+                _ => {
+                    return Err(ApiError::unauthorized(
+                        "Unsupported authentication type".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
     let user_id = auth_user.user_id.clone();
 
     state
@@ -444,9 +543,12 @@ pub(crate) async fn deactivate_account(
         .delete(&format!("token:{}", auth_user.access_token))
         .await;
 
-    Ok(Json(json!({
-        "id_server_unbind_result": "success"
-    })))
+    Ok(
+        Json(json!({
+            "id_server_unbind_result": "success"
+        }))
+        .into_response(),
+    )
 }
 
 pub(crate) async fn get_threepids(

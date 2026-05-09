@@ -30,7 +30,7 @@ pub struct CallInviteEvent {
     pub call_id: String,
     pub version: i32,
     pub offer: Option<CallOffer>,
-    pub invitee: Option<String>,
+    pub invitee: Option<serde_json::Value>,
     pub lifetime: Option<i64>,
 }
 
@@ -118,7 +118,7 @@ impl CallService {
             call_id: content.call_id.clone(),
             room_id: room_id.to_string(),
             caller_id: sender_id.to_string(),
-            callee_id: content.invitee.clone(),
+            callee_id: content.invitee.as_ref().and_then(|v| v.as_str().map(|s| s.to_string())),
             offer_sdp: content.offer.as_ref().map(|o| o.sdp.clone()),
             lifetime: content.lifetime,
         };
@@ -305,7 +305,7 @@ mod tests {
         let offer = event.offer.unwrap();
         assert_eq!(offer.offer_type, "offer");
         assert_eq!(offer.sdp, "v=0...");
-        assert_eq!(event.invitee, Some("@alice:example.com".to_string()));
+        assert_eq!(event.invitee, Some(serde_json::json!("@alice:example.com")));
         assert_eq!(event.lifetime, Some(60000));
     }
 

@@ -156,6 +156,37 @@ async fn put_state_event_empty_key(
     json["event_id"].as_str().unwrap().to_string()
 }
 
+async fn put_state_event(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    event_type: &str,
+    state_key: String,
+    content: Value,
+) -> String {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/r0/rooms/{}/state/{}/{}",
+            room_id, event_type, state_key
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(content.to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["event_id"].as_str().unwrap().to_string()
+}
+
 fn encode_room_id(room_id: &str) -> String {
     room_id.replace('!', "%21").replace(':', "%3A")
 }
@@ -582,6 +613,95 @@ async fn test_state_default_contract_rejects_regular_member_topic_write() {
         "M_FORBIDDEN",
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_get_state_event_empty_key_returns_raw_content_only() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("state_empty_key_reader_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let room_id = create_room(&app, &alice_token, "State Empty Key Read Contract").await;
+
+    put_state_event_empty_key(
+        &app,
+        &alice_token,
+        &room_id,
+        "m.room.topic",
+        json!({ "topic": "raw topic payload" }),
+    )
+    .await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/state/m.room.topic",
+                room_id
+            ))
+            .header("Authorization", format!("Bearer {}", alice_token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, json!({ "topic": "raw topic payload" }));
+    assert!(json.get("event_id").is_none());
+    assert!(json.get("type").is_none());
+}
+
+#[tokio::test]
+async fn test_get_state_event_with_state_key_returns_raw_content_only() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let alice = format!("state_keyed_reader_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let room_id = create_room(&app, &alice_token, "State Keyed Read Contract").await;
+
+    put_state_event(
+        &app,
+        &alice_token,
+        &room_id,
+        "m.test.flag",
+        "primary".to_string(),
+        json!({ "enabled": true, "label": "alpha" }),
+    )
+    .await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/r0/rooms/{}/state/m.test.flag/primary",
+                room_id
+            ))
+            .header("Authorization", format!("Bearer {}", alice_token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, json!({ "enabled": true, "label": "alpha" }));
+    assert!(json.get("state_key").is_none());
+    assert!(json.get("sender").is_none());
 }
 
 #[tokio::test]

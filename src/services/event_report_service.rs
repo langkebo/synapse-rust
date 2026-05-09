@@ -93,11 +93,12 @@ impl EventReportService {
         &self,
         room_id: &str,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
         let reports = self
             .storage
-            .get_reports_by_room(room_id, limit, offset)
+            .get_reports_by_room(room_id, limit, since_ts, since_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get reports: {}", e)))?;
 
@@ -109,11 +110,12 @@ impl EventReportService {
         &self,
         reporter_user_id: &str,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
         let reports = self
             .storage
-            .get_reports_by_reporter(reporter_user_id, limit, offset)
+            .get_reports_by_reporter(reporter_user_id, limit, since_ts, since_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get reports: {}", e)))?;
 
@@ -125,11 +127,13 @@ impl EventReportService {
         &self,
         status: &str,
         limit: i64,
-        offset: i64,
+        since_score: Option<i32>,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
         let reports = self
             .storage
-            .get_reports_by_status(status, limit, offset)
+            .get_reports_by_status(status, limit, since_score, since_ts, since_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get reports: {}", e)))?;
 
@@ -140,11 +144,13 @@ impl EventReportService {
     pub async fn get_all_reports(
         &self,
         limit: i64,
-        offset: i64,
+        since_score: Option<i32>,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
         let reports = self
             .storage
-            .get_all_reports(limit, offset)
+            .get_all_reports(limit, since_score, since_ts, since_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get reports: {}", e)))?;
 
@@ -333,9 +339,11 @@ impl EventReportService {
     pub async fn get_open_reports(
         &self,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
-        self.get_reports_by_status("open", limit, offset).await
+        self.get_reports_by_status("open", limit, None, since_ts, since_id)
+            .await
     }
 
     #[instrument(skip(self))]

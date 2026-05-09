@@ -908,14 +908,10 @@ impl DatabaseInitService {
                 id BIGSERIAL PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 key_type TEXT NOT NULL,
-                key_id TEXT NOT NULL,
                 key_data TEXT NOT NULL,
-                signatures JSONB DEFAULT '{}',
-                verified BOOLEAN DEFAULT FALSE,
-                trust_level TEXT,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                CONSTRAINT uq_cross_signing_keys UNIQUE (user_id, key_type)
+                signatures JSONB,
+                added_ts BIGINT NOT NULL,
+                CONSTRAINT uq_cross_signing_keys_user_type UNIQUE (user_id, key_type)
             )
             "#,
         )
@@ -923,7 +919,79 @@ impl DatabaseInitService {
         .await?;
 
         sqlx::query(
+            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS key_data TEXT",
+        )
+        .execute(&*self.pool)
+        .await?;
+        sqlx::query(
+            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS signatures JSONB",
+        )
+        .execute(&*self.pool)
+        .await?;
+        sqlx::query(
+            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS added_ts BIGINT",
+        )
+        .execute(&*self.pool)
+        .await?;
+        sqlx::query(
+            r#"
+            DO $$
+            DECLARE
+                added_ts_sources TEXT := 'added_ts';
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'cross_signing_keys'
+                      AND column_name = 'updated_ts'
+                ) THEN
+                    added_ts_sources := added_ts_sources || ', updated_ts';
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'cross_signing_keys'
+                      AND column_name = 'created_ts'
+                ) THEN
+                    added_ts_sources := added_ts_sources || ', created_ts';
+                END IF;
+
+                EXECUTE format(
+                    'UPDATE cross_signing_keys
+                     SET signatures = COALESCE(signatures, ''{}''::jsonb),
+                         added_ts = COALESCE(%s, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT)
+                     WHERE signatures IS NULL OR added_ts IS NULL',
+                    added_ts_sources
+                );
+            END $$;
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id)",
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS device_signatures (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                target_user_id TEXT NOT NULL,
+                target_device_id TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                CONSTRAINT uq_device_signatures_unique UNIQUE (user_id, device_id, target_user_id, target_device_id, algorithm)
+            )
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -937,11 +1005,10 @@ impl DatabaseInitService {
                 room_id TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 session_data JSONB NOT NULL,
-                created_ts BIGINT NOT NULL,
-                first_message_index INTEGER,
-                forwarded_count INTEGER DEFAULT 0,
+                first_message_index BIGINT,
+                forwarded_count BIGINT DEFAULT 0,
                 is_verified BOOLEAN DEFAULT FALSE,
-                backup_data JSONB
+                created_ts BIGINT NOT NULL
             )
             "#,
         )
@@ -968,7 +1035,7 @@ impl DatabaseInitService {
                 room_id TEXT NOT NULL,
                 typing BOOLEAN DEFAULT FALSE,
                 last_active_ts BIGINT NOT NULL,
-                UNIQUE (user_id, room_id)
+                CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id)
             )
             "#,
         )
@@ -1352,6 +1419,15 @@ impl DatabaseInitService {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_ephemeral_room ON room_ephemeral(room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_room_ephemeral_room_type_user
+            ON room_ephemeral(room_id, event_type, user_id)
             "#,
         )
         .execute(&*self.pool)

@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 
@@ -33,7 +35,29 @@ pub struct SearchQuery {
     pub sender: Option<String>,
     pub event_types: Option<Vec<String>>,
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub from: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchIndexCursor {
+    pub created_ts: i64,
+    pub id: i64,
+}
+
+fn encode_search_index_cursor(cursor: &SearchIndexCursor) -> String {
+    let raw = format!("{}|{}", cursor.created_ts, cursor.id);
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+fn decode_search_index_cursor(cursor: Option<&str>) -> Option<SearchIndexCursor> {
+    let cursor = cursor?;
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (created_ts, id) = decoded.split_once('|')?;
+    Some(SearchIndexCursor {
+        created_ts: created_ts.parse().ok()?,
+        id: id.parse().ok()?,
+    })
 }
 
 /// 搜索索引存储模块
@@ -86,25 +110,54 @@ impl SearchIndexStorage {
     pub async fn search_events(
         &self,
         query: &SearchQuery,
-    ) -> Result<Vec<SearchResult>, sqlx::Error> {
+    ) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error> {
         let search_pattern = format!("%{}%", query.search_term.to_lowercase());
         let limit = query.limit.unwrap_or(20).min(100);
-        let offset = query.offset.unwrap_or(0).max(0);
+        let cursor = decode_search_index_cursor(query.from.as_deref());
 
-        let rows = sqlx::query(
-            "SELECT event_id, room_id, user_id, event_type, content, created_ts 
-             FROM search_index 
-             WHERE LOWER(content) LIKE $1
-             ORDER BY created_ts DESC 
-             LIMIT $2 OFFSET $3",
-        )
-        .bind(&search_pattern)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = if let Some(cursor) = cursor {
+            sqlx::query(
+                "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
+                 FROM search_index
+                 WHERE content ILIKE $1
+                   AND (created_ts < $2 OR (created_ts = $2 AND id < $3))
+                 ORDER BY created_ts DESC, id DESC
+                 LIMIT $4",
+            )
+            .bind(&search_pattern)
+            .bind(cursor.created_ts)
+            .bind(cursor.id)
+            .bind(limit + 1)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
+                 FROM search_index
+                 WHERE content ILIKE $1
+                 ORDER BY created_ts DESC, id DESC
+                 LIMIT $2",
+            )
+            .bind(&search_pattern)
+            .bind(limit + 1)
+            .fetch_all(&self.pool)
+            .await?
+        };
 
-        let results: Vec<SearchResult> = rows
+        let has_more = rows.len() as i64 > limit;
+        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+        let next_batch = if has_more {
+            visible_rows.last().map(|row| {
+                encode_search_index_cursor(&SearchIndexCursor {
+                    created_ts: row.get("created_ts"),
+                    id: row.get("id"),
+                })
+            })
+        } else {
+            None
+        };
+
+        let results: Vec<SearchResult> = visible_rows
             .iter()
             .map(|row| SearchResult {
                 event_id: row.get("event_id"),
@@ -116,7 +169,7 @@ impl SearchIndexStorage {
             })
             .collect();
 
-        Ok(results)
+        Ok((results, next_batch))
     }
 
     /// 删除事件索引
@@ -191,6 +244,26 @@ impl SearchIndexStorage {
             total_count: total.0,
             by_event_type: by_type.into_iter().collect(),
         })
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_search_index_cursor, encode_search_index_cursor, SearchIndexCursor};
+
+    #[test]
+    fn search_index_cursor_round_trip() {
+        let cursor = SearchIndexCursor {
+            created_ts: 1_700_000_000_000,
+            id: 42,
+        };
+        let encoded = encode_search_index_cursor(&cursor);
+        assert_eq!(decode_search_index_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn search_index_cursor_rejects_invalid_value() {
+        assert_eq!(decode_search_index_cursor(Some("bad")), None);
     }
 }
 

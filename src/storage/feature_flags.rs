@@ -1,7 +1,12 @@
+use crate::cache::{CacheManager, InvalidationType};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+const FEATURE_FLAG_CACHE_TTL_SECS: u64 = 60;
+const FEATURE_FLAG_LIST_CACHE_TTL_SECS: u64 = 30;
+const FEATURE_FLAG_LIST_CACHE_PREFIX: &str = "feature_flag:list:";
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FeatureFlagRecord {
@@ -71,17 +76,22 @@ pub struct FeatureFlagFilters {
     pub target_scope: Option<String>,
     pub status: Option<String>,
     pub limit: i64,
-    pub offset: i64,
+    pub cursor_updated_ts: Option<i64>,
+    pub cursor_flag_key: Option<String>,
 }
 
 #[derive(Clone)]
 pub struct FeatureFlagStorage {
     pool: Arc<PgPool>,
+    cache: Arc<CacheManager>,
 }
 
 impl FeatureFlagStorage {
-    pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<PgPool>, cache: Arc<CacheManager>) -> Self {
+        Self {
+            pool: pool.clone(),
+            cache,
+        }
     }
 
     pub async fn create_flag(
@@ -131,7 +141,16 @@ impl FeatureFlagStorage {
 
         transaction.commit().await?;
 
-        Ok(to_feature_flag(record, targets))
+        let flag = to_feature_flag(record, targets);
+        let _ = self
+            .cache
+            .set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS)
+            .await;
+        self.cache
+            .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
+            .await;
+
+        Ok(flag)
     }
 
     pub async fn update_flag(
@@ -185,10 +204,24 @@ impl FeatureFlagStorage {
             targets_by_flag.remove(flag_key).unwrap_or_default()
         };
 
-        Ok(Some(to_feature_flag(record, targets)))
+        let flag = to_feature_flag(record, targets);
+        let _ = self
+            .cache
+            .set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS)
+            .await;
+        self.cache
+            .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
+            .await;
+
+        Ok(Some(flag))
     }
 
     pub async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error> {
+        let cache_key = Self::flag_cache_key(flag_key);
+        if let Ok(Some(flag)) = self.cache.get::<FeatureFlag>(&cache_key).await {
+            return Ok(Some(flag));
+        }
+
         let record = sqlx::query_as::<_, FeatureFlagRecord>(
             r#"
             SELECT flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
@@ -205,16 +238,27 @@ impl FeatureFlagStorage {
         };
 
         let targets = self.list_targets(&[flag_key.to_string()]).await?;
-        Ok(Some(to_feature_flag(
+        let flag = to_feature_flag(
             record,
             targets.get(flag_key).cloned().unwrap_or_default(),
-        )))
+        );
+        let _ = self
+            .cache
+            .set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS)
+            .await;
+
+        Ok(Some(flag))
     }
 
     pub async fn list_flags(
         &self,
         filters: &FeatureFlagFilters,
     ) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
+        let cache_key = Self::flag_list_cache_key(filters);
+        if let Ok(Some(cached)) = self.cache.get::<(Vec<FeatureFlag>, i64)>(&cache_key).await {
+            return Ok(cached);
+        }
+
         let mut count_query =
             QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM feature_flags WHERE 1=1");
         if let Some(ref target_scope) = filters.target_scope {
@@ -241,10 +285,19 @@ impl FeatureFlagStorage {
             query.push(" AND status = ");
             query.push_bind(status);
         }
+        if let (Some(cursor_updated_ts), Some(cursor_flag_key)) =
+            (filters.cursor_updated_ts, filters.cursor_flag_key.as_ref())
+        {
+            query.push(" AND (updated_ts < ");
+            query.push_bind(cursor_updated_ts);
+            query.push(" OR (updated_ts = ");
+            query.push_bind(cursor_updated_ts);
+            query.push(" AND flag_key > ");
+            query.push_bind(cursor_flag_key);
+            query.push("))");
+        }
         query.push(" ORDER BY updated_ts DESC, flag_key ASC LIMIT ");
         query.push_bind(filters.limit);
-        query.push(" OFFSET ");
-        query.push_bind(filters.offset);
 
         let records = query
             .build_query_as::<FeatureFlagRecord>()
@@ -264,7 +317,13 @@ impl FeatureFlagStorage {
             })
             .collect();
 
-        Ok((flags, total))
+        let result = (flags, total);
+        let _ = self
+            .cache
+            .set(&cache_key, &result, FEATURE_FLAG_LIST_CACHE_TTL_SECS)
+            .await;
+
+        Ok(result)
     }
 
     async fn replace_targets(
@@ -335,6 +394,24 @@ impl FeatureFlagStorage {
         }
         Ok(grouped)
     }
+
+    fn flag_cache_key(flag_key: &str) -> String {
+        format!("feature_flag:{}", flag_key)
+    }
+
+    fn flag_list_cache_key(filters: &FeatureFlagFilters) -> String {
+        format!(
+            "{}v1:{}:{}:{}:{}:{}",
+            FEATURE_FLAG_LIST_CACHE_PREFIX,
+            filters.target_scope.as_deref().unwrap_or("all"),
+            filters.status.as_deref().unwrap_or("all"),
+            filters.limit,
+            filters
+                .cursor_updated_ts
+                .map_or_else(String::new, |ts| ts.to_string()),
+            filters.cursor_flag_key.as_deref().unwrap_or(""),
+        )
+    }
 }
 
 fn to_feature_flag(
@@ -352,5 +429,184 @@ fn to_feature_flag(
         created_ts: record.created_ts,
         updated_ts: record.updated_ts,
         targets,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::CacheConfig;
+    use uuid::Uuid;
+
+    fn create_test_cache() -> Arc<CacheManager> {
+        Arc::new(CacheManager::new(CacheConfig::default()))
+    }
+
+    async fn create_test_pool() -> Option<Arc<PgPool>> {
+        let db_url = crate::test_config::test_database_url();
+        let pool = sqlx::PgPool::connect(&db_url).await.ok()?;
+        Some(Arc::new(pool))
+    }
+
+    async fn ensure_feature_flag_tables(pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS feature_flags (
+                flag_key TEXT PRIMARY KEY,
+                target_scope TEXT NOT NULL,
+                rollout_percent INTEGER NOT NULL,
+                expires_at BIGINT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS feature_flag_targets (
+                id BIGSERIAL PRIMARY KEY,
+                flag_key TEXT NOT NULL REFERENCES feature_flags(flag_key) ON DELETE CASCADE,
+                subject_type TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn cleanup_test_flags(pool: &PgPool, key_prefix: &str) -> Result<(), sqlx::Error> {
+        let like_pattern = format!("{key_prefix}%");
+        sqlx::query("DELETE FROM feature_flag_targets WHERE flag_key LIKE $1")
+            .bind(&like_pattern)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM feature_flags WHERE flag_key LIKE $1")
+            .bind(&like_pattern)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_flag_list_cache_key_encodes_filters_and_cursor() {
+        let filters = FeatureFlagFilters {
+            target_scope: Some("tenant".to_string()),
+            status: Some("active".to_string()),
+            limit: 25,
+            cursor_updated_ts: Some(1_700_000_000_000),
+            cursor_flag_key: Some("beta.rollout".to_string()),
+        };
+
+        assert_eq!(
+            FeatureFlagStorage::flag_list_cache_key(&filters),
+            "feature_flag:list:v1:tenant:active:25:1700000000000:beta.rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_flags_cache_is_invalidated_after_update() {
+        let Some(pool) = create_test_pool().await else {
+            return;
+        };
+        ensure_feature_flag_tables(&pool).await.unwrap();
+
+        let cache = create_test_cache();
+        let storage = FeatureFlagStorage::new(&pool, cache.clone());
+        let test_scope = format!("test-scope-{}", Uuid::new_v4().simple());
+        let flag_key_prefix = format!("ff-cache-test-{}", Uuid::new_v4().simple());
+        let flag_key_a = format!("{flag_key_prefix}-a");
+        let flag_key_b = format!("{flag_key_prefix}-b");
+        let created_ts = 1_700_000_000_000_i64;
+
+        cleanup_test_flags(&pool, &flag_key_prefix).await.unwrap();
+
+        storage
+            .create_flag(
+                &CreateFeatureFlagRequest {
+                    flag_key: flag_key_a.clone(),
+                    target_scope: test_scope.clone(),
+                    rollout_percent: 10,
+                    expires_at: None,
+                    reason: "test cache invalidation".to_string(),
+                    status: Some("draft".to_string()),
+                    targets: vec![FeatureFlagTargetInput {
+                        subject_type: "user".to_string(),
+                        subject_id: "@alice:test".to_string(),
+                    }],
+                },
+                "@tester:test",
+                created_ts,
+            )
+            .await
+            .unwrap();
+
+        storage
+            .create_flag(
+                &CreateFeatureFlagRequest {
+                    flag_key: flag_key_b.clone(),
+                    target_scope: test_scope.clone(),
+                    rollout_percent: 20,
+                    expires_at: None,
+                    reason: "test cache invalidation".to_string(),
+                    status: Some("draft".to_string()),
+                    targets: vec![FeatureFlagTargetInput {
+                        subject_type: "user".to_string(),
+                        subject_id: "@bob:test".to_string(),
+                    }],
+                },
+                "@tester:test",
+                created_ts + 1,
+            )
+            .await
+            .unwrap();
+
+        let filters = FeatureFlagFilters {
+            target_scope: Some(test_scope.clone()),
+            status: Some("draft".to_string()),
+            limit: 10,
+            cursor_updated_ts: None,
+            cursor_flag_key: None,
+        };
+        let cache_key = FeatureFlagStorage::flag_list_cache_key(&filters);
+
+        assert!(cache.get_local_raw(&cache_key).is_none());
+
+        let (flags, total) = storage.list_flags(&filters).await.unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(flags.len(), 2);
+        assert!(cache.get_local_raw(&cache_key).is_some());
+
+        storage
+            .update_flag(
+                &flag_key_a,
+                &UpdateFeatureFlagRequest {
+                    status: Some("active".to_string()),
+                    ..Default::default()
+                },
+                created_ts + 2,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(cache.get_local_raw(&cache_key).is_none());
+
+        let (flags_after_update, total_after_update) = storage.list_flags(&filters).await.unwrap();
+        assert_eq!(total_after_update, 1);
+        assert_eq!(flags_after_update.len(), 1);
+        assert_eq!(flags_after_update[0].flag_key, flag_key_b);
+        assert!(cache.get_local_raw(&cache_key).is_some());
+
+        cleanup_test_flags(&pool, &flag_key_prefix).await.unwrap();
     }
 }

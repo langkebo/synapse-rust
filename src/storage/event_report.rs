@@ -158,7 +158,7 @@ impl EventReportStorage {
         event_id: &str,
     ) -> Result<Vec<EventReport>, sqlx::Error> {
         let rows = sqlx::query_as::<_, EventReport>(
-            "SELECT * FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC",
+            "SELECT * FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC, id DESC",
         )
         .bind(event_id)
         .fetch_all(&*self.pool)
@@ -171,16 +171,28 @@ impl EventReportStorage {
         &self,
         room_id: &str,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReport>(
-            "SELECT * FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC LIMIT $2 OFFSET $3",
-        )
-        .bind(room_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows = if let (Some(ts), Some(id)) = (since_ts, since_id) {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports WHERE room_id = $1 AND (received_ts < $3 OR (received_ts = $3 AND id < $4)) ORDER BY received_ts DESC, id DESC LIMIT $2"
+            )
+            .bind(room_id)
+            .bind(limit)
+            .bind(ts)
+            .bind(id)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
+            )
+            .bind(room_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        };
 
         Ok(rows)
     }
@@ -189,16 +201,28 @@ impl EventReportStorage {
         &self,
         reporter_user_id: &str,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReport>(
-            "SELECT * FROM event_reports WHERE reporter_user_id = $1 ORDER BY received_ts DESC LIMIT $2 OFFSET $3",
-        )
-        .bind(reporter_user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows = if let (Some(ts), Some(id)) = (since_ts, since_id) {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports WHERE reporter_user_id = $1 AND (received_ts < $3 OR (received_ts = $3 AND id < $4)) ORDER BY received_ts DESC, id DESC LIMIT $2"
+            )
+            .bind(reporter_user_id)
+            .bind(limit)
+            .bind(ts)
+            .bind(id)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports WHERE reporter_user_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
+            )
+            .bind(reporter_user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        };
 
         Ok(rows)
     }
@@ -207,16 +231,38 @@ impl EventReportStorage {
         &self,
         status: &str,
         limit: i64,
-        offset: i64,
+        since_score: Option<i32>,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReport>(
-            "SELECT * FROM event_reports WHERE status = $1 ORDER BY score DESC, received_ts DESC LIMIT $2 OFFSET $3",
-        )
-        .bind(status)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
+            sqlx::query_as::<_, EventReport>(
+                r#"
+                SELECT * FROM event_reports 
+                WHERE status = $1 AND (
+                    score < $3 OR 
+                    (score = $3 AND received_ts < $4) OR 
+                    (score = $3 AND received_ts = $4 AND id < $5)
+                ) 
+                ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2
+                "#
+            )
+            .bind(status)
+            .bind(limit)
+            .bind(score)
+            .bind(ts)
+            .bind(id)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports WHERE status = $1 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2"
+            )
+            .bind(status)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        };
 
         Ok(rows)
     }
@@ -224,15 +270,36 @@ impl EventReportStorage {
     pub async fn get_all_reports(
         &self,
         limit: i64,
-        offset: i64,
+        since_score: Option<i32>,
+        since_ts: Option<i64>,
+        since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, EventReport>(
-            "SELECT * FROM event_reports ORDER BY score DESC, received_ts DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
+            sqlx::query_as::<_, EventReport>(
+                r#"
+                SELECT * FROM event_reports 
+                WHERE (
+                    score < $3 OR 
+                    (score = $3 AND received_ts < $4) OR 
+                    (score = $3 AND received_ts = $4 AND id < $5)
+                ) 
+                ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1
+                "#
+            )
+            .bind(limit)
+            .bind(score)
+            .bind(ts)
+            .bind(id)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, EventReport>(
+                "SELECT * FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
+            )
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        };
 
         Ok(rows)
     }

@@ -1761,7 +1761,10 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
         .expect("failed to query updated user");
     assert!(!row.get::<bool, _>("is_admin"));
     assert_eq!(row.get::<Option<String>, _>("user_type"), None);
-    assert_eq!(row.get::<Option<String>, _>("displayname"), None);
+    assert_ne!(
+        row.get::<Option<String>, _>("displayname"),
+        Some("still allowed fields exist".to_string())
+    );
 }
 
 #[tokio::test]

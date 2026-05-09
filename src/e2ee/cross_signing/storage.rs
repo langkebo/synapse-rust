@@ -94,11 +94,11 @@ impl CrossSigningStorage {
                 signatures,
                 key_json,
                 created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts") / 1000,
+                    row.get::<i64, _>("added_ts"),
                 )
                 .unwrap_or_default(),
                 updated_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts") / 1000,
+                    row.get::<i64, _>("added_ts"),
                 )
                 .unwrap_or_default(),
             }
@@ -157,11 +157,11 @@ impl CrossSigningStorage {
                     signatures,
                     key_json,
                     created_ts: chrono::DateTime::from_timestamp_millis(
-                        row.get::<i64, _>("added_ts") / 1000,
+                        row.get::<i64, _>("added_ts"),
                     )
                     .unwrap_or_default(),
                     updated_ts: chrono::DateTime::from_timestamp_millis(
-                        row.get::<i64, _>("added_ts") / 1000,
+                        row.get::<i64, _>("added_ts"),
                     )
                     .unwrap_or_default(),
                 }
@@ -279,7 +279,7 @@ impl CrossSigningStorage {
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
                 created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("created_ts") / 1000,
+                    row.get::<i64, _>("created_ts"),
                 )
                 .unwrap_or_default(),
             })
@@ -315,7 +315,7 @@ impl CrossSigningStorage {
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
                 created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("created_ts") / 1000,
+                    row.get::<i64, _>("created_ts"),
                 )
                 .unwrap_or_default(),
             })
@@ -351,7 +351,7 @@ impl CrossSigningStorage {
             target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
             created_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("created_ts") / 1000,
+                row.get::<i64, _>("created_ts"),
             )
             .unwrap_or_default(),
         }))

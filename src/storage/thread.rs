@@ -946,7 +946,11 @@ impl ThreadStorage {
         limit: Option<i32>,
     ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
         let limit = limit.unwrap_or(20);
-        let search_pattern = format!("%{}%", query);
+        // Escape special characters in the query for ILIKE and plainto_tsquery
+        // Double % for literal % in LIKE patterns. _ needs escaping too. Single quotes need escaping.
+        let escaped_query = query.replace('%', r"%%")
+                                 .replace('_', r"\_")
+                                 .replace('\'', r"''");
 
         sqlx::query_as::<_, ThreadSummary>(
             r#"
@@ -969,7 +973,14 @@ impl ThreadStorage {
                 GREATEST(
                     COALESCE(tr.updated_ts, tr.created_ts),
                     COALESCE(latest_reply.latest_origin_server_ts, COALESCE(tr.updated_ts, tr.created_ts))
-                ) AS updated_ts
+                ) AS updated_ts,
+                -- Calculate relevance for ordering
+                GREATEST(
+                    COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(e.content->>'body', '')), plainto_tsquery('english', $2)), 0.0),
+                    COALESCE(pg_trgm.similarity(COALESCE(e.content->>'body', ''), $2), 0.0),
+                    COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(latest_reply.latest_content->>'body', '')), plainto_tsquery('english', $2)), 0.0),
+                    COALESCE(pg_trgm.similarity(COALESCE(latest_reply.latest_content->>'body', ''), $2), 0.0)
+                ) AS search_relevance
             FROM thread_roots tr
             LEFT JOIN events e
                 ON e.event_id = tr.root_event_id
@@ -995,7 +1006,7 @@ impl ThreadStorage {
             LEFT JOIN LATERAL (
                 SELECT COALESCE(jsonb_agg(sender ORDER BY sender), '[]'::jsonb) AS participants
                 FROM (
-                    SELECT tr.sender AS sender
+                    SELECT tr.sender AS sender -- Corrected: direct reference to tr from outer query
                     UNION
                     SELECT DISTINCT rr.sender
                     FROM thread_replies rr
@@ -1005,15 +1016,17 @@ impl ThreadStorage {
             ) AS participants ON TRUE
             WHERE tr.room_id = $1
               AND (
-                  COALESCE(e.content, '{}'::jsonb)::text ILIKE $2
-                  OR COALESCE(latest_reply.latest_content, '{}'::jsonb)::text ILIKE $2
+                  COALESCE(e.content->>'body', '') ILIKE '%' || $2 || '%'
+                  OR COALESCE(latest_reply.latest_content->>'body', '') ILIKE '%' || $2 || '%'
+                  OR COALESCE(e.content->>'body', '') % $2
+                  OR COALESCE(latest_reply.latest_content->>'body', '') % $2
               )
-            ORDER BY COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) DESC NULLS LAST
+            ORDER BY search_relevance DESC, COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) DESC NULLS LAST
             LIMIT $3
             "#,
         )
         .bind(room_id)
-        .bind(&search_pattern)
+        .bind(&escaped_query)
         .bind(limit)
         .fetch_all(&*self.pool)
         .await

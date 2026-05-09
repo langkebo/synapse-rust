@@ -9,18 +9,53 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+fn decode_feature_flag_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (updated_ts, flag_key) = cursor.split_once('|')?;
+    let updated_ts = updated_ts.parse::<i64>().ok()?;
+    if flag_key.is_empty() {
+        return None;
+    }
+    Some((updated_ts, flag_key))
+}
+
+fn encode_feature_flag_cursor(updated_ts: i64, flag_key: &str) -> String {
+    format!("{updated_ts}|{flag_key}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_feature_flag_cursor, encode_feature_flag_cursor};
+
+    #[test]
+    fn test_feature_flag_cursor_round_trip() {
+        let cursor = encode_feature_flag_cursor(1_700_000_000_000, "my.flag");
+        assert_eq!(
+            decode_feature_flag_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "my.flag"))
+        );
+    }
+
+    #[test]
+    fn test_feature_flag_cursor_rejects_invalid_value() {
+        assert_eq!(decode_feature_flag_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_feature_flag_cursor(Some("123|")), None);
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FeatureFlagListQuery {
     pub target_scope: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FeatureFlagListResponse<T> {
     pub flags: Vec<T>,
     pub total: i64,
+    pub next_batch: Option<String>,
 }
 
 pub async fn create_feature_flag(
@@ -72,18 +107,32 @@ pub async fn list_feature_flags(
     Query(query): Query<FeatureFlagListQuery>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    let cursor = decode_feature_flag_cursor(query.from.as_deref());
+    if query.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+
     let filters = FeatureFlagFilters {
         target_scope: query.target_scope,
         status: query.status,
         limit: query.limit.unwrap_or(50).clamp(1, 200),
-        offset: query.offset.unwrap_or(0).max(0),
+        cursor_updated_ts: cursor.map(|(updated_ts, _)| updated_ts),
+        cursor_flag_key: cursor.map(|(_, flag_key)| flag_key.to_string()),
     };
     let (flags, total) = state
         .services
         .feature_flag_service
         .list_flags(filters)
         .await?;
-    Ok(Json(FeatureFlagListResponse { flags, total }))
+    let next_batch = flags
+        .last()
+        .map(|flag| encode_feature_flag_cursor(flag.updated_ts, &flag.flag_key))
+        .filter(|_| flags.len() as i64 == query.limit.unwrap_or(50).clamp(1, 200));
+    Ok(Json(FeatureFlagListResponse {
+        flags,
+        total,
+        next_batch,
+    }))
 }
 
 pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {

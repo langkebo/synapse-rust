@@ -44,6 +44,7 @@ impl RegistrationService {
         username: &str,
         password: &str,
         displayname: Option<&str>,
+        initial_device_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         if !self.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
@@ -52,7 +53,7 @@ impl RegistrationService {
         let start = std::time::Instant::now();
         let result = self
             .auth_service
-            .register(username, password, false, displayname)
+            .register_with_device_name(username, password, false, displayname, initial_device_display_name)
             .await;
 
         let duration = start.elapsed().as_secs_f64();
@@ -305,7 +306,7 @@ mod tests {
         );
 
         let result = registration_service
-            .register_user("test", "pass", None)
+            .register_user("test", "pass", None, None)
             .await;
         assert!(matches!(result, Err(ApiError::Forbidden { .. })));
     }

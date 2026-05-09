@@ -52,6 +52,7 @@ pub mod sync;
 pub mod tags;
 pub mod telemetry;
 pub mod thirdparty;
+pub mod threepid;
 pub mod typing;
 pub mod validators;
 pub mod verification_routes;
@@ -190,6 +191,7 @@ pub use sync::create_sync_router;
 pub use tags::create_tags_router;
 pub use telemetry::create_telemetry_router;
 pub use thirdparty::create_thirdparty_router;
+pub use threepid::create_threepid_router;
 pub use validators::{
     validate_event_id, validate_presence_status, validate_receipt_type, validate_room_alias,
     validate_room_id, validate_user_id,

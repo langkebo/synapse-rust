@@ -42,6 +42,8 @@ const CORE_TABLES: &[&str] = &[
     "widgets",
     "secure_key_backups",
     "secure_backup_session_keys",
+    "background_updates",
+    "room_retention_policies",
 ];
 
 /// 核心字段定义 (表名, 字段名)
@@ -98,7 +100,7 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("user_threepids", "medium"),
     ("user_threepids", "address"),
     ("user_threepids", "validated_ts"),
-    ("user_threepids", "verification_expires_ts"),
+    ("user_threepids", "verification_expires_at"),
     // presence 表
     ("presence", "user_id"),
     ("presence", "presence"),
@@ -143,6 +145,17 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     ("secure_backup_session_keys", "room_id"),
     ("secure_backup_session_keys", "session_id"),
     ("secure_backup_session_keys", "encrypted_key"),
+    // background_updates 表
+    ("background_updates", "update_name"),
+    ("background_updates", "status"),
+    ("background_updates", "retry_count"),
+    ("background_updates", "max_retries"),
+    ("background_updates", "is_running"),
+    // room_retention_policies 表
+    ("room_retention_policies", "room_id"),
+    ("room_retention_policies", "max_lifetime"),
+    ("room_retention_policies", "expire_on_clients"),
+    ("room_retention_policies", "is_server_default"),
 ];
 
 struct RequiredIndex {
@@ -485,6 +498,8 @@ mod tests {
         assert!(CORE_TABLES.contains(&"users"));
         assert!(CORE_TABLES.contains(&"rooms"));
         assert!(CORE_TABLES.contains(&"events"));
+        assert!(CORE_TABLES.contains(&"background_updates"));
+        assert!(CORE_TABLES.contains(&"room_retention_policies"));
     }
 
     #[test]
@@ -495,5 +510,11 @@ mod tests {
         assert!(CORE_COLUMNS
             .iter()
             .any(|(t, c)| *t == "events" && *c == "room_id"));
+        assert!(CORE_COLUMNS
+            .iter()
+            .any(|(t, c)| *t == "background_updates" && *c == "retry_count"));
+        assert!(CORE_COLUMNS
+            .iter()
+            .any(|(t, c)| *t == "room_retention_policies" && *c == "is_server_default"));
     }
 }

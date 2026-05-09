@@ -5,6 +5,29 @@ use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use tracing::info;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FederationBlacklistCursor {
+    pub created_ts: i64,
+    pub server_name: String,
+}
+
+pub fn encode_federation_blacklist_cursor(cursor: &FederationBlacklistCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.server_name)
+}
+
+pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<FederationBlacklistCursor> {
+    let cursor = cursor?;
+    let (created_ts, server_name) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if server_name.is_empty() {
+        return None;
+    }
+    Some(FederationBlacklistCursor {
+        created_ts,
+        server_name: server_name.to_string(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FederationBlacklist {
     pub id: i64,
@@ -255,23 +278,71 @@ impl FederationBlacklistStorage {
     pub async fn get_all_blacklist(
         &self,
         limit: i32,
-        offset: i32,
-    ) -> Result<Vec<FederationBlacklist>, ApiError> {
-        let rows = sqlx::query_as::<_, FederationBlacklist>(
-            r#"
-            SELECT * FROM federation_blacklist 
-            WHERE is_enabled = true
-            ORDER BY created_ts DESC
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get blacklist: {}", e)))?;
+        from: Option<FederationBlacklistCursor>,
+    ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
+        let rows = if let Some(cursor) = from {
+            sqlx::query_as::<_, FederationBlacklist>(
+                r#"
+                SELECT
+                    id,
+                    server_name,
+                    'blacklist' AS block_type,
+                    reason,
+                    COALESCE(added_by, 'system') AS blocked_by,
+                    added_ts AS created_ts,
+                    COALESCE(updated_ts, added_ts) AS updated_ts,
+                    NULL::BIGINT AS expires_at,
+                    TRUE AS is_enabled,
+                    '{}'::jsonb AS metadata
+                FROM federation_blacklist
+                WHERE (added_ts, server_name) < ($1, $2)
+                ORDER BY added_ts DESC, server_name DESC
+                LIMIT $3
+                "#,
+            )
+            .bind(cursor.created_ts)
+            .bind(cursor.server_name)
+            .bind(limit + 1)
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get blacklist: {}", e)))?
+        } else {
+            sqlx::query_as::<_, FederationBlacklist>(
+                r#"
+                SELECT
+                    id,
+                    server_name,
+                    'blacklist' AS block_type,
+                    reason,
+                    COALESCE(added_by, 'system') AS blocked_by,
+                    added_ts AS created_ts,
+                    COALESCE(updated_ts, added_ts) AS updated_ts,
+                    NULL::BIGINT AS expires_at,
+                    TRUE AS is_enabled,
+                    '{}'::jsonb AS metadata
+                FROM federation_blacklist
+                ORDER BY added_ts DESC, server_name DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit + 1)
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get blacklist: {}", e)))?
+        };
 
-        Ok(rows)
+        let next_batch = if rows.len() > limit as usize {
+            rows.get(limit as usize).map(|last| {
+                encode_federation_blacklist_cursor(&FederationBlacklistCursor {
+                    created_ts: last.created_ts,
+                    server_name: last.server_name.clone(),
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok((rows.into_iter().take(limit as usize).collect(), next_batch))
     }
 
     pub async fn create_log(
@@ -439,6 +510,35 @@ impl FederationBlacklistStorage {
         default: i32,
     ) -> Result<i32, ApiError> {
         Ok(default)
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_federation_blacklist_cursor, encode_federation_blacklist_cursor,
+        FederationBlacklistCursor,
+    };
+
+    #[test]
+    fn federation_blacklist_cursor_round_trip() {
+        let cursor = FederationBlacklistCursor {
+            created_ts: 1_746_700_000_000,
+            server_name: "matrix.example.com".to_string(),
+        };
+
+        let encoded = encode_federation_blacklist_cursor(&cursor);
+        assert_eq!(
+            decode_federation_blacklist_cursor(Some(&encoded)),
+            Some(cursor)
+        );
+    }
+
+    #[test]
+    fn federation_blacklist_cursor_rejects_invalid_values() {
+        assert_eq!(decode_federation_blacklist_cursor(None), None);
+        assert_eq!(decode_federation_blacklist_cursor(Some("bad")), None);
+        assert_eq!(decode_federation_blacklist_cursor(Some("123|")), None);
     }
 }
 

@@ -19,7 +19,7 @@ exempt_path_prefixes:
 endpoint_aliases: {}
 fail_open_on_error: true
 sync:
-  enabled: true
+  enabled: false
   initial:
     per_second: 5
     burst_size: 10

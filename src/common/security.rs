@@ -344,3 +344,44 @@ mod tests {
         assert!(entropy < 1.0);
     }
 }
+
+use std::net::IpAddr;
+
+pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
+    let ip_str = ip.to_string();
+    for cidr in blacklist {
+        if cidr.contains('/') {
+            if let Ok(network) = cidr.parse::<ipnet::IpNet>() {
+                if network.contains(ip) {
+                    return true;
+                }
+            }
+        } else if ip_str == *cidr {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("URL has no host: {}", url))?;
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_ip_in_blacklist(&ip, blacklist) {
+            return Err(format!("IP {} is in blacklist", ip));
+        }
+    } else if let Ok(addrs) = dns_lookup::lookup_host(host) {
+        for addr in addrs {
+            if is_ip_in_blacklist(&addr, blacklist) {
+                return Err(format!(
+                    "Host {} resolves to blacklisted IP {}",
+                    host, addr
+                ));
+            }
+        }
+    }
+    Ok(())
+}

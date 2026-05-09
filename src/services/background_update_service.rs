@@ -56,11 +56,11 @@ impl BackgroundUpdateService {
     pub async fn get_all_updates(
         &self,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<BackgroundUpdate>, ApiError> {
+        from: Option<String>,
+    ) -> Result<(Vec<BackgroundUpdate>, Option<String>), ApiError> {
         let updates = self
             .storage
-            .get_all_updates(limit, offset)
+            .get_all_updates(limit, from)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get updates: {}", e)))?;
 

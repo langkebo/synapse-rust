@@ -103,18 +103,9 @@ pub struct EventResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserDevicesResponse {
     pub user_id: String,
-    pub devices: Vec<DeviceKeys>,
+    pub devices: Vec<crate::e2ee::device_keys::models::DeviceKeys>,
     pub master_key: Option<serde_json::Value>,
     pub self_signing_key: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceKeys {
-    pub device_id: String,
-    pub keys: serde_json::Value,
-    pub algorithms: Vec<String>,
-    pub signatures: serde_json::Value,
-    pub user_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

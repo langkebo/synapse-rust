@@ -15,6 +15,40 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use validator::Validate;
 
+fn decode_user_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (ts, user_id) = cursor.split_once('|')?;
+    let ts = ts.parse::<i64>().ok()?;
+    if user_id.is_empty() {
+        return None;
+    }
+    Some((ts, user_id))
+}
+
+fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
+    format!("{created_ts}|{user_id}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_user_cursor, encode_user_cursor};
+
+    #[test]
+    fn test_user_cursor_round_trip() {
+        let cursor = encode_user_cursor(1_700_000_000_000, "@alice:example.com");
+        assert_eq!(
+            decode_user_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "@alice:example.com"))
+        );
+    }
+
+    #[test]
+    fn test_user_cursor_rejects_invalid_value() {
+        assert_eq!(decode_user_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
+}
+
 pub fn create_user_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/users", get(get_users))
@@ -233,16 +267,16 @@ pub async fn get_users(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
-        .clamp(0, i64::MAX);
+    let cursor = decode_user_cursor(params.get("since").map(String::as_str));
 
     let users = state
         .services
         .user_storage
-        .get_users_paginated(limit, offset)
+        .get_users_paginated(
+            limit,
+            cursor.map(|(ts, _)| ts),
+            cursor.map(|(_, user_id)| user_id),
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -269,9 +303,18 @@ pub async fn get_users(
         })
         .collect();
 
+    let next_batch = if users.len() as i64 == limit {
+        users
+            .last()
+            .map(|u| encode_user_cursor(u.created_ts, &u.user_id))
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "users": user_list,
-        "total": total
+        "total": total,
+        "next_batch": next_batch
     })))
 }
 
@@ -699,11 +742,7 @@ pub async fn get_users_v2(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let offset = params
-        .get("from")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
-        .clamp(0, i64::MAX);
+    let cursor = decode_user_cursor(params.get("from").map(String::as_str));
 
     let mut query = sqlx::QueryBuilder::new(
         "SELECT user_id, username, created_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
@@ -714,10 +753,18 @@ pub async fn get_users_v2(
         query.push_bind(format!("%{}%", name));
     }
 
-    query.push(" ORDER BY created_ts DESC LIMIT ");
+    if let Some((ts, user_id)) = cursor {
+        query.push(" AND (created_ts < ");
+        query.push_bind(ts);
+        query.push(" OR (created_ts = ");
+        query.push_bind(ts);
+        query.push(" AND user_id < ");
+        query.push_bind(user_id);
+        query.push("))");
+    }
+
+    query.push(" ORDER BY created_ts DESC, user_id DESC LIMIT ");
     query.push_bind(limit);
-    query.push(" OFFSET ");
-    query.push_bind(offset);
 
     let rows = query
         .build()
@@ -747,8 +794,13 @@ pub async fn get_users_v2(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let next_token = if (offset + limit) < total_count {
-        Some((offset + limit).to_string())
+    let next_token = if rows.len() as i64 == limit {
+        rows.last().map(|row| {
+            encode_user_cursor(
+                row.get::<Option<i64>, _>("created_ts").unwrap_or_default(),
+                &row.get::<Option<String>, _>("user_id").unwrap_or_default(),
+            )
+        })
     } else {
         None
     };

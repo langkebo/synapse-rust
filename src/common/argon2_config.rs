@@ -425,6 +425,7 @@ mod tests {
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
         };
 
         let config = Argon2Config::from(security);

@@ -664,6 +664,30 @@ impl RoomSummaryService {
             .transpose()
             .unwrap_or_else(|| Err(ApiError::not_found("Room summary not found")))
     }
+
+    #[instrument(skip(self))]
+    pub async fn get_summaries_by_ids(
+        &self,
+        room_ids: &[String],
+    ) -> Result<Vec<RoomSummaryResponse>, ApiError> {
+        if room_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let summaries = self
+            .storage
+            .get_summaries_by_ids(room_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
+
+        let mut responses = Vec::with_capacity(summaries.len());
+        for summary in summaries {
+            let heroes = self.get_heroes(&summary.room_id).await?;
+            responses.push(summary.to_response(heroes));
+        }
+
+        Ok(responses)
+    }
 }
 
 #[cfg(test)]

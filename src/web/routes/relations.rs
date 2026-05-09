@@ -316,13 +316,12 @@ async fn send_relation(
                     sender,
                     content,
                     origin_server_ts,
+                    relation_type: None,
                 })
                 .await?
                 .event_id
         }
         "m.thread" => {
-            // 线程回复目前与 reference 落地路径相同，记录关系 + 发送者即可；
-            // SDK 读取时通过 rel_type='m.thread' 区分。
             let content = body
                 .get("content")
                 .cloned()
@@ -337,6 +336,7 @@ async fn send_relation(
                     sender: sender.clone(),
                     content,
                     origin_server_ts,
+                    relation_type: Some("m.thread".to_string()),
                 })
                 .await?
                 .event_id

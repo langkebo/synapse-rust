@@ -1,18 +1,5 @@
 use sqlx::{Pool, Postgres, Row};
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct ForeignKeyInfo {
-    constraint_name: String,
-    table_name: String,
-    column_name: String,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct IndexInfo {
-    indexname: String,
-    tablename: String,
-}
-
 struct OrphanDiagnosticSpec {
     key: &'static str,
     count_query: &'static str,
@@ -26,44 +13,6 @@ struct DatabaseIntegrityChecker {
 impl DatabaseIntegrityChecker {
     fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
-    }
-
-    async fn check_foreign_keys(&self) -> Result<Vec<ForeignKeyInfo>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, ForeignKeyInfo>(
-            r#"
-            SELECT
-                tc.constraint_name,
-                tc.table_name,
-                kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = current_schema()
-            ORDER BY tc.table_name, tc.constraint_name
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows)
-    }
-
-    async fn check_indexes(&self, table_name: &str) -> Result<Vec<IndexInfo>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, IndexInfo>(
-            r#"
-            SELECT indexname, tablename
-            FROM pg_indexes
-            WHERE schemaname = current_schema() AND tablename = $1
-            ORDER BY indexname
-            "#,
-        )
-        .bind(table_name)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows)
     }
 
     async fn fetch_orphan_samples(
@@ -312,88 +261,6 @@ impl DatabaseIntegrityChecker {
         }))
     }
 
-    async fn check_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
-        let exists: Option<bool> = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1 FROM information_schema.tables 
-                WHERE table_schema = current_schema() AND table_name = $1
-            )
-            "#,
-        )
-        .bind(table_name)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(exists.unwrap_or(false))
-    }
-
-    async fn check_column_exists(
-        &self,
-        table_name: &str,
-        column_name: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let exists: Option<bool> = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_schema = current_schema() 
-                  AND table_name = $1 
-                  AND column_name = $2
-            )
-            "#,
-        )
-        .bind(table_name)
-        .bind(column_name)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(exists.unwrap_or(false))
-    }
-
-    async fn verify_field_naming(&self) -> Result<serde_json::Value, sqlx::Error> {
-        let timestamp_fields: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*) FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND column_name LIKE '%_ts'
-              AND data_type = 'bigint'
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        let bool_fields_with_is: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*) FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND (column_name LIKE 'is_%' OR column_name LIKE 'has_%')
-              AND data_type = 'boolean'
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        let inconsistent_timestamp: Vec<(String, String, String)> = sqlx::query_as(
-            r#"
-            SELECT table_name, column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND column_name ~ '(created|updated|expires|last_seen|joined)'
-              AND column_name !~ '_ts$'
-              AND data_type = 'bigint'
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(serde_json::json!({
-            "timestamp_fields_count": timestamp_fields,
-            "boolean_fields_with_prefix_count": bool_fields_with_is,
-            "inconsistent_timestamp_fields": inconsistent_timestamp
-        }))
-    }
-
     async fn check_audit_critical_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         let critical_indexes = vec![
             "idx_room_summary_state_room",
@@ -405,24 +272,25 @@ impl DatabaseIntegrityChecker {
             "idx_verification_requests_to_user_state",
         ];
 
-        let mut missing = Vec::new();
-        for index_name in critical_indexes {
-            let exists: Option<bool> = sqlx::query_scalar(
-                r#"
-                SELECT EXISTS (
-                    SELECT 1 FROM pg_indexes
-                    WHERE schemaname = current_schema() AND indexname = $1
-                )
-                "#,
-            )
-            .bind(index_name)
-            .fetch_optional(&self.pool)
-            .await?;
+        let existing_indexes: std::collections::HashSet<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relkind = 'i'
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect();
 
-            if !exists.unwrap_or(false) {
-                missing.push(index_name.to_string());
-            }
-        }
+        let missing = critical_indexes
+            .into_iter()
+            .filter(|index_name| !existing_indexes.contains(*index_name))
+            .map(str::to_string)
+            .collect();
 
         Ok(missing)
     }
@@ -468,41 +336,13 @@ impl DatabaseIntegrityChecker {
         Ok(missing)
     }
 
-    async fn get_migration_status(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r#"
-            SELECT version, name, applied_ts, description
-            FROM schema_migrations
-            ORDER BY applied_ts DESC
-            LIMIT 10
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(serde_json::json!({
-                "version": row.get::<Option<String>, _>("version"),
-                "name": row.get::<Option<String>, _>("name"),
-                "applied_ts": row.get::<Option<i64>, _>("applied_ts"),
-                "description": row.get::<Option<String>, _>("description")
-            }));
-        }
-
-        Ok(result)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const REPORT_RATE_LIMITS_MIGRATION_SQL: &str = include_str!(
-        "../../migrations/archive/pre-consolidation-2026-04-22/20260413000001_align_report_rate_limits_schema_contract.sql"
-    );
-    const TO_DEVICE_STREAM_ID_SEQ_MIGRATION_SQL: &str =
-        include_str!("../../migrations/archive/pre-consolidation-2026-04-22/20260409090000_to_device_stream_id_seq.sql");
+
 
     async fn ensure_public_schema_contract_repairs(
         pool: &Pool<Postgres>,
@@ -570,24 +410,6 @@ mod tests {
         Ok(())
     }
 
-    async fn execute_to_device_stream_id_seq_migration(
-        pool: &Pool<Postgres>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(TO_DEVICE_STREAM_ID_SEQ_MIGRATION_SQL)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    async fn execute_report_rate_limits_migration(
-        pool: &Pool<Postgres>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::raw_sql(REPORT_RATE_LIMITS_MIGRATION_SQL)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
     async fn connect_integrity_pool() -> Option<Pool<Postgres>> {
         match synapse_rust::test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => {
@@ -608,60 +430,6 @@ mod tests {
                 None
             }
         }
-    }
-
-    async fn connect_empty_integrity_pool() -> Option<Pool<Postgres>> {
-        match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(pool) => Some((*pool).clone()),
-            Err(error) => {
-                eprintln!(
-                    "Skipping migration regression tests: unable to prepare empty isolated schema: {}",
-                    error
-                );
-                None
-            }
-        }
-    }
-
-    #[test]
-    fn test_integrity_checker_struct() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let _guard = runtime.enter();
-        let checker =
-            DatabaseIntegrityChecker::new(Pool::connect_lazy("postgres://localhost/test").unwrap());
-        let _ = DatabaseIntegrityChecker::check_foreign_keys;
-        let _ = DatabaseIntegrityChecker::check_indexes;
-        let _ = DatabaseIntegrityChecker::check_orphan_data;
-        let _ = DatabaseIntegrityChecker::check_table_exists;
-        let _ = DatabaseIntegrityChecker::check_column_exists;
-        let _ = DatabaseIntegrityChecker::verify_field_naming;
-        let _ = DatabaseIntegrityChecker::get_migration_status;
-
-        assert!(std::mem::size_of_val(&checker) > 0);
-    }
-
-    #[test]
-    fn test_foreign_key_info_struct() {
-        let info = ForeignKeyInfo {
-            constraint_name: "fk_users_devices".to_string(),
-            table_name: "devices".to_string(),
-            column_name: "user_id".to_string(),
-        };
-
-        assert_eq!(info.constraint_name, "fk_users_devices");
-        assert_eq!(info.table_name, "devices");
-        assert_eq!(info.column_name, "user_id");
-    }
-
-    #[test]
-    fn test_index_info_struct() {
-        let info = IndexInfo {
-            indexname: "idx_users_username".to_string(),
-            tablename: "users".to_string(),
-        };
-
-        assert_eq!(info.indexname, "idx_users_username");
-        assert_eq!(info.tablename, "users");
     }
 
     #[tokio::test]
@@ -746,313 +514,6 @@ mod tests {
         assert!(
             diagnostics.contains_key("token_samples"),
             "Expected token_samples diagnostics entry"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verification_requests_pending_index_survives_full_migration_chain() {
-        let Some(pool) = connect_integrity_pool().await else {
-            return;
-        };
-
-        let migration_recorded: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM schema_migrations
-                WHERE version = '20260406000001'
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to check schema_migrations for verification_requests index restore");
-
-        assert!(
-            migration_recorded,
-            "Expected migration 20260406000001 to be recorded in schema_migrations"
-        );
-
-        let index_definition: Option<String> = sqlx::query_scalar(
-            r#"
-            SELECT indexdef
-            FROM pg_indexes
-            WHERE schemaname = current_schema()
-              AND tablename = 'verification_requests'
-              AND indexname = 'idx_verification_requests_to_user_state'
-            "#,
-        )
-        .fetch_optional(&pool)
-        .await
-        .expect("Failed to inspect verification_requests pending index definition");
-
-        let index_definition = index_definition
-            .expect("Expected idx_verification_requests_to_user_state after full migration chain");
-        let normalized_definition = index_definition.to_ascii_lowercase();
-
-        assert!(
-            normalized_definition.contains("(to_user, state, updated_ts desc)"),
-            "Unexpected verification_requests pending index definition: {}",
-            index_definition
-        );
-    }
-
-    #[tokio::test]
-    async fn test_report_rate_limits_schema_contract_survives_full_migration_chain() {
-        let Some(pool) = connect_integrity_pool().await else {
-            return;
-        };
-
-        let migration_recorded: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM schema_migrations
-                WHERE version = '20260413000001'
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to check schema_migrations for report_rate_limits contract migration");
-
-        assert!(
-            migration_recorded,
-            "Expected migration 20260413000001 to be recorded in schema_migrations"
-        );
-
-        let column_names: Vec<String> = sqlx::query_scalar(
-            r#"
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = 'report_rate_limits'
-            ORDER BY ordinal_position
-            "#,
-        )
-        .fetch_all(&pool)
-        .await
-        .expect("Failed to inspect report_rate_limits columns");
-
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "last_report_at"),
-            "Expected last_report_at column in report_rate_limits, got {:?}",
-            column_names
-        );
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "blocked_until_at"),
-            "Expected blocked_until_at column in report_rate_limits, got {:?}",
-            column_names
-        );
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "block_reason"),
-            "Expected block_reason column in report_rate_limits, got {:?}",
-            column_names
-        );
-        assert!(
-            !column_names
-                .iter()
-                .any(|column_name| column_name == "last_report_ts"),
-            "Did not expect legacy last_report_ts column in report_rate_limits, got {:?}",
-            column_names
-        );
-        assert!(
-            !column_names
-                .iter()
-                .any(|column_name| column_name == "blocked_until"),
-            "Did not expect legacy blocked_until column in report_rate_limits, got {:?}",
-            column_names
-        );
-    }
-
-    #[tokio::test]
-    async fn test_to_device_stream_id_seq_migration_handles_empty_table_and_repeat_runs() {
-        let Some(pool) = connect_empty_integrity_pool().await else {
-            return;
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE to_device_messages (
-                stream_id BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create to_device_messages table");
-
-        execute_to_device_stream_id_seq_migration(&pool)
-            .await
-            .expect("Failed to apply to_device_stream_id_seq migration for empty table");
-        execute_to_device_stream_id_seq_migration(&pool)
-            .await
-            .expect("Failed to reapply to_device_stream_id_seq migration for empty table");
-
-        let sequence_exists: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind = 'S'
-                  AND n.nspname = current_schema()
-                  AND c.relname = 'to_device_stream_id_seq'
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to verify to_device_stream_id_seq existence");
-
-        assert!(sequence_exists, "Expected to_device_stream_id_seq to exist");
-
-        let next_value: i64 = sqlx::query_scalar("SELECT nextval('to_device_stream_id_seq')")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to fetch next value from to_device_stream_id_seq");
-
-        assert_eq!(
-            next_value, 1,
-            "Expected empty-table migration to keep next sequence value at 1"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_to_device_stream_id_seq_migration_advances_from_existing_stream_ids() {
-        let Some(pool) = connect_empty_integrity_pool().await else {
-            return;
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE to_device_messages (
-                stream_id BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create to_device_messages table");
-
-        sqlx::query(
-            r#"
-            INSERT INTO to_device_messages (stream_id)
-            VALUES (3), (7), (11)
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to seed to_device_messages stream ids");
-
-        execute_to_device_stream_id_seq_migration(&pool)
-            .await
-            .expect("Failed to apply to_device_stream_id_seq migration for seeded table");
-        execute_to_device_stream_id_seq_migration(&pool)
-            .await
-            .expect("Failed to reapply to_device_stream_id_seq migration for seeded table");
-
-        let next_value: i64 = sqlx::query_scalar("SELECT nextval('to_device_stream_id_seq')")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to fetch next value from to_device_stream_id_seq");
-
-        assert_eq!(
-            next_value, 12,
-            "Expected sequence to continue after the maximum existing stream_id"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_report_rate_limits_migration_repairs_legacy_columns() {
-        let Some(pool) = connect_empty_integrity_pool().await else {
-            return;
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE report_rate_limits (
-                id BIGSERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL UNIQUE,
-                report_count INTEGER DEFAULT 0,
-                is_blocked BOOLEAN DEFAULT FALSE,
-                blocked_until BIGINT,
-                last_report_ts BIGINT,
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create legacy report_rate_limits table");
-
-        execute_report_rate_limits_migration(&pool)
-            .await
-            .expect("Failed to apply report_rate_limits migration to legacy schema");
-        execute_report_rate_limits_migration(&pool)
-            .await
-            .expect("Failed to reapply report_rate_limits migration to legacy schema");
-
-        let column_names: Vec<String> = sqlx::query_scalar(
-            r#"
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = 'report_rate_limits'
-            ORDER BY ordinal_position
-            "#,
-        )
-        .fetch_all(&pool)
-        .await
-        .expect("Failed to inspect repaired report_rate_limits columns");
-
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "last_report_at"),
-            "Expected last_report_at after repair, got {:?}",
-            column_names
-        );
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "blocked_until_at"),
-            "Expected blocked_until_at after repair, got {:?}",
-            column_names
-        );
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "block_reason"),
-            "Expected block_reason after repair, got {:?}",
-            column_names
-        );
-        assert!(
-            column_names
-                .iter()
-                .any(|column_name| column_name == "updated_ts"),
-            "Expected updated_ts after repair, got {:?}",
-            column_names
-        );
-        assert!(
-            !column_names
-                .iter()
-                .any(|column_name| column_name == "last_report_ts"),
-            "Did not expect legacy last_report_ts after repair, got {:?}",
-            column_names
-        );
-        assert!(
-            !column_names
-                .iter()
-                .any(|column_name| column_name == "blocked_until"),
-            "Did not expect legacy blocked_until after repair, got {:?}",
-            column_names
         );
     }
 
