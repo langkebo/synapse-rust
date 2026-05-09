@@ -3,6 +3,29 @@ use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditEventCursor {
+    pub created_ts: i64,
+    pub event_id: String,
+}
+
+pub fn encode_audit_event_cursor(cursor: &AuditEventCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.event_id)
+}
+
+pub fn decode_audit_event_cursor(cursor: Option<&str>) -> Option<AuditEventCursor> {
+    let cursor = cursor?;
+    let (created_ts, event_id) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if event_id.is_empty() {
+        return None;
+    }
+    Some(AuditEventCursor {
+        created_ts,
+        event_id: event_id.to_string(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AuditEvent {
     pub event_id: String,
@@ -35,7 +58,7 @@ pub struct AuditEventFilters {
     pub resource_id: Option<String>,
     pub result: Option<String>,
     pub limit: i64,
-    pub offset: i64,
+    pub from: Option<AuditEventCursor>,
 }
 
 #[derive(Clone)]
@@ -73,7 +96,7 @@ impl AuditEventStorage {
     pub async fn list_events(
         &self,
         filters: &AuditEventFilters,
-    ) -> Result<(Vec<AuditEvent>, i64), sqlx::Error> {
+    ) -> Result<(Vec<AuditEvent>, i64, Option<String>), sqlx::Error> {
         let actor_id = filters.actor_id.clone();
         let action = filters.action.clone();
         let resource_type = filters.resource_type.clone();
@@ -130,17 +153,35 @@ impl AuditEventStorage {
             query.push(" AND result = ");
             query.push_bind(v.clone());
         }
+        if let Some(ref cursor) = filters.from {
+            query.push(" AND (created_ts, event_id) < (");
+            query.push_bind(cursor.created_ts);
+            query.push(", ");
+            query.push_bind(cursor.event_id.clone());
+            query.push(")");
+        }
         query.push(" ORDER BY created_ts DESC, event_id DESC LIMIT ");
-        query.push_bind(filters.limit);
-        query.push(" OFFSET ");
-        query.push_bind(filters.offset);
+        query.push_bind(filters.limit + 1);
 
         let events = query
             .build_query_as::<AuditEvent>()
             .fetch_all(&*self.pool)
             .await?;
 
-        Ok((events, total))
+        let next_batch = if events.len() > filters.limit as usize {
+            events.get(filters.limit as usize).map(|event| {
+                encode_audit_event_cursor(&AuditEventCursor {
+                    created_ts: event.created_ts,
+                    event_id: event.event_id.clone(),
+                })
+            })
+        } else {
+            None
+        };
+
+        let events = events.into_iter().take(filters.limit as usize).collect();
+
+        Ok((events, total, next_batch))
     }
 
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
@@ -155,6 +196,29 @@ impl AuditEventStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_audit_event_cursor, encode_audit_event_cursor, AuditEventCursor};
+
+    #[test]
+    fn audit_event_cursor_round_trip() {
+        let cursor = AuditEventCursor {
+            created_ts: 1_746_700_000_000,
+            event_id: "evt-123".to_string(),
+        };
+
+        let encoded = encode_audit_event_cursor(&cursor);
+        assert_eq!(decode_audit_event_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn audit_event_cursor_rejects_invalid_values() {
+        assert_eq!(decode_audit_event_cursor(None), None);
+        assert_eq!(decode_audit_event_cursor(Some("bad")), None);
+        assert_eq!(decode_audit_event_cursor(Some("123|")), None);
     }
 }
 

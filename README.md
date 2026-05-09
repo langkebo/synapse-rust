@@ -128,10 +128,13 @@ cargo run --release
 统一口径：
 
 - 部署与升级的唯一迁移执行入口是 `docker/db_migrate.sh migrate`
+- 新环境统一以 `migrations/00000000_unified_schema_v7.sql` 作为基线，增量仅执行 `20260515000001/0002/0003` 三个 v7 收敛批次
+- `stream_ordering` 在线修复与覆盖索引已拆分为独立 Batch-02，配套回滚文件为 `20260515000002_consolidated_stream_ordering_online_fix_v7.undo.sql`
 - Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
 - 服务启动默认只执行 schema health check，不执行运行时迁移
 - 仅在显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 且未设置 `SYNAPSE_SKIP_DB_INIT` 时，才进入运行时兼容初始化路径
 - 本地若需要排查 `sqlx migrate info/run`，使用 `bash scripts/sqlx_migrate.sh <subcommand>`，不要直接让 `sqlx` 扫描根 `migrations/`
+- CI 会在构建前执行 `scripts/check_migration_consistency.py`，并通过 `scripts/build_sqlx_migration_source.py` 生成 forward-only 迁移链以检测 schema 漂移
 
 ## 环境变量（覆盖配置）
 
@@ -155,6 +158,8 @@ cargo run --release
 - 项目整改行动清单：`docs/synapse-rust/PROJECT_REVIEW_ACTION_BACKLOG_2026-04-03.md`
 - 项目审查与优化完善方案：`docs/synapse-rust/PROJECT_REVIEW_AND_OPTIMIZATION_PLAN_2026-04-03.md`
 - API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
+- 数据库迁移计划：`docs/db/MIGRATION_CONSOLIDATION_PLAN_2026-05-07.md`
+- 升级与回滚指引：`migrations/README.md`
 - 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
 - 迁移索引：`migrations/MIGRATION_INDEX.md`
 - 迁移治理：`docs/db/MIGRATION_GOVERNANCE.md`

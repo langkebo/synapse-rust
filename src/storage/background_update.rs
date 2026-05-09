@@ -3,6 +3,39 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
+fn decode_background_update_cursor(cursor: &str) -> Option<(i64, &str)> {
+    let (created_ts, job_name) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if job_name.is_empty() {
+        return None;
+    }
+    Some((created_ts, job_name))
+}
+
+fn encode_background_update_cursor(created_ts: i64, job_name: &str) -> String {
+    format!("{created_ts}|{job_name}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_background_update_cursor, encode_background_update_cursor};
+
+    #[test]
+    fn test_background_update_cursor_round_trip() {
+        let cursor = encode_background_update_cursor(1_700_000_000_000, "job-name");
+        assert_eq!(
+            decode_background_update_cursor(&cursor),
+            Some((1_700_000_000_000, "job-name"))
+        );
+    }
+
+    #[test]
+    fn test_background_update_cursor_rejects_invalid_value() {
+        assert_eq!(decode_background_update_cursor("bad-cursor"), None);
+        assert_eq!(decode_background_update_cursor("123|"), None);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdate {
     pub job_name: String,
@@ -144,17 +177,33 @@ impl BackgroundUpdateStorage {
     pub async fn get_all_updates(
         &self,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
+        from: Option<String>,
+    ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error> {
+        let decoded = from
+            .as_deref()
+            .and_then(decode_background_update_cursor);
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT * FROM background_updates ORDER BY created_ts DESC LIMIT $1 OFFSET $2",
+            "SELECT * FROM background_updates
+             WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)
+                OR created_ts < $2
+                OR (created_ts = $2 AND job_name < $3)
+             ORDER BY created_ts DESC, job_name DESC
+             LIMIT $1",
         )
         .bind(limit)
-        .bind(offset)
+        .bind(decoded.map(|(created_ts, _)| created_ts))
+        .bind(decoded.map(|(_, job_name)| job_name))
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows)
+        let next_from = if rows.len() as i64 == limit {
+            rows.last()
+                .map(|row| encode_background_update_cursor(row.created_ts, &row.job_name))
+        } else {
+            None
+        };
+
+        Ok((rows, next_from))
     }
 
     pub async fn get_updates_by_status(

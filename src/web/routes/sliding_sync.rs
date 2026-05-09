@@ -14,10 +14,13 @@ use axum::{extract::State, routing::post, Json, Router};
 pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
+            "/_matrix/client/v1/sync",
+            post(sliding_sync),
+        )
+        .route(
             "/_matrix/client/unstable/org.matrix.msc3575/sync",
             post(sliding_sync),
         )
-        // SDK simplified sliding sync endpoint
         .route(
             "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
             post(sliding_sync),
@@ -28,6 +31,10 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
+        (
+            Method::POST,
+            "/_matrix/client/v1/sync",
+        ),
         (
             Method::POST,
             "/_matrix/client/unstable/org.matrix.msc3575/sync",

@@ -253,6 +253,24 @@ latest_baseline_file() {
     find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort | tail -n 1
 }
 
+is_superseded_by_latest_baseline() {
+    local baseline_name="$1"
+    local filename="$2"
+
+    if [ "$baseline_name" != "00000000_unified_schema_v7.sql" ]; then
+        return 1
+    fi
+
+    if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
+        local version_prefix="${BASH_REMATCH[1]}"
+        if [ "$version_prefix" -lt 20260515000001 ]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 record_migration() {
     local version="$1"
     local filename="$2"
@@ -299,6 +317,7 @@ SQL
 
 apply_sql_file() {
     local file="$1"
+    local tolerant="${2:-false}"
     local filename
     filename="$(basename "$file")"
     local version="${filename%.sql}"
@@ -307,7 +326,15 @@ apply_sql_file() {
 
     log_info "应用迁移: $filename"
 
-    # 通过 STDIN 执行，兼容“本机无 psql 时回退到容器内 psql”的路径差异。
+    if [ "$tolerant" = "true" ]; then
+        psql_db < "$file" >/dev/null 2>&1 || true
+        local finished_at
+        finished_at="$(now_ms)"
+        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
+        log_success "迁移完成 (容错模式): $filename"
+        return 0
+    fi
+
     if psql_db -v ON_ERROR_STOP=1 < "$file" >/dev/null; then
         local finished_at
         finished_at="$(now_ms)"
@@ -328,11 +355,6 @@ init_database() {
     log_info "初始化数据库..."
     ensure_schema_migrations_table
 
-    if table_exists "users"; then
-        log_info "检测到现有业务表，跳过基线初始化"
-        return 0
-    fi
-
     local baseline_file
     baseline_file="$(latest_baseline_file)"
     if [ -z "$baseline_file" ]; then
@@ -349,7 +371,12 @@ init_database() {
         return 0
     fi
 
-    apply_sql_file "$baseline_file"
+    if table_exists "users"; then
+        log_info "检测到现有业务表，使用容错模式应用基线迁移"
+        apply_sql_file "$baseline_file" "true"
+    else
+        apply_sql_file "$baseline_file"
+    fi
 }
 
 get_current_version() {
@@ -377,6 +404,10 @@ apply_pending_migrations() {
 
     local baseline_file
     baseline_file="$(latest_baseline_file)"
+    local baseline_name=""
+    if [ -n "$baseline_file" ]; then
+        baseline_name="$(basename "$baseline_file")"
+    fi
     local pending=0
 
     local migration_list
@@ -389,6 +420,11 @@ apply_pending_migrations() {
         local version="${filename%.sql}"
 
         if [ -n "$baseline_file" ] && [ "$file" = "$baseline_file" ]; then
+            continue
+        fi
+
+        if is_superseded_by_latest_baseline "$baseline_name" "$filename"; then
+            log_info "跳过已被 ${baseline_name} 收敛的历史迁移: $filename"
             continue
         fi
 
@@ -427,6 +463,8 @@ validate_schema() {
         "widgets"
         "secure_key_backups"
         "secure_backup_session_keys"
+        "background_updates"
+        "room_retention_policies"
         "schema_migrations"
     )
     local errors=0

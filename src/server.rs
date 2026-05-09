@@ -1,10 +1,10 @@
+use deadpool_redis::Pool as RedisPool;
 use axum::{response::IntoResponse, routing::get, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::cors::{Any, CorsLayer};
+use std::time::Instant;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
@@ -26,6 +26,13 @@ use crate::web::AppState;
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
+
+fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration {
+    Duration::from_secs(
+        configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS),
+    )
+}
 
 pub struct SynapseServer {
     app_state: Arc<AppState>,
@@ -67,6 +74,20 @@ impl SynapseServer {
             .acquire_timeout(Duration::from_secs(config.database.connection_timeout))
             .max_lifetime(DEFAULT_MAX_LIFETIME)
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SET statement_timeout = '30s'")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("SET lock_timeout = '10s'")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("SET idle_in_transaction_session_timeout = '60s'")
+                        .execute(&mut *conn)
+                        .await?;
+                    Ok(())
+                })
+            })
             .test_before_acquire(true);
 
         ::tracing::info!("Connecting to database with optimized pool settings...");
@@ -152,6 +173,7 @@ impl SynapseServer {
         }
 
         let mut task_queue: Option<Arc<RedisTaskQueue>> = None;
+        let mut redis_pool_option: Option<RedisPool> = None;
 
         let cache = if config.redis.enabled {
             ::tracing::info!(
@@ -163,6 +185,7 @@ impl SynapseServer {
             let conn_str = config.redis.connection_url();
             let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
             let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
+            redis_pool_option = Some(redis_pool.clone());
 
             ::tracing::info!("Redis pool created.");
 
@@ -241,6 +264,7 @@ impl SynapseServer {
 
         let scheduled_tasks = Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool(
             (*pool).clone(),
+            redis_pool_option,
         ))));
         let metrics_collector = Arc::new(TaskMetricsCollector::new(scheduled_tasks.clone()));
 
@@ -259,67 +283,6 @@ impl SynapseServer {
             ))
             .layer(axum::middleware::from_fn(panic_catcher_middleware))
             .layer(axum::middleware::from_fn(request_timeout_middleware))
-            .layer({
-                let cors = &config.cors;
-                let mut layer = CorsLayer::new();
-
-                if cors.allowed_origins.iter().any(|o| o == "*") {
-                    layer = layer.allow_origin(Any);
-                } else {
-                    let origins: Vec<http::HeaderValue> = cors
-                        .allowed_origins
-                        .iter()
-                        .filter_map(|o| http::HeaderValue::from_str(o).ok())
-                        .collect();
-                    if !origins.is_empty() {
-                        layer = layer.allow_origin(origins);
-                    } else {
-                        ::tracing::warn!(
-                            "CORS: no allowed_origins configured — defaulting to same-origin. \
-                             Set cors.allowed_origins explicitly to allow cross-origin requests."
-                        );
-                    }
-                }
-
-                if cors.allow_credentials && !cors.allowed_origins.iter().any(|o| o == "*") {
-                    layer = layer.allow_credentials(true);
-                } else {
-                    layer = layer.allow_credentials(false);
-                }
-                if cors.allowed_methods.iter().any(|m| m == "*") {
-                    layer = layer.allow_methods(Any);
-                } else {
-                    let methods: Vec<http::Method> = cors
-                        .allowed_methods
-                        .iter()
-                        .filter_map(|m| http::Method::from_bytes(m.as_bytes()).ok())
-                        .collect();
-                    if !methods.is_empty() {
-                        layer = layer.allow_methods(methods);
-                    } else {
-                        ::tracing::warn!(
-                            "CORS: no allowed_methods configured — no cross-origin methods will be permitted."
-                        );
-                    }
-                }
-                if cors.allowed_headers.iter().any(|h| h == "*") {
-                    layer = layer.allow_headers(Any);
-                } else {
-                    let headers: Vec<http::HeaderName> = cors
-                        .allowed_headers
-                        .iter()
-                        .filter_map(|h| http::HeaderName::from_str(h).ok())
-                        .collect();
-                    if !headers.is_empty() {
-                        layer = layer.allow_headers(headers);
-                    } else {
-                        ::tracing::warn!(
-                            "CORS: no allowed_headers configured — no cross-origin headers will be permitted."
-                        );
-                    }
-                }
-                layer
-            })
             .layer(TraceLayer::new_for_http());
 
         Ok(Self {
@@ -374,6 +337,12 @@ impl SynapseServer {
             .server
             .background_tasks_interval
             .max(10);
+        let dehydrated_cleanup_interval_secs = self
+            .app_state
+            .services
+            .config
+            .server
+            .dehydrated_device_cleanup_interval_secs;
         let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
             retention_config
                 .lifecycle_cleanup_interval_secs
@@ -420,26 +389,6 @@ impl SynapseServer {
         let fed_router = self.router.clone();
         let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
 
-        // MSC3814 — periodically sweep dehydrated devices whose `expires_at`
-        // has passed. Cheap query (indexed on expires_at), so a 1h cadence is
-        // plenty for the timeouts clients typically set (days/weeks).
-        {
-            let dehydrated_service = self.app_state.services.dehydrated_device_service.clone();
-            tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(Duration::from_secs(3600));
-                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                interval_timer.tick().await; // skip immediate tick
-                loop {
-                    interval_timer.tick().await;
-                    match dehydrated_service.sweep_expired().await {
-                        Ok(0) => {}
-                        Ok(n) => ::tracing::info!("Swept {} expired dehydrated device(s)", n),
-                        Err(e) => ::tracing::warn!("Dehydrated device expiry sweep failed: {}", e),
-                    }
-                }
-            });
-        }
-
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
         let prometheus_config = self.app_state.services.config.prometheus.clone();
@@ -462,6 +411,113 @@ impl SynapseServer {
         let mut shutdown_rx1 = shutdown_tx.subscribe();
         let mut shutdown_rx2 = shutdown_tx.subscribe();
         let mut shutdown_rx3 = shutdown_tx.subscribe();
+        let mut shutdown_rx4 = shutdown_tx.subscribe();
+        let mut shutdown_rx5 = shutdown_tx.subscribe();
+
+        {
+            let bg_service = self.app_state.services.background_update_service.clone();
+            let retention_service = self.app_state.services.retention_service.clone();
+            let media_service = self.app_state.services.media_service.clone();
+            let event_broadcaster = self.app_state.services.event_broadcaster.clone();
+            let remote_media_lifetime = self.app_state.services.config.server.remote_media_lifetime;
+            let local_media_lifetime = self.app_state.services.config.server.local_media_lifetime;
+            let mut media_cleanup_counter: u64 = 0;
+            let mut federation_retry_counter: u64 = 0;
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Err(e) = bg_service.retry_failed().await {
+                                ::tracing::warn!("Background update retry failed: {}", e);
+                            }
+                            if let Err(e) = bg_service.cleanup_expired_locks().await {
+                                ::tracing::warn!("Background lock cleanup failed: {}", e);
+                            }
+                            if let Err(e) = retention_service.run_scheduled_cleanups().await {
+                                ::tracing::warn!("Retention cleanup failed: {}", e);
+                            }
+                            media_cleanup_counter += 1;
+                            if media_cleanup_counter >= 60 {
+                                media_cleanup_counter = 0;
+                                if remote_media_lifetime > 0 {
+                                    let cutoff_ts = chrono::Utc::now().timestamp_millis()
+                                        - (remote_media_lifetime as i64 * 1000);
+                                    if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
+                                        ::tracing::warn!("Remote media cleanup failed: {}", e);
+                                    }
+                                }
+                                if local_media_lifetime > 0 {
+                                    let cutoff_ts = chrono::Utc::now().timestamp_millis()
+                                        - (local_media_lifetime as i64 * 1000);
+                                    if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
+                                        ::tracing::warn!("Local media cleanup failed: {}", e);
+                                    }
+                                }
+                            }
+                            federation_retry_counter += 1;
+                            if federation_retry_counter >= 5 {
+                                federation_retry_counter = 0;
+                                if let Ok(retried) = event_broadcaster.retry_pending_transactions().await {
+                                    if retried > 0 {
+                                        ::tracing::info!("Federation retry: {} transactions retried", retried);
+                                    }
+                                }
+                            }
+                        }
+                        _ = shutdown_rx4.recv() => {
+                            ::tracing::info!("Background task scheduler shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        {
+            let dehydrated_service = self.app_state.services.dehydrated_device_service.clone();
+            let cleanup_interval =
+                dehydrated_device_cleanup_interval(dehydrated_cleanup_interval_secs);
+            let server_metrics = self.app_state.services.server_metrics.clone();
+            tokio::spawn(async move {
+                let mut interval_timer = tokio::time::interval(cleanup_interval);
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval_timer.tick().await; // skip immediate tick after startup
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            server_metrics.dehydrated_device_cleanup_total.inc();
+                            let start_time = Instant::now();
+                            match dehydrated_service.sweep_expired().await {
+                                Ok(0) => ::tracing::debug!(
+                                    message = "Dehydrated device cleanup task: no expired devices found for sweep"
+                                ),
+                                Ok(n) => {
+                                    ::tracing::info!(
+                                        message = "Swept expired dehydrated device(s)",
+                                        devices_swept = n
+                                    );
+                                    server_metrics.dehydrated_device_cleaned_total.inc_by(n as u64);
+                                }
+                                Err(e) => {
+                                    ::tracing::warn!(
+                                        message = "Dehydrated device expiry sweep failed",
+                                        error = %e
+                                    );
+                                    server_metrics.dehydrated_device_cleanup_errors_total.inc();
+                                }
+                            }
+                            server_metrics.dehydrated_device_cleanup_duration.observe(start_time.elapsed().as_millis() as f64);
+                        }
+                        _ = shutdown_rx5.recv() => {
+                            ::tracing::info!("Dehydrated device cleanup task shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
 
         tokio::spawn(async move {
             let _ = shutdown_tx;
@@ -568,4 +624,25 @@ async fn render_prometheus_metrics(
         )],
         metrics.to_prometheus_format(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dehydrated_device_cleanup_uses_minimum_interval() {
+        assert_eq!(
+            dehydrated_device_cleanup_interval(60),
+            Duration::from_secs(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS)
+        );
+    }
+
+    #[test]
+    fn dehydrated_device_cleanup_uses_background_interval_when_larger() {
+        assert_eq!(
+            dehydrated_device_cleanup_interval(900),
+            Duration::from_secs(900)
+        );
+    }
 }

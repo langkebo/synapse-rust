@@ -1,5 +1,7 @@
 use crate::common::ApiError;
-use crate::storage::server_notification::{CreateNotificationRequest, ServerNotification};
+use crate::storage::server_notification::{
+    decode_server_notification_cursor, CreateNotificationRequest, ServerNotification,
+};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -9,6 +11,60 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+
+fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
+    let cursor = cursor?;
+    let (sent_ts, id) = cursor.split_once('|')?;
+    let sent_ts = sent_ts.parse::<i64>().ok()?;
+    let id = id.parse::<i64>().ok()?;
+    Some((sent_ts, id))
+}
+
+fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
+    format!("{sent_ts}|{id}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_notice_cursor, encode_notice_cursor};
+    use crate::storage::server_notification::{
+        decode_server_notification_cursor, encode_server_notification_cursor,
+        ServerNotificationCursor,
+    };
+
+    #[test]
+    fn test_notice_cursor_round_trip() {
+        let cursor = encode_notice_cursor(1_700_000_000_000, 42);
+        assert_eq!(decode_notice_cursor(Some(&cursor)), Some((1_700_000_000_000, 42)));
+    }
+
+    #[test]
+    fn test_notice_cursor_rejects_invalid_value() {
+        assert_eq!(decode_notice_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_notice_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_notification_cursor_round_trip() {
+        let cursor = encode_server_notification_cursor(&ServerNotificationCursor {
+            created_ts: 1_700_000_000_000,
+            id: 7,
+        });
+        assert_eq!(
+            decode_server_notification_cursor(Some(&cursor)),
+            Some(ServerNotificationCursor {
+                created_ts: 1_700_000_000_000,
+                id: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn test_notification_cursor_rejects_invalid_value() {
+        assert_eq!(decode_server_notification_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_server_notification_cursor(Some("123|")), None);
+    }
+}
 
 pub fn create_notification_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -176,7 +232,7 @@ pub struct UpdateNotificationRequest {
 pub struct NotificationQuery {
     pub audience: Option<String>,
     pub limit: Option<usize>,
-    pub offset: Option<usize>,
+    pub from: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -228,25 +284,22 @@ pub async fn list_notifications(
     Query(query): Query<NotificationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = (query.limit.unwrap_or(50).min(100)) as i64;
-    let offset = (query.offset.unwrap_or(0)) as i64;
+    let cursor = decode_server_notification_cursor(query.from.as_deref());
 
-    let notifications = sqlx::query_as::<_, ServerNotification>(
-        r#"
-        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
-        FROM server_notifications
-        WHERE ($1::text IS NULL OR target_audience = $1)
-        ORDER BY created_ts DESC
-        LIMIT $2 OFFSET $3
-        "#,
-    )
-    .bind(&query.audience)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to list notifications: {}", e)))?;
+    if query.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
 
-    Ok(Json(json!(notifications)))
+    let (notifications, next_batch) = state
+        .services
+        .server_notification_service
+        .list_all_notifications(query.audience.as_deref(), limit, cursor)
+        .await?;
+
+    Ok(Json(json!({
+        "notifications": notifications,
+        "next_batch": next_batch
+    })))
 }
 
 #[axum::debug_handler]
@@ -687,7 +740,7 @@ pub async fn get_server_notices(
     Query(query): Query<ServerNoticesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(10).min(50) as i64;
-    let offset = query.from.unwrap_or(0) as i64;
+    let cursor = decode_notice_cursor(query.from.as_deref());
 
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
         .fetch_one(&*state.services.event_storage.pool)
@@ -695,10 +748,17 @@ pub async fn get_server_notices(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let notices = sqlx::query(
-        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices ORDER BY sent_ts DESC LIMIT $1 OFFSET $2"
+        "SELECT id, user_id, event_id, content, sent_ts
+         FROM server_notices
+         WHERE ($1::BIGINT IS NULL AND $2::BIGINT IS NULL)
+            OR sent_ts < $1
+            OR (sent_ts = $1 AND id < $2)
+         ORDER BY sent_ts DESC, id DESC
+         LIMIT $3"
     )
+    .bind(cursor.map(|(sent_ts, _)| sent_ts))
+    .bind(cursor.map(|(_, id)| id))
     .bind(limit)
-    .bind(offset)
     .fetch_all(&*state.services.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -716,13 +776,28 @@ pub async fn get_server_notices(
         })
         .collect();
 
-    Ok(Json(json!({ "notices": notice_list, "total": total })))
+    let next_batch = if notices.len() as i64 == limit {
+        notices.last().map(|row| {
+            encode_notice_cursor(
+                row.get::<Option<i64>, _>("sent_ts").unwrap_or_default(),
+                row.get::<Option<i64>, _>("id").unwrap_or_default(),
+            )
+        })
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "notices": notice_list,
+        "total": total,
+        "next_batch": next_batch
+    })))
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ServerNoticesQuery {
     pub limit: Option<u32>,
-    pub from: Option<u32>,
+    pub from: Option<String>,
 }
 
 #[axum::debug_handler]

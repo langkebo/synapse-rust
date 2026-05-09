@@ -16,7 +16,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{types::JsonValue, Row};
+use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
 fn parse_room_messages_from_token(params: &Value) -> i64 {
@@ -49,6 +49,10 @@ fn normalize_room_event_type(event_type: &str) -> String {
     } else {
         format!("m.room.{}", event_type)
     }
+}
+
+fn state_event_content_response(content: &Value) -> Value {
+    content.clone()
 }
 
 async fn ensure_room_state_write_access(
@@ -548,14 +552,18 @@ pub(crate) async fn get_messages(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(&params);
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(10)
+        .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
     Ok(Json(
         state
             .services
             .room_service
-            .get_room_messages(&room_id, from, limit as i64, direction)
+            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
             .await?,
     ))
 }
@@ -563,7 +571,7 @@ pub(crate) async fn get_messages(
 pub(crate) async fn send_message(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, _txn_id)): Path<(String, String, String)>,
+    Path((room_id, event_type, txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -573,6 +581,15 @@ pub(crate) async fn send_message(
         return Err(ApiError::bad_request(
             "Message content too long (max 64KB)".to_string(),
         ));
+    }
+
+    if !txn_id.is_empty() {
+        let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
+        if let Ok(Some(cached)) = state.services.cache.get::<String>(&cache_key).await {
+            if let Ok(event_id) = serde_json::from_str::<serde_json::Value>(&cached) {
+                return Ok(Json(event_id));
+            }
+        }
     }
 
     state
@@ -589,13 +606,22 @@ pub(crate) async fn send_message(
             .await?;
     }
 
-    Ok(Json(
-        state
+    let result = state
+        .services
+        .room_service
+        .send_message(&room_id, &auth_user.user_id, &event_type, &body)
+        .await?;
+
+    if !txn_id.is_empty() {
+        let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
+        let _ = state
             .services
-            .room_service
-            .send_message(&room_id, &auth_user.user_id, &event_type, &body)
-            .await?,
-    ))
+            .cache
+            .set(&cache_key, &result.to_string(), 3600)
+            .await;
+    }
+
+    Ok(Json(result))
 }
 
 pub(crate) async fn join_room(
@@ -686,6 +712,7 @@ pub(crate) async fn leave_room(
         .room_service
         .leave_room(&room_id, &auth_user.user_id)
         .await?;
+    #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
         .friend_room_service
@@ -704,10 +731,7 @@ pub(crate) async fn leave_room(
             error
         );
     }
-    Ok(Json(json!({
-        "room_id": room_id,
-        "left_ts": chrono::Utc::now().timestamp_millis()
-    })))
+    Ok(Json(json!({})))
 }
 
 #[derive(Debug, Deserialize)]
@@ -817,7 +841,7 @@ pub(crate) async fn room_initial_sync(
     let messages = state
         .services
         .room_service
-        .get_room_messages(&room_id, from, limit, "b")
+        .get_room_messages(&room_id, &auth_user.user_id, from, limit, "b")
         .await?;
 
     let member_events = members
@@ -849,6 +873,7 @@ pub(crate) async fn get_room_members(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -885,12 +910,59 @@ pub(crate) async fn get_room_members(
         ));
     }
 
+    let membership_filter = params.get("membership").map(|s| s.as_str());
+    let not_membership_filter = params.get("not_membership").map(|s| s.as_str());
+
     let members = state
         .services
         .room_service
         .get_room_members(&room_id, &user_id)
         .await?;
-    Ok(Json(members))
+
+    let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
+        if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
+            let filtered_events: Vec<Value> = chunk
+                .iter()
+                .filter(|event| {
+                    let event_membership = event
+                        .get("content")
+                        .and_then(|c| c.get("membership"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("");
+
+                    if let Some(mf) = membership_filter {
+                        event_membership == mf
+                    } else {
+                        true
+                    }
+                })
+                .filter(|event| {
+                    let event_membership = event
+                        .get("content")
+                        .and_then(|c| c.get("membership"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("");
+
+                    if let Some(nmf) = not_membership_filter {
+                        event_membership != nmf
+                    } else {
+                        true
+                    }
+                })
+                .cloned()
+                .collect();
+
+            let mut result = members.clone();
+            result["chunk"] = Value::Array(filtered_events);
+            result
+        } else {
+            members
+        }
+    } else {
+        members
+    };
+
+    Ok(Json(filtered))
 }
 
 pub(crate) async fn get_room_members_recent(
@@ -972,10 +1044,16 @@ pub(crate) async fn get_joined_members(
         .into_iter()
         .map(|m| {
             let user_id = m.user_id.clone();
+            let display_name = m.display_name.clone().or_else(|| {
+                let uid = &user_id;
+                uid.strip_prefix('@')
+                    .and_then(|s| s.split(':').next())
+                    .map(|s| s.to_string())
+            });
             (
                 user_id,
                 json!({
-                    "display_name": m.display_name,
+                    "display_name": display_name,
                     "avatar_url": m.avatar_url
                 }),
             )
@@ -1176,7 +1254,14 @@ pub(crate) async fn create_room(
 
     let preset = body.get("preset").and_then(|v| v.as_str());
 
-    let room_type = body.get("room_type").and_then(|v| v.as_str());
+    let room_type = body
+        .get("room_type")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            body.get("creation_content")
+                .and_then(|cc| cc.get("type"))
+                .and_then(|v| v.as_str())
+        });
 
     let is_direct = body.get("is_direct").and_then(|v| v.as_bool());
     let room_version = body
@@ -1392,7 +1477,9 @@ pub(crate) async fn get_room_state(
         })
         .collect();
 
-    Ok(Json(JsonValue::Array(state_events)))
+    Ok(Json(json!({
+        "events": state_events
+    })))
 }
 
 pub(crate) async fn get_state_by_type(
@@ -1428,20 +1515,31 @@ pub(crate) async fn get_state_by_type(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
 
-    let state_events: Vec<Value> = events
+    let event_with_empty_key = events
         .iter()
-        .map(|e| {
-            json!({
-                "type": e.event_type,
-                "event_id": e.event_id,
-                "sender": e.user_id,
-                "content": e.content,
-                "state_key": e.state_key
-            })
-        })
-        .collect();
+        .find(|e| e.state_key.as_deref() == Some("") || e.state_key.is_none());
 
-    Ok(Json(json!({ "events": state_events })))
+    if let Some(event) = event_with_empty_key {
+        Ok(Json(state_event_content_response(&event.content)))
+    } else if events.len() == 1 {
+        Ok(Json(state_event_content_response(&events[0].content)))
+    } else if events.is_empty() {
+        Err(ApiError::not_found("State event not found".to_string()))
+    } else {
+        let state_events: Vec<Value> = events
+            .iter()
+            .map(|e| {
+                json!({
+                    "type": e.event_type,
+                    "event_id": e.event_id,
+                    "sender": e.user_id,
+                    "content": e.content,
+                    "state_key": e.state_key
+                })
+            })
+            .collect();
+        Ok(Json(json!({ "events": state_events })))
+    }
 }
 
 pub(crate) async fn get_state_event(
@@ -1475,20 +1573,7 @@ pub(crate) async fn get_state_event(
         })
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
-    let mut response = json!({
-        "type": event.event_type,
-        "event_id": event.event_id,
-        "sender": event.sender,
-        "state_key": event.state_key
-    });
-
-    if let Some(content) = event.content.as_object() {
-        for (k, v) in content {
-            response[k] = v.clone();
-        }
-    }
-
-    Ok(Json(response))
+    Ok(Json(state_event_content_response(&event.content)))
 }
 
 pub(crate) async fn send_state_event(
@@ -1756,20 +1841,40 @@ pub(crate) async fn get_state_event_empty_key(
         .find(|e| e.state_key.as_ref().map(|s| s.is_empty()) == Some(true))
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
-    let mut response = json!({
-        "type": event.event_type,
-        "event_id": event.event_id,
-        "sender": event.sender,
-        "state_key": event.state_key
-    });
+    Ok(Json(state_event_content_response(&event.content)))
+}
 
-    if let Some(content) = event.content.as_object() {
-        for (k, v) in content {
-            response[k] = v.clone();
-        }
+#[cfg(test)]
+mod tests {
+    use super::state_event_content_response;
+    use serde_json::json;
+
+    #[test]
+    fn test_state_event_content_response_returns_raw_content_for_empty_state_key() {
+        let content = json!({
+            "topic": "raw topic payload"
+        });
+
+        let response = state_event_content_response(&content);
+
+        assert_eq!(response, content);
+        assert!(response.get("event_id").is_none());
+        assert!(response.get("type").is_none());
     }
 
-    Ok(Json(response))
+    #[test]
+    fn test_state_event_content_response_returns_raw_content_for_keyed_state() {
+        let content = json!({
+            "enabled": true,
+            "label": "alpha"
+        });
+
+        let response = state_event_content_response(&content);
+
+        assert_eq!(response, content);
+        assert!(response.get("state_key").is_none());
+        assert!(response.get("sender").is_none());
+    }
 }
 
 pub(crate) async fn get_power_levels(
@@ -1880,7 +1985,7 @@ pub(crate) async fn send_receipt(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
@@ -1906,9 +2011,47 @@ pub(crate) async fn send_receipt(
             &room_id,
             &event_id,
             &receipt_type,
+            &body,
         )
         .await
         .map_err(|e| ApiError::internal(format!("Failed to store receipt: {}", e)))?;
+
+    let now_ts = chrono::Utc::now().timestamp_millis();
+    let mut receipt_entry = body.as_object().cloned().unwrap_or_default();
+    receipt_entry.insert("ts".to_string(), json!(now_ts));
+    let receipt_content = json!({
+        (&event_id): {
+            (&receipt_type): {
+                (&auth_user.user_id): receipt_entry
+            }
+        }
+    });
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
+        VALUES ($1, 'm.receipt', $2, $3, $4, $5, NULL)
+        ON CONFLICT (room_id, event_type, user_id) DO UPDATE
+        SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts
+        "#,
+    )
+    .bind(&room_id)
+    .bind(&auth_user.user_id)
+    .bind(&receipt_content)
+    .bind(now_ts)
+    .bind(now_ts)
+    .execute(&*state.services.event_storage.pool)
+    .await;
+
+    let receipt_edu = serde_json::json!({
+        "edu_type": "m.receipt",
+        "room_id": &room_id,
+        "content": receipt_content
+    });
+    let _ = state
+        .services
+        .event_broadcaster
+        .broadcast_edu_to_room(&room_id, &receipt_edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+        .await;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -2774,14 +2917,14 @@ pub(crate) async fn get_room_timeline(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(&params);
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
     Ok(Json(
         state
             .services
             .room_service
-            .get_room_messages(&room_id, from, limit as i64, direction)
+            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
             .await?,
     ))
 }
@@ -4139,7 +4282,7 @@ pub(crate) async fn kick_user(
         .can_kick_user(&room_id, &auth_user.user_id, target)
         .await?;
 
-    let kicked_by = auth_user.user_id.clone();
+    let _kicked_by = auth_user.user_id.clone();
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
         "membership": "leave",
@@ -4178,6 +4321,7 @@ pub(crate) async fn kick_user(
         })
         .ok();
 
+    #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
         .friend_room_service
@@ -4197,13 +4341,7 @@ pub(crate) async fn kick_user(
         );
     }
 
-    Ok(Json(json!({
-        "room_id": room_id,
-        "user_id": target,
-        "kicked_by": kicked_by,
-        "membership": "leave",
-        "updated_ts": chrono::Utc::now().timestamp_millis()
-    })))
+    Ok(Json(json!({})))
 }
 
 pub(crate) async fn ban_user(
@@ -4254,7 +4392,7 @@ pub(crate) async fn ban_user(
         .can_ban_user(&room_id, &auth_user.user_id, target)
         .await?;
 
-    let banned_by = auth_user.user_id.clone();
+    let _banned_by = auth_user.user_id.clone();
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
         "membership": "ban",
@@ -4293,6 +4431,7 @@ pub(crate) async fn ban_user(
         })
         .ok();
 
+    #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
         .friend_room_service
@@ -4312,13 +4451,7 @@ pub(crate) async fn ban_user(
         );
     }
 
-    Ok(Json(json!({
-        "room_id": room_id,
-        "user_id": target,
-        "banned_by": banned_by,
-        "membership": "ban",
-        "updated_ts": chrono::Utc::now().timestamp_millis()
-    })))
+    Ok(Json(json!({})))
 }
 
 pub(crate) async fn unban_user(
@@ -4342,7 +4475,7 @@ pub(crate) async fn unban_user(
         .can_unban_user(&room_id, &auth_user.user_id, target)
         .await?;
 
-    let unbanned_by = auth_user.user_id.clone();
+    let _unbanned_by = auth_user.user_id.clone();
     state
         .services
         .member_storage
@@ -4380,13 +4513,7 @@ pub(crate) async fn unban_user(
         })
         .ok();
 
-    Ok(Json(json!({
-        "room_id": room_id,
-        "user_id": target,
-        "unbanned_by": unbanned_by,
-        "membership": "leave",
-        "updated_ts": chrono::Utc::now().timestamp_millis()
-    })))
+    Ok(Json(json!({})))
 }
 
 pub(crate) async fn get_room_permissions(

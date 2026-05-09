@@ -114,32 +114,36 @@ async fn upload_test_device_keys(
     state
         .services
         .device_keys_service
-        .upload_keys(KeyUploadRequest {
-            device_keys: Some(DeviceKeys {
-                user_id: user_id.to_string(),
-                device_id: device_id.to_string(),
-                algorithms: vec!["curve25519".to_string(), "ed25519".to_string()],
-                keys: json!({
-                    format!("curve25519:{}", device_id): format!("curve-key-{}", device_id),
-                    format!("ed25519:{}", device_id): format!("ed-key-{}", device_id),
+        .upload_keys(
+            KeyUploadRequest {
+                device_keys: Some(DeviceKeys {
+                    user_id: user_id.to_string(),
+                    device_id: device_id.to_string(),
+                    algorithms: vec!["curve25519".to_string(), "ed25519".to_string()],
+                    keys: json!({
+                        format!("curve25519:{}", device_id): format!("curve-key-{}", device_id),
+                        format!("ed25519:{}", device_id): format!("ed-key-{}", device_id),
+                    }),
+                    signatures: json!({
+                        user_id: {
+                            format!("ed25519:{}", device_id): "signature"
+                        }
+                    }),
+                    unsigned: None,
                 }),
-                signatures: json!({
-                    user_id: {
-                        format!("ed25519:{}", device_id): "signature"
-                    }
+                one_time_keys: include_one_time_key.then(|| {
+                    json!({
+                        "OTK1": {
+                            "key": format!("otk-public-{}", device_id),
+                            "signatures": {}
+                        }
+                    })
                 }),
-                unsigned: None,
-            }),
-            one_time_keys: include_one_time_key.then(|| {
-                json!({
-                    "OTK1": {
-                        "key": format!("otk-public-{}", device_id),
-                        "signatures": {}
-                    }
-                })
-            }),
-            fallback_keys: None,
-        })
+                fallback_keys: None,
+            },
+            user_id,
+            device_id,
+        )
         .await
         .unwrap();
 }

@@ -263,9 +263,9 @@ impl FederationBlacklistService {
     pub async fn get_blacklist(
         &self,
         limit: i32,
-        offset: i32,
-    ) -> Result<Vec<FederationBlacklist>, ApiError> {
-        self.storage.get_all_blacklist(limit, offset).await
+        from: Option<FederationBlacklistCursor>,
+    ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
+        self.storage.get_all_blacklist(limit, from).await
     }
 
     pub async fn get_stats(

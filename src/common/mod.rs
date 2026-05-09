@@ -14,6 +14,7 @@ pub mod health;
 pub mod logging;
 pub mod macros;
 pub mod metrics;
+pub mod server_metrics;
 pub mod password_hash_pool;
 pub mod rate_limit;
 pub mod rate_limit_config;

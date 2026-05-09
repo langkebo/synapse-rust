@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
@@ -62,7 +62,7 @@ impl Counter {
 #[derive(Debug, Clone)]
 pub struct Gauge {
     name: String,
-    value: Arc<AtomicI64>,
+    value: Arc<AtomicU64>,
     labels: HashMap<String, String>,
 }
 
@@ -70,7 +70,7 @@ impl Gauge {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            value: Arc::new(AtomicI64::new(0)),
+            value: Arc::new(AtomicU64::new(0.0f64.to_bits())),
             labels: HashMap::new(),
         }
     }
@@ -78,33 +78,48 @@ impl Gauge {
     pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
         Self {
             name,
-            value: Arc::new(AtomicI64::new(0)),
+            value: Arc::new(AtomicU64::new(0.0f64.to_bits())),
             labels,
         }
     }
 
     pub fn set(&self, value: f64) {
-        self.value.store(value as i64, Ordering::Relaxed);
+        self.value.store(value.to_bits(), Ordering::Relaxed);
     }
 
     pub fn inc(&self) {
-        self.value.fetch_add(1, Ordering::Relaxed);
+        self.add(1.0);
     }
 
     pub fn dec(&self) {
-        self.value.fetch_sub(1, Ordering::Relaxed);
+        self.sub(1.0);
     }
 
     pub fn add(&self, delta: f64) {
-        self.value.fetch_add(delta as i64, Ordering::Relaxed);
+        self.update(|current| current + delta);
     }
 
     pub fn sub(&self, delta: f64) {
-        self.value.fetch_sub(delta as i64, Ordering::Relaxed);
+        self.update(|current| current - delta);
     }
 
     pub fn get(&self) -> f64 {
-        self.value.load(Ordering::Relaxed) as f64
+        f64::from_bits(self.value.load(Ordering::Relaxed))
+    }
+
+    fn update(&self, f: impl Fn(f64) -> f64) {
+        let mut current = self.value.load(Ordering::Relaxed);
+        loop {
+            let current_value = f64::from_bits(current);
+            let next = f(current_value).to_bits();
+            match self
+                .value
+                .compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => break,
+                Err(observed) => current = observed,
+            }
+        }
     }
 }
 

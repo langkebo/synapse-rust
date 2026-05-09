@@ -21,6 +21,7 @@ pub struct SendReferenceRequest {
     pub sender: String,
     pub content: Value,
     pub origin_server_ts: i64,
+    pub relation_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,11 +74,12 @@ pub struct RelationTarget {
 #[derive(Clone)]
 pub struct RelationsService {
     storage: Arc<RelationsStorage>,
+    server_name: String,
 }
 
 impl RelationsService {
-    pub fn new(storage: Arc<RelationsStorage>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<RelationsStorage>, server_name: String) -> Self {
+        Self { storage, server_name }
     }
 
     pub async fn send_annotation(
@@ -92,10 +94,7 @@ impl RelationsService {
             "Sending annotation"
         );
 
-        let event_id = format!(
-            "${}",
-            crate::common::crypto::generate_event_id(&request.room_id)
-        );
+        let event_id = crate::common::crypto::generate_event_id(&self.server_name);
 
         let content = serde_json::json!({
             "body": request.key,
@@ -138,18 +137,23 @@ impl RelationsService {
         );
 
         let mut content = request.content;
+        let effective_relation_type = request
+            .relation_type
+            .clone()
+            .unwrap_or_else(|| "m.reference".to_string());
+
         if let Some(obj) = content.as_object_mut() {
             obj.insert(
                 "m.relates_to".to_string(),
                 serde_json::json!({
-                    "rel_type": "m.reference",
+                    "rel_type": effective_relation_type,
                     "event_id": request.relates_to_event_id
                 }),
             );
         } else {
             content = serde_json::json!({
                 "m.relates_to": {
-                    "rel_type": "m.reference",
+                    "rel_type": effective_relation_type,
                     "event_id": request.relates_to_event_id
                 }
             });
@@ -159,7 +163,7 @@ impl RelationsService {
             room_id: request.room_id,
             event_id,
             relates_to_event_id: request.relates_to_event_id,
-            relation_type: "m.reference".to_string(),
+            relation_type: effective_relation_type,
             sender: request.sender,
             origin_server_ts: request.origin_server_ts,
             content,

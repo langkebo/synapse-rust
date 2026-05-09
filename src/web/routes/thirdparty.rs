@@ -78,53 +78,19 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 async fn get_protocols(
     State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Per Matrix spec this endpoint exposes the bridge protocol catalog,
-    // which is metadata about the homeserver itself, not user-scoped data.
-    // Element calls it during the unauthenticated bootstrap to decide what
-    // login affordances to show, so requiring auth here only causes a
-    // spurious 401 on every cold start. Returning the protocol descriptor
-    // anonymously matches the synapse-python behaviour as well.
-    Ok(Json(serde_json::json!({
-        "irc": {
-            "instances": [
-                {
-                    "desc": "IRC Bridge",
-                    "fields": {},
-                    "network": "irc"
-                }
-            ],
-            "user_fields": ["nick"],
-            "location_fields": ["channel"]
-        }
-    })))
+    Ok(Json(serde_json::json!({})))
 }
 
 async fn get_protocol(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(protocol): Path<String>,
+    Path(_protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if protocol == "irc" {
-        Ok(Json(serde_json::json!({
-            "instances": [
-                {
-                    "desc": "IRC Bridge",
-                    "fields": {},
-                    "network": "irc"
-                }
-            ],
-            "user_fields": ["nick"],
-            "location_fields": ["channel"]
-        })))
-    } else {
-        // Matrix spec: unknown protocols return an empty descriptor rather than errors.
-        // Bridges that are not enabled on this deployment simply expose no instances.
-        Ok(Json(serde_json::json!({
-            "instances": [],
-            "user_fields": [],
-            "location_fields": []
-        })))
-    }
+    Ok(Json(serde_json::json!({
+        "instances": [],
+        "user_fields": [],
+        "location_fields": []
+    })))
 }
 
 #[derive(Debug, Deserialize)]

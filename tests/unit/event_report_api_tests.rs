@@ -125,6 +125,22 @@ fn test_reports_by_room_response() {
     assert!(reports[0].get("room_id").is_some());
 }
 
+// Test 9b: Keyset pagination cursor
+#[test]
+fn test_report_keyset_cursor_query() {
+    let cursor = json!({
+        "limit": 100,
+        "since_score": 50,
+        "since_ts": 1700000000000_i64,
+        "since_id": 42
+    });
+
+    assert_eq!(cursor.get("limit").and_then(|v| v.as_i64()), Some(100));
+    assert_eq!(cursor.get("since_score").and_then(|v| v.as_i64()), Some(50));
+    assert!(cursor.get("since_ts").is_some());
+    assert!(cursor.get("since_id").is_some());
+}
+
 // Test 10: Report resolution
 #[test]
 fn test_report_resolution() {

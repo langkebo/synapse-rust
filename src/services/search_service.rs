@@ -1,4 +1,6 @@
 use crate::common::*;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row};
@@ -53,6 +55,59 @@ pub struct SearchResultItem {
     pub origin_server_ts: i64,
     pub highlights: Option<Vec<String>>,
     pub room_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PostgresSearchCursor {
+    rank: f64,
+    origin_server_ts: i64,
+    event_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ElasticsearchSearchCursor {
+    origin_server_ts: i64,
+    event_id: String,
+}
+
+fn encode_postgres_search_cursor(cursor: &PostgresSearchCursor) -> String {
+    let raw = format!("{}|{}|{}", cursor.rank, cursor.origin_server_ts, cursor.event_id);
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+fn decode_postgres_search_cursor(cursor: Option<&str>) -> Option<PostgresSearchCursor> {
+    let cursor = cursor?;
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (rank, rest) = decoded.split_once('|')?;
+    let (origin_server_ts, event_id) = rest.split_once('|')?;
+    if event_id.is_empty() {
+        return None;
+    }
+    Some(PostgresSearchCursor {
+        rank: rank.parse().ok()?,
+        origin_server_ts: origin_server_ts.parse().ok()?,
+        event_id: event_id.to_string(),
+    })
+}
+
+fn encode_elasticsearch_search_cursor(cursor: &ElasticsearchSearchCursor) -> String {
+    let raw = format!("{}|{}", cursor.origin_server_ts, cursor.event_id);
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+fn decode_elasticsearch_search_cursor(cursor: Option<&str>) -> Option<ElasticsearchSearchCursor> {
+    let cursor = cursor?;
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (origin_server_ts, event_id) = decoded.split_once('|')?;
+    if event_id.is_empty() {
+        return None;
+    }
+    Some(ElasticsearchSearchCursor {
+        origin_server_ts: origin_server_ts.parse().ok()?,
+        event_id: event_id.to_string(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,45 +171,89 @@ impl SearchService {
             .postgres_pool
             .as_ref()
             .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))?;
-
-        // 解析 next_batch 作为 offset
-        let offset: i64 = next_batch.and_then(|s| s.parse().ok()).unwrap_or(0);
+        let cursor = decode_postgres_search_cursor(next_batch);
 
         // 构建 FTS 查询
         let search_query = format!("{}:*", query.replace(' ', " & "));
 
-        let sql = r#"
-            SELECT 
-                e.event_id,
-                e.room_id,
-                e.sender,
-                e.event_type,
-                e.message_type,
-                e.content,
-                e.origin_server_ts,
-                e.indexed_at,
-                ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
-            FROM events e
-            INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
-            WHERE e.event_type = 'm.room.message'
-                AND e.stream_ordering > 0
-                AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
-            ORDER BY rank DESC, e.origin_server_ts DESC
-            LIMIT $4 OFFSET $5
-        "#;
-
-        let rows = sqlx::query(sql)
+        let rows = if let Some(cursor) = cursor {
+            sqlx::query(
+                r#"
+                SELECT
+                    e.event_id,
+                    e.room_id,
+                    e.sender,
+                    e.event_type,
+                    e.message_type,
+                    e.content,
+                    e.origin_server_ts,
+                    e.indexed_at,
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
+                FROM events e
+                INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
+                WHERE e.event_type = 'm.room.message'
+                    AND e.stream_ordering > 0
+                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
+                    AND (
+                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) < $4
+                        OR (
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) = $4
+                            AND e.origin_server_ts < $5
+                        )
+                        OR (
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) = $4
+                            AND e.origin_server_ts = $5
+                            AND e.event_id < $6
+                        )
+                    )
+                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                LIMIT $7
+                "#,
+            )
             .bind(user_id)
             .bind(&search_query)
             .bind(query)
-            .bind(limit)
-            .bind(offset)
+            .bind(cursor.rank)
+            .bind(cursor.origin_server_ts)
+            .bind(&cursor.event_id)
+            .bind(limit + 1)
             .fetch_all(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+        } else {
+            sqlx::query(
+                r#"
+                SELECT
+                    e.event_id,
+                    e.room_id,
+                    e.sender,
+                    e.event_type,
+                    e.message_type,
+                    e.content,
+                    e.origin_server_ts,
+                    e.indexed_at,
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
+                FROM events e
+                INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
+                WHERE e.event_type = 'm.room.message'
+                    AND e.stream_ordering > 0
+                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
+                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                LIMIT $4
+                "#,
+            )
+            .bind(user_id)
+            .bind(&search_query)
+            .bind(query)
+            .bind(limit + 1)
+            .fetch_all(pool)
+            .await
+        }
+        .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
+        let has_more = rows.len() > limit as usize;
+        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
         let mut results = Vec::new();
-        for row in rows {
+        for row in visible_rows {
             let content: serde_json::Value = row
                 .try_get::<serde_json::Value, _>("content")
                 .unwrap_or(serde_json::Value::Null);
@@ -182,8 +281,14 @@ impl SearchService {
         }
 
         let total_count = results.len();
-        let next_batch = if total_count == limit as usize {
-            Some((offset + limit).to_string())
+        let next_batch = if has_more {
+            visible_rows.last().map(|row| {
+                encode_postgres_search_cursor(&PostgresSearchCursor {
+                    rank: row.try_get::<f64, _>("rank").unwrap_or_default(),
+                    origin_server_ts: row.try_get::<i64, _>("origin_server_ts").unwrap_or_default(),
+                    event_id: row.try_get::<String, _>("event_id").unwrap_or_default(),
+                })
+            })
         } else {
             None
         };
@@ -438,10 +543,7 @@ impl SearchService {
         if !self.enabled {
             return Err(ApiError::internal("Elasticsearch is disabled".to_string()));
         }
-
-        let from = next_batch
-            .and_then(|nb| nb.parse::<usize>().ok())
-            .unwrap_or(options.offset as usize);
+        let cursor = decode_elasticsearch_search_cursor(next_batch);
 
         let mut must_clauses = Vec::new();
         let mut filter_clauses = Vec::new();
@@ -484,10 +586,16 @@ impl SearchService {
 
         let mut search_body = json!({
             "query": query_builder,
-            "from": from,
-            "size": options.limit,
-            "sort": [{ "origin_server_ts": { "order": "desc" } }]
+            "size": options.limit + 1,
+            "sort": [
+                { "origin_server_ts": { "order": "desc" } },
+                { "_id": { "order": "desc" } }
+            ]
         });
+
+        if let Some(cursor) = cursor {
+            search_body["search_after"] = json!([cursor.origin_server_ts, cursor.event_id]);
+        }
 
         if options.highlight {
             search_body["highlight"] = json!({
@@ -530,7 +638,14 @@ impl SearchService {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
 
-        let results: Vec<SearchResultItem> = hits_array
+        let has_more = hits_array.len() > options.limit as usize;
+        let visible_hits = if has_more {
+            &hits_array[..options.limit as usize]
+        } else {
+            &hits_array[..]
+        };
+
+        let results: Vec<SearchResultItem> = visible_hits
             .iter()
             .map(|hit| {
                 let source = hit.get("_source").cloned().unwrap_or(json!({}));
@@ -579,8 +694,18 @@ impl SearchService {
             })
             .collect();
 
-        let next_batch = if results.len() >= options.limit as usize {
-            Some((from + options.limit as usize).to_string())
+        let next_batch = if has_more {
+            visible_hits.last().and_then(|hit| {
+                let sort = hit.get("sort")?.as_array()?;
+                let origin_server_ts = sort.first()?.as_i64()?;
+                let event_id = sort.get(1)?.as_str()?.to_string();
+                Some(encode_elasticsearch_search_cursor(
+                    &ElasticsearchSearchCursor {
+                        origin_server_ts,
+                        event_id,
+                    },
+                ))
+            })
         } else {
             None
         };
@@ -889,5 +1014,38 @@ mod tests {
         assert!(result.results.is_empty());
         assert_eq!(result.total_count, 0);
         assert!(result.next_batch.is_none());
+    }
+
+    #[test]
+    fn test_postgres_search_cursor_round_trip() {
+        let cursor = PostgresSearchCursor {
+            rank: 0.75,
+            origin_server_ts: 1_700_000_000_000,
+            event_id: "$event:example.com".to_string(),
+        };
+        let encoded = encode_postgres_search_cursor(&cursor);
+        assert_eq!(decode_postgres_search_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn test_postgres_search_cursor_rejects_invalid_value() {
+        assert_eq!(decode_postgres_search_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_postgres_search_cursor(Some("")), None);
+    }
+
+    #[test]
+    fn test_elasticsearch_search_cursor_round_trip() {
+        let cursor = ElasticsearchSearchCursor {
+            origin_server_ts: 1_700_000_000_000,
+            event_id: "$event:example.com".to_string(),
+        };
+        let encoded = encode_elasticsearch_search_cursor(&cursor);
+        assert_eq!(decode_elasticsearch_search_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn test_elasticsearch_search_cursor_rejects_invalid_value() {
+        assert_eq!(decode_elasticsearch_search_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_elasticsearch_search_cursor(Some("")), None);
     }
 }

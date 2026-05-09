@@ -1,15 +1,14 @@
 server:
-  name: "${SERVER_NAME:-localhost}"
+  name: "${SERVER_NAME:-matrix.test}"
   host: "0.0.0.0"
   port: 8008
-  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:8008}"
+  public_baseurl: "${PUBLIC_BASEURL:-https://matrix.test}"
   signing_key_path: "/app/data/signing.key"
   macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
   form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
-  server_name: "${SERVER_NAME:-localhost}"
   registration_shared_secret: "${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET is required}"
-  max_upload_size: 10485760
-  max_image_resolution: 8000000
+  max_upload_size: 104857600
+  max_image_resolution: 32000000
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 300
@@ -47,11 +46,11 @@ rate_limit:
       burst_size: 40
 
 database:
-  host: "db"
+  host: "postgres"
   port: 5432
-  username: "${DB_USER:-synapse}"
-  password: "${DB_PASSWORD:?DB_PASSWORD is required}"
-  name: "${DB_NAME:-synapse}"
+  username: "${POSTGRES_USER:-postgres}"
+  password: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+  name: "${POSTGRES_DB:-synapse}"
   pool_size: 20
   max_size: 50
   min_idle: 10
@@ -78,12 +77,12 @@ search:
 federation:
   enabled: true
   allow_ingress: true
-  server_name: "${SERVER_NAME:-localhost}"
+  server_name: "${SERVER_NAME:-matrix.test}"
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
-  key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
+  key_id: "${FEDERATION_KEY_ID:-ed25519:auto}"
   trusted_key_servers:
     - server_name: "matrix.org"
   key_refresh_interval: 86400
@@ -122,17 +121,16 @@ registration:
 
 admin_registration:
   enabled: true
-  shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
+  shared_secret: "${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET is required}"
   nonce_timeout_seconds: 60
   allow_external_access: false
-  production_only: false
 
 worker:
   enabled: false
   instance_name: "master"
   replication:
     enabled: true
-    server_name: "${SERVER_NAME:-localhost}"
+    server_name: "${SERVER_NAME:-matrix.test}"
     http:
       enabled: true
       host: "127.0.0.1"
@@ -145,8 +143,15 @@ cors:
     - "http://127.0.0.1:8008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
-    - "http://localhost:8008"
-    - "http://127.0.0.1:8008"
+    - "http://localhost:8080"
+    - "http://127.0.0.1:8080"
+    - "https://localhost:8443"
+    - "https://127.0.0.1:8443"
+    - "https://matrix.test"
+    - "https://element.test"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
   allow_credentials: true
   allowed_methods:
     - "GET"
@@ -154,30 +159,41 @@ cors:
     - "PUT"
     - "DELETE"
     - "OPTIONS"
+    - "PATCH"
   allowed_headers:
     - "Authorization"
     - "Content-Type"
     - "Accept"
     - "Origin"
     - "X-Requested-With"
+    - "X-Matrix-Auth"
+    - "X-Request-ID"
+  expose_headers:
+    - "X-Matrix-Error"
+    - "X-Ratelimit-Limit"
+    - "X-Ratelimit-Remaining"
   max_age_seconds: 3600
+
+media:
+  remote_media_lifetime: 2592000
+  local_media_lifetime: 0
+  max_upload_size: 104857600
+  allowed_content_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+    - "image/svg+xml"
+    - "video/mp4"
+    - "video/webm"
+    - "audio/mpeg"
+    - "audio/ogg"
+    - "audio/wav"
+    - "application/pdf"
 
 identity_server_url: "https://vector.im"
 
 voip:
-  turn_uris:
-    - "turn:turn.example.com:3478?transport=udp"
-    - "turn:turn.example.com:3478?transport=tcp"
-  turn_shared_secret: "test_turn_shared_secret"
-  turn_user_lifetime: "1h"
-  turn_allow_guests: true
-  stun_uris:
-    - "stun:stun.example.com:3478"
-
-url_preview:
-  enabled: false
-
-push:
   enabled: false
 
 retention:
@@ -204,7 +220,7 @@ telemetry:
   trace_enabled: false
   metrics_enabled: true
   logs_enabled: false
-  otlp_endpoint: "${OTLP_ENDPOINT:-http://otel-collector:4317}"
+  otlp_endpoint: "${OTLP_ENDPOINT:-http://127.0.0.1:4317}"
   otlp_headers: null
   sampling_ratio: 0.1
   batch_export: true
@@ -221,7 +237,3 @@ prometheus:
   port: 9090
   path: "/metrics"
   include_namespace: true
-
-app_service:
-  enabled: false
-  appservice: []

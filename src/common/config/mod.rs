@@ -230,7 +230,15 @@ fn default_server_port() -> u16 {
 }
 
 fn default_max_upload_size_value() -> u64 {
-    100_000_000 // 100MB
+    50000000
+}
+
+fn default_remote_media_lifetime() -> u64 {
+    2592000
+}
+
+fn default_dehydrated_device_cleanup_interval_secs() -> u64 {
+    3600
 }
 
 fn default_apns_production() -> bool {
@@ -890,11 +898,24 @@ pub struct Config {
     pub identity: IdentityConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExperimentalConfig {
     /// 是否在顶层路由中挂载 OpenClaw 用户路由
     #[serde(default)]
     pub openclaw_routes_enabled: bool,
+
+    /// 是否启用 MSC3814 (dehydrated devices)
+    #[serde(default)]
+    pub msc3814_enabled: bool,
+}
+
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        Self {
+            openclaw_routes_enabled: false,
+            msc3814_enabled: false,
+        }
+    }
 }
 
 fn default_trusted_identity_servers() -> Vec<String> {
@@ -1288,6 +1309,14 @@ pub struct ServerConfig {
     /// 最大图片分辨率
     pub max_image_resolution: u32,
 
+    /// 远程媒体缓存保留时间（秒），默认 30 天
+    #[serde(default = "default_remote_media_lifetime")]
+    pub remote_media_lifetime: u64,
+
+    /// 本地媒体保留时间（秒），0 表示永不过期
+    #[serde(default)]
+    pub local_media_lifetime: u64,
+
     /// 是否允许用户注册
     pub enable_registration: bool,
 
@@ -1296,6 +1325,10 @@ pub struct ServerConfig {
 
     /// 后台任务执行间隔（秒）
     pub background_tasks_interval: u64,
+
+    /// 脱水设备过期清理任务执行间隔（秒）
+    #[serde(default = "default_dehydrated_device_cleanup_interval_secs")]
+    pub dehydrated_device_cleanup_interval_secs: u64,
 
     /// 是否使访问令牌过期
     pub expire_access_token: bool,
@@ -1314,6 +1347,34 @@ pub struct ServerConfig {
 
     #[serde(default = "default_warmup_pool")]
     pub warmup_pool: bool,
+
+    /// 是否允许未认证用户访问公共房间目录
+    #[serde(default)]
+    pub allow_public_rooms_without_auth: bool,
+
+    /// 是否允许通过联邦访问公共房间目录
+    #[serde(default = "default_true")]
+    pub allow_public_rooms_over_federation: bool,
+
+    /// 新用户自动加入的房间列表
+    #[serde(default)]
+    pub auto_join_rooms: Vec<String>,
+
+    /// 是否自动创建 auto_join_rooms 中不存在的房间
+    #[serde(default = "default_true")]
+    pub autocreate_auto_join_rooms: bool,
+
+    /// 默认启用加密的房间类型（空表示不默认启用）
+    #[serde(default)]
+    pub encryption_enabled_by_default_for_room_type: Option<String>,
+
+    /// 应用服务配置文件路径列表
+    #[serde(default)]
+    pub app_service_config_files: Vec<String>,
+
+    /// 是否启用 Presence 功能
+    #[serde(default = "default_true")]
+    pub presence_enabled: bool,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -1718,6 +1779,9 @@ pub struct SecurityConfig {
     /// 是否启用基于 user_type 的管理员 RBAC
     #[serde(default = "default_admin_rbac_enabled")]
     pub admin_rbac_enabled: bool,
+    /// UIA 会话超时时间（秒），默认 900 秒（15 分钟）
+    #[serde(default = "default_ui_auth_session_timeout")]
+    pub ui_auth_session_timeout: i64,
 }
 
 fn default_login_failure_lockout_threshold() -> u32 {
@@ -1734,6 +1798,10 @@ fn default_admin_mfa_allowed_drift_steps() -> u32 {
 
 fn default_admin_rbac_enabled() -> bool {
     true
+}
+
+fn default_ui_auth_session_timeout() -> i64 {
+    900
 }
 
 fn default_argon2_m_cost() -> u32 {
@@ -2434,15 +2502,25 @@ mod tests {
                 admin_contact: None,
                 max_upload_size: 1000000,
                 max_image_resolution: 1000000,
+                remote_media_lifetime: 2592000,
+                local_media_lifetime: 0,
                 enable_registration: true,
                 enable_registration_captcha: false,
                 background_tasks_interval: 60,
+                dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
+                allow_public_rooms_without_auth: false,
+                allow_public_rooms_over_federation: true,
+                auto_join_rooms: vec![],
+                autocreate_auto_join_rooms: true,
+                encryption_enabled_by_default_for_room_type: None,
+                app_service_config_files: vec![],
+                presence_enabled: true,
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -2517,6 +2595,7 @@ mod tests {
                 admin_mfa_shared_secret: String::new(),
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
+                ui_auth_session_timeout: default_ui_auth_session_timeout(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2574,15 +2653,25 @@ mod tests {
                 admin_contact: None,
                 max_upload_size: 1000000,
                 max_image_resolution: 1000000,
+                remote_media_lifetime: 2592000,
+                local_media_lifetime: 0,
                 enable_registration: true,
                 enable_registration_captcha: false,
                 background_tasks_interval: 60,
+                dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
+                allow_public_rooms_without_auth: false,
+                allow_public_rooms_over_federation: true,
+                auto_join_rooms: vec![],
+                autocreate_auto_join_rooms: true,
+                encryption_enabled_by_default_for_room_type: None,
+                app_service_config_files: vec![],
+                presence_enabled: true,
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -2657,6 +2746,7 @@ mod tests {
                 admin_mfa_shared_secret: String::new(),
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
+                ui_auth_session_timeout: default_ui_auth_session_timeout(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -2713,21 +2803,36 @@ mod tests {
             admin_contact: Some("admin@example.com".to_string()),
             max_upload_size: 50000000,
             max_image_resolution: 8000000,
+            remote_media_lifetime: 2592000,
+            local_media_lifetime: 0,
             enable_registration: true,
             enable_registration_captcha: true,
             background_tasks_interval: 30,
+            dehydrated_device_cleanup_interval_secs: 3600,
             expire_access_token: true,
             expire_access_token_lifetime: 86400,
             refresh_token_lifetime: 2592000,
             refresh_token_sliding_window_size: 5000,
             session_duration: 3600,
             warmup_pool: true,
+                allow_public_rooms_without_auth: false,
+                allow_public_rooms_over_federation: true,
+                auto_join_rooms: vec![],
+                autocreate_auto_join_rooms: true,
+                encryption_enabled_by_default_for_room_type: None,
+                app_service_config_files: vec![],
+                presence_enabled: true,
         };
 
         assert_eq!(config.name, "test");
         assert_eq!(config.port, 8080);
         assert!(config.enable_registration);
         assert!(config.registration_shared_secret.is_some());
+    }
+
+    #[test]
+    fn test_dehydrated_device_cleanup_interval_default() {
+        assert_eq!(default_dehydrated_device_cleanup_interval_secs(), 3600);
     }
 
     #[test]
@@ -2814,15 +2919,25 @@ mod tests {
                 admin_contact: None,
                 max_upload_size: 1000000,
                 max_image_resolution: 1000000,
+                remote_media_lifetime: 2592000,
+                local_media_lifetime: 0,
                 enable_registration: true,
                 enable_registration_captcha: false,
                 background_tasks_interval: 60,
+                dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
+                allow_public_rooms_without_auth: false,
+                allow_public_rooms_over_federation: true,
+                auto_join_rooms: vec![],
+                autocreate_auto_join_rooms: true,
+                encryption_enabled_by_default_for_room_type: None,
+                app_service_config_files: vec![],
+                presence_enabled: true,
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -2897,6 +3012,7 @@ mod tests {
                 admin_mfa_shared_secret: String::new(),
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
+                ui_auth_session_timeout: default_ui_auth_session_timeout(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -3018,6 +3134,7 @@ mod tests {
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
             admin_rbac_enabled: default_admin_rbac_enabled(),
+            ui_auth_session_timeout: default_ui_auth_session_timeout(),
         };
 
         assert!(config.secret.len() > 16);

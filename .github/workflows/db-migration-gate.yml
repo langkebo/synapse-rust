@@ -142,7 +142,7 @@ jobs:
         env:
           PGPASSWORD: synapse
         run: |
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v7.sql
 
       - name: Apply post-schema critical increments
         env:
@@ -219,7 +219,7 @@ jobs:
         env:
           PGPASSWORD: synapse
         run: |
-          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v7.sql
           set -euo pipefail
           test -f scripts/ci/critical_migrations.txt
           while IFS= read -r migration; do
@@ -347,7 +347,7 @@ jobs:
         env:
           PGPASSWORD: synapse
         run: |
-          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
+          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v7.sql
           set -euo pipefail
           test -f scripts/ci/critical_migrations.txt
           while IFS= read -r migration; do

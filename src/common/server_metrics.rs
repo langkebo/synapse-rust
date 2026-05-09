@@ -36,11 +36,18 @@ pub struct ServerMetrics {
     pub security_timestamp_validation_errors: Counter,
     
     pub pool_utilization: Gauge,
+    pub pool_health_status: Gauge,
     
     // Admin / Global Stats
     pub total_users: Gauge,
     pub total_rooms: Gauge,
-    
+
+    // Dehydrated Device Cleanup Metrics
+    pub dehydrated_device_cleanup_total: Counter,
+    pub dehydrated_device_cleaned_total: Counter,
+    pub dehydrated_device_cleanup_errors_total: Counter,
+    pub dehydrated_device_cleanup_duration: Histogram,
+
     collector: Arc<MetricsCollector>,
 }
 
@@ -131,9 +138,15 @@ impl ServerMetrics {
             ),
 
             pool_utilization: collector.register_gauge("pool_utilization".to_string()),
+            pool_health_status: collector.register_gauge("pool_health_status".to_string()),
             
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
+
+            dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
+            dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
+            dehydrated_device_cleanup_errors_total: collector.register_counter("dehydrated_device_cleanup_errors_total".to_string()),
+            dehydrated_device_cleanup_duration: collector.register_histogram_with_labels("dehydrated_device_cleanup_duration_ms".to_string(), Self::labels(&[("unit", "ms")])),
 
             collector,
         }

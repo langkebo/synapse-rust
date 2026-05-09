@@ -1,4 +1,6 @@
+use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
+use crate::storage::federation_blacklist::decode_federation_blacklist_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -145,7 +147,47 @@ pub struct ConfirmRequest {
 #[derive(Debug, Deserialize)]
 pub struct ListPendingQuery {
     pub limit: Option<i32>,
-    pub offset: Option<i32>,
+    pub from: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BlacklistQuery {
+    pub limit: Option<i32>,
+    pub from: Option<String>,
+}
+
+fn decode_pending_federation_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (updated_ts, server_name) = cursor.split_once('|')?;
+    let updated_ts = updated_ts.parse::<i64>().ok()?;
+    if server_name.is_empty() {
+        return None;
+    }
+    Some((updated_ts, server_name))
+}
+
+fn encode_pending_federation_cursor(updated_ts: i64, server_name: &str) -> String {
+    format!("{updated_ts}|{server_name}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_pending_federation_cursor, encode_pending_federation_cursor};
+
+    #[test]
+    fn test_pending_federation_cursor_round_trip() {
+        let cursor = encode_pending_federation_cursor(1_700_000_000_000, "matrix.example.com");
+        assert_eq!(
+            decode_pending_federation_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "matrix.example.com"))
+        );
+    }
+
+    #[test]
+    fn test_pending_federation_cursor_rejects_invalid_value() {
+        assert_eq!(decode_pending_federation_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_pending_federation_cursor(Some("123|")), None);
+    }
 }
 
 #[allow(dead_code)]
@@ -461,16 +503,20 @@ pub async fn list_pending_federation(
     Query(query): Query<ListPendingQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).min(500);
-    let offset = query.offset.unwrap_or(0);
+    let cursor = decode_pending_federation_cursor(query.from.as_deref());
 
     let pending = sqlx::query(
         "SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts \
          FROM federation_servers WHERE status = 'pending' \
-         ORDER BY COALESCE(updated_ts, 0) DESC \
-         LIMIT $1 OFFSET $2"
+           AND (($1::BIGINT IS NULL AND $2::TEXT IS NULL)
+             OR COALESCE(updated_ts, 0) < $1
+             OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2)) \
+         ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC \
+         LIMIT $3"
     )
+    .bind(cursor.map(|(updated_ts, _)| updated_ts))
+    .bind(cursor.map(|(_, server_name)| server_name))
     .bind(limit)
-    .bind(offset)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -495,11 +541,24 @@ pub async fn list_pending_federation(
         })
         .collect();
 
+    let next_batch = if pending.len() as i32 == limit {
+        pending.last().map(|row| {
+            encode_pending_federation_cursor(
+                row.get::<Option<i64>, _>("updated_ts").unwrap_or_default(),
+                row.get::<Option<String>, _>("server_name")
+                    .unwrap_or_default()
+                    .as_str(),
+            )
+        })
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "servers": list,
         "total": total,
         "limit": limit,
-        "offset": offset
+        "next_batch": next_batch
     })))
 }
 
@@ -507,26 +566,40 @@ pub async fn list_pending_federation(
 pub async fn get_blacklist(
     _admin: AdminUser,
     State(state): State<AppState>,
+    Query(query): Query<BlacklistQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let blacklist = sqlx::query(
-        "SELECT server_name, added_ts, reason FROM federation_blacklist ORDER BY added_ts DESC",
-    )
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let limit = query
+        .limit
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT as i32, MAX_PAGINATION_LIMIT as i32);
+    let from = decode_federation_blacklist_cursor(query.from.as_deref());
+
+    if query.from.is_some() && from.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+
+    let (blacklist, next_batch) = state
+        .services
+        .federation_blacklist_service
+        .get_blacklist(limit, from)
+        .await?;
 
     let list: Vec<Value> = blacklist
         .iter()
         .map(|row| {
             json!({
-                "server_name": row.get::<Option<String>, _>("server_name"),
-                "added_at": row.get::<Option<i64>, _>("added_ts").unwrap_or_default(),
-                "reason": row.get::<Option<String>, _>("reason")
+                "server_name": row.server_name,
+                "added_at": row.created_ts,
+                "reason": row.reason
             })
         })
         .collect();
 
-    Ok(Json(json!({ "blacklist": list, "total": list.len() })))
+    Ok(Json(json!({
+        "blacklist": list,
+        "total": list.len(),
+        "next_batch": next_batch
+    })))
 }
 
 #[axum::debug_handler]

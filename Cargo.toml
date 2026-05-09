@@ -27,12 +27,14 @@ server-notifications = []
 burn-after-read = []
 privacy-ext = []
 external-services = []
+builtin-oidc = []
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
 all-extensions = [
-    "openclaw", "friends", "voice-extended", "saml-sso", "cas-sso",
+    "openclaw", "friends", "voice-extended",
     "beacons", "voip-tracking", "widgets", "server-notifications",
-    "burn-after-read", "privacy-ext", "external-services"
+    "burn-after-read", "privacy-ext", "external-services",
+    "builtin-oidc"
 ]
 
 [dependencies]
@@ -58,6 +60,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 rand = "0.8.5"
+fastrand = "2"
 sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
@@ -118,6 +121,8 @@ image = "0.25"
 hex = "0.4.3"
 x509-cert = "0.2"
 ring = "0.17"
+dns-lookup = "3.0.1"
+ipnet = "2.12.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
@@ -166,6 +171,7 @@ harness = false
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
+required-features = ["all-extensions", "saml-sso", "cas-sso"]
 
 [[test]]
 name = "unit"

@@ -33,15 +33,30 @@ impl TransactionManager {
     }
 
     pub async fn begin_read_committed(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.pool.begin().await.map_err(TransactionError::Database)
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .await
     }
 
     pub async fn begin_repeatable_read(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.pool.begin().await.map_err(TransactionError::Database)
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .await
     }
 
     pub async fn begin_serializable(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.pool.begin().await.map_err(TransactionError::Database)
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .await
+    }
+
+    async fn begin_with_isolation_level(
+        &self,
+        statement: &'static str,
+    ) -> TransactionResult<Transaction<'static, Postgres>> {
+        let mut tx = self.pool.begin().await.map_err(TransactionError::Database)?;
+        sqlx::query(statement)
+            .execute(&mut *tx)
+            .await
+            .map_err(TransactionError::Database)?;
+        Ok(tx)
     }
 }
 
@@ -169,20 +184,36 @@ where
 
         match result {
             Ok(value) => {
-                tx.commit().await.map_err(TransactionError::Database)?;
-                return Ok(value);
+                match tx.commit().await {
+                    Ok(_) => return Ok(value),
+                    Err(e) => {
+                        if is_retryable_db_error(&e) && attempt < max_retries - 1 {
+                            last_error = Some(e);
+                            // No rollback needed as commit failed
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                100 * (attempt + 1) as u64,
+                            ))
+                            .await;
+                            continue;
+                        } else {
+                            // If commit failed and not retryable, return the error
+                            // tx is moved by tx.commit().await, so no rollback can be performed here.
+                            return Err(TransactionError::Database(e));
+                        }
+                    }
+                }
             }
             Err(e) => {
-                if is_serialization_error(&e) && attempt < max_retries - 1 {
+                if is_retryable_db_error(&e) && attempt < max_retries - 1 {
                     last_error = Some(e);
-                    tx.rollback().await.map_err(TransactionError::Database)?;
+                    let _ = tx.rollback().await; // Ignore rollback error on retry
                     tokio::time::sleep(tokio::time::Duration::from_millis(
                         100 * (attempt + 1) as u64,
                     ))
                     .await;
                     continue;
                 } else {
-                    tx.rollback().await.map_err(TransactionError::Database)?;
+                    let _ = tx.rollback().await;
                     return Err(TransactionError::Database(e));
                 }
             }
@@ -194,14 +225,72 @@ where
         .unwrap_or_else(|| TransactionError::Transaction("Max retries exceeded".to_string())))
 }
 
-fn is_serialization_error(error: &sqlx::Error) -> bool {
+pub fn is_retryable_db_error(error: &sqlx::Error) -> bool {
     if let sqlx::Error::Database(db_err) = error {
-        let message = db_err.to_string().to_lowercase();
-        message.contains("could not serialize access")
+        let code = db_err.code().unwrap_or_default();
+        let message = db_err.message().to_lowercase();
+
+        // 40001: serialization_failure
+        // 40P01: deadlock_detected
+        code == "40001"
+            || code == "40P01"
+            || message.contains("could not serialize access")
             || message.contains("deadlock")
             || message.contains("serialization failure")
     } else {
         false
+    }
+}
+
+/// 安全的 advisory lock 封装（带自动释放）
+pub struct AdvisoryLockGuard {
+    pool: Arc<PgPool>,
+    lock_id: i64,
+    acquired: bool,
+}
+
+impl AdvisoryLockGuard {
+    pub async fn try_acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
+        let row: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
+            .bind(lock_id)
+            .fetch_one(&**pool)
+            .await?;
+        Ok(Self {
+            pool: pool.clone(),
+            lock_id,
+            acquired: row.0,
+        })
+    }
+
+    pub async fn acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(lock_id)
+            .execute(&**pool)
+            .await?;
+        Ok(Self {
+            pool: pool.clone(),
+            lock_id,
+            acquired: true,
+        })
+    }
+
+    pub fn is_acquired(&self) -> bool {
+        self.acquired
+    }
+}
+
+impl Drop for AdvisoryLockGuard {
+    fn drop(&mut self) {
+        if self.acquired {
+            let pool = self.pool.clone();
+            let lock_id = self.lock_id;
+            tokio::spawn(async move {
+                let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+                    .bind(lock_id)
+                    .execute(&*pool)
+                    .await;
+            });
+        }
     }
 }
 
@@ -333,8 +422,8 @@ mod tests {
     impl std::error::Error for MyDbError {}
 
     #[test]
-    fn test_is_serialization_error_non_db() {
+    fn test_is_retryable_db_error_non_db() {
         let other_err = sqlx::Error::RowNotFound;
-        assert!(!is_serialization_error(&other_err));
+        assert!(!is_retryable_db_error(&other_err));
     }
 }

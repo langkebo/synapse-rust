@@ -3,6 +3,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
 use std::sync::Arc;
 
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Space {
     pub space_id: String,
@@ -491,11 +498,20 @@ impl SpaceStorage {
     pub async fn get_public_spaces(
         &self,
         limit: i64,
-        offset: i64,
+        cursor_created_ts: Option<i64>,
+        cursor_space_id: Option<&str>,
     ) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE is_public = TRUE ORDER BY created_ts DESC LIMIT $1 OFFSET $2"#)
+        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
+            FROM spaces
+            WHERE is_public = TRUE
+              AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL)
+                OR created_ts < $2
+                OR (created_ts = $2 AND space_id < $3))
+            ORDER BY created_ts DESC, space_id DESC
+            LIMIT $1"#)
         .bind(limit)
-        .bind(offset)
+        .bind(cursor_created_ts)
+        .bind(cursor_space_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -637,23 +653,102 @@ impl SpaceStorage {
         limit: i64,
         user_id: Option<&str>,
     ) -> Result<Vec<Space>, sqlx::Error> {
-        let pattern = format!("%{}%", query);
+        let normalized = query.trim();
+        if normalized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let escaped = escape_like_pattern(normalized);
+        let exact_pattern = escaped.clone();
+        let prefix_pattern = format!("{escaped}%");
+        let contains_pattern = format!("%{escaped}%");
 
         match user_id {
             Some(uid) => {
                 sqlx::query_as::<_, Space>(
                     r#"
-                    SELECT s.space_id, s.room_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rule, s.visibility, s.created_ts, s.updated_ts, s.is_public, s.parent_space_id, s.room_type
-                    FROM spaces s
-                    LEFT JOIN space_members sm
-                        ON sm.space_id = s.space_id AND sm.user_id = $2 AND sm.membership = 'join'
-                    WHERE (s.is_public = TRUE OR s.creator = $2 OR sm.user_id IS NOT NULL)
-                      AND (s.name ILIKE $1 OR s.topic ILIKE $1)
-                    ORDER BY s.created_ts DESC
-                    LIMIT $3
+                    WITH visible_spaces AS (
+                        SELECT DISTINCT s.space_id
+                        FROM spaces s
+                        LEFT JOIN space_members sm
+                            ON sm.space_id = s.space_id AND sm.user_id = $5 AND sm.membership = 'join'
+                        WHERE s.is_public = TRUE OR s.creator = $5 OR sm.user_id IS NOT NULL
+                    ),
+                    candidate_matches AS (
+                        SELECT
+                            space_id,
+                            MIN(match_priority) AS match_priority,
+                            MAX(match_similarity) AS match_similarity
+                        FROM (
+                            SELECT
+                                s.space_id,
+                                CASE
+                                    WHEN s.name ILIKE $1 ESCAPE '\' THEN 0
+                                    WHEN s.name ILIKE $2 ESCAPE '\' THEN 1
+                                    WHEN s.name ILIKE $3 ESCAPE '\' THEN 2
+                                    ELSE 3
+                                END AS match_priority,
+                                COALESCE(similarity(s.name, $4), 0.0) AS match_similarity
+                            FROM spaces s
+                            JOIN visible_spaces vs ON vs.space_id = s.space_id
+                            WHERE s.name IS NOT NULL
+                              AND (
+                                    s.name ILIKE $1 ESCAPE '\'
+                                    OR s.name ILIKE $2 ESCAPE '\'
+                                    OR s.name ILIKE $3 ESCAPE '\'
+                                    OR (char_length($4) >= 3 AND s.name % $4)
+                              )
+
+                            UNION ALL
+
+                            SELECT
+                                s.space_id,
+                                CASE
+                                    WHEN s.topic ILIKE $1 ESCAPE '\' THEN 0
+                                    WHEN s.topic ILIKE $2 ESCAPE '\' THEN 1
+                                    WHEN s.topic ILIKE $3 ESCAPE '\' THEN 2
+                                    ELSE 3
+                                END AS match_priority,
+                                COALESCE(similarity(s.topic, $4), 0.0) AS match_similarity
+                            FROM spaces s
+                            JOIN visible_spaces vs ON vs.space_id = s.space_id
+                            WHERE s.topic IS NOT NULL
+                              AND (
+                                    s.topic ILIKE $1 ESCAPE '\'
+                                    OR s.topic ILIKE $2 ESCAPE '\'
+                                    OR s.topic ILIKE $3 ESCAPE '\'
+                                    OR (char_length($4) >= 3 AND s.topic % $4)
+                              )
+                        ) AS matches
+                        GROUP BY space_id
+                    )
+                    SELECT
+                        s.space_id,
+                        s.room_id,
+                        s.name,
+                        s.topic,
+                        s.avatar_url,
+                        s.creator,
+                        s.join_rule,
+                        s.visibility,
+                        s.created_ts,
+                        s.updated_ts,
+                        s.is_public,
+                        s.parent_space_id,
+                        s.room_type
+                    FROM candidate_matches cm
+                    JOIN spaces s ON s.space_id = cm.space_id
+                    ORDER BY
+                        cm.match_priority ASC,
+                        cm.match_similarity DESC,
+                        s.created_ts DESC
+                    LIMIT $6
                     "#,
                 )
-                .bind(&pattern)
+                .bind(&exact_pattern)
+                .bind(&prefix_pattern)
+                .bind(&contains_pattern)
+                .bind(normalized)
                 .bind(uid)
                 .bind(limit)
                 .fetch_all(&*self.pool)
@@ -662,14 +757,81 @@ impl SpaceStorage {
             None => {
                 sqlx::query_as::<_, Space>(
                     r#"
-                    SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
-                    FROM spaces
-                    WHERE is_public = TRUE AND (name ILIKE $1 OR topic ILIKE $1)
-                    ORDER BY created_ts DESC
-                    LIMIT $2
+                    WITH candidate_matches AS (
+                        SELECT
+                            space_id,
+                            MIN(match_priority) AS match_priority,
+                            MAX(match_similarity) AS match_similarity
+                        FROM (
+                            SELECT
+                                space_id,
+                                CASE
+                                    WHEN name ILIKE $1 ESCAPE '\' THEN 0
+                                    WHEN name ILIKE $2 ESCAPE '\' THEN 1
+                                    WHEN name ILIKE $3 ESCAPE '\' THEN 2
+                                    ELSE 3
+                                END AS match_priority,
+                                COALESCE(similarity(name, $4), 0.0) AS match_similarity
+                            FROM spaces
+                            WHERE is_public = TRUE
+                              AND name IS NOT NULL
+                              AND (
+                                    name ILIKE $1 ESCAPE '\'
+                                    OR name ILIKE $2 ESCAPE '\'
+                                    OR name ILIKE $3 ESCAPE '\'
+                                    OR (char_length($4) >= 3 AND name % $4)
+                              )
+
+                            UNION ALL
+
+                            SELECT
+                                space_id,
+                                CASE
+                                    WHEN topic ILIKE $1 ESCAPE '\' THEN 0
+                                    WHEN topic ILIKE $2 ESCAPE '\' THEN 1
+                                    WHEN topic ILIKE $3 ESCAPE '\' THEN 2
+                                    ELSE 3
+                                END AS match_priority,
+                                COALESCE(similarity(topic, $4), 0.0) AS match_similarity
+                            FROM spaces
+                            WHERE is_public = TRUE
+                              AND topic IS NOT NULL
+                              AND (
+                                    topic ILIKE $1 ESCAPE '\'
+                                    OR topic ILIKE $2 ESCAPE '\'
+                                    OR topic ILIKE $3 ESCAPE '\'
+                                    OR (char_length($4) >= 3 AND topic % $4)
+                              )
+                        ) AS matches
+                        GROUP BY space_id
+                    )
+                    SELECT
+                        s.space_id,
+                        s.room_id,
+                        s.name,
+                        s.topic,
+                        s.avatar_url,
+                        s.creator,
+                        s.join_rule,
+                        s.visibility,
+                        s.created_ts,
+                        s.updated_ts,
+                        s.is_public,
+                        s.parent_space_id,
+                        s.room_type
+                    FROM candidate_matches cm
+                    JOIN spaces s ON s.space_id = cm.space_id
+                    ORDER BY
+                        cm.match_priority ASC,
+                        cm.match_similarity DESC,
+                        s.created_ts DESC
+                    LIMIT $5
                     "#,
                 )
-                .bind(&pattern)
+                .bind(&exact_pattern)
+                .bind(&prefix_pattern)
+                .bind(&contains_pattern)
+                .bind(normalized)
                 .bind(limit)
                 .fetch_all(&*self.pool)
                 .await

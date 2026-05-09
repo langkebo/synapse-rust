@@ -94,12 +94,22 @@ pub async fn upgrade_guest(
     auth_user: AuthenticatedUser,
     Json(body): Json<UpgradeGuestRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    // Validate input
     body.validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let username = &body.username;
-    let _password = &body.password;
+    let password = &body.password;
+
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_username(username)?;
+    state
+        .services
+        .auth_service
+        .validator
+        .validate_password(password)?;
 
     let user = UserStorage::get_user_by_id(&state.services.user_storage, &auth_user.user_id)
         .await
@@ -118,20 +128,35 @@ pub async fn upgrade_guest(
 
             let new_user_id = format!("@{}:{}", username, state.services.server_name);
 
+            let password_hash = state
+                .services
+                .auth_service
+                .hash_password_for_storage(password)
+                .await?;
+
             sqlx::query(
                 r#"
-                UPDATE users SET username = $1, is_guest = FALSE WHERE user_id = $2
+                UPDATE users SET username = $1, is_guest = FALSE, password_hash = $2 WHERE user_id = $3
                 "#,
             )
             .bind(username)
+            .bind(&password_hash)
             .bind(&auth_user.user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to upgrade account: {}", e)))?;
 
+            let access_token = state
+                .services
+                .auth_service
+                .generate_access_token(&auth_user.user_id, auth_user.device_id.as_deref().unwrap_or(""), false)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+
             Ok(Json(json!({
                 "success": true,
                 "user_id": new_user_id,
+                "access_token": access_token,
             })))
         }
         _ => Err(ApiError::forbidden("User is not a guest".to_string())),

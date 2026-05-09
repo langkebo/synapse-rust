@@ -7,6 +7,7 @@ use crate::common::config::{
     RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
 use crate::common::metrics::MetricsCollector;
+use crate::common::server_metrics::ServerMetrics;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
 use crate::e2ee::backup::KeyBackupService;
@@ -14,6 +15,7 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::megolm::MegolmService;
+use crate::e2ee::ssss::SecretStorageService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
 #[cfg(feature = "friends")]
@@ -46,6 +48,7 @@ pub struct ServiceContainer {
     pub key_request_service: KeyRequestService,
     pub megolm_service: MegolmService,
     pub cross_signing_service: CrossSigningService,
+    pub ssss_service: SecretStorageService,
     pub backup_service: KeyBackupService,
     pub dehydrated_device_service:
         crate::services::dehydrated_device_service::DehydratedDeviceService,
@@ -66,6 +69,7 @@ pub struct ServiceContainer {
     pub cache: Arc<CacheManager>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub metrics: Arc<MetricsCollector>,
+    pub server_metrics: Arc<crate::common::server_metrics::ServerMetrics>,
     pub server_name: String,
     pub config: Config,
     pub admin_registration_service:
@@ -93,7 +97,6 @@ pub struct ServiceContainer {
     pub worker_storage: crate::worker::WorkerStorage,
     pub worker_manager: Arc<crate::worker::WorkerManager>,
     pub room_summary_storage: crate::storage::room_summary::RoomSummaryStorage,
-    pub room_summary_service: Arc<crate::services::room_summary_service::RoomSummaryService>,
     pub retention_storage: crate::storage::retention::RetentionStorage,
     pub retention_service: Arc<crate::services::retention_service::RetentionService>,
     pub refresh_token_storage: crate::storage::refresh_token::RefreshTokenStorage,
@@ -151,13 +154,18 @@ pub struct ServiceContainer {
     #[cfg(feature = "widgets")]
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
     pub telemetry_alert_service:
-        Arc<crate::services::telemetry_alert_service::TelemetryAlertService>,
+        Arc<crate::services::telemetry_service::TelemetryAlertService>,
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider:
         Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
+    #[cfg(not(feature = "builtin-oidc"))]
+    pub builtin_oidc_provider: Option<()>,
     pub identity_service: Arc<crate::services::identity::IdentityService>,
+    pub uia_service: Arc<crate::services::uia_service::UiaService>,
+    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
 }
 
 impl ServiceContainer {
@@ -175,8 +183,12 @@ impl ServiceContainer {
             }
         });
 
+        let ui_auth_session_timeout = config.security.ui_auth_session_timeout;
+        let broadcaster_server_name = config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+
         let presence_pool = pool.clone();
         let metrics = Arc::new(MetricsCollector::new());
+        let server_metrics = Arc::new(ServerMetrics::new(metrics.clone()));
         let auth_service = AuthService::new_with_lifetime(
             pool,
             cache.clone(),
@@ -187,6 +199,7 @@ impl ServiceContainer {
         );
         let device_key_storage = crate::e2ee::device_keys::DeviceKeyStorage::new(pool);
         let device_key_storage_for_cs = Arc::new(device_key_storage.clone());
+        let backup_device_key_storage = device_key_storage.clone();
         let cross_signing_storage = crate::e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_storage_arc = Arc::new(cross_signing_storage.clone());
         let dehydrated_device_storage = crate::storage::DehydratedDeviceStorage::new(pool);
@@ -199,20 +212,25 @@ impl ServiceContainer {
         let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
         let key_request_service =
             KeyRequestService::new(key_request_storage, megolm_service.clone());
-        let cross_signing_service = CrossSigningService::new(cross_signing_storage)
-            .with_device_keys_storage(device_key_storage_for_cs);
-        let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
-        let backup_service = KeyBackupService::new(key_backup_storage);
         let dehydrated_device_service =
             crate::services::dehydrated_device_service::DehydratedDeviceService::new(
                 dehydrated_device_storage,
             );
+        let cross_signing_service = CrossSigningService::new(cross_signing_storage)
+            .with_device_keys_storage(device_key_storage_for_cs)
+            .with_dehydrated_device_service(Arc::new(dehydrated_device_service.clone()));
+        let ssss_storage = crate::e2ee::ssss::SecretStorage::new(pool);
+        let ssss_service = crate::e2ee::ssss::SecretStorageService::new(ssss_storage)
+            .with_dehydrated_device_service(Arc::new(dehydrated_device_service.clone()));
+        let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
+        let backup_service = KeyBackupService::new(key_backup_storage)
+            .with_device_key_storage(backup_device_key_storage);
         let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
         let to_device_storage = crate::e2ee::to_device::ToDeviceStorage::new(pool);
         let user_storage = UserStorage::new(pool, cache.clone());
         let threepid_storage = ThreepidStorage::new(pool);
         let to_device_service =
-            ToDeviceService::new(to_device_storage).with_user_storage(user_storage.clone());
+            ToDeviceService::new(to_device_storage.clone()).with_user_storage(user_storage.clone());
         let verification_storage = crate::e2ee::verification::VerificationStorage::new(pool);
         let verification_service =
             VerificationService::new(std::sync::Arc::new(verification_storage));
@@ -245,6 +263,7 @@ impl ServiceContainer {
         let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
         let room_storage = RoomStorage::new(pool);
         let event_storage = EventStorage::new(pool, server_name_for_storage);
+        let relations_storage = crate::storage::relations::RelationsStorage::new(pool);
         let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
         let room_summary_service = Arc::new(
             crate::services::room_summary_service::RoomSummaryService::new(
@@ -283,6 +302,7 @@ impl ServiceContainer {
                 validator: auth_service.validator.clone(),
                 server_name: config.server.name.clone(),
                 task_queue: task_queue.clone(),
+                relations_storage: relations_storage.clone(),
                 #[cfg(feature = "beacons")]
                 beacon_service: Some(beacon_service.clone()),
                 #[cfg(not(feature = "beacons"))]
@@ -297,6 +317,7 @@ impl ServiceContainer {
                 room_storage: room_storage.clone(),
                 filter_storage: FilterStorage::new(pool),
                 device_storage: DeviceStorage::new(pool),
+                to_device_storage: to_device_storage.clone(),
                 metrics: metrics.clone(),
                 performance: config.performance.clone(),
             },
@@ -420,7 +441,8 @@ impl ServiceContainer {
                 audit_storage.clone(),
             )),
         );
-        let feature_flag_storage = crate::storage::feature_flags::FeatureFlagStorage::new(pool);
+        let feature_flag_storage =
+            crate::storage::feature_flags::FeatureFlagStorage::new(pool, cache.clone());
         let feature_flag_service = Arc::new(
             crate::services::feature_flag_service::FeatureFlagService::new(
                 Arc::new(feature_flag_storage.clone()),
@@ -479,10 +501,10 @@ impl ServiceContainer {
         let thread_service = Arc::new(crate::services::thread_service::ThreadService::new(
             Arc::new(thread_storage.clone()),
         ));
-        let relations_storage = crate::storage::relations::RelationsStorage::new(pool);
         let relations_service =
             Arc::new(crate::services::relations_service::RelationsService::new(
                 Arc::new(relations_storage.clone()),
+                config.server.server_name.clone().unwrap_or_default(),
             ));
         #[cfg(feature = "cas-sso")]
         let cas_storage = crate::storage::cas::CasStorage::new(pool);
@@ -519,7 +541,7 @@ impl ServiceContainer {
             Arc::new(widget_storage.clone()),
         ));
         let telemetry_alert_service = Arc::new(
-            crate::services::telemetry_alert_service::TelemetryAlertService::new(
+            crate::services::telemetry_service::TelemetryAlertService::new(
                 pool.clone(),
                 config.database.max_size,
             ),
@@ -533,6 +555,7 @@ impl ServiceContainer {
         } else {
             None
         };
+        #[cfg(feature = "builtin-oidc")]
         let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
             match crate::services::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(
                 config.builtin_oidc.clone(),
@@ -546,12 +569,18 @@ impl ServiceContainer {
         } else {
             None
         };
+        #[cfg(not(feature = "builtin-oidc"))]
+        let builtin_oidc_provider: Option<()> = None;
 
         let identity_storage = crate::services::identity::IdentityStorage::new(pool);
         let identity_service = Arc::new(crate::services::identity::IdentityService::new(
             identity_storage,
             config.identity.trusted_servers.clone(),
         ));
+
+        let broadcaster_federation_client = federation_client.clone();
+        let broadcaster_member_storage = member_storage.clone();
+        let broadcaster_origin = config.server.get_server_name().to_string();
 
         Self {
             user_storage,
@@ -571,6 +600,7 @@ impl ServiceContainer {
             key_request_service,
             megolm_service,
             cross_signing_service,
+            ssss_service,
             backup_service,
             dehydrated_device_service,
             secure_backup_service,
@@ -587,7 +617,7 @@ impl ServiceContainer {
             sliding_sync_service,
             search_service,
             media_service,
-            cache,
+            cache: cache.clone(),
             task_queue,
             metrics,
             server_name: config.server.name.clone(),
@@ -598,6 +628,7 @@ impl ServiceContainer {
             key_rotation_manager,
             federation_client,
             device_sync_manager,
+            server_metrics,
             #[cfg(feature = "friends")]
             friend_storage,
             #[cfg(feature = "friends")]
@@ -616,7 +647,6 @@ impl ServiceContainer {
             worker_storage,
             worker_manager,
             room_summary_storage,
-            room_summary_service,
             retention_storage,
             retention_service,
             refresh_token_storage,
@@ -673,6 +703,20 @@ impl ServiceContainer {
             oidc_service,
             builtin_oidc_provider,
             identity_service,
+            uia_service: Arc::new(crate::services::uia_service::UiaService::new(
+                cache.clone(),
+                ui_auth_session_timeout,
+            )),
+            event_broadcaster: {
+                let broadcaster = crate::federation::event_broadcaster::EventBroadcaster::new(
+                    broadcaster_server_name,
+                )
+                .with_client(broadcaster_federation_client)
+                .with_pool(pool.as_ref().clone())
+                .with_membership_storage(Arc::new(broadcaster_member_storage));
+                broadcaster.start_batch_sender(broadcaster_origin, 20, 100);
+                Arc::new(broadcaster)
+            },
         }
     }
 
@@ -741,15 +785,25 @@ fn build_test_config() -> Config {
             admin_contact: None,
             max_upload_size: 1000000,
             max_image_resolution: 1000000,
+            remote_media_lifetime: 2592000,
+            local_media_lifetime: 0,
             enable_registration: true,
             enable_registration_captcha: false,
             background_tasks_interval: 60,
+            dehydrated_device_cleanup_interval_secs: 3600,
             expire_access_token: true,
             expire_access_token_lifetime: 3600,
             refresh_token_lifetime: 604800,
             refresh_token_sliding_window_size: 1000,
             session_duration: 86400,
             warmup_pool: true,
+            allow_public_rooms_without_auth: false,
+            allow_public_rooms_over_federation: true,
+            auto_join_rooms: vec![],
+            autocreate_auto_join_rooms: true,
+            encryption_enabled_by_default_for_room_type: None,
+            app_service_config_files: vec![],
+            presence_enabled: true,
         },
         database: DatabaseConfig {
             host,
@@ -824,6 +878,7 @@ fn build_test_config() -> Config {
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
         },
         search: SearchConfig {
             enabled: false,

@@ -54,6 +54,12 @@ jobs:
             --threshold 90 \
             --report artifacts/contract_coverage_report.md
 
+      - name: Migration consistency
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_migration_consistency.py \
+            --json-report artifacts/migration_consistency.json
+
   test:
     name: Test & Lint
     runs-on: ubuntu-latest

@@ -17,7 +17,7 @@ use crate::web::routes::AppState;
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,17 +186,19 @@ pub async fn get_all_updates(
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
-    let updates = state
+    let (updates, next_batch) = state
         .services
         .background_update_service
-        .get_all_updates(limit, offset)
+        .get_all_updates(limit, query.from)
         .await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
-    Ok(Json(response))
+    Ok(Json(serde_json::json!({
+        "updates": response,
+        "next_batch": next_batch
+    })))
 }
 
 pub async fn get_pending_updates(

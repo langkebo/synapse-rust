@@ -8,6 +8,37 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::Row;
 
+fn decode_media_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (created_ts, media_id) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if media_id.is_empty() {
+        return None;
+    }
+    Some((created_ts, media_id))
+}
+
+fn encode_media_cursor(created_ts: i64, media_id: &str) -> String {
+    format!("{created_ts}|{media_id}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_media_cursor, encode_media_cursor};
+
+    #[test]
+    fn test_media_cursor_round_trip() {
+        let cursor = encode_media_cursor(1_700_000_000_000, "abc123");
+        assert_eq!(decode_media_cursor(Some(&cursor)), Some((1_700_000_000_000, "abc123")));
+    }
+
+    #[test]
+    fn test_media_cursor_rejects_invalid_value() {
+        assert_eq!(decode_media_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_media_cursor(Some("123|")), None);
+    }
+}
+
 fn quarantine_status_to_bool(value: Option<String>) -> bool {
     matches!(
         value.as_deref(),
@@ -56,17 +87,21 @@ pub async fn get_all_media(
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(100);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+        .unwrap_or(100_i64);
+    let cursor = decode_media_cursor(params.get("from").map(String::as_str));
 
     let media = sqlx::query(
-        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status FROM media_metadata ORDER BY created_ts DESC LIMIT $1 OFFSET $2"
+        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
+         FROM media_metadata
+         WHERE ($1::BIGINT IS NULL AND $2::TEXT IS NULL)
+            OR created_ts < $1
+            OR (created_ts = $1 AND media_id < $2)
+         ORDER BY created_ts DESC, media_id DESC
+         LIMIT $3"
     )
+    .bind(cursor.map(|(created_ts, _)| created_ts))
+    .bind(cursor.map(|(_, media_id)| media_id))
     .bind(limit)
-    .bind(offset)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -87,9 +122,24 @@ pub async fn get_all_media(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "media": media_list, "total": media_list.len() }),
-    ))
+    let next_batch = if media.len() as i64 == limit {
+        media.last().map(|row| {
+            encode_media_cursor(
+                row.get::<Option<i64>, _>("created_ts").unwrap_or_default(),
+                row.get::<Option<String>, _>("media_id")
+                    .unwrap_or_default()
+                    .as_str(),
+            )
+        })
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "media": media_list,
+        "total": media_list.len(),
+        "next_batch": next_batch
+    })))
 }
 
 #[axum::debug_handler]

@@ -106,7 +106,38 @@ impl AuthService {
     ) -> ApiResult<(User, String, String, String)> {
         let start = std::time::Instant::now();
         let result = self
-            .register_internal(username, password, admin, displayname)
+            .register_internal(username, password, admin, displayname, None)
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        if let Some(hist) = self.metrics.get_histogram("auth_register_duration_seconds") {
+            hist.observe(duration);
+        } else {
+            let hist = self
+                .metrics
+                .register_histogram("auth_register_duration_seconds".to_string());
+            hist.observe(duration);
+        }
+
+        if result.is_ok() {
+            self.increment_counter("auth_register_success_total");
+        } else {
+            self.increment_counter("auth_register_failure_total");
+        }
+        result
+    }
+
+    pub async fn register_with_device_name(
+        &self,
+        username: &str,
+        password: &str,
+        admin: bool,
+        displayname: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String, String)> {
+        let start = std::time::Instant::now();
+        let result = self
+            .register_internal(username, password, admin, displayname, initial_device_display_name)
             .await;
 
         let duration = start.elapsed().as_secs_f64();
@@ -132,7 +163,8 @@ impl AuthService {
         username: &str,
         password: &str,
         admin: bool,
-        _displayname: Option<&str>,
+        displayname: Option<&str>,
+        initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         if username.is_empty() || password.is_empty() {
             return Err(ApiError::bad_request(
@@ -198,7 +230,7 @@ impl AuthService {
         let device_id = generate_token(16);
         if let Err(e) = self
             .device_storage
-            .create_device_tx(&mut tx, &device_id, &user_id, None)
+            .create_device_tx(&mut tx, &device_id, &user_id, initial_device_display_name)
             .await
         {
             let _ = tx.rollback().await;
@@ -213,6 +245,15 @@ impl AuthService {
                 "Failed to commit transaction: {}",
                 e
             )));
+        }
+
+        let effective_displayname = displayname.unwrap_or(username);
+        if let Err(e) = self
+            .user_storage
+            .update_displayname(&user_id, Some(effective_displayname))
+            .await
+        {
+            ::tracing::warn!("Failed to set displayname for {}: {}", user_id, e);
         }
 
         self.device_storage
@@ -262,7 +303,7 @@ impl AuthService {
         username: &str,
         password: &str,
         device_id: Option<&str>,
-        _initial_display_name: Option<&str>,
+        initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         // Resolve the user. Critically, we do NOT short-circuit on "user not
         // found" or "user deactivated" — both branches still run an argon2
@@ -279,7 +320,7 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        let invalid = || ApiError::unauthorized("Invalid credentials".to_string());
+        let invalid = || ApiError::forbidden("Invalid credentials".to_string());
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
             Some(u) if !u.is_deactivated => match u.password_hash.as_deref() {
@@ -340,7 +381,7 @@ impl AuthService {
         self.cache.delete(&logout_marker).await;
         self.log_login_success(&user, device_id);
 
-        let device_id = self.get_or_create_device_id(device_id, &user).await?;
+        let device_id = self.get_or_create_device_id(device_id, &user, initial_display_name).await?;
 
         let access_token = self
             .generate_access_token(&user.user_id, &device_id, user.is_admin)
@@ -452,6 +493,7 @@ impl AuthService {
         &self,
         device_id: Option<&str>,
         user: &User,
+        initial_display_name: Option<&str>,
     ) -> ApiResult<String> {
         let device_id = match device_id {
             Some(d) => d.to_string(),
@@ -471,7 +513,7 @@ impl AuthService {
             }
         } else {
             self.device_storage
-                .create_device(&device_id, &user.user_id, None)
+                .create_device(&device_id, &user.user_id, initial_display_name)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
         }
@@ -1253,6 +1295,15 @@ impl AuthService {
             self.argon2_p_cost,
         )
         .map_err(ApiError::internal)
+    }
+
+    pub async fn hash_password_for_storage(&self, password: &str) -> Result<String, ApiError> {
+        let auth = self.clone();
+        let password_str = password.to_string();
+
+        tokio::task::spawn_blocking(move || auth.hash_password(&password_str))
+            .await
+            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))?
     }
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {

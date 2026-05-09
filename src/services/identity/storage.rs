@@ -13,7 +13,7 @@ pub struct IdentityStorage {
 impl IdentityStorage {
     pub fn new(pool: &PgPool) -> Self {
         let pool = pool.clone();
-        let threepid_storage = ThreepidStorage::new(&Arc::new(pool.clone()));
+        let threepid_storage = ThreepidStorage::new(Arc::new(pool.clone()));
 
         Self {
             pool,
@@ -33,7 +33,7 @@ impl IdentityStorage {
                 medium: three_pid.medium.clone(),
                 address: three_pid.address.clone(),
                 verification_token: None,
-                verification_expires_ts: None,
+                verification_expires_at: None,
             })
             .await?;
 

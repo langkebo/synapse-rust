@@ -13,6 +13,7 @@ server:
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 300
+  dehydrated_device_cleanup_interval_secs: 3600
   expire_access_token: true
   expire_access_token_lifetime: 86400
   refresh_token_lifetime: 604800
@@ -143,6 +144,11 @@ cors:
     - "http://127.0.0.1:8008"
     - "http://localhost:6130"
     - "http://127.0.0.1:6130"
+    - "https://matrix.test"
+    - "https://element.test"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
   allow_credentials: true
   allowed_methods:
     - "GET"
@@ -150,12 +156,19 @@ cors:
     - "PUT"
     - "DELETE"
     - "OPTIONS"
+    - "PATCH"
   allowed_headers:
     - "Authorization"
     - "Content-Type"
     - "Accept"
     - "Origin"
     - "X-Requested-With"
+    - "X-Matrix-Auth"
+    - "X-Request-ID"
+  expose_headers:
+    - "X-Matrix-Error"
+    - "X-Ratelimit-Limit"
+    - "X-Ratelimit-Remaining"
   max_age_seconds: 3600
 
 identity_server_url: "https://vector.im"

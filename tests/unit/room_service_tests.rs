@@ -12,6 +12,7 @@ use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
+use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
@@ -195,6 +196,7 @@ fn create_room_service(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> 
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
         task_queue: None,
+        relations_storage: RelationsStorage::new(pool),
         beacon_service: None,
     })
 }
@@ -319,7 +321,7 @@ fn test_send_message_success() {
         assert!(val["event_id"].as_str().unwrap().starts_with('$'));
 
         let messages = room_service
-            .get_room_messages(room_id, 0, 10, "b")
+            .get_room_messages(room_id, &alice_id, 0, 10, "b")
             .await
             .unwrap();
         let chunk = messages["chunk"].as_array().unwrap();
@@ -373,7 +375,7 @@ fn test_get_room_messages_supports_sync_prev_batch_token() {
         }
 
         let messages = room_service
-            .get_room_messages(room_id, base_ts + 3000, 2, "b")
+            .get_room_messages(room_id, &alice_id, base_ts + 3000, 2, "b")
             .await
             .unwrap();
 
@@ -436,7 +438,7 @@ fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
         }
 
         let messages = room_service
-            .get_room_messages(room_id, base_ts + 1000, 2, "f")
+            .get_room_messages(room_id, &alice_id, base_ts + 1000, 2, "f")
             .await
             .unwrap();
 

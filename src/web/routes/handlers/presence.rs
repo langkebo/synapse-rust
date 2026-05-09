@@ -40,6 +40,29 @@ fn ensure_presence_access(
     Ok(())
 }
 
+async fn ensure_presence_access_or_shared_room(
+    state: &AppState,
+    auth_user: &AuthenticatedUser,
+    target_user_id: &str,
+) -> Result<(), ApiError> {
+    if auth_user.user_id == target_user_id {
+        return Ok(());
+    }
+
+    let shared = state
+        .services
+        .member_storage
+        .share_common_room(&auth_user.user_id, target_user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check shared rooms: {}", e)))?;
+
+    if !shared {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+
+    Ok(())
+}
+
 async fn filter_visible_presence_targets(
     state: &AppState,
     current_user_id: &str,
@@ -63,7 +86,7 @@ pub(crate) async fn get_presence(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    ensure_presence_access(&auth_user, &user_id)?;
+    ensure_presence_access_or_shared_room(&state, &auth_user, &user_id).await?;
 
     let user_exists = state
         .services
@@ -233,11 +256,63 @@ pub(crate) async fn presence_list(
     })))
 }
 
+pub(crate) async fn get_presence_list_no_path(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = &auth_user.user_id;
+
+    let subscriptions = state
+        .services
+        .presence_storage
+        .get_subscriptions(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+    let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
+
+    let presence_batch = state
+        .services
+        .presence_storage
+        .get_presence_batch_with_meta(&subscriptions)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+
+    let mut presences = Vec::new();
+
+    for (target_id, presence, status_msg, last_active_ts) in presence_batch {
+        let (last_active_ago, currently_active) = derive_activity(&presence, last_active_ts);
+        presences.push(json!({
+            "user_id": target_id,
+            "presence": presence,
+            "status_msg": status_msg,
+            "last_active_ago": last_active_ago,
+            "currently_active": currently_active,
+        }));
+    }
+
+    for target_id in &subscriptions {
+        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+            presences.push(json!({
+                "user_id": target_id,
+                "presence": "offline",
+                "status_msg": None::<String>,
+                "last_active_ago": None::<i64>,
+                "currently_active": None::<bool>,
+            }));
+        }
+    }
+
+    Ok(Json(json!({
+        "presences": presences
+    })))
+}
+
 pub(crate) async fn get_presence_list(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 
     let subscriptions = state

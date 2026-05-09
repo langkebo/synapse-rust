@@ -5,6 +5,12 @@ use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use tracing::info;
 
+/// `PushDevice` 结构体映射数据库 push_devices 表。
+///
+/// 字段命名兼容性说明：
+/// - `enabled` → 数据库列 `is_enabled`：通过 `#[sqlx(rename = "is_enabled")]`
+///   将 Rust 字段 `enabled` 映射到数据库列 `is_enabled`，保持 JSON 序列化兼容性。
+///   Rust 侧保留 `enabled` 是为了与 Matrix API JSON 格式保持一致。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushDevice {
     pub id: i64,
@@ -28,6 +34,12 @@ pub struct PushDevice {
     pub metadata: serde_json::Value,
 }
 
+/// `PushRule` 结构体映射数据库 push_rules 表。
+///
+/// 字段命名兼容性说明：
+/// - `enabled` → 数据库列 `is_enabled`：通过 `#[sqlx(rename = "is_enabled")]`
+///   将 Rust 字段 `enabled` 映射到数据库列 `is_enabled`，保持 JSON 序列化兼容性。
+///   Rust 侧保留 `enabled` 是为了与 Matrix API JSON 格式保持一致。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushRule {
     pub id: i64,

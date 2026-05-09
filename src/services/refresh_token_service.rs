@@ -324,13 +324,13 @@ impl RefreshTokenService {
         token: &str,
         token_type: &str,
         user_id: &str,
-        expires_ts: i64,
+        expires_at: i64,
         reason: Option<&str>,
     ) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
 
         self.storage
-            .add_to_blacklist(&token_hash, token_type, user_id, expires_ts, reason)
+            .add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add to blacklist: {}", e)))?;
 

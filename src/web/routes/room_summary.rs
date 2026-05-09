@@ -218,7 +218,7 @@ pub async fn get_room_summary(
 
     let summary = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_summary(&room_id)
         .await?;
 
@@ -231,7 +231,7 @@ pub async fn get_user_summaries(
 ) -> Result<impl IntoResponse, ApiError> {
     let summaries = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_summaries_for_user(&_auth_user.user_id)
         .await?;
 
@@ -255,7 +255,7 @@ pub async fn create_room_summary(
 
     let summary = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .create_summary(request)
         .await?;
 
@@ -269,7 +269,7 @@ pub async fn create_internal_room_summary(
 ) -> Result<impl IntoResponse, ApiError> {
     let summary = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .create_summary(body)
         .await?;
 
@@ -288,7 +288,7 @@ pub async fn update_room_summary(
 
     let summary = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .update_summary(&room_id, request)
         .await?;
 
@@ -304,7 +304,7 @@ pub async fn delete_room_summary(
 
     state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .delete_summary(&room_id)
         .await?;
 
@@ -320,7 +320,7 @@ pub async fn sync_room_summary(
 
     let summary = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .sync_from_room(&room_id)
         .await?;
 
@@ -336,7 +336,7 @@ pub async fn get_members(
 
     let members = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_members(&room_id)
         .await?;
 
@@ -355,7 +355,7 @@ pub async fn add_member(
 
     let member = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .add_member(request)
         .await?;
 
@@ -374,7 +374,7 @@ pub async fn update_member(
 
     let member = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .update_member(&room_id, &user_id, request)
         .await?;
 
@@ -390,7 +390,7 @@ pub async fn remove_member(
 
     state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .remove_member(&room_id, &user_id)
         .await?;
 
@@ -406,7 +406,7 @@ pub async fn get_state(
 
     let state = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_state(&room_id, &event_type, &state_key)
         .await?;
 
@@ -426,7 +426,7 @@ pub async fn update_state(
 
     let state = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .update_state(
             &room_id,
             &event_type,
@@ -448,7 +448,7 @@ pub async fn get_all_state(
 
     let states = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_all_state(&room_id)
         .await?;
 
@@ -476,7 +476,7 @@ pub async fn get_stats(
 
     let stats = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .get_stats(&room_id)
         .await?;
 
@@ -485,7 +485,7 @@ pub async fn get_stats(
         None => {
             state
                 .services
-                .room_summary_service
+                .room_service.room_summary_service()
                 .recalculate_stats(&room_id)
                 .await?
         }
@@ -503,7 +503,7 @@ pub async fn recalculate_stats(
 
     let stats = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .recalculate_stats(&room_id)
         .await?;
 
@@ -518,7 +518,7 @@ pub async fn process_updates(
     let limit = query.limit.unwrap_or(100);
     let processed = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .process_pending_updates(limit)
         .await?;
 
@@ -536,7 +536,7 @@ pub async fn recalculate_heroes(
 
     let hero_ids = state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .recalculate_heroes(&room_id)
         .await?;
 
@@ -554,7 +554,7 @@ pub async fn clear_unread(
 
     state
         .services
-        .room_summary_service
+        .room_service.room_summary_service()
         .clear_unread(&room_id)
         .await?;
 
@@ -564,6 +564,56 @@ pub async fn clear_unread(
         "unread_notifications": 0,
         "unread_highlight": 0,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RoomSummaryBatchRequest {
+    pub rooms: Vec<String>,
+    #[serde(default)]
+    pub suggested_only: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Msc3266RoomSummaryResponse {
+    pub room_id: String,
+    pub room_type: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub join_rule: String,
+    pub num_joined_members: i64,
+    pub world_readable: bool,
+    pub guest_can_join: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children_state: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Msc3266RoomSummaryBatchResponse {
+    pub rooms: Vec<Msc3266RoomSummaryResponse>,
+    pub events: Vec<serde_json::Value>,
+    pub total_room_count_estimate: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_batch: Option<String>,
+}
+
+impl From<RoomSummaryResponse> for Msc3266RoomSummaryResponse {
+    fn from(s: RoomSummaryResponse) -> Self {
+        Self {
+            room_id: s.room_id,
+            room_type: s.room_type,
+            name: s.name,
+            topic: s.topic,
+            avatar_url: s.avatar_url,
+            canonical_alias: s.canonical_alias,
+            join_rule: s.join_rule,
+            num_joined_members: s.joined_member_count,
+            world_readable: s.history_visibility == "world_readable",
+            guest_can_join: s.guest_access == "can_join",
+            children_state: None,
+        }
+    }
 }
 
 fn create_room_summary_read_router() -> Router<AppState> {
@@ -609,10 +659,52 @@ fn create_room_summary_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/summary/unread/clear", post(clear_unread))
 }
 
+pub async fn batch_get_room_summaries(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(_room_id): Path<String>,
+    Json(body): Json<RoomSummaryBatchRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let responses = state
+        .services
+        .room_service.room_summary_service()
+        .get_summaries_by_ids(&body.rooms)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
+
+    let filtered = if body.suggested_only {
+        responses
+            .into_iter()
+            .filter(|r| r.room_type.as_deref() == Some("m.space"))
+            .collect()
+    } else {
+        responses
+    };
+
+    let msc_responses: Vec<Msc3266RoomSummaryResponse> =
+        filtered.into_iter().map(Msc3266RoomSummaryResponse::from).collect();
+
+    let total_count = msc_responses.len();
+    let response = Msc3266RoomSummaryBatchResponse {
+        rooms: msc_responses,
+        events: vec![],
+        total_room_count_estimate: total_count,
+        next_batch: None,
+    };
+
+    Ok(Json(response))
+}
+
+fn create_room_summary_v1_router() -> Router<AppState> {
+    Router::new()
+        .route("/rooms/{room_id}/summary", get(get_room_summary))
+}
+
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v3", create_room_summary_v3_router())
         .nest("/_matrix/client/r0", create_room_summary_read_router())
+        .nest("/_matrix/client/v1", create_room_summary_v1_router())
         .route(
             "/_synapse/room_summary/v1/summaries",
             get(get_user_summaries),
@@ -859,5 +951,51 @@ mod tests {
         assert_eq!(request.membership, "join");
         assert_eq!(request.is_hero, Some(true));
         assert_eq!(request.last_active_ts, Some(12345));
+    }
+
+    #[test]
+    fn test_msc3266_batch_response_format() {
+        let response = Msc3266RoomSummaryBatchResponse {
+            rooms: vec![Msc3266RoomSummaryResponse {
+                room_id: "!room:example.com".to_string(),
+                room_type: Some("m.space".to_string()),
+                name: Some("Test Space".to_string()),
+                topic: Some("A test space".to_string()),
+                avatar_url: None,
+                canonical_alias: None,
+                join_rule: "invite".to_string(),
+                num_joined_members: 42,
+                world_readable: false,
+                guest_can_join: false,
+                children_state: None,
+            }],
+            events: vec![],
+            total_room_count_estimate: 1,
+            next_batch: None,
+        };
+
+        let json = serde_json::to_value(&response).expect("Should serialize");
+        assert!(json.get("rooms").is_some());
+        assert_eq!(json.get("total_room_count_estimate").unwrap().as_u64().unwrap(), 1);
+        assert!(json.get("events").is_some());
+
+        let rooms = json["rooms"].as_array().unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0]["room_id"].as_str().unwrap(), "!room:example.com");
+        assert_eq!(rooms[0]["num_joined_members"].as_i64().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_msc3266_batch_response_with_next_batch() {
+        let response = Msc3266RoomSummaryBatchResponse {
+            rooms: vec![],
+            events: vec![],
+            total_room_count_estimate: 100,
+            next_batch: Some("batch_2".to_string()),
+        };
+
+        let json = serde_json::to_value(&response).expect("Should serialize");
+        assert_eq!(json["next_batch"].as_str().unwrap(), "batch_2");
+        assert_eq!(json["total_room_count_estimate"].as_u64().unwrap(), 100);
     }
 }

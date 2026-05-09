@@ -5,6 +5,42 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{info, instrument};
 
+fn decode_module_cursor(cursor: &str) -> Option<(&str, i32, &str)> {
+    let mut parts = cursor.split('|');
+    let module_type = parts.next()?;
+    let priority = parts.next()?.parse::<i32>().ok()?;
+    let module_name = parts.next()?;
+    if module_type.is_empty() || module_name.is_empty() || parts.next().is_some() {
+        return None;
+    }
+    Some((module_type, priority, module_name))
+}
+
+fn encode_module_cursor(module_type: &str, priority: i32, module_name: &str) -> String {
+    format!("{module_type}|{priority}|{module_name}")
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_module_cursor, encode_module_cursor};
+
+    #[test]
+    fn test_module_cursor_round_trip() {
+        let cursor = encode_module_cursor("spam_checker", 10, "basic-module");
+        assert_eq!(
+            decode_module_cursor(&cursor),
+            Some(("spam_checker", 10, "basic-module"))
+        );
+    }
+
+    #[test]
+    fn test_module_cursor_rejects_invalid_value() {
+        assert_eq!(decode_module_cursor("bad-cursor"), None);
+        assert_eq!(decode_module_cursor("type|x|name"), None);
+        assert_eq!(decode_module_cursor("type|1|"), None);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Module {
     pub id: i64,
@@ -314,17 +350,37 @@ impl ModuleStorage {
     pub async fn get_all_modules(
         &self,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<Module>, sqlx::Error> {
+        from: Option<String>,
+    ) -> Result<(Vec<Module>, Option<String>), sqlx::Error> {
+        let decoded = from.as_deref().and_then(decode_module_cursor);
+        let cursor_module_type = decoded.map(|(module_type, _, _)| module_type);
+        let cursor_priority = decoded.map(|(_, priority, _)| priority);
+        let cursor_module_name = decoded.map(|(_, _, module_name)| module_name);
         let rows = sqlx::query_as::<_, Module>(
-            "SELECT * FROM modules ORDER BY module_type, priority ASC LIMIT $1 OFFSET $2",
+            "SELECT * FROM modules
+             WHERE ($2::TEXT IS NULL AND $3::INT4 IS NULL AND $4::TEXT IS NULL)
+                OR module_type > $2
+                OR (module_type = $2 AND priority > $3)
+                OR (module_type = $2 AND priority = $3 AND module_name > $4)
+             ORDER BY module_type ASC, priority ASC, module_name ASC
+             LIMIT $1",
         )
         .bind(limit)
-        .bind(offset)
+        .bind(cursor_module_type)
+        .bind(cursor_priority)
+        .bind(cursor_module_name)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows)
+        let next_from = if rows.len() as i64 == limit {
+            rows.last().map(|row| {
+                encode_module_cursor(&row.module_type, row.priority, &row.module_name)
+            })
+        } else {
+            None
+        };
+
+        Ok((rows, next_from))
     }
 
     #[instrument(skip(self))]

@@ -353,20 +353,24 @@ fn is_origin_allowed(origin: &str) -> bool {
     }
 
     let allowed_origins = get_allowed_origins();
-    if allowed_origins.is_empty() {
-        if let Some(ref pattern) = *CORS_ORIGINS_REGEX {
-            return pattern.is_match(origin);
-        }
-        return false;
+    if allowed_origins.iter().any(|o| o == "*") {
+        return true;
     }
 
-    allowed_origins.iter().any(|o| {
-        if o == "*" {
-            true
-        } else {
-            normalize_origin(o) == normalize_origin(origin)
+    let in_list = allowed_origins
+        .iter()
+        .any(|o| normalize_origin(o) == normalize_origin(origin));
+    if in_list {
+        return true;
+    }
+
+    if let Some(ref pattern) = *CORS_ORIGINS_REGEX {
+        if pattern.is_match(origin) {
+            return true;
         }
-    })
+    }
+
+    false
 }
 
 fn normalize_origin(origin: &str) -> String {
@@ -497,13 +501,17 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     } else if let Some(ref req_origin) = origin {
         if is_origin_allowed(req_origin) {
             Some(req_origin.as_str())
+        } else if same_origin(req_origin, request.headers()) {
+            Some(req_origin.as_str())
         } else {
-            tracing::warn!("CORS origin rejected: {}", req_origin);
+            tracing::debug!("CORS origin rejected: {}", req_origin);
             None
         }
     } else {
         None
     };
+
+    let allow_credentials = allow_origin.is_some() && allow_origin != Some("*");
 
     if is_options {
         let mut response = Response::new(Body::empty());
@@ -518,20 +526,34 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             "Access-Control-Allow-Methods",
             HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"),
         );
-        response.headers_mut().insert(
-            "Access-Control-Allow-Headers",
-            HeaderValue::from_static(
-                "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token",
-            ),
-        );
+
+        let request_headers = request
+            .headers()
+            .get("Access-Control-Request-Headers")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let allow_headers_value = request_headers.unwrap_or_else(|| {
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
+        });
+        if let Ok(value) = HeaderValue::from_str(&allow_headers_value) {
+            response
+                .headers_mut()
+                .insert("Access-Control-Allow-Headers", value);
+        }
+
         response.headers_mut().insert(
             "Access-Control-Expose-Headers",
-            HeaderValue::from_static("X-Request-ID, X-CSRF-Token"),
+            HeaderValue::from_static(
+                "X-Request-ID, X-CSRF-Token, X-Matrix-Error, X-Ratelimit-Limit, X-Ratelimit-Remaining, X-Ratelimit-Retry-After",
+            ),
         );
-        response.headers_mut().insert(
-            "Access-Control-Allow-Credentials",
-            HeaderValue::from_static("true"),
-        );
+        if allow_credentials {
+            response.headers_mut().insert(
+                "Access-Control-Allow-Credentials",
+                HeaderValue::from_static("true"),
+            );
+        }
         response
             .headers_mut()
             .insert("Vary", HeaderValue::from_static("Origin"));
@@ -563,19 +585,23 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     response.headers_mut().insert(
         "Access-Control-Allow-Headers",
         HeaderValue::from_static(
-            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token",
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin",
         ),
     );
 
     response.headers_mut().insert(
         "Access-Control-Expose-Headers",
-        HeaderValue::from_static("X-Request-ID, X-CSRF-Token"),
+        HeaderValue::from_static(
+            "X-Request-ID, X-CSRF-Token, X-Matrix-Error, X-Ratelimit-Limit, X-Ratelimit-Remaining, X-Ratelimit-Retry-After",
+        ),
     );
 
-    response.headers_mut().insert(
-        "Access-Control-Allow-Credentials",
-        HeaderValue::from_static("true"),
-    );
+    if allow_credentials {
+        response.headers_mut().insert(
+            "Access-Control-Allow-Credentials",
+            HeaderValue::from_static("true"),
+        );
+    }
 
     response
         .headers_mut()
