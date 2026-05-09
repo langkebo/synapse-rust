@@ -24,6 +24,52 @@ async fn ensure_typing_room_access(
     .await
 }
 
+async fn write_typing_ephemeral(
+    state: &AppState,
+    room_id: &str,
+    user_id: &str,
+    typing_user_ids: &[String],
+    timeout_ms: i64,
+) {
+    let content = json!({
+        "user_ids": typing_user_ids
+    });
+    let now = chrono::Utc::now().timestamp_millis();
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
+        VALUES ($1, 'm.typing', $2, $3, $4, $5, $6)
+        ON CONFLICT (room_id, event_type, user_id) DO UPDATE
+        SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts, expires_at = EXCLUDED.expires_at
+        "#,
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .bind(&content)
+    .bind(now)
+    .bind(now)
+    .bind(now + timeout_ms)
+    .execute(&*state.services.event_storage.pool)
+    .await;
+}
+
+async fn clear_typing_ephemeral(
+    state: &AppState,
+    room_id: &str,
+    user_id: &str,
+) {
+    let _ = sqlx::query(
+        r#"
+        DELETE FROM room_ephemeral
+        WHERE room_id = $1 AND event_type = 'm.typing' AND user_id = $2
+        "#,
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .execute(&*state.services.event_storage.pool)
+    .await;
+}
+
 /// Set typing indicator
 /// PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn set_typing(
@@ -54,6 +100,21 @@ pub async fn set_typing(
             .set_typing(&room_id, &user_id, timeout)
             .await?;
 
+        write_typing_ephemeral(&state, &room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64).await;
+
+        let edu = serde_json::json!({
+            "edu_type": "m.typing",
+            "room_id": room_id,
+            "content": {
+                "user_ids": [user_id]
+            }
+        });
+        let _ = state
+            .services
+            .event_broadcaster
+            .broadcast_edu_to_room(&room_id, &edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+            .await;
+
         let expires_at = chrono::Utc::now().timestamp_millis() + timeout as i64;
 
         Ok(Json(json!({
@@ -66,6 +127,21 @@ pub async fn set_typing(
             .typing_service
             .clear_typing(&room_id, &user_id)
             .await?;
+
+        clear_typing_ephemeral(&state, &room_id, &user_id).await;
+
+        let edu = serde_json::json!({
+            "edu_type": "m.typing",
+            "room_id": room_id,
+            "content": {
+                "user_ids": []
+            }
+        });
+        let _ = state
+            .services
+            .event_broadcaster
+            .broadcast_edu_to_room(&room_id, &edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+            .await;
 
         Ok(Json(json!({
             "typing": false
@@ -149,10 +225,19 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
             put(set_typing).get(get_user_typing),
         )
         .route(
+            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
+            put(set_typing).get(get_user_typing),
+        )
+        .route(
             "/_matrix/client/v3/rooms/{room_id}/typing",
             get(get_typing_users),
         )
+        .route(
+            "/_matrix/client/r0/rooms/{room_id}/typing",
+            get(get_typing_users),
+        )
         .route("/_matrix/client/v3/rooms/typing", post(bulk_get_typing))
+        .route("/_matrix/client/r0/rooms/typing", post(bulk_get_typing))
         .with_state(state)
 }
 

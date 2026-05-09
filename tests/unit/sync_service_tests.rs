@@ -14,9 +14,11 @@ use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::services::PresenceStorage;
 use synapse_rust::storage::device::DeviceStorage;
+use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
+use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
@@ -136,6 +138,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
                 content JSONB NOT NULL,
                 state_key TEXT,
                 depth BIGINT,
+                stream_ordering BIGSERIAL,
                 origin_server_ts BIGINT NOT NULL,
                 processed_ts BIGINT,
                 not_before BIGINT,
@@ -302,6 +305,7 @@ fn create_room_service(
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
         task_queue: None,
+        relations_storage: RelationsStorage::new(pool),
         beacon_service: None,
     })
 }
@@ -338,6 +342,7 @@ fn test_sync_success() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -410,6 +415,7 @@ fn test_incremental_sync_does_not_replay_old_timeline() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -458,6 +464,94 @@ fn test_incremental_sync_does_not_replay_old_timeline() {
 }
 
 #[test]
+fn test_sync_offline_presence_overwrites_previous_presence_state() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        create_test_user(&pool, "@alice:localhost", "alice").await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let member_storage = RoomMemberStorage::new(&pool, "localhost");
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let room_storage = RoomStorage::new(&pool);
+
+        let sync_service = SyncService::new(
+            presence_storage.clone(),
+            member_storage,
+            event_storage,
+            room_storage,
+            FilterStorage::new(&pool),
+            DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
+            Arc::new(MetricsCollector::new()),
+            PerformanceConfig::default(),
+        );
+
+        sync_service
+            .sync("@alice:localhost", None, 0, false, "online", None, None)
+            .await
+            .unwrap();
+        sync_service
+            .sync("@alice:localhost", None, 0, false, "offline", None, None)
+            .await
+            .unwrap();
+
+        let persisted = presence_storage
+            .get_presence("@alice:localhost")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.0, "offline");
+    });
+}
+
+#[test]
+fn test_sync_presence_events_reflect_persisted_presence_state() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        create_test_user(&pool, "@alice:localhost", "alice").await;
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let member_storage = RoomMemberStorage::new(&pool, "localhost");
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let room_storage = RoomStorage::new(&pool);
+
+        let sync_service = SyncService::new(
+            presence_storage,
+            member_storage,
+            event_storage,
+            room_storage,
+            FilterStorage::new(&pool),
+            DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
+            Arc::new(MetricsCollector::new()),
+            PerformanceConfig::default(),
+        );
+
+        let response = sync_service
+            .sync("@alice:localhost", None, 0, false, "unavailable", None, None)
+            .await
+            .unwrap();
+
+        let presence_events = response["presence"]["events"].as_array().unwrap();
+        assert_eq!(presence_events.len(), 1);
+        assert_eq!(presence_events[0]["type"], "m.presence");
+        assert_eq!(presence_events[0]["sender"], "@alice:localhost");
+        assert_eq!(presence_events[0]["content"]["presence"], "unavailable");
+        assert_eq!(presence_events[0]["content"]["currently_active"], json!(false));
+    });
+}
+
+#[test]
 fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
@@ -488,6 +582,7 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -624,6 +719,7 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -773,6 +869,7 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -918,6 +1015,7 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1027,6 +1125,7 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1225,6 +1324,7 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
             room_storage.clone(),
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1348,6 +1448,7 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1426,6 +1527,7 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
             room_storage.clone(),
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1525,6 +1627,7 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1612,6 +1715,7 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             room_storage.clone(),
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );
@@ -1701,6 +1805,7 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             room_storage,
             FilterStorage::new(&pool),
             DeviceStorage::new(&pool),
+            ToDeviceStorage::new(&pool),
             Arc::new(MetricsCollector::new()),
             PerformanceConfig::default(),
         );

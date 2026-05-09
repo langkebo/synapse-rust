@@ -1,5 +1,7 @@
 use super::models::*;
 use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
+use crate::e2ee::device_keys::DeviceKeyStorage;
+use crate::e2ee::signed_json::verify_signed_json;
 use crate::error::ApiError;
 use sqlx::Row;
 
@@ -19,6 +21,7 @@ pub struct BackupKeyUploadParams {
 pub struct KeyBackupService {
     storage: KeyBackupStorage,
     key_storage: BackupKeyStorage,
+    device_key_storage: Option<DeviceKeyStorage>,
 }
 
 impl KeyBackupService {
@@ -26,7 +29,13 @@ impl KeyBackupService {
         Self {
             storage: storage.clone(),
             key_storage: BackupKeyStorage::new(&storage.pool),
+            device_key_storage: None,
         }
+    }
+
+    pub fn with_device_key_storage(mut self, storage: DeviceKeyStorage) -> Self {
+        self.device_key_storage = Some(storage);
+        self
     }
 
     pub async fn create_backup(
@@ -621,8 +630,70 @@ impl KeyBackupService {
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
+        let mut signature_valid = false;
+
+        if let Some(device_key_storage) = &self.device_key_storage {
+            if let Some(sig_map) = signatures.as_object() {
+                if let Some(user_sigs) = sig_map.get(user_id).and_then(|v| v.as_object()) {
+                    for (signing_key_id, signature_value) in user_sigs {
+                        let Some(signature) = signature_value.as_str() else {
+                            continue;
+                        };
+
+                        let parts: Vec<&str> = signing_key_id.splitn(2, ':').collect();
+                        if parts.len() != 2 || parts[0] != "ed25519" {
+                            continue;
+                        }
+
+                        let device_id = parts[1];
+
+                        if let Ok(Some(device_key)) = device_key_storage
+                            .get_device_key(user_id, device_id, "ed25519")
+                            .await
+                        {
+                            match verify_signed_json(
+                                user_id,
+                                signing_key_id,
+                                &device_key.public_key,
+                                signature,
+                                &backup.backup_data,
+                            ) {
+                                Ok(true) => {
+                                    signature_valid = true;
+                                    break;
+                                }
+                                Ok(false) => {
+                                    tracing::warn!(
+                                        "Backup signature verification failed for key {}",
+                                        signing_key_id
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Backup signature verification error for key {}: {}",
+                                        signing_key_id,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let has_signatures = signatures
+                .as_object()
+                .map(|m| !m.is_empty())
+                .unwrap_or(false);
+            signature_valid = has_signatures;
+        }
+
+        let valid = !backup.algorithm.is_empty()
+            && backup.backup_data.get("public_key").is_some()
+            && signature_valid;
+
         Ok(BackupVerificationResponse {
-            valid: !backup.algorithm.is_empty(),
+            valid,
             algorithm: backup.algorithm,
             auth_data: backup.backup_data,
             key_count,

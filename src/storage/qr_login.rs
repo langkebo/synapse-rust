@@ -147,7 +147,7 @@ impl QrLoginStorage {
 /// Following project field naming standards:
 /// - created_ts: NOT NULL, milliseconds timestamp
 /// - updated_ts: NULLABLE, milliseconds timestamp  
-/// - expires_at: NOT NULL (or use expires_ts for consistency), milliseconds timestamp
+/// - expires_at: NOT NULL, milliseconds timestamp
 #[derive(Debug, Clone)]
 pub struct QrTransaction {
     pub transaction_id: String,

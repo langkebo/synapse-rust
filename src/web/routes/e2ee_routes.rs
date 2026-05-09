@@ -23,6 +23,7 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
 fn create_e2ee_compat_router() -> Router<AppState> {
     Router::new()
         .route("/keys/upload", post(upload_keys))
+        .route("/keys/upload/{device_id}", post(upload_keys))
         .route("/keys/query", post(query_keys))
         .route("/keys/claim", post(claim_keys))
         .route("/keys/changes", get(key_changes))
@@ -164,24 +165,42 @@ pub fn e2ee_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
 async fn upload_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    path_device_id: Option<Path<String>>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user
-        .device_id
-        .clone()
+    let device_id = path_device_id
+        .map(|Path(id)| id)
+        .or(auth_user.device_id.clone())
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     let has_device_keys = body.get("device_keys").is_some();
     let has_one_time_keys = body.get("one_time_keys").is_some();
 
+    let inner_device_keys = body
+        .get("device_keys")
+        .and_then(|dk| {
+            if dk.get("algorithms").is_some() || dk.get("keys").is_some() {
+                Some(dk.clone())
+            } else {
+                dk.as_object()
+                    .and_then(|map| {
+                        map.values().next().and_then(|user_entry| {
+                            user_entry
+                                .as_object()
+                                .and_then(|m| m.values().next().cloned())
+                        })
+                    })
+            }
+        })
+        .unwrap_or(serde_json::json!({}));
+
     let request = crate::e2ee::device_keys::KeyUploadRequest {
         device_keys: if has_device_keys || has_one_time_keys {
             Some(crate::e2ee::device_keys::DeviceKeys {
                 user_id: auth_user.user_id.clone(),
-                device_id,
-                algorithms: body
-                    .get("device_keys")
-                    .and_then(|v| v.get("algorithms"))
+                device_id: device_id.clone(),
+                algorithms: inner_device_keys
+                    .get("algorithms")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -194,19 +213,16 @@ async fn upload_keys(
                             "m.megolm.v1.aes-sha2".to_string(),
                         ]
                     }),
-                keys: body
-                    .get("device_keys")
-                    .and_then(|v| v.get("keys"))
+                keys: inner_device_keys
+                    .get("keys")
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({})),
-                signatures: body
-                    .get("device_keys")
-                    .and_then(|v| v.get("signatures"))
+                signatures: inner_device_keys
+                    .get("signatures")
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({})),
-                unsigned: body
-                    .get("device_keys")
-                    .and_then(|v| v.get("unsigned"))
+                unsigned: inner_device_keys
+                    .get("unsigned")
                     .and_then(|v| v.as_object())
                     .map(|v| v.clone().into()),
             })
@@ -220,7 +236,7 @@ async fn upload_keys(
     let response = state
         .services
         .device_keys_service
-        .upload_keys(request)
+        .upload_keys(request, &auth_user.user_id, &device_id)
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -615,10 +631,7 @@ async fn upload_device_signing(
                     .services
                     .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, master_key)
-                    .await
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to upload master key: {}", e))
-                    })?;
+                    .await?;
             }
         }
     }
@@ -630,10 +643,7 @@ async fn upload_device_signing(
                     .services
                     .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
-                    .await
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to upload self-signing key: {}", e))
-                    })?;
+                    .await?;
             }
         }
     }
@@ -645,10 +655,7 @@ async fn upload_device_signing(
                     .services
                     .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
-                    .await
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to upload user-signing key: {}", e))
-                    })?;
+                    .await?;
             }
         }
     }

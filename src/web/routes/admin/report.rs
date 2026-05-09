@@ -56,18 +56,28 @@ pub async fn get_all_reports(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let offset = params
-        .get("offset")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+    let since_score = params.get("since_score").and_then(|v| v.parse::<i32>().ok());
+    let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
+    let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
-    let reports = sqlx::query(
-        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports ORDER BY received_ts DESC LIMIT $1 OFFSET $2"
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
+    let reports = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
+        sqlx::query(
+            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE (score < $2 OR (score = $2 AND received_ts < $3) OR (score = $2 AND received_ts = $3 AND id < $4)) ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
+        )
+        .bind(limit)
+        .bind(score)
+        .bind(ts)
+        .bind(id)
+        .fetch_all(&*state.services.event_storage.pool)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
+        )
+        .bind(limit)
+        .fetch_all(&*state.services.event_storage.pool)
+        .await
+    }
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let report_list: Vec<Value> = reports
@@ -148,6 +158,7 @@ pub async fn get_room_reports(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
@@ -160,12 +171,33 @@ pub async fn get_room_reports(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let reports = sqlx::query(
-        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC"
-    )
-    .bind(&room_id)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
+    let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
+
+    let reports = if let (Some(ts), Some(id)) = (since_ts, since_id) {
+        sqlx::query(
+            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 AND (received_ts < $2 OR (received_ts = $2 AND id < $3)) ORDER BY received_ts DESC, id DESC LIMIT $4"
+        )
+        .bind(&room_id)
+        .bind(ts)
+        .bind(id)
+        .bind(limit)
+        .fetch_all(&*state.services.event_storage.pool)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
+        )
+        .bind(&room_id)
+        .bind(limit)
+        .fetch_all(&*state.services.event_storage.pool)
+        .await
+    }
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let report_list: Vec<Value> = reports

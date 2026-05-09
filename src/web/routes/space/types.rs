@@ -112,7 +112,7 @@ pub struct InviteUserBody {
 pub struct PaginationQuery {
     #[validate(range(min = 0, max = 1000))]
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -214,6 +214,7 @@ pub struct SpaceHierarchyResponse {
     pub space: SpaceResponse,
     pub children: Vec<SpaceChildResponse>,
     pub members: Vec<SpaceMemberResponse>,
+    pub rooms: Vec<crate::storage::space::SpaceHierarchyRoom>,
 }
 
 #[cfg(test)]
@@ -402,11 +403,11 @@ mod tests {
     fn test_pagination_query() {
         let query = PaginationQuery {
             limit: Some(100),
-            offset: Some(0),
+            from: Some("123|!space:example.com".to_string()),
         };
 
         assert_eq!(query.limit, Some(100));
-        assert_eq!(query.offset, Some(0));
+        assert_eq!(query.from.as_deref(), Some("123|!space:example.com"));
     }
 
     #[test]
@@ -455,5 +456,86 @@ mod tests {
         };
 
         assert!(body.user_id.starts_with('@'));
+    }
+
+    #[test]
+    fn test_space_hierarchy_response_contains_rooms_field() {
+        use crate::storage::space::SpaceHierarchyRoom;
+
+        let response = SpaceHierarchyResponse {
+            space: SpaceResponse {
+                space_id: "space_1".to_string(),
+                room_id: "!space:example.com".to_string(),
+                name: Some("Test Space".to_string()),
+                topic: None,
+                avatar_url: None,
+                creator: "@admin:example.com".to_string(),
+                join_rule: "invite".to_string(),
+                visibility: Some("private".to_string()),
+                is_public: false,
+                created_ts: 1234567890,
+                updated_ts: None,
+                parent_space_id: None,
+            },
+            children: vec![],
+            members: vec![],
+            rooms: vec![SpaceHierarchyRoom {
+                room_id: "!child:example.com".to_string(),
+                name: Some("Child Room".to_string()),
+                topic: None,
+                avatar_url: None,
+                join_rule: "invite".to_string(),
+                world_readable: false,
+                guest_can_join: false,
+                num_joined_members: 5,
+                room_type: Some("m.room".to_string()),
+                children_state: vec![],
+            }],
+        };
+
+        assert!(!response.rooms.is_empty());
+        assert_eq!(response.rooms[0].room_id, "!child:example.com");
+        assert_eq!(response.rooms[0].name.as_deref(), Some("Child Room"));
+    }
+
+    #[test]
+    fn test_space_hierarchy_response_serialization_includes_rooms() {
+        use crate::storage::space::SpaceHierarchyRoom;
+
+        let response = SpaceHierarchyResponse {
+            space: SpaceResponse {
+                space_id: "s1".to_string(),
+                room_id: "!r1:example.com".to_string(),
+                name: None,
+                topic: None,
+                avatar_url: None,
+                creator: "@a:example.com".to_string(),
+                join_rule: "invite".to_string(),
+                visibility: None,
+                is_public: false,
+                created_ts: 0,
+                updated_ts: None,
+                parent_space_id: None,
+            },
+            children: vec![],
+            members: vec![],
+            rooms: vec![SpaceHierarchyRoom {
+                room_id: "!r2:example.com".to_string(),
+                name: None,
+                topic: None,
+                avatar_url: None,
+                join_rule: "public".to_string(),
+                world_readable: true,
+                guest_can_join: true,
+                num_joined_members: 10,
+                room_type: Some("m.room".to_string()),
+                children_state: vec![],
+            }],
+        };
+
+        let json = serde_json::to_value(&response).expect("Should serialize");
+        assert!(json.get("rooms").is_some());
+        assert!(json.get("space").is_some());
+        assert!(json.get("rooms").unwrap().as_array().unwrap().len() == 1);
     }
 }

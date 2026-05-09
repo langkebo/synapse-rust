@@ -587,9 +587,14 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_public_spaces(&self, limit: i64, offset: i64) -> Result<Vec<Space>, ApiError> {
+    pub async fn get_public_spaces(
+        &self,
+        limit: i64,
+        cursor_created_ts: Option<i64>,
+        cursor_space_id: Option<&str>,
+    ) -> Result<Vec<Space>, ApiError> {
         self.space_storage
-            .get_public_spaces(limit, offset)
+            .get_public_spaces(limit, cursor_created_ts, cursor_space_id)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get public spaces: {}", e)))
     }
@@ -610,6 +615,55 @@ impl SpaceService {
                     ApiError::internal(format!("Failed to get space hierarchy: {}", e))
                 }
             })
+    }
+
+    pub async fn build_hierarchy_rooms(
+        &self,
+        children: &[SpaceChild],
+    ) -> Vec<crate::storage::space::SpaceHierarchyRoom> {
+        use crate::storage::space::SpaceHierarchyRoom;
+
+        futures::future::join_all(children.iter().map(|child| async move {
+            let (name, topic, avatar_url, join_rule, world_readable, guest_can_join, room_type) =
+                if let Ok(Some(space)) = self.space_storage.get_space_by_room(&child.room_id).await {
+                    let world_readable = space.visibility.as_deref() == Some("public");
+                    let guest_can_join = space.join_rule == "public";
+                    let join_rule = space.join_rule;
+                    (
+                        space.name,
+                        space.topic,
+                        space.avatar_url,
+                        join_rule,
+                        world_readable,
+                        guest_can_join,
+                        Some("m.space".to_string()),
+                    )
+                } else {
+                    (None, None, None, "invite".to_string(), false, false, Some("m.room".to_string()))
+                };
+
+            SpaceHierarchyRoom {
+                room_id: child.room_id.clone(),
+                name,
+                topic,
+                avatar_url,
+                join_rule,
+                world_readable,
+                guest_can_join,
+                num_joined_members: 0,
+                room_type,
+                children_state: vec![serde_json::json!({
+                    "type": "m.space.child",
+                    "state_key": &child.room_id,
+                    "content": {
+                        "via": &child.via_servers,
+                        "suggested": child.is_suggested,
+                    },
+                    "sender": &child.sender,
+                })],
+            }
+        }))
+        .await
     }
 
     #[instrument(skip(self))]

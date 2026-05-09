@@ -5,8 +5,8 @@ use crate::services::TypingService;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::presence::PresenceStorage;
 use crate::storage::sliding_sync::{
-    AdminRoomTokenSyncEntry, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
-    SlidingSyncRoom, SlidingSyncStorage,
+    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRequest,
+    SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage,
 };
 use crate::storage::{EventStorage, RoomEvent, StateEvent};
 use serde::{Deserialize, Serialize};
@@ -748,11 +748,11 @@ impl SlidingSyncService {
         &self,
         room_id: &str,
         limit: i64,
-        offset: i64,
+        from: Option<RoomTokenSyncCursor>,
     ) -> Result<(Vec<AdminRoomTokenSyncEntry>, i64), ApiError> {
         let entries = self
             .storage
-            .list_room_token_sync(room_id, limit, offset)
+            .list_room_token_sync(room_id, limit, from.as_ref())
             .await
             .map_err(|e| ApiError::internal(format!("Failed to list room token sync: {}", e)))?;
 
@@ -1123,11 +1123,13 @@ impl SlidingSyncService {
     ) -> Result<Value, sqlx::Error> {
         let changed_rows = sqlx::query(
             r#"
-            SELECT DISTINCT user_id
-            FROM device_lists_stream
-            WHERE stream_id > $1
-              AND user_id != $2
-            ORDER BY user_id
+            SELECT DISTINCT dls.user_id
+            FROM device_lists_stream dls
+            INNER JOIN room_memberships rm1 ON rm1.user_id = dls.user_id AND rm1.membership = 'join'
+            INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
+            WHERE dls.stream_id > $1
+              AND dls.user_id != $2
+            ORDER BY dls.user_id
             LIMIT 100
             "#,
         )
@@ -1146,13 +1148,16 @@ impl SlidingSyncService {
 
         let left_rows = sqlx::query(
             r#"
-            SELECT DISTINCT dl.user_id
-            FROM device_lists_stream dl
-            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
-            WHERE dl.stream_id > $1
-              AND dl.user_id != $2
-              AND rm.user_id IS NULL
-            ORDER BY dl.user_id
+            SELECT DISTINCT dls.user_id
+            FROM device_lists_stream dls
+            WHERE dls.stream_id > $1
+              AND dls.user_id != $2
+              AND NOT EXISTS (
+                SELECT 1 FROM room_memberships rm1
+                INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
+                WHERE rm1.user_id = dls.user_id AND rm1.membership = 'join'
+              )
+            ORDER BY dls.user_id
             LIMIT 100
             "#,
         )

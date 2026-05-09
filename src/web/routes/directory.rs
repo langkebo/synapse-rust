@@ -24,6 +24,20 @@ fn default_limit() -> i32 {
     20
 }
 
+fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+    let cursor = cursor?;
+    let (ts, room_id) = cursor.split_once('|')?;
+    let ts = ts.parse::<i64>().ok()?;
+    if room_id.is_empty() {
+        return None;
+    }
+    Some((ts, room_id))
+}
+
+fn encode_public_rooms_cursor(created_ts: i64, room_id: &str) -> String {
+    format!("{created_ts}|{room_id}")
+}
+
 async fn ensure_room_alias_write_allowed(
     state: &AppState,
     auth_user: &AuthenticatedUser,
@@ -179,20 +193,18 @@ pub async fn get_public_rooms_handler(
         .map_err(|e| ApiError::bad_request(format!("Invalid query: {}", e)))?;
 
     let limit = query.limit as i64;
-    // `since` 目前只承载简单 offset（整数字符串）；未支持复杂游标时静默 fallback 到 0。
-    let offset = query
-        .since
-        .as_deref()
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(0)
-        .max(0);
+    let cursor = decode_public_rooms_cursor(query.since.as_deref());
 
     let (rooms, total) = tokio::try_join!(
         async {
             state
                 .services
                 .room_storage
-                .get_public_rooms_paginated(limit, offset)
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                )
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
         },
@@ -205,6 +217,13 @@ pub async fn get_public_rooms_handler(
                 .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
         }
     )?;
+
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last()
+            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+    } else {
+        None
+    };
 
     let chunk: Vec<Value> = rooms
         .into_iter()
@@ -228,17 +247,7 @@ pub async fn get_public_rooms_handler(
         })
         .collect();
 
-    let next_offset = offset + limit;
-    let next_batch = if next_offset < total {
-        Some(next_offset.to_string())
-    } else {
-        None
-    };
-    let prev_batch = if offset > 0 {
-        Some((offset - limit).max(0).to_string())
-    } else {
-        None
-    };
+    let prev_batch = None::<String>;
 
     Ok(Json(json!({
         "chunk": chunk,
@@ -254,13 +263,37 @@ pub async fn search_public_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let _filter = body.get("filter").and_then(|v| v.as_str());
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20);
+    let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
 
-    let rooms = state
-        .services
-        .room_storage
-        .get_public_rooms(limit)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
+    let (rooms, total) = tokio::try_join!(
+        async {
+            state
+                .services
+                .room_storage
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                )
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        },
+        async {
+            state
+                .services
+                .room_storage
+                .count_public_rooms()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+        }
+    )?;
+
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last()
+            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+    } else {
+        None
+    };
 
     let chunk: Vec<Value> = rooms
         .into_iter()
@@ -279,6 +312,32 @@ pub async fn search_public_rooms(
 
     Ok(Json(json!({
         "chunk": chunk,
-        "total_room_count_estimate": chunk.len(),
+        "total_room_count_estimate": total,
+        "next_batch": next_batch,
     })))
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_public_rooms_cursor, encode_public_rooms_cursor};
+
+    #[test]
+    fn test_public_rooms_cursor_round_trip() {
+        let cursor = encode_public_rooms_cursor(1_700_000_000_000, "!room:example.com");
+        assert_eq!(
+            decode_public_rooms_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "!room:example.com"))
+        );
+    }
+
+    #[test]
+    fn test_public_rooms_cursor_rejects_invalid_value() {
+        assert_eq!(decode_public_rooms_cursor(Some("bad-cursor")), None);
+        assert_eq!(decode_public_rooms_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_public_rooms_cursor_rejects_invalid_timestamp() {
+        assert_eq!(decode_public_rooms_cursor(Some("abc|!room:example.com")), None);
+    }
 }

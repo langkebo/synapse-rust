@@ -1,3 +1,4 @@
+use deadpool_redis::Pool as RedisPool;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,6 +16,7 @@ pub mod event;
 pub mod event_report;
 pub mod feature_flags;
 pub mod federation_blacklist;
+pub mod federation_queue;
 pub mod filter;
 pub mod invite_blocklist;
 pub mod maintenance;
@@ -181,9 +183,9 @@ impl Database {
     /// # 返回值
     ///
     /// 成功时返回 `Ok(Database)`，连接失败时返回 `Err(sqlx::Error)`
-    pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn new(database_url: &str, redis_pool: Option<RedisPool>) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
         Ok(Self { pool, monitor })
     }
 
@@ -198,8 +200,8 @@ impl Database {
     /// # 返回值
     ///
     /// 返回使用给定连接池的 `Database` 实例
-    pub fn from_pool(pool: Pool<Postgres>) -> Self {
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), 10000)));
+    pub fn from_pool(pool: Pool<Postgres>, redis_pool: Option<RedisPool>) -> Self {
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
         Self { pool, monitor }
     }
 
@@ -279,7 +281,7 @@ mod tests {
         };
         let _db = Database {
             pool: pool.clone(),
-            monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, 50))),
+            monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, None, 50))),
         };
     }
 
@@ -362,7 +364,7 @@ mod tests {
             canonical_alias: Some("#test:example.com".to_string()),
             join_rule: "invite".to_string(),
             creator_user_id: Some("@test:example.com".to_string()),
-            room_version: "1".to_string(),
+            room_version: "10".to_string(),
             encryption: None,
             is_public: false,
             member_count: 0,
@@ -394,6 +396,7 @@ mod tests {
             status: None,
             reference_image: None,
             origin: "example.com".to_string(),
+            stream_ordering: Some(1),
         };
         assert_eq!(event.event_id, "$test_event");
         assert_eq!(event.room_id, "!test:example.com");
@@ -436,7 +439,7 @@ mod tests {
             canonical_alias: None,
             join_rule: "public".to_string(),
             creator_user_id: None,
-            room_version: "1".to_string(),
+            room_version: "10".to_string(),
             encryption: None,
             is_public: true,
             member_count: 0,

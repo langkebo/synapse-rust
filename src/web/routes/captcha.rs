@@ -157,7 +157,7 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
             crate::web::middleware::admin_auth_middleware,
         ));
 
-    public_routes.merge(admin_routes).with_state(state)
+    public_routes.merge(admin_routes)
 }
 
 pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {

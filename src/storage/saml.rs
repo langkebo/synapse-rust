@@ -16,7 +16,6 @@ pub struct SamlSession {
     pub session_index: Option<String>,
     pub attributes: serde_json::Value,
     pub created_ts: i64,
-    #[sqlx(rename = "expires_ts")]
     pub expires_at: i64,
     pub last_used_ts: i64,
     pub status: String,
@@ -281,7 +280,7 @@ impl SamlStorage {
             r#"
             INSERT INTO saml_sessions (
                 session_id, user_id, name_id, issuer, session_index, attributes,
-                created_ts, expires_ts, last_used_ts, status
+                created_ts, expires_at, last_used_ts, status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, 'active')
             RETURNING *
@@ -326,7 +325,7 @@ impl SamlStorage {
         let row = sqlx::query_as::<_, SamlSession>(
             r#"
             SELECT * FROM saml_sessions 
-            WHERE user_id = $1 AND status = 'active' AND expires_ts > $2
+            WHERE user_id = $1 AND status = 'active' AND expires_at > $2
             ORDER BY created_ts DESC 
             LIMIT 1
             "#,
@@ -366,7 +365,7 @@ impl SamlStorage {
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "DELETE FROM saml_sessions WHERE expires_ts < $1 OR status = 'invalidated'",
+            "DELETE FROM saml_sessions WHERE expires_at < $1 OR status = 'invalidated'",
         )
         .bind(now)
         .execute(&*self.pool)

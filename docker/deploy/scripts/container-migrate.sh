@@ -216,11 +216,6 @@ apply_sql_file() {
 init_database() {
     ensure_schema_migrations_table
 
-    if table_exists "users"; then
-        log INFO "检测到现有业务表，跳过基线初始化"
-        return 0
-    fi
-
     baseline_file="$(latest_baseline_file)"
     if [ -z "$baseline_file" ]; then
         log ERROR "找不到统一基线脚本"
@@ -232,6 +227,10 @@ init_database() {
     if is_migration_applied "$baseline_version"; then
         log INFO "基线迁移已记录: $baseline_name"
         return 0
+    fi
+
+    if table_exists "users"; then
+        log INFO "检测到现有业务表，使用容错模式应用基线迁移"
     fi
 
     apply_sql_file "$baseline_file"

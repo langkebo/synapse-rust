@@ -339,7 +339,8 @@ impl DeviceKeyStorage {
             r#"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
-            WHERE user_id = $1
+            WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
+              AND algorithm NOT IN ('signed_curve25519')
             "#
         )
         .bind(user_id)
@@ -416,6 +417,8 @@ impl DeviceKeyStorage {
             SELECT algorithm, COUNT(*) as count
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2
+              AND (is_fallback = FALSE OR is_fallback IS NULL)
+              AND algorithm NOT IN ('ed25519', 'curve25519')
             GROUP BY algorithm
             "#,
         )
@@ -448,6 +451,12 @@ impl DeviceKeyStorage {
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {}", e)))?;
+
         let row = sqlx::query(
             r#"
             DELETE FROM device_keys
@@ -458,8 +467,11 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .bind(device_id)
         .bind(algorithm)
-        .fetch_optional(&*self.pool)
-        .await?;
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| {
+            ApiError::internal(format!("Failed to claim one-time key: {}", e))
+        })?;
 
         if let Some(r) = &row {
             let is_fallback: Option<bool> = r.try_get("is_fallback").ok().flatten();
@@ -470,6 +482,9 @@ impl DeviceKeyStorage {
                     device_id
                 );
             }
+            tx.commit()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
             return Ok(row.as_ref().map(Self::parse_key_data));
         }
 
@@ -484,8 +499,9 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .bind(device_id)
         .bind(algorithm)
-        .fetch_optional(&*self.pool)
-        .await?;
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to query fallback key: {}", e)))?;
 
         if fallback_row.is_some() {
             tracing::warn!(
@@ -494,6 +510,10 @@ impl DeviceKeyStorage {
                 device_id
             );
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(fallback_row.as_ref().map(Self::parse_key_data))
     }

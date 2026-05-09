@@ -147,7 +147,7 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.event_report_service;
 
-        let result = service.get_all_reports(100, 0).await;
+        let result = service.get_all_reports(100, None, None, None).await;
         if result.is_err() {
             eprintln!("Skipping test_get_all_reports: database table not available");
             return;
@@ -166,7 +166,9 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.event_report_service;
 
-        let result = service.get_reports_by_status("open", 100, 0).await;
+        let result = service
+            .get_reports_by_status("open", 100, None, None, None)
+            .await;
         if result.is_err() {
             eprintln!("Skipping test_get_reports_by_status: database table not available");
             return;
@@ -224,7 +226,7 @@ mod tests {
         let service = &container.event_report_service;
 
         let result = service
-            .get_reports_by_room("!nonexistent:example.com", 100, 0)
+            .get_reports_by_room("!nonexistent:example.com", 100, None, None)
             .await;
         if result.is_err() {
             eprintln!("Skipping test_get_reports_by_room: database table not available");

@@ -84,10 +84,17 @@ pub(super) async fn get_space_hierarchy(
                 .get_space_hierarchy(&space.space_id, max_depth)
                 .await?;
 
+            let rooms = state
+                .services
+                .space_service
+                .build_hierarchy_rooms(&hierarchy.children)
+                .await;
+
             let response = SpaceHierarchyResponse {
                 space: SpaceResponse::from(hierarchy.space),
                 children: json_vec_from::<_, SpaceChildResponse>(hierarchy.children).0,
                 members: json_vec_from::<_, SpaceMemberResponse>(hierarchy.members).0,
+                rooms,
             };
 
             Ok(Json(response))

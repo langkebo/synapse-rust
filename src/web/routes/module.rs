@@ -391,7 +391,7 @@ impl From<AccountDataCallback> for AccountDataCallbackResponse {
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,17 +460,19 @@ pub async fn get_all_modules(
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
-    let modules = state
+    let (modules, next_batch) = state
         .services
         .module_service
-        .get_all_modules(limit, offset)
+        .get_all_modules(limit, query.from)
         .await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
-    Ok(Json(responses))
+    Ok(Json(serde_json::json!({
+        "modules": responses,
+        "next_batch": next_batch
+    })))
 }
 
 pub async fn update_module_config(

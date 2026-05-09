@@ -51,7 +51,7 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
         .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy_v3));
 
     Router::new()
-        .nest("/_matrix/client/r0", create_search_compat_router())
+        .nest("/_matrix/client/r0", create_search_compat_router().merge(create_room_context_router()))
         .nest("/_matrix/client/v1", v1_router)
         .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
@@ -246,6 +246,32 @@ fn default_order_by() -> String {
     "rank".to_string()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RoomEventsCursor {
+    origin_server_ts: i64,
+    event_id: String,
+}
+
+fn encode_room_events_cursor(cursor: &RoomEventsCursor) -> String {
+    format!("{}|{}", cursor.origin_server_ts, cursor.event_id)
+}
+
+fn decode_room_events_cursor(cursor: Option<&str>) -> Option<RoomEventsCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.splitn(2, '|');
+    let origin_server_ts = parts.next()?.parse::<i64>().ok()?;
+    let event_id = parts.next()?.to_string();
+
+    if event_id.is_empty() {
+        return None;
+    }
+
+    Some(RoomEventsCursor {
+        origin_server_ts,
+        event_id,
+    })
+}
+
 async fn search(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -254,18 +280,20 @@ async fn search(
 ) -> Result<Json<Value>, ApiError> {
     validate_search_request(&body)?;
 
-    let next_batch = params.get("next_batch").cloned();
-
     let mut results = json!({
         "search_categories": {}
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
+        let room_events_next_batch = room_events
+            .next_batch
+            .as_deref()
+            .or_else(|| params.get("next_batch").map(String::as_str));
         let search_future = search_room_events(
             &state,
             &auth_user.user_id,
             room_events,
-            next_batch.as_deref(),
+            room_events_next_batch,
         );
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
@@ -290,12 +318,24 @@ async fn search(
 
 async fn search_room_events(
     state: &AppState,
-    _user_id: &str,
+    user_id: &str,
     search: &RoomEventsSearch,
-    _next_batch: Option<&str>,
+    next_batch: Option<&str>,
 ) -> Result<Value, ApiError> {
     let limit = search.filter.as_ref().and_then(|f| f.limit).unwrap_or(10) as i64;
     let search_pattern = format!("%{}%", search.search_term.to_lowercase());
+    let cursor = decode_room_events_cursor(next_batch);
+
+    if next_batch.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid next_batch cursor"));
+    }
+
+    let joined_rooms = state
+        .services
+        .member_storage
+        .get_joined_rooms(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))?;
 
     let mut query_builder = sqlx::QueryBuilder::new(
         "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
@@ -306,6 +346,30 @@ async fn search_room_events(
     query_builder.push(" OR LOWER(sender) LIKE ");
     query_builder.push_bind(&search_pattern);
     query_builder.push(")");
+
+    if !joined_rooms.is_empty() {
+        query_builder.push(" AND room_id IN (");
+        for (i, room) in joined_rooms.iter().enumerate() {
+            if i > 0 {
+                query_builder.push(", ");
+            }
+            query_builder.push_bind(room);
+        }
+        query_builder.push(")");
+    } else {
+        query_builder.push(" AND 1=0");
+    }
+
+    let has_explicit_types = search
+        .filter
+        .as_ref()
+        .and_then(|f| f.types.as_ref())
+        .map(|t| !t.is_empty())
+        .unwrap_or(false);
+
+    if !has_explicit_types {
+        query_builder.push(" AND event_type = 'm.room.message'");
+    }
 
     if let Some(filter) = &search.filter {
         if let Some(rooms) = &filter.rooms {
@@ -361,8 +425,16 @@ async fn search_room_events(
         }
     }
 
-    query_builder.push(" ORDER BY origin_server_ts DESC LIMIT ");
-    query_builder.push_bind(limit);
+    if let Some(cursor) = cursor {
+        query_builder.push(" AND (origin_server_ts, event_id) < (");
+        query_builder.push_bind(cursor.origin_server_ts);
+        query_builder.push(", ");
+        query_builder.push_bind(cursor.event_id);
+        query_builder.push(")");
+    }
+
+    query_builder.push(" ORDER BY origin_server_ts DESC, event_id DESC LIMIT ");
+    query_builder.push_bind(limit + 1);
 
     let rows = query_builder
         .build()
@@ -370,8 +442,24 @@ async fn search_room_events(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
+    let next_batch = if rows.len() > limit as usize {
+        rows.get(limit as usize).map(|row| {
+            encode_room_events_cursor(&RoomEventsCursor {
+                origin_server_ts: row
+                    .get::<Option<i64>, _>("origin_server_ts")
+                    .unwrap_or_default(),
+                event_id: row
+                    .get::<Option<String>, _>("event_id")
+                    .unwrap_or_default(),
+            })
+        })
+    } else {
+        None
+    };
+
     let results: Vec<Value> = rows
-        .iter()
+        .into_iter()
+        .take(limit as usize)
         .map(|row| {
             json!({
                 "result": {
@@ -400,7 +488,7 @@ async fn search_room_events(
             "room_id": {},
             "sender": {}
         },
-        "next_batch": null
+        "next_batch": next_batch
     }))
 }
 
@@ -494,6 +582,19 @@ async fn build_room_hierarchy_response(
 
     let world_readable = room.history_visibility == "world_readable";
 
+    let room_type = state
+        .services
+        .room_service.room_summary_service()
+        .get_summary(room_id)
+        .await
+        .map_err(|e| {
+            ::tracing::warn!("Failed to get room summary for room_type: {}", e);
+            ApiError::internal(format!("Failed to get room summary: {}", e))
+        })?
+        .and_then(|s| s.room_type)
+        .map(Value::String)
+        .unwrap_or(Value::Null);
+
     Ok(json!({
         "rooms": [{
             "room_id": room.room_id,
@@ -507,7 +608,7 @@ async fn build_room_hierarchy_response(
             "num_joined_members": room.member_count,
             "children": [],
             "children_state": [],
-            "room_type": Value::Null,
+            "room_type": room_type,
             "required_state_info": []
         }],
         "next_batch": Value::Null
@@ -793,6 +894,23 @@ mod tests {
         for route in routes {
             assert!(route.starts_with("/_matrix/client/"));
         }
+    }
+
+    #[test]
+    fn test_room_events_cursor_round_trip() {
+        let cursor = RoomEventsCursor {
+            origin_server_ts: 1_746_700_000_000,
+            event_id: "$event:example.com".to_string(),
+        };
+
+        let encoded = encode_room_events_cursor(&cursor);
+        assert_eq!(decode_room_events_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn test_room_events_cursor_rejects_invalid_values() {
+        assert_eq!(decode_room_events_cursor(Some("bad")), None);
+        assert_eq!(decode_room_events_cursor(Some("123|")), None);
     }
 
     #[test]

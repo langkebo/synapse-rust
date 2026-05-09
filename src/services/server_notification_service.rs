@@ -37,10 +37,11 @@ impl ServerNotificationService {
     #[instrument(skip(self))]
     pub async fn list_all_notifications(
         &self,
+        audience: Option<&str>,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<ServerNotification>, ApiError> {
-        self.storage.list_all_notifications(limit, offset).await
+        from: Option<ServerNotificationCursor>,
+    ) -> Result<(Vec<ServerNotification>, Option<String>), ApiError> {
+        self.storage.list_all_notifications(audience, limit, from).await
     }
 
     #[instrument(skip(self))]

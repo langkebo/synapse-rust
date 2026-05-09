@@ -10,65 +10,129 @@ use axum::{
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
-/// Run the User-Interactive Authentication challenge for destructive device
-/// operations. Returns `Ok(())` if the supplied `auth` dict satisfies an
-/// `m.login.password` flow against the caller's account, otherwise returns
-/// a 401 response carrying the UIA flow descriptor that clients are expected
-/// to round-trip back as the `auth` dict (Matrix CS-API §UIA).
 async fn require_password_uia(
     state: &AppState,
     auth_user: &AuthenticatedUser,
     body: &Value,
 ) -> Result<(), Response> {
-    let challenge = || {
-        let session = uuid::Uuid::new_v4().to_string();
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "errcode": "M_UIA_REQUIRED",
-                "error": "User-Interactive Authentication required",
-                "flows": [{ "stages": ["m.login.password"] }],
-                "params": {},
-                "session": session,
-                "completed": []
-            })),
-        )
-            .into_response()
-    };
+    let auth = body.get("auth");
 
-    let Some(auth) = body.get("auth") else {
-        return Err(challenge());
-    };
+    match auth {
+        None => {
+            let session = state
+                .services
+                .uia_service
+                .create_session(
+                    &auth_user.user_id,
+                    crate::services::uia_service::UiaService::get_delete_device_flows(),
+                )
+                .await;
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(state.services.uia_service.build_uia_response(
+                    &session,
+                    "M_UIA_REQUIRED",
+                    "User-Interactive Authentication required",
+                )),
+            )
+                .into_response());
+        }
+        Some(auth_val) => {
+            let result = state
+                .services
+                .uia_service
+                .validate_auth(
+                    auth_val,
+                    &auth_user.user_id,
+                    crate::services::uia_service::UiaService::get_delete_device_flows(),
+                )
+                .await;
 
-    if auth.get("type").and_then(|v| v.as_str()) != Some("m.login.password") {
-        return Err(challenge());
+            match result {
+                Ok(_) => {}
+                Err(uia_response) => {
+                    return Err((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+                }
+            }
+
+            let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match auth_type {
+                "m.login.password" => {
+                    if let Err(e) = state
+                        .services
+                        .uia_service
+                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .await
+                    {
+                        let session = state
+                            .services
+                            .uia_service
+                            .create_session(
+                                &auth_user.user_id,
+                                crate::services::uia_service::UiaService::get_delete_device_flows(),
+                            )
+                            .await;
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(state.services.uia_service.build_uia_response(
+                                &session,
+                                "M_FORBIDDEN",
+                                &e.to_string(),
+                            )),
+                        )
+                            .into_response());
+                    }
+                }
+                "m.login.token" => {
+                    if let Err(e) = state
+                        .services
+                        .uia_service
+                        .verify_token_stage(auth_val, &auth_user.user_id)
+                        .await
+                    {
+                        let session = state
+                            .services
+                            .uia_service
+                            .create_session(
+                                &auth_user.user_id,
+                                crate::services::uia_service::UiaService::get_delete_device_flows(),
+                            )
+                            .await;
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(state.services.uia_service.build_uia_response(
+                                &session,
+                                "M_FORBIDDEN",
+                                &e.to_string(),
+                            )),
+                        )
+                            .into_response());
+                    }
+                }
+                _ => {
+                    let session = state
+                        .services
+                        .uia_service
+                        .create_session(
+                            &auth_user.user_id,
+                            crate::services::uia_service::UiaService::get_delete_device_flows(),
+                        )
+                        .await;
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(state.services.uia_service.build_uia_response(
+                            &session,
+                            "M_INVALID_PARAM",
+                            &format!("Unsupported auth type: {}", auth_type),
+                        )),
+                    )
+                        .into_response());
+                }
+            }
+        }
     }
 
-    let password = match auth.get("password").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return Err(challenge()),
-    };
-
-    let identifier_user = auth
-        .get("identifier")
-        .and_then(|i| i.get("user"))
-        .and_then(|v| v.as_str())
-        .or_else(|| auth.get("user").and_then(|v| v.as_str()))
-        .unwrap_or(auth_user.user_id.as_str());
-
-    if identifier_user != auth_user.user_id {
-        return Err(challenge());
-    }
-
-    match state
-        .services
-        .auth_service
-        .login(&auth_user.user_id, password, None, None)
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(challenge()),
-    }
+    Ok(())
 }
 
 fn parse_device_ids(body: &Value) -> Result<Vec<String>, ApiError> {
@@ -97,6 +161,45 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
     let s = value.as_str()?;
     let s = s.strip_prefix('s').unwrap_or(s);
     s.parse::<i64>().ok()
+}
+
+async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id: &str) {
+    let server_name = state.services.config.server.server_name.as_deref().unwrap_or("localhost");
+    let edu = serde_json::json!({
+        "edu_type": "m.device_list_update",
+        "content": {
+            "user_id": user_id,
+            "device_id": device_id,
+            "stream_id": chrono::Utc::now().timestamp_millis(),
+            "prev_ids": [],
+        }
+    });
+
+    if let Some(pos) = user_id.find(':') {
+        let user_server = &user_id[pos + 1..];
+        if user_server == server_name {
+            if let Ok(shared_rooms) = state.services.member_storage.get_joined_rooms(user_id).await {
+                let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for room_id in &shared_rooms {
+                    if let Ok(members) = state.services.member_storage.get_joined_members(room_id).await {
+                        for member in &members {
+                            if let Some(mpos) = member.user_id.find(':') {
+                                let member_server = &member.user_id[mpos + 1..];
+                                if member_server != server_name && !sent_servers.contains(member_server) {
+                                    sent_servers.insert(member_server.to_string());
+                                    let _ = state
+                                        .services
+                                        .event_broadcaster
+                                        .broadcast_edu(member_server, &edu, server_name)
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn create_device_compat_router() -> Router<AppState> {
@@ -195,6 +298,8 @@ pub async fn update_device(
         .map_err(|e| ApiError::internal(format!("Failed to get updated device: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
 
+    broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
+
     Ok(Json(json!({
         "device_id": device.device_id,
         "display_name": device.display_name,
@@ -222,6 +327,8 @@ pub async fn delete_device(
         return Err(ApiError::not_found("Device not found".to_string()));
     }
 
+    broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
+
     Ok(Json(json!({})).into_response())
 }
 
@@ -241,6 +348,10 @@ pub async fn delete_devices(
         .auth_service
         .revoke_devices(&auth_user.user_id, &device_ids)
         .await?;
+
+    for device_id in &device_ids {
+        broadcast_device_list_update(&state, &auth_user.user_id, device_id).await;
+    }
 
     Ok(Json(json!({})).into_response())
 }

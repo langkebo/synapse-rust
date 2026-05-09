@@ -170,11 +170,11 @@ impl RegistrationTokenService {
     pub async fn get_all_tokens(
         &self,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<RegistrationToken>, ApiError> {
+        from: Option<RegistrationTokenCursor>,
+    ) -> Result<(Vec<RegistrationToken>, Option<String>), ApiError> {
         let tokens = self
             .storage
-            .get_all_tokens(limit, offset)
+            .get_all_tokens(limit, from)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to get tokens: {}", e)))?;
 

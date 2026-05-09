@@ -78,11 +78,18 @@ jobs:
           cargo bench --locked --bench performance_api_benchmarks -- --output-format bencher | tee -a benchmark.txt
           cargo bench --locked --bench performance_federation_benchmarks -- --output-format bencher | tee -a benchmark.txt
 
+      - name: Check pagination benchmark gain
+        run: |
+          python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
+
       - name: Analyze results
         run: |
           echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat benchmark.txt >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Pagination Gain Gate" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30 >> $GITHUB_STEP_SUMMARY
 
       - name: Upload benchmark results
         uses: benchmark-action/github-action-benchmark@v1

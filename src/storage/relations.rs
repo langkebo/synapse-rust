@@ -141,49 +141,91 @@ impl RelationsStorage {
         let query = match direction {
             "b" => {
                 let from = params.from.unwrap_or_default();
-                sqlx::query_as::<_, EventRelation>(
-                    r#"
-                    SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                           sender, origin_server_ts, content, is_redacted, created_ts
-                    FROM event_relations
-                    WHERE room_id = $1 AND relates_to_event_id = $2
-                      AND ($3::text IS NULL OR relation_type = $3)
-                      AND ($4::text = '' OR event_id < $4)
-                      AND is_redacted = FALSE
-                    ORDER BY origin_server_ts DESC, event_id DESC
-                    LIMIT $5
-                    "#,
-                )
-                .bind(&params.room_id)
-                .bind(&params.relates_to_event_id)
-                .bind(&params.relation_type)
-                .bind(&from)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
+                if let Some(ref rel_type) = params.relation_type {
+                    sqlx::query_as::<_, EventRelation>(
+                        r#"
+                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
+                               sender, origin_server_ts, content, is_redacted, created_ts
+                        FROM event_relations
+                        WHERE room_id = $1 AND relates_to_event_id = $2
+                          AND relation_type = $3
+                          AND ($4::text = '' OR event_id < $4)
+                          AND is_redacted = FALSE
+                        ORDER BY origin_server_ts DESC, event_id DESC
+                        LIMIT $5
+                        "#,
+                    )
+                    .bind(&params.room_id)
+                    .bind(&params.relates_to_event_id)
+                    .bind(rel_type)
+                    .bind(&from)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
+                } else {
+                    sqlx::query_as::<_, EventRelation>(
+                        r#"
+                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
+                               sender, origin_server_ts, content, is_redacted, created_ts
+                        FROM event_relations
+                        WHERE room_id = $1 AND relates_to_event_id = $2
+                          AND ($3::text = '' OR event_id < $3)
+                          AND is_redacted = FALSE
+                        ORDER BY origin_server_ts DESC, event_id DESC
+                        LIMIT $4
+                        "#,
+                    )
+                    .bind(&params.room_id)
+                    .bind(&params.relates_to_event_id)
+                    .bind(&from)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
+                }
             }
             _ => {
                 let from = params.from.unwrap_or_default();
-                sqlx::query_as::<_, EventRelation>(
-                    r#"
-                    SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                           sender, origin_server_ts, content, is_redacted, created_ts
-                    FROM event_relations
-                    WHERE room_id = $1 AND relates_to_event_id = $2
-                      AND ($3::text IS NULL OR relation_type = $3)
-                      AND ($4::text = '' OR event_id > $4)
-                      AND is_redacted = FALSE
-                    ORDER BY origin_server_ts ASC, event_id ASC
-                    LIMIT $5
-                    "#,
-                )
-                .bind(&params.room_id)
-                .bind(&params.relates_to_event_id)
-                .bind(&params.relation_type)
-                .bind(&from)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
+                if let Some(ref rel_type) = params.relation_type {
+                    sqlx::query_as::<_, EventRelation>(
+                        r#"
+                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
+                               sender, origin_server_ts, content, is_redacted, created_ts
+                        FROM event_relations
+                        WHERE room_id = $1 AND relates_to_event_id = $2
+                          AND relation_type = $3
+                          AND ($4::text = '' OR event_id > $4)
+                          AND is_redacted = FALSE
+                        ORDER BY origin_server_ts ASC, event_id ASC
+                        LIMIT $5
+                        "#,
+                    )
+                    .bind(&params.room_id)
+                    .bind(&params.relates_to_event_id)
+                    .bind(rel_type)
+                    .bind(&from)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
+                } else {
+                    sqlx::query_as::<_, EventRelation>(
+                        r#"
+                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
+                               sender, origin_server_ts, content, is_redacted, created_ts
+                        FROM event_relations
+                        WHERE room_id = $1 AND relates_to_event_id = $2
+                          AND ($3::text = '' OR event_id > $3)
+                          AND is_redacted = FALSE
+                        ORDER BY origin_server_ts ASC, event_id ASC
+                        LIMIT $4
+                        "#,
+                    )
+                    .bind(&params.room_id)
+                    .bind(&params.relates_to_event_id)
+                    .bind(&from)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
+                }
             }
         };
 

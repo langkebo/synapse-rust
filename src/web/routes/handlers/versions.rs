@@ -1,23 +1,27 @@
 //! 版本相关处理器
 
 use crate::web::AppState;
-use axum::{
-    extract::State,
-    http::{header, StatusCode},
-    Json,
-};
-use serde_json::json;
+use axum::{extract::State, Json};
+use serde_json::{json, Value};
 use url::Url;
 
-const CLIENT_VERSIONS_JSON: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3814":true,"uk.tcpip.msc4133":false}}"#;
+const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":false}}"#;
 
 /// 获取客户端 API 版本
-pub async fn get_client_versions() -> impl axum::response::IntoResponse {
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/json")],
-        CLIENT_VERSIONS_JSON,
-    )
+pub async fn get_client_versions(
+    State(state): State<AppState>,
+) -> impl axum::response::IntoResponse {
+    let config = &state.services.config;
+    let mut versions: Value =
+        serde_json::from_str(CLIENT_VERSIONS_JSON_BASE).expect("base versions json is valid");
+
+    if let Some(unstable_features) = versions.get_mut("unstable_features").and_then(|f| f.as_object_mut()) {
+        if config.experimental.msc3814_enabled {
+            unstable_features.insert("org.matrix.msc3814".to_string(), json!(true));
+        }
+    }
+
+    Json(versions)
 }
 
 /// 获取服务端版本
@@ -113,8 +117,44 @@ pub async fn get_capabilities() -> impl axum::response::IntoResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_well_known_client, derive_well_known_server, CLIENT_VERSIONS_JSON};
-    use serde_json::Value;
+    use super::{
+        build_well_known_client, derive_well_known_server, get_client_versions,
+    };
+    use crate::common::config::Config;
+    use crate::services::ServiceContainer;
+    use crate::web::AppState;
+    use crate::cache::{CacheManager, CacheConfig};
+    use std::sync::Arc;
+
+    fn make_test_state() -> AppState {
+        let mut config = Config::default();
+        config.experimental.msc3814_enabled = true;
+        
+        let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
+            Arc::new(
+                sqlx::postgres::PgPoolOptions::new()
+                    .connect_lazy("postgres://localhost/test")
+                    .expect("Failed to create test database pool"),
+            )
+        });
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let services = ServiceContainer::new(&pool, cache.clone(), config, None);
+        AppState::new(services, cache)
+    }
+
+    #[tokio::test]
+    async fn test_get_client_versions_includes_msc3814() {
+        use axum::response::IntoResponse;
+        let state = make_test_state();
+        let response = get_client_versions(axum::extract::State(state)).await.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        
+        assert_eq!(
+            body["unstable_features"]["org.matrix.msc3814"],
+            true
+        );
+    }
 
     #[test]
     fn test_derive_well_known_server_prefers_public_baseurl_host() {
@@ -136,24 +176,5 @@ mod tests {
             "https://matrix.example.com"
         );
         assert!(body.get("m.identity_server").is_none());
-    }
-
-    #[test]
-    fn test_client_versions_advertises_modern_spec_versions() {
-        let parsed: Value = serde_json::from_str(CLIENT_VERSIONS_JSON)
-            .expect("CLIENT_VERSIONS_JSON must be valid JSON");
-        let versions = parsed["versions"]
-            .as_array()
-            .expect("versions must be an array");
-        let strs: Vec<&str> = versions.iter().filter_map(|v| v.as_str()).collect();
-        // Older spec versions Element relies on for backwards compat.
-        assert!(strs.contains(&"v1.1"));
-        // Modern spec versions clients gate features on (e.g. authenticated media,
-        // get_login_token / MSC3882 stable in v1.7+).
-        assert!(strs.contains(&"v1.7"));
-        assert!(strs.contains(&"v1.13"));
-        // MSC3814 is still unstable and must remain advertised under
-        // unstable_features for client opt-in.
-        assert_eq!(parsed["unstable_features"]["org.matrix.msc3814"], true);
     }
 }

@@ -2,6 +2,59 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationCursor {
+    pub is_pinned: bool,
+    pub updated_ts: i64,
+    pub id: i64,
+}
+
+pub fn encode_conversation_cursor(cursor: &ConversationCursor) -> String {
+    format!(
+        "{}|{}|{}",
+        if cursor.is_pinned { 1 } else { 0 },
+        cursor.updated_ts,
+        cursor.id
+    )
+}
+
+pub fn decode_conversation_cursor(cursor: Option<&str>) -> Option<ConversationCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.split('|');
+    let is_pinned = parts.next()?.parse::<u8>().ok()? == 1;
+    let updated_ts = parts.next()?.parse::<i64>().ok()?;
+    let id = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(ConversationCursor {
+        is_pinned,
+        updated_ts,
+        id,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerationCursor {
+    pub created_ts: i64,
+    pub id: i64,
+}
+
+pub fn encode_generation_cursor(cursor: &GenerationCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.id)
+}
+
+pub fn decode_generation_cursor(cursor: Option<&str>) -> Option<GenerationCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.split('|');
+    let created_ts = parts.next()?.parse::<i64>().ok()?;
+    let id = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(GenerationCursor { created_ts, id })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OpenClawConnection {
     pub id: i64,
@@ -338,21 +391,56 @@ impl OpenClawStorage {
         &self,
         user_id: &str,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<AiConversation>, sqlx::Error> {
-        sqlx::query_as::<_, AiConversation>(
-            r#"
-            SELECT * FROM ai_conversations 
-            WHERE user_id = $1 
-            ORDER BY is_pinned DESC, updated_ts DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.db)
-        .await
+        from: Option<ConversationCursor>,
+    ) -> Result<(Vec<AiConversation>, Option<String>), sqlx::Error> {
+        let conversations = if let Some(cursor) = from {
+            sqlx::query_as::<_, AiConversation>(
+                r#"
+                SELECT * FROM ai_conversations
+                WHERE user_id = $1
+                  AND (is_pinned, updated_ts, id) < ($2, $3, $4)
+                ORDER BY is_pinned DESC, updated_ts DESC, id DESC
+                LIMIT $5
+                "#,
+            )
+            .bind(user_id)
+            .bind(cursor.is_pinned)
+            .bind(cursor.updated_ts)
+            .bind(cursor.id)
+            .bind(limit + 1)
+            .fetch_all(&*self.db)
+            .await?
+        } else {
+            sqlx::query_as::<_, AiConversation>(
+                r#"
+                SELECT * FROM ai_conversations
+                WHERE user_id = $1
+                ORDER BY is_pinned DESC, updated_ts DESC, id DESC
+                LIMIT $2
+                "#,
+            )
+            .bind(user_id)
+            .bind(limit + 1)
+            .fetch_all(&*self.db)
+            .await?
+        };
+
+        let next_batch = if conversations.len() > limit as usize {
+            conversations.get(limit as usize).map(|conversation| {
+                encode_conversation_cursor(&ConversationCursor {
+                    is_pinned: conversation.is_pinned,
+                    updated_ts: conversation.updated_ts,
+                    id: conversation.id,
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok((
+            conversations.into_iter().take(limit as usize).collect(),
+            next_batch,
+        ))
     }
 
     pub async fn update_conversation(
@@ -590,41 +678,90 @@ impl OpenClawStorage {
         user_id: &str,
         gen_type: Option<&str>,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<AiGeneration>, sqlx::Error> {
-        match gen_type {
-            Some(t) => {
+        from: Option<GenerationCursor>,
+    ) -> Result<(Vec<AiGeneration>, Option<String>), sqlx::Error> {
+        let generations = match (gen_type, from) {
+            (Some(t), Some(cursor)) => {
                 sqlx::query_as::<_, AiGeneration>(
                     r#"
-                    SELECT * FROM ai_generations 
+                    SELECT * FROM ai_generations
                     WHERE user_id = $1 AND type = $2
-                    ORDER BY created_ts DESC
-                    LIMIT $3 OFFSET $4
+                      AND (created_ts, id) < ($3, $4)
+                    ORDER BY created_ts DESC, id DESC
+                    LIMIT $5
                     "#,
                 )
                 .bind(user_id)
                 .bind(t)
-                .bind(limit)
-                .bind(offset)
+                .bind(cursor.created_ts)
+                .bind(cursor.id)
+                .bind(limit + 1)
                 .fetch_all(&*self.db)
-                .await
+                .await?
             }
-            None => {
+            (Some(t), None) => {
                 sqlx::query_as::<_, AiGeneration>(
                     r#"
-                    SELECT * FROM ai_generations 
-                    WHERE user_id = $1
-                    ORDER BY created_ts DESC
-                    LIMIT $2 OFFSET $3
+                    SELECT * FROM ai_generations
+                    WHERE user_id = $1 AND type = $2
+                    ORDER BY created_ts DESC, id DESC
+                    LIMIT $3
                     "#,
                 )
                 .bind(user_id)
-                .bind(limit)
-                .bind(offset)
+                .bind(t)
+                .bind(limit + 1)
                 .fetch_all(&*self.db)
-                .await
+                .await?
             }
-        }
+            (None, Some(cursor)) => {
+                sqlx::query_as::<_, AiGeneration>(
+                    r#"
+                    SELECT * FROM ai_generations
+                    WHERE user_id = $1
+                      AND (created_ts, id) < ($2, $3)
+                    ORDER BY created_ts DESC, id DESC
+                    LIMIT $4
+                    "#,
+                )
+                .bind(user_id)
+                .bind(cursor.created_ts)
+                .bind(cursor.id)
+                .bind(limit + 1)
+                .fetch_all(&*self.db)
+                .await?
+            }
+            (None, None) => {
+                sqlx::query_as::<_, AiGeneration>(
+                    r#"
+                    SELECT * FROM ai_generations
+                    WHERE user_id = $1
+                    ORDER BY created_ts DESC, id DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(user_id)
+                .bind(limit + 1)
+                .fetch_all(&*self.db)
+                .await?
+            }
+        };
+
+        let next_batch = if generations.len() > limit as usize {
+            generations.get(limit as usize).map(|generation| {
+                encode_generation_cursor(&GenerationCursor {
+                    created_ts: generation.created_ts,
+                    id: generation.id,
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok((
+            generations.into_iter().take(limit as usize).collect(),
+            next_batch,
+        ))
     }
 
     pub async fn delete_generation(&self, id: i64) -> Result<(), sqlx::Error> {
@@ -747,5 +884,41 @@ impl OpenClawStorage {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_conversation_cursor, decode_generation_cursor, encode_conversation_cursor,
+        encode_generation_cursor, ConversationCursor, GenerationCursor,
+    };
+
+    #[test]
+    fn conversation_cursor_round_trip() {
+        let cursor = ConversationCursor {
+            is_pinned: true,
+            updated_ts: 1_746_700_000_000,
+            id: 42,
+        };
+        let encoded = encode_conversation_cursor(&cursor);
+        assert_eq!(decode_conversation_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn generation_cursor_round_trip() {
+        let cursor = GenerationCursor {
+            created_ts: 1_746_700_000_000,
+            id: 42,
+        };
+        let encoded = encode_generation_cursor(&cursor);
+        assert_eq!(decode_generation_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn openclaw_cursor_rejects_invalid_values() {
+        assert_eq!(decode_conversation_cursor(Some("bad")), None);
+        assert_eq!(decode_generation_cursor(Some("bad")), None);
+        assert_eq!(decode_generation_cursor(Some("123|")), None);
     }
 }

@@ -606,6 +606,240 @@ impl EventAuthChain {
 
         conflicts
     }
+
+    pub fn calculate_auth_difference(
+        &self,
+        events: &HashMap<String, EventData>,
+        chain_a: &[String],
+        chain_b: &[String],
+    ) -> HashSet<String> {
+        let set_a: HashSet<&str> = chain_a.iter().map(|s| s.as_str()).collect();
+        let set_b: HashSet<&str> = chain_b.iter().map(|s| s.as_str()).collect();
+
+        let diff_events: Vec<String> = set_a
+            .symmetric_difference(&set_b)
+            .map(|s| s.to_string())
+            .collect();
+        let mut auth_diff: HashSet<String> = diff_events.into_iter().collect();
+
+        let additional: Vec<String> = auth_diff
+            .iter()
+            .flat_map(|diff_id| match events.get(diff_id.as_str()) {
+                Some(event) => event.auth_events.clone(),
+                None => Vec::new(),
+            })
+            .collect();
+
+        for eid in additional {
+            auth_diff.insert(eid);
+        }
+
+        auth_diff
+    }
+
+    pub fn compute_mainline(
+        &self,
+        events: &HashMap<String, EventData>,
+        room_create_event_id: &str,
+    ) -> Vec<String> {
+        let mut mainline = Vec::new();
+        let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
+
+        if events.contains_key(room_create_event_id) {
+            queue.push_back(room_create_event_id.to_string());
+            visited.insert(room_create_event_id.to_string());
+        }
+
+        while let Some(current) = queue.pop_front() {
+            mainline.push(current.clone());
+
+            if events.contains_key(&current) {
+                let mut descendants = Vec::new();
+                for (eid, ev) in events.iter() {
+                    if !visited.contains(eid) && ev.auth_events.contains(&current) {
+                        descendants.push(eid.clone());
+                    }
+                }
+
+                descendants.sort_by_key(|eid| {
+                    if let Some(ev) = events.get(eid) {
+                        if let Some(depth) = ev
+                            .content
+                            .as_ref()
+                            .and_then(|c| c.get("depth"))
+                            .and_then(|d| d.as_i64())
+                        {
+                            return std::cmp::Reverse(depth);
+                        }
+                    }
+                    std::cmp::Reverse(0)
+                });
+
+                for desc in descendants {
+                    visited.insert(desc.clone());
+                    queue.push_back(desc);
+                }
+            }
+        }
+
+        mainline
+    }
+
+    pub fn get_mainline_depth(&self, mainline: &[String], event_id: &str) -> Option<usize> {
+        mainline.iter().position(|e| e == event_id)
+    }
+
+    pub fn sort_by_reverse_topological_power(
+        &self,
+        events: &HashMap<String, EventData>,
+        event_ids: &[String],
+        mainline: &[String],
+        power_levels: &HashMap<String, i64>,
+    ) -> Vec<String> {
+        let mut sorted = event_ids.to_vec();
+        let mainline_map: HashMap<&str, usize> = mainline
+            .iter()
+            .enumerate()
+            .map(|(i, eid)| (eid.as_str(), i))
+            .collect();
+
+        let power_event = |eid: &str| -> i64 {
+            if let Some(event) = events.get(eid) {
+                if let Some(content) = &event.content {
+                    if let Some(users) = content.get("users") {
+                        if let Some(user_power) = users.get(
+                            event
+                                .state_key
+                                .as_ref()
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(""),
+                        ) {
+                            return user_power.as_i64().unwrap_or(0);
+                        }
+                    }
+                }
+                power_levels.get(eid).copied().unwrap_or(0)
+            } else {
+                0
+            }
+        };
+
+        sorted.sort_by(|a, b| {
+            let power_a = power_event(a);
+            let power_b = power_event(b);
+
+            power_b
+                .cmp(&power_a)
+                .then_with(|| {
+                    let ts_a = events
+                        .get(a)
+                        .and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64())
+                        .unwrap_or(0);
+                    let ts_b = events
+                        .get(b)
+                        .and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64())
+                        .unwrap_or(0);
+                    ts_a.cmp(&ts_b)
+                })
+                .then_with(|| {
+                    let mainline_a = mainline_map.get(a.as_str()).copied().unwrap_or(usize::MAX);
+                    let mainline_b = mainline_map.get(b.as_str()).copied().unwrap_or(usize::MAX);
+                    mainline_a.cmp(&mainline_b)
+                })
+                .then_with(|| a.cmp(b))
+        });
+
+        sorted
+    }
+
+    pub fn resolve_state_v2(
+        &self,
+        state_sets: Vec<&HashMap<String, &Value>>,
+        events: &HashMap<String, EventData>,
+    ) -> HashMap<String, Value> {
+        let mut resolved: HashMap<String, Value> = HashMap::new();
+        let mut unconflicted: HashMap<String, &Value> = HashMap::new();
+        let mut conflicted_keys: HashSet<String> = HashSet::new();
+
+        if state_sets.is_empty() {
+            return resolved;
+        }
+
+        let first_set = state_sets[0];
+        for key in first_set.keys() {
+            let first_val = first_set.get(key).copied();
+            let all_same = state_sets.iter().all(|s| {
+                let a = s.get(key).copied();
+                let b = first_val;
+                a == b
+            });
+
+            if all_same {
+                if let Some(val) = first_val {
+                    unconflicted.insert(key.clone(), val);
+                }
+            } else {
+                conflicted_keys.insert(key.clone());
+            }
+        }
+
+        for (key, val) in &unconflicted {
+            resolved.insert(key.clone(), (*val).clone());
+        }
+
+        for key in &conflicted_keys {
+            let mut candidates: Vec<String> = Vec::new();
+            for state_set in &state_sets {
+                if let Some(val) = state_set.get(key) {
+                    if let Some(event_id) = val.get("event_id").and_then(|v| v.as_str()) {
+                        candidates.push(event_id.to_string());
+                    }
+                }
+            }
+
+            if candidates.len() == 1 {
+                if let Some(val) = state_sets[0].get(key) {
+                    resolved.insert(key.clone(), (*val).clone());
+                }
+                continue;
+            }
+
+            let power_levels: HashMap<String, i64> = events
+                .iter()
+                .filter(|(_, e)| e.event_type == "m.room.power_levels")
+                .map(|(eid, _)| (eid.clone(), 0))
+                .collect();
+
+            let room_create = events
+                .iter()
+                .find(|(_, e)| e.event_type == "m.room.create")
+                .map(|(eid, _)| eid.clone());
+
+            let mainline = if let Some(create_id) = &room_create {
+                self.compute_mainline(events, create_id)
+            } else {
+                Vec::new()
+            };
+
+            let sorted = self.sort_by_reverse_topological_power(
+                events,
+                &candidates,
+                &mainline,
+                &power_levels,
+            );
+
+            if let Some(winner) = sorted.first() {
+                if let Some(event) = events.get(winner) {
+                    if let Some(content) = &event.content {
+                        resolved.insert(key.clone(), content.clone());
+                    }
+                }
+            }
+        }
+
+        resolved
+    }
 }
 
 #[derive(Debug, Clone)]

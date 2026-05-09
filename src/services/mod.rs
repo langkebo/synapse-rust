@@ -16,6 +16,7 @@ pub mod admin_registration_service;
 pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
+#[cfg(feature = "builtin-oidc")]
 pub mod builtin_oidc_provider;
 pub mod cache;
 pub mod captcha_service;
@@ -36,7 +37,6 @@ pub mod module_service;
 pub mod oidc_service;
 pub mod push;
 pub mod push_notification_service;
-pub mod push_service;
 pub mod refresh_token_service;
 pub mod registration_service;
 pub mod registration_token_service;
@@ -48,17 +48,18 @@ pub mod search_service;
 pub mod sliding_sync_service;
 pub mod space_service;
 pub mod sync_service;
-pub mod telemetry_alert_service;
 pub mod telemetry_service;
 pub mod thread_service;
 
 pub mod directory_service;
 pub mod dm_service;
 pub mod typing_service;
+pub mod uia_service;
 
 pub use admin_audit_service::*;
 pub use admin_registration_service::*;
 pub use application_service::*;
+#[cfg(feature = "builtin-oidc")]
 pub use builtin_oidc_provider::{
     AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken,
 };
@@ -69,7 +70,7 @@ pub use dm_service::*;
 pub use feature_flag_service::*;
 pub use media_service::*;
 pub use oidc_service::OidcService;
-pub use push_service::*;
+pub use push_notification_service::*;
 pub use registration_service::*;
 pub use room_service::*;
 pub use room_summary_service::*;
@@ -77,7 +78,6 @@ pub use search_service::*;
 pub use sliding_sync_service::*;
 pub use space_service::*;
 pub use sync_service::*;
-pub use telemetry_alert_service::*;
 pub use typing_service::*;
 
 // =============================================================================

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomTag {
-    pub id: i64,
+    pub id: i32,
     pub user_id: String,
     pub room_id: String,
     pub tag: String,
@@ -20,7 +20,7 @@ impl RoomTagStorage {
         room_id: &str,
     ) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
-            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2"
+            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2 ORDER BY tag"
         )
         .bind(user_id)
         .bind(room_id)
@@ -35,13 +35,15 @@ impl RoomTagStorage {
         tag: &str,
         order: Option<f64>,
     ) -> Result<(), sqlx::Error> {
+        let created_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            "INSERT INTO room_tags (user_id, room_id, tag, order_value) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET tag = EXCLUDED.tag, order_value = EXCLUDED.order_value"
+            "INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET order_value = EXCLUDED.order_value"
         )
         .bind(user_id)
         .bind(room_id)
         .bind(tag)
         .bind(order)
+        .bind(created_ts)
         .execute(pool)
         .await?;
         Ok(())

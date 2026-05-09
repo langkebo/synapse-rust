@@ -1,5 +1,7 @@
 use crate::common::ApiError;
-use crate::storage::{AuditEventFilters, CreateAuditEventRequest};
+use crate::storage::{
+    decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest,
+};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -54,7 +56,7 @@ pub struct AuditEventQueryParams {
     pub resource_id: Option<String>,
     pub result: Option<String>,
     pub limit: Option<i64>,
-    pub from: Option<i64>,
+    pub from: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -87,9 +89,22 @@ pub async fn list_audit_events(
     Query(params): Query<AuditEventQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 200);
-    let offset = params.from.unwrap_or(0).max(0);
+    // Synapse-compatible fallback: some older callers use `from=0` to mean
+    // "start from the first page" rather than providing our tuple cursor.
+    let from = match params.from.as_deref() {
+        None | Some("") | Some("0") => None,
+        other => decode_audit_event_cursor(other),
+    };
 
-    let (events, total) = state
+    if matches!(
+        params.from.as_deref(),
+        Some(value) if !value.is_empty() && value != "0"
+    ) && from.is_none()
+    {
+        return Err(ApiError::bad_request("Invalid from cursor"));
+    }
+
+    let (events, total, next_batch) = state
         .services
         .admin_audit_service
         .list_events(AuditEventFilters {
@@ -99,20 +114,14 @@ pub async fn list_audit_events(
             resource_id: params.resource_id,
             result: params.result,
             limit,
-            offset,
+            from,
         })
         .await?;
-
-    let next_token = if offset + limit < total {
-        Some(offset + limit)
-    } else {
-        None
-    };
 
     Ok(Json(json!({
         "events": events,
         "total": total,
-        "next_token": next_token
+        "next_batch": next_batch
     })))
 }
 
@@ -150,7 +159,7 @@ pub(crate) async fn record_audit_event(
     request_id: String,
     details: Value,
 ) -> Result<(), ApiError> {
-    state
+    let result = state
         .services
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
@@ -162,7 +171,15 @@ pub(crate) async fn record_audit_event(
             request_id,
             details: Some(details),
         })
-        .await?;
+        .await;
+
+    if let Err(error) = result {
+        ::tracing::warn!(
+            target: "admin_audit",
+            %error,
+            "Failed to record admin audit event, but continuing to ensure API availability"
+        );
+    }
 
     Ok(())
 }

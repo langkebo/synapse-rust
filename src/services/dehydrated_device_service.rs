@@ -21,6 +21,27 @@ impl DehydratedDeviceService {
         Ok(record.map(Self::record_to_response))
     }
 
+    pub async fn get_status(&self, user_id: &str) -> Result<Value, ApiError> {
+        let record = self.storage.get_by_user(user_id).await.map_err(|e| {
+            ApiError::internal(format!("Failed to load dehydrated device status: {}", e))
+        })?;
+
+        if let Some(record) = record {
+            Ok(serde_json::json!({
+                "exists": true,
+                "device_id": record.device_id,
+                "algorithm": record.algorithm,
+                "created_ts": record.created_ts,
+                "updated_ts": record.updated_ts,
+                "expires_at": record.expires_at,
+            }))
+        } else {
+            Ok(serde_json::json!({
+                "exists": false
+            }))
+        }
+    }
+
     pub async fn put_device(&self, user_id: &str, body: Value) -> Result<String, ApiError> {
         let mut payload = body
             .as_object()
@@ -75,6 +96,13 @@ impl DehydratedDeviceService {
             ApiError::internal(format!("Failed to delete dehydrated device: {}", e))
         })?;
         Ok(rows > 0)
+    }
+
+    pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
+        self.storage.delete_by_user(user_id).await.map_err(|e| {
+            ApiError::internal(format!("Failed to delete all dehydrated devices for user: {}", e))
+        })?;
+        Ok(())
     }
 
     /// Background sweep: deletes expired dehydrated devices (and their pending

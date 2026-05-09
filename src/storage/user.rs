@@ -6,6 +6,13 @@ use std::sync::Arc;
 
 const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
 
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct User {
     pub user_id: String,
@@ -243,24 +250,45 @@ impl UserStorage {
     pub async fn get_users_paginated(
         &self,
         limit: i64,
-        offset: i64,
+        since_ts: Option<i64>,
+        since_user_id: Option<&str>,
     ) -> Result<Vec<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>(
-            r#"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
-                   is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
-                   generation, consent_version, appservice_id, user_type, invalid_update_at, 
-                   migration_state, email, phone, password_changed_ts, is_password_change_required, 
-                   password_expires_at, failed_login_attempts, locked_until, must_change_password
-            FROM users
-            ORDER BY created_ts DESC
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await
+        if let (Some(ts), Some(user_id)) = (since_ts, since_user_id) {
+            sqlx::query_as::<_, User>(
+                r#"
+                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
+                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
+                       generation, consent_version, appservice_id, user_type, invalid_update_at, 
+                       migration_state, email, phone, password_changed_ts, is_password_change_required, 
+                       password_expires_at, failed_login_attempts, locked_until, must_change_password
+                FROM users
+                WHERE (created_ts < $2 OR (created_ts = $2 AND user_id < $3))
+                ORDER BY created_ts DESC, user_id DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .bind(ts)
+            .bind(user_id)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, User>(
+                r#"
+                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
+                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
+                       generation, consent_version, appservice_id, user_type, invalid_update_at, 
+                       migration_state, email, phone, password_changed_ts, is_password_change_required, 
+                       password_expires_at, failed_login_attempts, locked_until, must_change_password
+                FROM users
+                ORDER BY created_ts DESC, user_id DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
     }
 
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
@@ -403,29 +431,107 @@ impl UserStorage {
         query: &str,
         limit: i64,
     ) -> Result<Vec<UserSearchResult>, sqlx::Error> {
-        let search_pattern = format!("%{}%", query);
-        let rows = sqlx::query_as::<_, UserSearchResult>(
+        let normalized = query.trim();
+        if normalized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let escaped = escape_like_pattern(normalized);
+        let exact_pattern = escaped.clone();
+        let prefix_pattern = format!("{escaped}%");
+        let contains_pattern = format!("%{escaped}%");
+
+        sqlx::query_as::<_, UserSearchResult>(
             r#"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
-            FROM users
-            WHERE (username ILIKE $1 OR user_id ILIKE $1 OR displayname ILIKE $1)
-            AND COALESCE(is_deactivated, FALSE) = FALSE
+            WITH candidate_matches AS (
+                SELECT
+                    user_id,
+                    MIN(match_priority) AS match_priority,
+                    MAX(match_similarity) AS match_similarity
+                FROM (
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN username ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN username ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN username ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        similarity(username, $4) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            username ILIKE $1 ESCAPE '\'
+                            OR username ILIKE $2 ESCAPE '\'
+                            OR username ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND username % $4)
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN user_id ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN user_id ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN user_id ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        similarity(user_id, $4) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            user_id ILIKE $1 ESCAPE '\'
+                            OR user_id ILIKE $2 ESCAPE '\'
+                            OR user_id ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND user_id % $4)
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN displayname ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN displayname ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN displayname ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        COALESCE(similarity(displayname, $4), 0.0) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND displayname IS NOT NULL
+                      AND (
+                            displayname ILIKE $1 ESCAPE '\'
+                            OR displayname ILIKE $2 ESCAPE '\'
+                            OR displayname ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND displayname % $4)
+                      )
+                ) AS matches
+                GROUP BY user_id
+            )
+            SELECT
+                u.user_id,
+                u.username,
+                COALESCE(u.displayname, u.username) AS displayname,
+                u.avatar_url,
+                u.created_ts
+            FROM candidate_matches cm
+            JOIN users u ON u.user_id = cm.user_id
             ORDER BY
-                CASE
-                    WHEN username = $2 THEN 0
-                    WHEN username ILIKE $2 THEN 1
-                    ELSE 2
-                END,
-                created_ts DESC
-            LIMIT $3
+                cm.match_priority ASC,
+                cm.match_similarity DESC,
+                u.created_ts DESC
+            LIMIT $5
             "#,
         )
-        .bind(search_pattern)
-        .bind(query)
+        .bind(&exact_pattern)
+        .bind(&prefix_pattern)
+        .bind(&contains_pattern)
+        .bind(normalized)
         .bind(limit)
         .fetch_all(&*self.pool)
-        .await?;
-        Ok(rows)
+        .await
     }
 
     pub async fn get_user_profile(
@@ -552,28 +658,107 @@ impl UserStorage {
         query: &str,
         limit: i64,
     ) -> Result<Vec<UserSearchResultWithPresence>, sqlx::Error> {
-        let search_pattern = format!("%{}%", query);
+        let normalized = query.trim();
+        if normalized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let escaped = escape_like_pattern(normalized);
+        let exact_pattern = escaped.clone();
+        let prefix_pattern = format!("{escaped}%");
+        let contains_pattern = format!("%{escaped}%");
+
         sqlx::query_as::<_, UserSearchResultWithPresence>(
             r#"
-            SELECT u.user_id, u.username, COALESCE(u.displayname, u.username) as displayname, 
-                   u.avatar_url, u.created_ts,
-                   p.presence, p.last_active_ts
-            FROM users u
+            WITH candidate_matches AS (
+                SELECT
+                    user_id,
+                    MIN(match_priority) AS match_priority,
+                    MAX(match_similarity) AS match_similarity
+                FROM (
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN username ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN username ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN username ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        similarity(username, $4) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            username ILIKE $1 ESCAPE '\'
+                            OR username ILIKE $2 ESCAPE '\'
+                            OR username ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND username % $4)
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN user_id ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN user_id ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN user_id ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        similarity(user_id, $4) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            user_id ILIKE $1 ESCAPE '\'
+                            OR user_id ILIKE $2 ESCAPE '\'
+                            OR user_id ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND user_id % $4)
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN displayname ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN displayname ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN displayname ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_priority,
+                        COALESCE(similarity(displayname, $4), 0.0) AS match_similarity
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND displayname IS NOT NULL
+                      AND (
+                            displayname ILIKE $1 ESCAPE '\'
+                            OR displayname ILIKE $2 ESCAPE '\'
+                            OR displayname ILIKE $3 ESCAPE '\'
+                            OR (char_length($4) >= 3 AND displayname % $4)
+                      )
+                ) AS matches
+                GROUP BY user_id
+            )
+            SELECT
+                u.user_id,
+                u.username,
+                COALESCE(u.displayname, u.username) AS displayname,
+                u.avatar_url,
+                u.created_ts,
+                p.presence,
+                p.last_active_ts
+            FROM candidate_matches cm
+            JOIN users u ON u.user_id = cm.user_id
             LEFT JOIN presence p ON u.user_id = p.user_id
-            WHERE (u.username ILIKE $1 OR u.user_id ILIKE $1 OR u.displayname ILIKE $1)
-            AND COALESCE(u.is_deactivated, FALSE) = FALSE
             ORDER BY
-                CASE
-                    WHEN u.username = $2 THEN 0
-                    WHEN u.username ILIKE $2 THEN 1
-                    ELSE 2
-                END,
+                cm.match_priority ASC,
+                cm.match_similarity DESC,
                 u.created_ts DESC
-            LIMIT $3
+            LIMIT $5
             "#,
         )
-        .bind(search_pattern)
-        .bind(query)
+        .bind(&exact_pattern)
+        .bind(&prefix_pattern)
+        .bind(&contains_pattern)
+        .bind(normalized)
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
@@ -585,17 +770,21 @@ impl UserStorage {
         limit: i64,
         exact_only: bool,
     ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error> {
-        let normalized = query.trim().to_lowercase();
+        let normalized = query.trim();
         if normalized.is_empty() {
             return Ok(Vec::new());
         }
 
         let safe_limit = limit.clamp(1, 100);
-        let prefix_pattern = format!("{}%", normalized);
-        let contains_pattern = format!("%{}%", normalized);
+        let escaped = escape_like_pattern(normalized);
+        let exact_pattern = escaped.clone();
+        let prefix_pattern = format!("{escaped}%");
+        let contains_pattern = format!("%{escaped}%");
         let cache_key = format!(
             "user:directory_search:v1:{}:{}:{}",
-            normalized, safe_limit, exact_only
+            normalized.to_lowercase(),
+            safe_limit,
+            exact_only
         );
 
         if let Ok(Some(cached)) = self
@@ -608,6 +797,130 @@ impl UserStorage {
 
         let rows = sqlx::query_as::<_, UserDirectorySearchResult>(
             r#"
+            WITH candidate_matches AS (
+                SELECT
+                    user_id,
+                    MAX(rank_score) AS rank_score,
+                    MIN(match_category) AS match_category
+                FROM (
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN username ILIKE $1 ESCAPE '\' THEN 1000
+                            WHEN NOT $4 AND username ILIKE $2 ESCAPE '\' THEN 820
+                            WHEN NOT $4 AND username ILIKE $3 ESCAPE '\' THEN 650
+                            ELSE 480
+                        END + ROUND(similarity(username, $5) * 100)::INTEGER AS rank_score,
+                        CASE
+                            WHEN username ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN NOT $4 AND username ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN NOT $4 AND username ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_category
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            username ILIKE $1 ESCAPE '\'
+                            OR (
+                                NOT $4 AND (
+                                    username ILIKE $2 ESCAPE '\'
+                                    OR username ILIKE $3 ESCAPE '\'
+                                    OR (char_length($5) >= 3 AND username % $5)
+                                )
+                            )
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN displayname ILIKE $1 ESCAPE '\' THEN 950
+                            WHEN NOT $4 AND displayname ILIKE $2 ESCAPE '\' THEN 780
+                            WHEN NOT $4 AND displayname ILIKE $3 ESCAPE '\' THEN 610
+                            ELSE 480
+                        END + ROUND(COALESCE(similarity(displayname, $5), 0.0) * 100)::INTEGER AS rank_score,
+                        CASE
+                            WHEN displayname ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN NOT $4 AND displayname ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN NOT $4 AND displayname ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_category
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND displayname IS NOT NULL
+                      AND (
+                            displayname ILIKE $1 ESCAPE '\'
+                            OR (
+                                NOT $4 AND (
+                                    displayname ILIKE $2 ESCAPE '\'
+                                    OR displayname ILIKE $3 ESCAPE '\'
+                                    OR (char_length($5) >= 3 AND displayname % $5)
+                                )
+                            )
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN email ILIKE $1 ESCAPE '\' THEN 900
+                            WHEN NOT $4 AND email ILIKE $2 ESCAPE '\' THEN 740
+                            WHEN NOT $4 AND email ILIKE $3 ESCAPE '\' THEN 580
+                            ELSE 480
+                        END + ROUND(COALESCE(similarity(email, $5), 0.0) * 100)::INTEGER AS rank_score,
+                        CASE
+                            WHEN email ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN NOT $4 AND email ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN NOT $4 AND email ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_category
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND email IS NOT NULL
+                      AND (
+                            email ILIKE $1 ESCAPE '\'
+                            OR (
+                                NOT $4 AND (
+                                    email ILIKE $2 ESCAPE '\'
+                                    OR email ILIKE $3 ESCAPE '\'
+                                    OR (char_length($5) >= 3 AND email % $5)
+                                )
+                            )
+                      )
+
+                    UNION ALL
+
+                    SELECT
+                        user_id,
+                        CASE
+                            WHEN user_id ILIKE $1 ESCAPE '\' THEN 875
+                            WHEN NOT $4 AND user_id ILIKE $2 ESCAPE '\' THEN 710
+                            WHEN NOT $4 AND user_id ILIKE $3 ESCAPE '\' THEN 550
+                            ELSE 480
+                        END + ROUND(similarity(user_id, $5) * 100)::INTEGER AS rank_score,
+                        CASE
+                            WHEN user_id ILIKE $1 ESCAPE '\' THEN 0
+                            WHEN NOT $4 AND user_id ILIKE $2 ESCAPE '\' THEN 1
+                            WHEN NOT $4 AND user_id ILIKE $3 ESCAPE '\' THEN 2
+                            ELSE 3
+                        END AS match_category
+                    FROM users
+                    WHERE COALESCE(is_deactivated, FALSE) = FALSE
+                      AND (
+                            user_id ILIKE $1 ESCAPE '\'
+                            OR (
+                                NOT $4 AND (
+                                    user_id ILIKE $2 ESCAPE '\'
+                                    OR user_id ILIKE $3 ESCAPE '\'
+                                    OR (char_length($5) >= 3 AND user_id % $5)
+                                )
+                            )
+                      )
+                ) AS matches
+                GROUP BY user_id
+            )
             SELECT
                 u.user_id,
                 u.username,
@@ -617,72 +930,35 @@ impl UserStorage {
                 p.presence,
                 p.last_active_ts,
                 (
-                    CASE
-                        WHEN LOWER(u.username) = $1 THEN 1000
-                        WHEN LOWER(COALESCE(u.displayname, '')) = $1 THEN 950
-                        WHEN LOWER(COALESCE(u.email, '')) = $1 THEN 900
-                        WHEN LOWER(u.user_id) = $1 THEN 875
-                        WHEN LOWER(u.username) LIKE $2 THEN 820
-                        WHEN LOWER(COALESCE(u.displayname, '')) LIKE $2 THEN 780
-                        WHEN LOWER(COALESCE(u.email, '')) LIKE $2 THEN 740
-                        WHEN LOWER(u.user_id) LIKE $2 THEN 710
-                        WHEN LOWER(u.username) LIKE $3 THEN 650
-                        WHEN LOWER(COALESCE(u.displayname, '')) LIKE $3 THEN 610
-                        WHEN LOWER(COALESCE(u.email, '')) LIKE $3 THEN 580
-                        WHEN LOWER(u.user_id) LIKE $3 THEN 550
-                        ELSE 0
-                    END
-                    +
-                    CASE
+                    cm.rank_score
+                    + CASE
                         WHEN COALESCE(p.presence, 'offline') = 'online' THEN 50
                         WHEN COALESCE(p.presence, 'offline') = 'unavailable' THEN 20
                         ELSE 0
                     END
                 )::INTEGER AS match_score,
-                CASE
-                    WHEN LOWER(u.username) = $1
-                        OR LOWER(COALESCE(u.displayname, '')) = $1
-                        OR LOWER(COALESCE(u.email, '')) = $1
-                        OR LOWER(u.user_id) = $1 THEN 'exact'
-                    WHEN LOWER(u.username) LIKE $2
-                        OR LOWER(COALESCE(u.displayname, '')) LIKE $2
-                        OR LOWER(COALESCE(u.email, '')) LIKE $2
-                        OR LOWER(u.user_id) LIKE $2 THEN 'prefix'
+                CASE cm.match_category
+                    WHEN 0 THEN 'exact'
+                    WHEN 1 THEN 'prefix'
+                    WHEN 2 THEN 'contains'
                     ELSE 'fuzzy'
                 END AS match_type
-            FROM users u
+            FROM candidate_matches cm
+            JOIN users u ON u.user_id = cm.user_id
             LEFT JOIN presence p ON p.user_id = u.user_id
-            WHERE COALESCE(u.is_deactivated, FALSE) = FALSE
-              AND (
-                    LOWER(u.username) = $1
-                    OR LOWER(COALESCE(u.displayname, '')) = $1
-                    OR LOWER(COALESCE(u.email, '')) = $1
-                    OR LOWER(u.user_id) = $1
-                    OR (
-                        NOT $4 AND (
-                            LOWER(u.username) LIKE $2
-                            OR LOWER(COALESCE(u.displayname, '')) LIKE $2
-                            OR LOWER(COALESCE(u.email, '')) LIKE $2
-                            OR LOWER(u.user_id) LIKE $2
-                            OR LOWER(u.username) LIKE $3
-                            OR LOWER(COALESCE(u.displayname, '')) LIKE $3
-                            OR LOWER(COALESCE(u.email, '')) LIKE $3
-                            OR LOWER(u.user_id) LIKE $3
-                        )
-                    )
-              )
             ORDER BY
-                match_score DESC,
+                cm.rank_score DESC,
                 COALESCE(p.last_active_ts, 0) DESC,
                 u.created_ts DESC,
                 u.username ASC
-            LIMIT $5
+            LIMIT $6
             "#,
         )
-        .bind(&normalized)
+        .bind(&exact_pattern)
         .bind(&prefix_pattern)
         .bind(&contains_pattern)
         .bind(exact_only)
+        .bind(normalized)
         .bind(safe_limit)
         .fetch_all(&*self.pool)
         .await?;

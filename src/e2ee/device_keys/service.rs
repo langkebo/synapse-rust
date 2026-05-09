@@ -3,6 +3,7 @@ use super::storage::DeviceKeyStorage;
 use crate::cache::CacheManager;
 use crate::e2ee::cross_signing::storage::CrossSigningStorage;
 use crate::e2ee::crypto::CryptoError;
+use crate::e2ee::signed_json::verify_device_keys_signature;
 use crate::e2ee::signed_json::verify_one_time_key_signature;
 use crate::error::ApiError;
 use crate::storage::DehydratedDeviceStorage;
@@ -68,9 +69,15 @@ impl DeviceKeyService {
                 }
 
                 let device_ids: Vec<String> = if let Some(arr) = device_ids.as_array() {
-                    arr.iter()
+                    let ids: Vec<String> = arr
+                        .iter()
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
+                        .collect();
+                    if ids.is_empty() {
+                        vec!["*".to_string()]
+                    } else {
+                        ids
+                    }
                 } else {
                     vec!["*".to_string()]
                 };
@@ -193,6 +200,8 @@ impl DeviceKeyService {
     pub async fn upload_keys(
         &self,
         request: KeyUploadRequest,
+        auth_user_id: &str,
+        auth_device_id: &str,
     ) -> Result<KeyUploadResponse, ApiError> {
         let mut one_time_key_counts = serde_json::Map::new();
         let mut record_target: Option<(String, String)> = None;
@@ -201,6 +210,30 @@ impl DeviceKeyService {
             let user_id = device_keys.user_id.clone();
             let device_id = device_keys.device_id.clone();
             record_target = Some((user_id.clone(), device_id.clone()));
+
+            let device_keys_value = serde_json::to_value(device_keys).map_err(|e| {
+                ApiError::internal(format!("Failed to serialize device keys: {}", e))
+            })?;
+
+            let has_keys = device_keys.keys.as_object().map_or(false, |k| !k.is_empty());
+            let has_signatures = device_keys
+                .signatures
+                .as_object()
+                .map_or(false, |s| !s.is_empty());
+
+            if has_keys && has_signatures {
+                match verify_device_keys_signature(&device_keys_value) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => {
+                        ::tracing::warn!(
+                            target: "e2ee",
+                            user_id = %user_id,
+                            device_id = %device_id,
+                            "Device key signature verification failed; storing keys anyway for compatibility"
+                        );
+                    }
+                }
+            }
 
             if let Some(keys) = device_keys.keys.as_object() {
                 for (key_id, public_key) in keys {
@@ -234,7 +267,7 @@ impl DeviceKeyService {
             let (user_id, device_id) = if let Some(ref dk) = request.device_keys {
                 (dk.user_id.clone(), dk.device_id.clone())
             } else {
-                (String::new(), String::new())
+                (auth_user_id.to_string(), auth_device_id.to_string())
             };
 
             if record_target.is_none() && !user_id.is_empty() && !device_id.is_empty() {
@@ -305,12 +338,9 @@ impl DeviceKeyService {
                             }
                         } else {
                             tracing::warn!(
-                                "Cannot verify OTK signature: no ed25519 device key found for user {} device {}",
+                                "No ed25519 device key found for user {} device {}; storing OTK without signature verification",
                                 user_id, device_id
                             );
-                            return Err(ApiError::bad_request(
-                                "Cannot verify one-time key signature: no ed25519 device key found. Upload device keys first.".to_string(),
-                            ));
                         }
                     }
 
@@ -346,7 +376,7 @@ impl DeviceKeyService {
             let (user_id, device_id) = if let Some(ref dk) = request.device_keys {
                 (dk.user_id.clone(), dk.device_id.clone())
             } else {
-                (String::new(), String::new())
+                (auth_user_id.to_string(), auth_device_id.to_string())
             };
 
             if !user_id.is_empty() && !device_id.is_empty() {
@@ -354,6 +384,12 @@ impl DeviceKeyService {
                     self.storage
                         .delete_fallback_keys(&user_id, &device_id)
                         .await?;
+
+                    let device_ed25519_key = self
+                        .storage
+                        .get_device_key(&user_id, &device_id, "ed25519")
+                        .await?
+                        .map(|k| k.public_key);
 
                     for (key_id, key_data) in keys {
                         let (algorithm, public_key, signatures) = if key_data.is_string() {
@@ -371,6 +407,33 @@ impl DeviceKeyService {
                                 .unwrap_or(serde_json::json!({}));
                             (algo.to_string(), pk, sigs)
                         };
+
+                        if algorithm == "signed_curve25519" {
+                            if let Some(ref ed25519_pk) = device_ed25519_key {
+                                match verify_one_time_key_signature(
+                                    &user_id, &device_id, &algorithm, key_id, key_data, ed25519_pk,
+                                ) {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        return Err(ApiError::bad_request(format!(
+                                            "Invalid signature on fallback key {}",
+                                            key_id
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        return Err(ApiError::bad_request(format!(
+                                            "Signature verification error on fallback key {}: {}",
+                                            key_id, e
+                                        )));
+                                    }
+                                }
+                            } else {
+                                return Err(ApiError::bad_request(
+                                    "Cannot verify fallback key signature: no ed25519 device key found"
+                                        .to_string(),
+                                ));
+                            }
+                        }
 
                         let key = DeviceKey {
                             id: 0,
@@ -405,6 +468,16 @@ impl DeviceKeyService {
             self.storage
                 .record_device_list_change_best_effort(&user_id, Some(&device_id), "changed")
                 .await;
+        }
+
+        if one_time_key_counts.is_empty() {
+            let counts = self
+                .storage
+                .get_one_time_keys_count_by_algorithm(auth_user_id, auth_device_id)
+                .await?;
+            for (algo, count) in counts {
+                one_time_key_counts.insert(algo, serde_json::Value::Number(count.into()));
+            }
         }
 
         Ok(KeyUploadResponse {
@@ -455,10 +528,15 @@ impl DeviceKeyService {
                                     "key": key.public_key,
                                     "signatures": key.signatures,
                                 });
+                                let key_id = if key.key_id.starts_with(&format!("{}:", algo_str)) {
+                                    key.key_id.clone()
+                                } else {
+                                    format!("{}:{}", algo_str, key.key_id)
+                                };
                                 user_keys.insert(
                                     device_id.clone(),
                                     serde_json::json!({
-                                        format!("{}:{}", algo_str, key.key_id): key_data
+                                        key_id: key_data
                                     }),
                                 );
 
@@ -594,10 +672,12 @@ impl DeviceKeyService {
                     } else {
                         "ed25519"
                     };
-                    keys_map.insert(
-                        format!("{}:{}", prefix, key.key_id),
-                        Value::String(key.public_key.clone()),
-                    );
+                    let key_name = if key.key_id.starts_with(&format!("{}:", prefix)) {
+                        key.key_id.clone()
+                    } else {
+                        format!("{}:{}", prefix, key.key_id)
+                    };
+                    keys_map.insert(key_name, Value::String(key.public_key.clone()));
                 }
                 obj.insert("signatures".to_string(), key.signatures);
             }

@@ -20,6 +20,7 @@ server:
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 3600
+  dehydrated_device_cleanup_interval_secs: 3600
   expire_access_token: false
   expire_access_token_lifetime: 86400
   refresh_token_lifetime: 604800

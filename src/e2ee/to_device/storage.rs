@@ -251,4 +251,28 @@ impl ToDeviceStorage {
 
         Ok(())
     }
+
+    pub async fn delete_messages_up_to(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        stream_id: i64,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"
+            DELETE FROM to_device_messages
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+              AND stream_id <= $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(stream_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
 }

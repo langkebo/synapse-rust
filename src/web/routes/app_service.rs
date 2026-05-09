@@ -603,72 +603,66 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
 
     let admin_routes = Router::new()
+        .route("/_synapse/admin/v1/appservices", get(list_app_services))
+        .route("/_synapse/admin/v1/appservices", post(register_app_service))
         .route(
-            "/_synapse/admin/v1/application_services",
-            get(list_app_services),
-        )
-        .route(
-            "/_synapse/admin/v1/application_services",
-            post(register_app_service),
-        )
-        .route(
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
             get(get_app_service),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
             put(update_app_service),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
             delete(delete_app_service),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/ping",
+            "/_synapse/admin/v1/appservices/{as_id}/ping",
             post(ping_app_service),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/state",
+            "/_synapse/admin/v1/appservices/{as_id}/state",
             post(set_app_service_state),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/state",
+            "/_synapse/admin/v1/appservices/{as_id}/state",
             get(get_app_service_states),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/state/{state_key}",
+            "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}",
             get(get_app_service_state),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/users",
+            "/_synapse/admin/v1/appservices/{as_id}/users",
             post(register_virtual_user),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/users",
+            "/_synapse/admin/v1/appservices/{as_id}/users",
             get(get_virtual_users),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/namespaces",
+            "/_synapse/admin/v1/appservices/{as_id}/namespaces",
             get(get_namespaces),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/events",
+            "/_synapse/admin/v1/appservices/{as_id}/events",
             get(get_pending_events),
         )
         .route(
-            "/_synapse/admin/v1/application_services/{as_id}/events",
+            "/_synapse/admin/v1/appservices/{as_id}/events",
             post(push_event),
         )
         .route(
-            "/_synapse/admin/v1/application_services/query/user",
+            "/_synapse/admin/v1/appservices/query/user",
             get(query_user),
         )
         .route(
-            "/_synapse/admin/v1/application_services/query/alias",
+            "/_synapse/admin/v1/appservices/query/alias",
             get(query_room_alias),
         )
         .route(
-            "/_synapse/admin/v1/application_services/statistics",
+            "/_synapse/admin/v1/appservices/statistics",
             get(get_statistics),
         )
         .route_layer(axum::middleware::from_fn_with_state(
@@ -676,7 +670,7 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             crate::web::middleware::admin_auth_middleware,
         ));
 
-    public_routes.merge(admin_routes).with_state(state)
+    public_routes.merge(admin_routes)
 }
 
 pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -693,67 +687,67 @@ pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
         (Method::GET, "/_matrix/client/v3/appservice/user"),
         (Method::GET, "/_matrix/client/v3/appservice/alias"),
         // Admin
-        (Method::GET, "/_synapse/admin/v1/application_services"),
-        (Method::POST, "/_synapse/admin/v1/application_services"),
+        (Method::GET, "/_synapse/admin/v1/appservices"),
+        (Method::POST, "/_synapse/admin/v1/appservices"),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
         ),
         (
             Method::PUT,
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
         ),
         (
             Method::DELETE,
-            "/_synapse/admin/v1/application_services/{as_id}",
+            "/_synapse/admin/v1/appservices/{as_id}",
         ),
         (
             Method::POST,
-            "/_synapse/admin/v1/application_services/{as_id}/ping",
+            "/_synapse/admin/v1/appservices/{as_id}/ping",
         ),
         (
             Method::POST,
-            "/_synapse/admin/v1/application_services/{as_id}/state",
+            "/_synapse/admin/v1/appservices/{as_id}/state",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}/state",
+            "/_synapse/admin/v1/appservices/{as_id}/state",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}/state/{state_key}",
+            "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}",
         ),
         (
             Method::POST,
-            "/_synapse/admin/v1/application_services/{as_id}/users",
+            "/_synapse/admin/v1/appservices/{as_id}/users",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}/users",
+            "/_synapse/admin/v1/appservices/{as_id}/users",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}/namespaces",
+            "/_synapse/admin/v1/appservices/{as_id}/namespaces",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/{as_id}/events",
+            "/_synapse/admin/v1/appservices/{as_id}/events",
         ),
         (
             Method::POST,
-            "/_synapse/admin/v1/application_services/{as_id}/events",
+            "/_synapse/admin/v1/appservices/{as_id}/events",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/query/user",
+            "/_synapse/admin/v1/appservices/query/user",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/query/alias",
+            "/_synapse/admin/v1/appservices/query/alias",
         ),
         (
             Method::GET,
-            "/_synapse/admin/v1/application_services/statistics",
+            "/_synapse/admin/v1/appservices/statistics",
         ),
     ]
     .into_iter()

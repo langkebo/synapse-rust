@@ -68,6 +68,7 @@ mod tests {
             status: None,
             reference_image: None,
             origin: "example.com".to_string(),
+            stream_ordering: Some(1),
         }
     }
 

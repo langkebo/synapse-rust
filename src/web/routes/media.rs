@@ -1,6 +1,7 @@
 use super::AppState;
 use crate::common::ApiError;
 use crate::web::AuthenticatedUser;
+use super::OptionalAuthenticatedUser;
 use axum::{
     body::Bytes,
     extract::{Json, Path, Query, State},
@@ -71,12 +72,25 @@ fn create_media_r1_router() -> Router<AppState> {
     create_media_legacy_download_router()
 }
 
+fn create_media_authenticated_router() -> Router<AppState> {
+    Router::new()
+        .route("/download/{server_name}/{media_id}", get(download_media_authenticated))
+        .route(
+            "/download/{server_name}/{media_id}/{filename}",
+            get(download_media_authenticated_with_filename),
+        )
+        .route("/thumbnail/{server_name}/{media_id}", get(get_thumbnail_authenticated))
+}
+
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
+    let preview_router = Router::new().route("/preview_url", get(preview_url));
+    let authenticated_media_router = create_media_authenticated_router();
     Router::new()
         .nest("/_matrix/media/v1", create_media_v1_router())
         .nest("/_matrix/media/v3", create_media_v3_router())
         .nest("/_matrix/media/r0", create_media_r0_router())
         .nest("/_matrix/media/r1", create_media_r1_router())
+        .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +148,16 @@ fn media_r1_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     ]
 }
 
+fn media_authenticated_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/download/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+        (Method::GET, "/thumbnail/{server_name}/{media_id}"),
+        (Method::GET, "/preview_url"),
+    ]
+}
+
 pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     let mut out =
@@ -153,6 +177,11 @@ pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
         &["/_matrix/media/r1"],
         &media_r1_relative_routes(),
     ));
+    out.extend(expand_under_prefixes(
+        "media",
+        &["/_matrix/client/v1/media"],
+        &media_authenticated_relative_routes(),
+    ));
     out
 }
 
@@ -163,9 +192,15 @@ async fn upload_media_common(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
+    let content_type = params
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+        })
         .unwrap_or("application/octet-stream");
 
     let filename = params.get("filename").and_then(|v| v.as_str());
@@ -175,6 +210,24 @@ async fn upload_media_common(
         return Err(ApiError::bad_request(
             "No file content provided".to_string(),
         ));
+    }
+
+    let quota_info = state
+        .services
+        .media_quota_service
+        .get_user_quota(user_id)
+        .await?;
+
+    if quota_info.max_storage_bytes > 0 {
+        let new_total = quota_info.current_storage_bytes + content_bytes.len() as i64;
+        if new_total > quota_info.max_storage_bytes {
+            return Err(ApiError::bad_request(format!(
+                "Media quota exceeded: {} bytes used, {} bytes limit, {} bytes would be added",
+                quota_info.current_storage_bytes,
+                quota_info.max_storage_bytes,
+                content_bytes.len()
+            )));
+        }
     }
 
     Ok(Json(
@@ -202,9 +255,15 @@ async fn upload_media_with_id_common(
         )));
     }
 
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
+    let content_type = params
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+        })
         .unwrap_or("application/octet-stream");
 
     let filename = params.get("filename").and_then(|v| v.as_str());
@@ -237,7 +296,7 @@ async fn download_media_common(
     state: &AppState,
     server_name: &str,
     media_id: &str,
-) -> Result<(String, Vec<u8>), ApiError> {
+) -> Result<(String, Vec<u8>, Option<String>), ApiError> {
     ensure_local_media_server_name(state, server_name)?;
 
     let content = state
@@ -246,23 +305,33 @@ async fn download_media_common(
         .download_media(server_name, media_id)
         .await?;
 
-    // 媒体在磁盘上的文件名是 "<media_id>.<ext>",由上传时根据真实 Content-Type 派生。
-    // 所以正确的做法是从这个文件名而不是不带扩展名的 media_id 上猜 MIME。
-    // 之前直接 guess_content_type(media_id) 会让所有文件都落到 octet-stream 默认值,
-    // 进而触发 build_media_headers 的非白名单分支,把图片也强制改成 attachment 下载。
-    let stored_filename = state
+    let metadata = state
         .services
         .media_service
         .get_media_metadata(server_name, media_id)
         .await
-        .and_then(|m| {
-            m.get("filename")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
+        .unwrap_or(serde_json::Value::Null);
+
+    let stored_content_type = metadata
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let stored_filename = metadata
+        .get("filename")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let content_type = stored_content_type
+        .or_else(|| {
+            let guess_src = stored_filename.as_deref().unwrap_or(media_id);
+            Some(guess_content_type(guess_src, &content).to_string())
         })
-        .unwrap_or_else(|| media_id.to_string());
-    let content_type = guess_content_type(&stored_filename).to_string();
-    Ok((content_type, content))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    Ok((content_type, content, stored_filename))
 }
 
 fn media_response_headers(
@@ -332,6 +401,19 @@ fn sanitize_attachment_filename(filename: &str) -> String {
         .to_string()
 }
 
+fn encode_rfc5987(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~') {
+                c.to_string()
+            } else {
+                format!("{}{:02X}", "%", c as u32)
+            }
+        })
+        .collect()
+}
+
 fn build_media_headers(
     content_type: String,
     content_length: usize,
@@ -352,7 +434,7 @@ fn build_media_headers(
     let (final_type, disposition_kind) = if inline_safe {
         (content_type, "inline")
     } else {
-        ("application/octet-stream".to_string(), "attachment")
+        (content_type, "attachment")
     };
 
     let disposition = match filename {
@@ -361,7 +443,8 @@ fn build_media_headers(
             if safe.is_empty() {
                 disposition_kind.to_string()
             } else {
-                format!("{}; filename=\"{}\"", disposition_kind, safe)
+                let encoded = encode_rfc5987(&safe);
+                format!("{}; filename=\"{}\"; filename*=UTF-8''{}", disposition_kind, safe, encoded)
             }
         }
         _ => disposition_kind.to_string(),
@@ -513,8 +596,8 @@ async fn download_media(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content) = download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len(), None);
+    let (content_type, content, stored_filename) = download_media_common(&state, &server_name, &media_id).await?;
+    let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
     Ok((StatusCode::OK, headers, content))
 }
 
@@ -522,9 +605,58 @@ async fn download_media_with_filename(
     State(state): State<AppState>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content) = download_media_common(&state, &server_name, &media_id).await?;
+    let (content_type, content, _) = download_media_common(&state, &server_name, &media_id).await?;
     let headers = media_response_headers(content_type, content.len(), Some(&filename));
     Ok((StatusCode::OK, headers, content))
+}
+
+async fn download_media_authenticated(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((server_name, media_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let (content_type, content, stored_filename) = download_media_common(&state, &server_name, &media_id).await?;
+    let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
+    Ok((StatusCode::OK, headers, content))
+}
+
+async fn download_media_authenticated_with_filename(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((server_name, media_id, filename)): Path<(String, String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let (content_type, content, _) = download_media_common(&state, &server_name, &media_id).await?;
+    let headers = media_response_headers(content_type, content.len(), Some(&filename));
+    Ok((StatusCode::OK, headers, content))
+}
+
+async fn get_thumbnail_authenticated(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path((server_name, media_id)): Path<(String, String)>,
+    Query(params): Query<Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    ensure_local_media_server_name(&state, &server_name)?;
+
+    let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
+    let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
+    let method = params
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("scale");
+
+    match state
+        .services
+        .media_service
+        .get_thumbnail(&server_name, &media_id, width, height, method)
+        .await
+    {
+        Ok(content) => {
+            let headers = media_response_headers("image/jpeg".to_string(), content.len(), None);
+            Ok((StatusCode::OK, headers, content))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 async fn _preview_url(
@@ -588,8 +720,8 @@ async fn download_media_v1(
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match download_media_common(&state, &server_name, &media_id).await {
-        Ok((content_type, content)) => {
-            let headers = media_response_headers(content_type, content.len(), None);
+        Ok((content_type, content, stored_filename)) => {
+            let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
             (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),
@@ -601,7 +733,7 @@ async fn download_media_v1_with_filename(
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match download_media_common(&state, &server_name, &media_id).await {
-        Ok((content_type, content)) => {
+        Ok((content_type, content, _)) => {
             let headers = media_response_headers(content_type, content.len(), Some(&filename));
             (StatusCode::OK, headers, content)
         }
@@ -609,7 +741,11 @@ async fn download_media_v1_with_filename(
     }
 }
 
-fn guess_content_type(filename: &str) -> &'static str {
+fn guess_content_type(filename: &str, data: &[u8]) -> &'static str {
+    if let Some(kind) = infer::get(data) {
+        return kind.mime_type();
+    }
+
     let ext = filename.rsplit('.').next().unwrap_or("");
     match ext {
         "jpg" | "jpeg" => "image/jpeg",
@@ -623,18 +759,30 @@ fn guess_content_type(filename: &str) -> &'static str {
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
         "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" | "mjs" => "application/javascript",
         _ => "application/octet-stream",
     }
 }
 
 async fn preview_url(
     State(state): State<AppState>,
+    _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let url = params
         .get("url")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
+
+    let blacklist = &state.services.config.url_preview.ip_range_blacklist;
+    if let Err(e) = crate::common::security::check_url_against_blacklist(url, blacklist) {
+        return Err(ApiError::forbidden(format!("URL not allowed: {}", e)));
+    }
 
     let ts = params
         .get("ts")

@@ -3,6 +3,27 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistrationTokenCursor {
+    pub created_ts: i64,
+    pub id: i64,
+}
+
+pub fn encode_registration_token_cursor(cursor: &RegistrationTokenCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.id)
+}
+
+pub fn decode_registration_token_cursor(cursor: Option<&str>) -> Option<RegistrationTokenCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.split('|');
+    let created_ts = parts.next()?.parse::<i64>().ok()?;
+    let id = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(RegistrationTokenCursor { created_ts, id })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RegistrationToken {
     pub id: i64,
@@ -343,19 +364,79 @@ impl RegistrationTokenStorage {
     pub async fn get_all_tokens(
         &self,
         limit: i64,
-        offset: i64,
-    ) -> Result<Vec<RegistrationToken>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RegistrationToken>(
-            "SELECT * FROM registration_tokens ORDER BY created_ts DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&*self.pool)
-        .await?;
+        from: Option<RegistrationTokenCursor>,
+    ) -> Result<(Vec<RegistrationToken>, Option<String>), sqlx::Error> {
+        let rows = if let Some(cursor) = from {
+            sqlx::query_as::<_, RegistrationToken>(
+                "SELECT * FROM registration_tokens \
+                 WHERE (created_ts, id) < ($1, $2) \
+                 ORDER BY created_ts DESC, id DESC \
+                 LIMIT $3",
+            )
+            .bind(cursor.created_ts)
+            .bind(cursor.id)
+            .bind(limit + 1)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, RegistrationToken>(
+                "SELECT * FROM registration_tokens \
+                 ORDER BY created_ts DESC, id DESC \
+                 LIMIT $1",
+            )
+            .bind(limit + 1)
+            .fetch_all(&*self.pool)
+            .await?
+        };
 
-        Ok(rows)
+        let next_batch = if rows.len() > limit as usize {
+            rows.get(limit as usize).map(|last_token| {
+                encode_registration_token_cursor(&RegistrationTokenCursor {
+                    created_ts: last_token.created_ts,
+                    id: last_token.id,
+                })
+            })
+        } else {
+            None
+        };
+
+        let rows = rows.into_iter().take(limit as usize).collect();
+
+        Ok((rows, next_batch))
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{
+        decode_registration_token_cursor, encode_registration_token_cursor,
+        RegistrationTokenCursor,
+    };
+
+    #[test]
+    fn registration_token_cursor_round_trip() {
+        let cursor = RegistrationTokenCursor {
+            created_ts: 1_746_700_000_000,
+            id: 42,
+        };
+
+        let encoded = encode_registration_token_cursor(&cursor);
+        assert_eq!(
+            decode_registration_token_cursor(Some(&encoded)),
+            Some(cursor)
+        );
     }
 
+    #[test]
+    fn registration_token_cursor_rejects_invalid_values() {
+        assert_eq!(decode_registration_token_cursor(None), None);
+        assert_eq!(decode_registration_token_cursor(Some("bad")), None);
+        assert_eq!(decode_registration_token_cursor(Some("123|")), None);
+        assert_eq!(decode_registration_token_cursor(Some("123|456|789")), None);
+    }
+}
+
+impl RegistrationTokenStorage {
     pub async fn get_active_tokens(&self) -> Result<Vec<RegistrationToken>, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 

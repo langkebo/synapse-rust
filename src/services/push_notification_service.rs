@@ -1,8 +1,8 @@
 use crate::common::error::ApiError;
 use crate::services::push::gateway::PushGateway;
 use crate::services::push::providers::{
-    ApnsProvider, FcmProvider, NotificationPayload as ProviderPayload, PushProvider, PushResult,
-    WebPushProvider,
+    ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload,
+    PushProvider, PushResult, WebPushProvider,
 };
 use crate::services::push::queue::{PushQueue, QueueConfig};
 use crate::storage::push_notification::*;
@@ -35,12 +35,6 @@ pub struct NotificationPayload {
     pub room_name: Option<String>,
     pub sender: Option<String>,
     pub counts: Option<NotificationCounts>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NotificationCounts {
-    pub unread: u32,
-    pub missed_calls: u32,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

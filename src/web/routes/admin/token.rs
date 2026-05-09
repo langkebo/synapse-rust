@@ -1,7 +1,9 @@
+use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
+use crate::storage::registration_token::decode_registration_token_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -115,35 +117,54 @@ pub struct UpdateTokenRequest {
     pub expiry_time: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RegistrationTokenListQuery {
+    pub limit: Option<i64>,
+    pub from: Option<String>,
+}
+
 #[axum::debug_handler]
 pub async fn get_registration_tokens(
     _admin: AdminUser,
     State(state): State<AppState>,
+    Query(query): Query<RegistrationTokenListQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let tokens = sqlx::query(
-        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens ORDER BY created_ts DESC"
-    )
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let limit = query
+        .limit
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let from = decode_registration_token_cursor(query.from.as_deref());
+
+    if query.from.is_some() && from.is_none() {
+        return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+
+    let (tokens, next_batch) = state
+        .services
+        .registration_token_service
+        .get_all_tokens(limit, from)
+        .await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
         .map(|row| {
-            let max_uses = row.get::<i32, _>("max_uses");
+            let max_uses = row.max_uses;
             let uses_allowed = if max_uses == 0 { None } else { Some(max_uses) };
             json!({
-                "token": row.get::<Option<String>, _>("token"),
+                "token": row.token,
                 "uses_allowed": uses_allowed,
                 "pending": 0,
-                "completed": row.get::<i32, _>("uses_count"),
-                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts")
+                "completed": row.uses_count,
+                "expiry_time": row.expires_at,
+                "created_ts": row.created_ts
             })
         })
         .collect();
 
-    Ok(Json(json!({ "registration_tokens": token_list })))
+    Ok(Json(json!({
+        "registration_tokens": token_list,
+        "next_batch": next_batch
+    })))
 }
 
 #[axum::debug_handler]

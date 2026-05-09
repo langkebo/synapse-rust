@@ -2,7 +2,7 @@ use super::route_ledger::{RouteEntry, RouteLedger};
 use super::route_module::{route_modules, ProfileFlags};
 use super::{
     account_data, background_update, captcha, device, dm, e2ee_routes, ephemeral, event_report,
-    feature_flags, guest, key_backup, key_rotation, media, moderation, presence, push,
+    feature_flags, guest, handlers, key_backup, key_rotation, media, moderation, presence, push,
     push_notification, reactions, relations, rendezvous, room_summary, sliding_sync, space, sync,
     tags, telemetry, thirdparty, typing, verification_routes, worker, *,
 };
@@ -139,6 +139,10 @@ fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (
             Method::GET,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+        ),
+        (
+            Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
         ),
         (
             Method::PUT,
@@ -407,6 +411,33 @@ async fn put_dehydrated_device(
     auth_user: AuthenticatedUser,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // P0: Precondition checks (MSC3814)
+    // 1. Check if user has cross-signing keys
+    let cs_status = state
+        .services
+        .cross_signing_service
+        .get_user_verification_status(&auth_user.user_id)
+        .await?;
+    if !cs_status.has_master_key {
+        return Err(ApiError::forbidden(
+            "Cross-signing keys not found. Please initialize cross-signing before creating a dehydrated device."
+                .to_string(),
+        ));
+    }
+
+    // 2. Check if user has SSSS keys
+    let ssss_keys = state
+        .services
+        .ssss_service
+        .get_all_keys(&auth_user.user_id)
+        .await?;
+    if ssss_keys.is_empty() {
+        return Err(ApiError::forbidden(
+            "Secret storage keys not found. Please initialize secret storage (SSSS) before creating a dehydrated device."
+                .to_string(),
+        ));
+    }
+
     let device_id = state
         .services
         .dehydrated_device_service
@@ -416,6 +447,18 @@ async fn put_dehydrated_device(
     Ok(Json(json!({
         "device_id": device_id
     })))
+}
+
+async fn get_dehydrated_device_status(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let status = state
+        .services
+        .dehydrated_device_service
+        .get_status(&auth_user.user_id)
+        .await?;
+    Ok(Json(status))
 }
 
 async fn delete_dehydrated_device(
@@ -671,6 +714,10 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(delete_dehydrated_device),
         )
         .route(
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
+            get(get_dehydrated_device_status),
+        )
+        .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
             post(post_dehydrated_device_events),
         )
@@ -742,15 +789,19 @@ pub fn create_router(state: AppState) -> Router {
             state.clone(),
         ))
         .merge(create_rendezvous_router(state.clone()))
-        .merge(create_presence_router())
-        .nest(
-            "/_matrix/client/v1/ai",
-            create_ai_connection_router().with_state(state.clone()),
-        )
-        .nest(
-            "/_matrix/client/v3/ai",
-            create_ai_connection_router().with_state(state.clone()),
-        );
+        .merge(create_presence_router());
+    #[cfg(feature = "openclaw-routes")]
+    {
+        router = router
+            .nest(
+                "/_matrix/client/v1/ai",
+                create_ai_connection_router().with_state(state.clone()),
+            )
+            .nest(
+                "/_matrix/client/v3/ai",
+                create_ai_connection_router().with_state(state.clone()),
+            );
+    }
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))

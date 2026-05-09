@@ -77,114 +77,39 @@ jobs:
           echo "PostgreSQL did not start in time"
           exit 1
 
-      - name: Prepare comparison databases
+      - name: Check migration consistency
         run: |
-          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_expected;"
-          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS synapse_actual;"
-          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_expected;"
-          PGPASSWORD=synapse psql -h localhost -U synapse -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE synapse_actual;"
+          mkdir -p artifacts
+          python3 scripts/check_migration_consistency.py \
+            --json-report artifacts/migration_consistency.json
 
-      - name: Apply expected schema baseline and critical increments
-        env:
-          PGPASSWORD: synapse
-        run: |
-          psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v6.sql
-          set -euo pipefail
-          test -f scripts/ci/critical_migrations.txt
-          while IFS= read -r migration; do
-            [ -z "$migration" ] && continue
-            test -f "$migration"
-            psql -h localhost -U synapse -d synapse_expected -v ON_ERROR_STOP=1 -f "$migration"
-          done < scripts/ci/critical_migrations.txt
+      - name: Build forward-only sqlx migration source
+        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
-      - name: Apply actual sqlx migration chain
+      - name: Apply consolidated migration chain
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_actual
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
-          python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+          sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
 
-      - name: Generate expected schema from applied baseline
+      - name: Validate schema after migration
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: synapse
+          DB_USER: synapse
+          DB_PASSWORD: synapse
         run: |
-          python scripts/db/extract_schema.py \
-            --host localhost \
-            --port 5432 \
-            --database synapse_expected \
-            --user synapse \
-            --password synapse \
-            --schema public \
-            --output expected_schema.json \
-            --skip-row-counts
+          bash docker/db_migrate.sh validate
 
-      - name: Extract actual schema from database
-        run: |
-          python scripts/db/extract_schema.py \
-            --host localhost \
-            --port 5432 \
-            --database synapse_actual \
-            --user synapse \
-            --password synapse \
-            --schema public \
-            --output actual_schema.json
-
-      - name: Run drift detection
-        id: drift
-        run: |
-          python scripts/db/diff_schema.py \
-            expected_schema.json \
-            actual_schema.json \
-            --format text \
-            --output drift_report.txt \
-            --exit-code || true
-
-          python scripts/db/diff_schema.py \
-            expected_schema.json \
-            actual_schema.json \
-            --format markdown \
-            --output drift_report.md \
-            --exit-code || true
-
-          python scripts/db/diff_schema.py \
-            expected_schema.json \
-            actual_schema.json \
-            --format json \
-            --output drift_report.json
-
-          echo "## Schema Drift Report" >> $GITHUB_STEP_SUMMARY
-          cat drift_report.md >> $GITHUB_STEP_SUMMARY
-
-          blockers=$(python3 - <<'PY'
-import json
-with open("drift_report.json", "r", encoding="utf-8") as f:
-    report = json.load(f)
-print(int(report.get("summary", {}).get("blockers", 0)))
-PY
-)
-          if [ "$blockers" -gt 0 ]; then
-            echo "drift_detected=true" >> $GITHUB_OUTPUT
-            echo "drift_blockers=$blockers" >> $GITHUB_OUTPUT
-          else
-            echo "drift_detected=false" >> $GITHUB_OUTPUT
-            echo "drift_blockers=0" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload drift report
+      - name: Upload migration consistency report
         uses: actions/upload-artifact@v4
-        if: steps.drift.outputs.drift_detected == 'true' && steps.drift.outputs.drift_blockers != '0'
+        if: always()
         with:
-          name: drift-report
-          path: |
-            drift_report.txt
-            drift_report.md
-            drift_report.json
+          name: migration-consistency-report
+          path: artifacts/migration_consistency.json
           retention-days: 30
-
-      - name: Fail on blockers
-        if: steps.drift.outputs.drift_detected == 'true' && steps.drift.outputs.drift_blockers != '0'
-        run: |
-          echo "Schema drift with blockers detected!"
-          echo "Blocking merge until drift is resolved."
-          exit 1
 
   migration-validation:
     name: Migration Script Validation

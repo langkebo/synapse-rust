@@ -2,6 +2,7 @@ use crate::common::background_job::BackgroundJob;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
 use crate::services::*;
+use sqlx::PgPool;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -50,6 +51,7 @@ pub struct MediaService {
     task_queue: Option<Arc<RedisTaskQueue>>,
     default_thumbnail_configs: Vec<ThumbnailConfig>,
     server_name: String,
+    pool: Option<Arc<PgPool>>,
 }
 
 impl MediaService {
@@ -79,6 +81,15 @@ impl MediaService {
         media_path: &str,
         task_queue: Option<Arc<RedisTaskQueue>>,
         server_name: &str,
+    ) -> Self {
+        Self::with_pool(media_path, task_queue, server_name, None)
+    }
+
+    pub fn with_pool(
+        media_path: &str,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+        server_name: &str,
+        pool: Option<Arc<PgPool>>,
     ) -> Self {
         let path = PathBuf::from(media_path);
         let thumbnail_path = path.join("thumbnails");
@@ -144,6 +155,7 @@ impl MediaService {
             task_queue,
             default_thumbnail_configs,
             server_name: server_name.to_string(),
+            pool,
         }
     }
 
@@ -152,10 +164,10 @@ impl MediaService {
         user_id: &str,
         content: &[u8],
         content_type: &str,
-        _filename: Option<&str>,
+        filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let media_id = random_string(32);
-        self.store_media_with_id(user_id, &media_id, content, content_type)
+        self.store_media_with_id(user_id, &media_id, content, content_type, filename)
             .await
     }
 
@@ -165,10 +177,10 @@ impl MediaService {
         media_id: &str,
         content: &[u8],
         content_type: &str,
-        _filename: Option<&str>,
+        filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         Self::validate_media_id(media_id)?;
-        self.store_media_with_id(user_id, media_id, content, content_type)
+        self.store_media_with_id(user_id, media_id, content, content_type, filename)
             .await
     }
 
@@ -178,13 +190,23 @@ impl MediaService {
         media_id: &str,
         content: &[u8],
         content_type: &str,
+        filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let extension = self.get_extension_from_content_type(content_type);
-        let user_id_encoded = user_id
-            .replace('@', "_at_")
-            .replace(':', "_col_")
-            .replace('.', "_dot_");
-        let file_name = format!("{}.{}.{}", media_id, user_id_encoded, extension);
+        let file_name = if let Some(fname) = filename {
+            let safe: String = fname
+                .chars()
+                .filter(|c: &char| !c.is_control() && *c != '\0' && *c != '/' && *c != '\\')
+                .take(200)
+                .collect::<String>();
+            if safe.is_empty() {
+                format!("{}.{}", media_id, extension)
+            } else {
+                format!("{}_{}", media_id, safe)
+            }
+        } else {
+            format!("{}.{}", media_id, extension)
+        };
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
 
@@ -246,6 +268,29 @@ impl MediaService {
 
         ::tracing::info!("Successfully saved media file: {}", file_name);
 
+        if let Some(pool) = &self.pool {
+            let now = chrono::Utc::now().timestamp_millis();
+            if let Err(e) = sqlx::query(
+                r#"
+                INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (media_id) DO UPDATE SET content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name, size = EXCLUDED.size
+                "#,
+            )
+            .bind(media_id)
+            .bind(&self.server_name)
+            .bind(content_type)
+            .bind(filename.unwrap_or(&file_name))
+            .bind(content.len() as i64)
+            .bind(user_id)
+            .bind(now)
+            .execute(pool.as_ref())
+            .await
+            {
+                ::tracing::warn!("Failed to store media metadata in DB: {}", e);
+            }
+        }
+
         if let Some(queue) = &self.task_queue {
             let job = BackgroundJob::ProcessMedia {
                 file_id: file_name.clone(),
@@ -263,14 +308,9 @@ impl MediaService {
 
         let media_url = format!("mxc://{}/{}", self.server_name, media_id);
 
-        let json_metadata = serde_json::json!({
-            "content_uri": media_url,
-            "content_type": content_type,
-            "size": content.len(),
-            "media_id": media_id
-        });
-
-        Ok(json_metadata)
+        Ok(serde_json::json!({
+            "content_uri": media_url
+        }))
     }
 
     async fn find_media_file_name(&self, media_id: &str) -> ApiResult<Option<String>> {
@@ -346,8 +386,10 @@ impl MediaService {
 
         let original_content = self.download_media(_server_name, media_id).await?;
 
-        let thumbnail =
-            self.generate_thumbnail(&original_content, width, height, thumbnail_method)?;
+        let thumbnail = match self.generate_thumbnail(&original_content, width, height, thumbnail_method) {
+            Ok(t) => t,
+            Err(_) => return Ok(original_content),
+        };
 
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
             ::tracing::warn!("Failed to cache thumbnail {}: {}", thumbnail_filename, e);
@@ -477,6 +519,26 @@ impl MediaService {
         if Self::validate_media_id(media_id).is_err() {
             return None;
         }
+
+        if let Some(pool) = &self.pool {
+            if let Ok(row) = sqlx::query_as::<_, (String, Option<String>, i64)>(
+                r#"SELECT content_type, file_name, size FROM media_metadata WHERE media_id = $1"#,
+            )
+            .bind(media_id)
+            .fetch_optional(pool.as_ref())
+            .await
+            {
+                if let Some((content_type, file_name, size)) = row {
+                    return Some(serde_json::json!({
+                        "media_id": media_id,
+                        "content_type": content_type,
+                        "filename": file_name,
+                        "size": size
+                    }));
+                }
+            }
+        }
+
         let media_path = self.media_path.clone();
         let media_id = media_id.to_string();
 

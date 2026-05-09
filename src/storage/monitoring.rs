@@ -1,3 +1,4 @@
+use deadpool_redis::Pool as RedisPool;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
@@ -28,6 +29,8 @@ pub struct PerformanceMetrics {
     pub transactions_per_second: f64,
     pub cache_hit_ratio: f64,
     pub deadlock_count: u64,
+    pub redis_latency_ms: f64,
+    pub redis_slow_commands_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -82,13 +85,15 @@ pub struct VacuumStats {
 
 pub struct DatabaseMonitor {
     pool: Pool<Postgres>,
+    redis_pool: Option<RedisPool>,
     max_connections: u32,
 }
 
 impl DatabaseMonitor {
-    pub fn new(pool: Pool<Postgres>, max_connections: u32) -> Self {
+    pub fn new(pool: Pool<Postgres>, redis_pool: Option<RedisPool>, max_connections: u32) -> Self {
         Self {
             pool,
+            redis_pool,
             max_connections,
         }
     }
@@ -139,46 +144,138 @@ impl DatabaseMonitor {
     }
 
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
-        let tps = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0) \
+        let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
+            "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
+                    COALESCE(blks_hit, 0), COALESCE(blks_read, 0), COALESCE(deadlocks, 0), \
+                    stats_reset \
              FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
         )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or((0, 0));
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or((0, 0, 0, 0, 0, None));
 
-        let cache = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT COALESCE(blks_hit, 0), COALESCE(blks_read, 0) \
-             FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or((0, 0));
-
-        let cache_hit_ratio = if cache.0 + cache.1 > 0 {
-            cache.0 as f64 / (cache.0 + cache.1) as f64
+        let cache_hit_ratio = if db_stats.2 + db_stats.3 > 0 {
+            db_stats.2 as f64 / (db_stats.2 + db_stats.3) as f64
         } else {
             0.0
         };
 
+        let total_transactions = db_stats.0 + db_stats.1;
+        let stats_window_seconds = db_stats
+            .5
+            .map(|stats_reset| (Utc::now() - stats_reset).num_seconds().max(1) as f64)
+            .unwrap_or(60.0);
+
+        let pg_stat_statements_enabled = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false);
+
+        let (average_query_time_ms, slow_queries_count, total_queries) = if pg_stat_statements_enabled {
+            sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
+                "SELECT AVG(mean_exec_time), \
+                        COUNT(*) FILTER (WHERE mean_exec_time >= 1000.0), \
+                        SUM(calls) \
+                 FROM pg_stat_statements \
+                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map(|(avg, slow, total)| {
+                (
+                    avg.unwrap_or(0.0),
+                    slow.unwrap_or(0) as u64,
+                    total.unwrap_or(total_transactions) as u64,
+                )
+            })
+            .unwrap_or((0.0, 0, total_transactions as u64))
+        } else {
+            (0.0, 0, total_transactions as u64)
+        };
+
+        let (redis_latency_ms, redis_slow_commands_count) = if let Some(redis_pool) = &self.redis_pool {
+            let mut conn = redis_pool.get().await.map_err(|_e| sqlx::Error::PoolTimedOut)?; // Simplified error handling
+            let latency: Result<Option<i64>, _> = redis::cmd("LATENCY")
+                .arg("LATEST")
+                .query_async(&mut *conn)
+                .await;
+            let slowlog_len: Result<u64, _> = redis::cmd("SLOWLOG")
+                .arg("LEN")
+                .query_async(&mut *conn)
+                .await;
+
+            (
+                latency.unwrap_or(None).unwrap_or(0) as f64,
+                slowlog_len.unwrap_or(0),
+            )
+        } else {
+            (0.0, 0)
+        };
+
         Ok(PerformanceMetrics {
-            average_query_time_ms: 0.0,
-            slow_queries_count: 0,
-            total_queries: tps.0 as u64,
-            transactions_per_second: tps.0 as f64 / 60.0,
+            average_query_time_ms,
+            slow_queries_count,
+            total_queries,
+            transactions_per_second: total_transactions as f64 / stats_window_seconds,
             cache_hit_ratio,
-            deadlock_count: 0,
+            deadlock_count: db_stats.4 as u64,
+            redis_latency_ms,
+            redis_slow_commands_count,
         })
     }
 
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
+        let mut foreign_key_violations = Vec::new();
+        let mut orphaned_records = Vec::new();
+        let duplicate_entries = Vec::new();
+        let null_constraint_violations = Vec::new();
+
+        // 1. 检查核心外键约束 (示例：events -> rooms)
+        let orphans = sqlx::query_as::<_, (String, String, i64, String)>(
+            r#"
+            SELECT 'events' as table_name, 'room_id' as column_name, 0 as violating_row_id, 'rooms' as referenced_table
+            FROM events e
+            WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
+            LIMIT 10
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        for (table, col, _id, ref_table) in orphans {
+            foreign_key_violations.push(ForeignKeyViolation {
+                table_name: table,
+                column_name: col,
+                violating_row_id: 0,
+                referenced_table: ref_table,
+            });
+        }
+
+        // 2. 检查孤立记录 (示例：room_memberships -> users)
+        let member_orphans: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM room_memberships m WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if member_orphans > 0 {
+            orphaned_records.push(OrphanedRecord {
+                table_name: "room_memberships".to_string(),
+                column_name: "user_id".to_string(),
+                orphan_count: member_orphans,
+                sample_orphans: vec![],
+            });
+        }
+
         let report = DataIntegrityReport {
             check_timestamp: Utc::now(),
-            foreign_key_violations: Vec::new(),
-            orphaned_records: Vec::new(),
-            duplicate_entries: Vec::new(),
-            null_constraint_violations: Vec::new(),
-            overall_integrity_score: 100.0,
+            foreign_key_violations,
+            orphaned_records,
+            duplicate_entries,
+            null_constraint_violations,
+            overall_integrity_score: if member_orphans == 0 { 100.0 } else { 90.0 },
         };
         Ok(report)
     }

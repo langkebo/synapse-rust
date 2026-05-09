@@ -17,7 +17,9 @@ use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
     pub limit: Option<i64>,
-    pub offset: Option<i64>,
+    pub since_score: Option<i32>,
+    pub since_ts: Option<i64>,
+    pub since_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -213,12 +215,11 @@ pub async fn get_reports_by_room(
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
     let reports = state
         .services
         .event_report_service
-        .get_reports_by_room(&room_id, limit, offset)
+        .get_reports_by_room(&room_id, limit, query.since_ts, query.since_id)
         .await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
@@ -233,12 +234,11 @@ pub async fn get_reports_by_reporter(
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
     let reports = state
         .services
         .event_report_service
-        .get_reports_by_reporter(&reporter_user_id, limit, offset)
+        .get_reports_by_reporter(&reporter_user_id, limit, query.since_ts, query.since_id)
         .await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
@@ -253,12 +253,17 @@ pub async fn get_reports_by_status(
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
     let reports = state
         .services
         .event_report_service
-        .get_reports_by_status(&status, limit, offset)
+        .get_reports_by_status(
+            &status,
+            limit,
+            query.since_score,
+            query.since_ts,
+            query.since_id,
+        )
         .await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
@@ -272,12 +277,11 @@ pub async fn get_all_reports(
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
 
     let reports = state
         .services
         .event_report_service
-        .get_all_reports(limit, offset)
+        .get_all_reports(limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();

@@ -1,13 +1,16 @@
 use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
+use crate::common::ApiError;
+use crate::services::uia_service::UiaService;
 use axum::{
     extract::{Path, Query, State},
-    http::Method,
+    http::{Method, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use validator::Validate;
 
 /// Nest prefixes under which `create_key_backup_router` mounts its internal
@@ -180,17 +183,100 @@ pub struct UpdateBackupVersionBody {
 async fn create_backup_version(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateBackupVersionBody>,
-) -> Result<Json<Value>, crate::error::ApiError> {
-    if let Err(e) = body.validate() {
-        return Err(crate::error::ApiError::bad_request(e.to_string()));
+    Json(body): Json<Value>,
+) -> Result<axum::response::Response, ApiError> {
+    let auth = body.get("auth");
+
+    match auth {
+        None => {
+            let session = state
+                .services
+                .uia_service
+                .create_session(&auth_user.user_id, UiaService::get_default_flows())
+                .await;
+            return Ok((
+                StatusCode::UNAUTHORIZED,
+                Json(state.services.uia_service.build_uia_response(
+                    &session,
+                    "M_UIA_REQUIRED",
+                    "User-Interactive Authentication required",
+                )),
+            )
+                .into_response());
+        }
+        Some(auth_val) => {
+            let result = state
+                .services
+                .uia_service
+                .validate_auth(auth_val, &auth_user.user_id, UiaService::get_default_flows())
+                .await;
+
+            match result {
+                Ok(_) => {}
+                Err(uia_response) => {
+                    return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+                }
+            }
+
+            let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match auth_type {
+                "m.login.password" => {
+                    if let Err(e) = state
+                        .services
+                        .uia_service
+                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .await
+                    {
+                        let session = state
+                            .services
+                            .uia_service
+                            .create_session(&auth_user.user_id, UiaService::get_default_flows())
+                            .await;
+                        return Ok((
+                            StatusCode::UNAUTHORIZED,
+                            Json(state.services.uia_service.build_uia_response(
+                                &session,
+                                "M_FORBIDDEN",
+                                &e.to_string(),
+                            )),
+                        )
+                            .into_response());
+                    }
+                }
+                "m.login.token" => {}
+                _ => {
+                    let session = state
+                        .services
+                        .uia_service
+                        .create_session(&auth_user.user_id, UiaService::get_default_flows())
+                        .await;
+                    return Ok((
+                        StatusCode::UNAUTHORIZED,
+                        Json(state.services.uia_service.build_uia_response(
+                            &session,
+                            "M_UIA_REQUIRED",
+                            "Unsupported authentication type",
+                        )),
+                    )
+                        .into_response());
+                }
+            }
+        }
     }
 
     let algorithm = body
-        .algorithm
-        .as_deref()
+        .get("algorithm")
+        .and_then(|v| v.as_str())
         .unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
-    let auth_data = body.auth_data;
+    let auth_data = body.get("auth_data").cloned();
+
+    if let Some(ref data) = auth_data {
+        if data.get("public_key").is_none() {
+            return Err(ApiError::bad_request(
+                "auth_data must contain public_key".to_string(),
+            ));
+        }
+    }
 
     let version = state
         .services
@@ -198,9 +284,9 @@ async fn create_backup_version(
         .create_backup(&auth_user.user_id, algorithm, auth_data)
         .await?;
 
-    Ok(Json(serde_json::json!({
+    Ok(Json(json!({
         "version": version
-    })))
+    })).into_response())
 }
 
 #[axum::debug_handler]
@@ -960,7 +1046,7 @@ async fn export_keys_by_version(
     let backup_keys = state
         .services
         .backup_service
-        .get_all_backup_keys(&auth_user.user_id)
+        .get_keys_for_version(&auth_user.user_id, &version)
         .await?;
 
     let mut room_keys = Vec::new();
@@ -1022,7 +1108,10 @@ async fn import_keys(
                 session_id: session_id.to_string(),
                 session_data: session_data.to_string(),
                 version: version.to_string(),
-                is_verified: true,
+                is_verified: key_data
+                    .get("is_verified")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
                 first_message_index: key_data
                     .get("first_message_index")
                     .and_then(|v| v.as_i64())
@@ -1094,7 +1183,10 @@ async fn import_keys_by_version(
                 session_id: session_id.to_string(),
                 session_data: session_data.to_string(),
                 version: version.clone(),
-                is_verified: true,
+                is_verified: key_data
+                    .get("is_verified")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
                 first_message_index: key_data
                     .get("first_message_index")
                     .and_then(|v| v.as_i64())
