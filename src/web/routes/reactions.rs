@@ -66,9 +66,7 @@ async fn add_reaction(
     }
 
     // 提取 relates_to 信息
-    let relates_to_value = body
-        .get("m.relates_to")
-        .or_else(|| body.get("relates_to"));
+    let relates_to_value = body.get("m.relates_to").or_else(|| body.get("relates_to"));
     let relates_to = relates_to_value
         .and_then(|v| serde_json::from_value::<RelatesTo>(v.clone()).ok())
         .ok_or_else(|| ApiError::bad_request("Missing m.relates_to".to_string()))?;

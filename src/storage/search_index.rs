@@ -106,7 +106,7 @@ impl SearchIndexStorage {
         Ok(count)
     }
 
-    /// 搜索事件
+    /// 搜索事件（ILIKE + trigram 混合搜索，对齐 thread.rs 最佳实践）
     pub async fn search_events(
         &self,
         query: &SearchQuery,
@@ -119,12 +119,13 @@ impl SearchIndexStorage {
             sqlx::query(
                 "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
                  FROM search_index
-                 WHERE content ILIKE $1
-                   AND (created_ts < $2 OR (created_ts = $2 AND id < $3))
+                 WHERE (content ILIKE $1 OR content % $2)
+                   AND (created_ts < $3 OR (created_ts = $3 AND id < $4))
                  ORDER BY created_ts DESC, id DESC
-                 LIMIT $4",
+                 LIMIT $5",
             )
             .bind(&search_pattern)
+            .bind(&query.search_term)
             .bind(cursor.created_ts)
             .bind(cursor.id)
             .bind(limit + 1)
@@ -134,18 +135,23 @@ impl SearchIndexStorage {
             sqlx::query(
                 "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
                  FROM search_index
-                 WHERE content ILIKE $1
+                 WHERE (content ILIKE $1 OR content % $2)
                  ORDER BY created_ts DESC, id DESC
-                 LIMIT $2",
+                 LIMIT $3",
             )
             .bind(&search_pattern)
+            .bind(&query.search_term)
             .bind(limit + 1)
             .fetch_all(&self.pool)
             .await?
         };
 
         let has_more = rows.len() as i64 > limit;
-        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+        let visible_rows = if has_more {
+            &rows[..limit as usize]
+        } else {
+            &rows[..]
+        };
         let next_batch = if has_more {
             visible_rows.last().map(|row| {
                 encode_search_index_cursor(&SearchIndexCursor {

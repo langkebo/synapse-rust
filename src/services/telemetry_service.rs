@@ -352,7 +352,8 @@ impl TelemetryAlertService {
                     existing.recovered_at = None;
                     existing.trigger_count += 1;
                     if existing.status != TelemetryAlertStatus::Acknowledged {
-                        existing.status = TelemetryAlertService::status_from_severity(&candidate.severity);
+                        existing.status =
+                            TelemetryAlertService::status_from_severity(&candidate.severity);
                     }
                 }
                 None => {

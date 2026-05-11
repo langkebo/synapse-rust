@@ -7,9 +7,9 @@
     "oidc_enabled": false,
     "worker_enabled": false,
     "saml_enabled": false,
-    "openclaw_enabled": true
+    "openclaw_enabled": false
   },
-  "entry_count": 1221,
+  "entry_count": 1148,
   "entries": [
     {
       "method": "GET",
@@ -441,6 +441,12 @@
     {
       "method": "GET",
       "path": "/_matrix/client/r0/friends/requests/outgoing",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/friends/search",
       "registered_by": "friend_room",
       "path_params": []
     },
@@ -1244,15 +1250,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/r0/rooms/{room_id}/call/{call_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "call_id"
-      ]
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/r0/rooms/{room_id}/event/{event_id}",
       "registered_by": "room",
       "path_params": [
@@ -1493,42 +1490,6 @@
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.answer/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
       "path": "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
       "registered_by": "reactions",
       "path_params": [
@@ -1625,6 +1586,31 @@
         "room_id",
         "event_type",
         "state_key"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/rooms/{room_id}/sticky_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/r0/rooms/{room_id}/sticky_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/r0/rooms/{room_id}/sticky_events/{event_type}",
+      "registered_by": "room",
+      "path_params": [
+        "room_id",
+        "event_type"
       ]
     },
     {
@@ -1901,6 +1887,12 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/r0/thirdparty/location",
+      "registered_by": "thirdparty",
+      "path_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/r0/thirdparty/location/{protocol}",
       "registered_by": "thirdparty",
       "path_params": [
@@ -1918,6 +1910,12 @@
     {
       "method": "GET",
       "path": "/_matrix/client/r0/thirdparty/protocols",
+      "registered_by": "thirdparty",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/thirdparty/user",
       "registered_by": "thirdparty",
       "path_params": []
     },
@@ -2117,18 +2115,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/r0/voice/config",
-      "registered_by": "voice",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/r0/voice/upload",
-      "registered_by": "voice",
-      "path_params": []
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/r0/voip/config",
       "registered_by": "assembly::voip_compat",
       "path_params": []
@@ -2182,6 +2168,12 @@
       "path_params": []
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
+      "registered_by": "assembly::create_router",
+      "path_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
       "registered_by": "assembly::create_router",
@@ -2200,174 +2192,6 @@
       "path": "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
       "registered_by": "sliding_sync",
       "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}/test",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/messages/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
-      "registered_by": "openclaw",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-      "registered_by": "openclaw",
-      "path_params": [
-        "id"
-      ]
     },
     {
       "method": "GET",
@@ -2480,6 +2304,46 @@
       "method": "GET",
       "path": "/_matrix/client/v1/account/whoami",
       "registered_by": "assembly::account_compat",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/ai/connections",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/ai/connections",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/v1/ai/connections/{id}",
+      "registered_by": "ai_connection",
+      "path_params": [
+        "id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/ai/connections/{id}",
+      "registered_by": "ai_connection",
+      "path_params": [
+        "id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/ai/mcp/tools",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/ai/mcp/tools/call",
+      "registered_by": "ai_connection",
       "path_params": []
     },
     {
@@ -2607,6 +2471,12 @@
     {
       "method": "GET",
       "path": "/_matrix/client/v1/friends/requests/outgoing",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/friends/search",
       "registered_by": "friend_room",
       "path_params": []
     },
@@ -2849,6 +2719,40 @@
       "path": "/_matrix/client/v1/media/config",
       "registered_by": "assembly::media_config",
       "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/media/download/{server_name}/{media_id}",
+      "registered_by": "media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/media/download/{server_name}/{media_id}/{filename}",
+      "registered_by": "media",
+      "path_params": [
+        "server_name",
+        "media_id",
+        "filename"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/media/preview_url",
+      "registered_by": "media",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}",
+      "registered_by": "media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ]
     },
     {
       "method": "GET",
@@ -3524,22 +3428,6 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/widgets",
-      "registered_by": "widget",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config",
-      "registered_by": "widget",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
       "method": "PUT",
       "path": "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}",
       "registered_by": "e2ee_routes",
@@ -3732,9 +3620,9 @@
       ]
     },
     {
-      "method": "GET",
+      "method": "POST",
       "path": "/_matrix/client/v1/sync",
-      "registered_by": "sync",
+      "registered_by": "sliding_sync",
       "path_params": []
     },
     {
@@ -3779,101 +3667,6 @@
       "registered_by": "app_service",
       "path_params": [
         "user_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/widgets",
-      "registered_by": "widget",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/widgets/sessions/{session_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "session_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/widgets/sessions/{session_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "session_id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/widgets/{widget_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/widgets/{widget_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/widgets/{widget_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/config",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/permissions",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/permissions",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/sessions",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/widgets/{widget_id}/sessions",
-      "registered_by": "widget",
-      "path_params": [
-        "widget_id"
       ]
     },
     {
@@ -3964,6 +3757,46 @@
       "method": "GET",
       "path": "/_matrix/client/v3/account/whoami",
       "registered_by": "assembly::account_compat",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/ai/connections",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/ai/connections",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/v3/ai/connections/{id}",
+      "registered_by": "ai_connection",
+      "path_params": [
+        "id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/ai/connections/{id}",
+      "registered_by": "ai_connection",
+      "path_params": [
+        "id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/ai/mcp/tools",
+      "registered_by": "ai_connection",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/ai/mcp/tools/call",
+      "registered_by": "ai_connection",
       "path_params": []
     },
     {
@@ -4147,6 +3980,12 @@
     {
       "method": "GET",
       "path": "/_matrix/client/v3/friends/requests/outgoing",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/friends/search",
       "registered_by": "friend_room",
       "path_params": []
     },
@@ -4561,6 +4400,24 @@
     },
     {
       "method": "POST",
+      "path": "/_matrix/client/v3/register/captcha/send",
+      "registered_by": "captcha",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/register/captcha/status",
+      "registered_by": "captcha",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/register/captcha/verify",
+      "registered_by": "captcha",
+      "path_params": []
+    },
+    {
+      "method": "POST",
       "path": "/_matrix/client/v3/register/email/requestToken",
       "registered_by": "assembly::auth_compat",
       "path_params": []
@@ -4914,15 +4771,6 @@
       "registered_by": "room",
       "path_params": [
         "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "call_id"
       ]
     },
     {
@@ -5430,42 +5278,6 @@
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}",
-      "registered_by": "assembly::voip_tracking",
-      "path_params": [
-        "room_id",
-        "txn_id"
-      ]
-    },
-    {
-      "method": "PUT",
       "path": "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
       "registered_by": "reactions",
       "path_params": [
@@ -5883,33 +5695,6 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
-      "registered_by": "widget",
-      "path_params": [
-        "room_id",
-        "widget_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
-      "registered_by": "widget",
-      "path_params": [
-        "room_id",
-        "widget_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
-      "registered_by": "widget",
-      "path_params": [
-        "room_id",
-        "widget_id"
-      ]
-    },
-    {
       "method": "POST",
       "path": "/_matrix/client/v3/search",
       "registered_by": "search",
@@ -6129,12 +5914,6 @@
       "method": "GET",
       "path": "/_matrix/client/v3/sync",
       "registered_by": "sync",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/sync",
-      "registered_by": "sliding_sync",
       "path_params": []
     },
     {
@@ -6396,12 +6175,6 @@
       "method": "GET",
       "path": "/_matrix/client/v3/voip/turnServer/guest",
       "registered_by": "assembly::voip_compat",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/widgets/create",
-      "registered_by": "widget",
       "path_params": []
     },
     {
@@ -7028,37 +6801,37 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services",
+      "path": "/_synapse/admin/v1/appservices",
       "registered_by": "app_service",
       "path_params": []
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/application_services",
+      "path": "/_synapse/admin/v1/appservices",
       "registered_by": "app_service",
       "path_params": []
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/query/alias",
+      "path": "/_synapse/admin/v1/appservices/query/alias",
       "registered_by": "app_service",
       "path_params": []
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/query/user",
+      "path": "/_synapse/admin/v1/appservices/query/user",
       "registered_by": "app_service",
       "path_params": []
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/statistics",
+      "path": "/_synapse/admin/v1/appservices/statistics",
       "registered_by": "app_service",
       "path_params": []
     },
     {
       "method": "DELETE",
-      "path": "/_synapse/admin/v1/application_services/{as_id}",
+      "path": "/_synapse/admin/v1/appservices/{as_id}",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7066,7 +6839,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}",
+      "path": "/_synapse/admin/v1/appservices/{as_id}",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7074,7 +6847,7 @@
     },
     {
       "method": "PUT",
-      "path": "/_synapse/admin/v1/application_services/{as_id}",
+      "path": "/_synapse/admin/v1/appservices/{as_id}",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7082,7 +6855,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/events",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/events",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7090,7 +6863,7 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/events",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/events",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7098,7 +6871,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/namespaces",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/namespaces",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7106,7 +6879,7 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/ping",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/ping",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7114,7 +6887,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/state",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/state",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7122,7 +6895,7 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/state",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/state",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7130,7 +6903,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/state/{state_key}",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}",
       "registered_by": "app_service",
       "path_params": [
         "as_id",
@@ -7139,7 +6912,7 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/users",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/users",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7147,7 +6920,7 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/application_services/{as_id}/users",
+      "path": "/_synapse/admin/v1/appservices/{as_id}/users",
       "registered_by": "app_service",
       "path_params": [
         "as_id"
@@ -7316,42 +7089,6 @@
       "path": "/_synapse/admin/v1/captcha/cleanup",
       "registered_by": "captcha",
       "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/cas/services",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/cas/services",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/cas/services/{service_id}",
-      "registered_by": "cas",
-      "path_params": [
-        "service_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
-      ]
     },
     {
       "method": "POST",
@@ -7526,56 +7263,6 @@
       "path": "/_synapse/admin/v1/experimental_features",
       "registered_by": "admin::server",
       "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/external_services",
-      "registered_by": "external_service",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/external_services",
-      "registered_by": "external_service",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/external_services/health",
-      "registered_by": "external_service",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/external_services/{as_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/external_services/{as_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/external_services/{as_id}/health",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/external_services/{as_id}/health/check",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ]
     },
     {
       "method": "GET",
@@ -7883,56 +7570,6 @@
       "registered_by": "module",
       "path_params": [
         "module_name"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/notifications",
-      "registered_by": "admin::notification",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/notifications",
-      "registered_by": "admin::notification",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/notifications/active",
-      "registered_by": "admin::notification",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/notifications/{notification_id}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notification_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/notifications/{notification_id}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notification_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/notifications/{notification_id}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notification_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notification_id"
       ]
     },
     {
@@ -8403,34 +8040,6 @@
       ]
     },
     {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/send_server_notice",
-      "registered_by": "admin::notification",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/server_notices",
-      "registered_by": "admin::notification",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/server_notices/{notice_id}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notice_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/server_notices/{notice_id}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "notice_id"
-      ]
-    },
-    {
       "method": "GET",
       "path": "/_synapse/admin/v1/server_version",
       "registered_by": "admin::server",
@@ -8685,22 +8294,6 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/users/{user_id}/notification",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/users/{user_id}/notification",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
       "registered_by": "admin::security",
@@ -8730,23 +8323,6 @@
       "registered_by": "admin::user",
       "path_params": [
         "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/users/{user_id}/pushers",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
-      "registered_by": "admin::notification",
-      "path_params": [
-        "user_id",
-        "pushkey"
       ]
     },
     {
@@ -8887,30 +8463,6 @@
       ]
     },
     {
-      "method": "POST",
-      "path": "/_synapse/external/openclaw/{service_id}/webhook",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/external/trendradar/{service_id}/webhook",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/external/webhook/{service_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ]
-    },
-    {
       "method": "GET",
       "path": "/_synapse/room_summary/v1/summaries",
       "registered_by": "room_summary",
@@ -9023,120 +8575,8 @@
     },
     {
       "method": "GET",
-      "path": "/admin/services",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/admin/services",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/admin/services/{service_id}",
-      "registered_by": "cas",
-      "path_params": [
-        "service_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/admin/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/admin/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/connections",
-      "registered_by": "ai_connection",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/connections",
-      "registered_by": "ai_connection",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/connections/{id}",
-      "registered_by": "ai_connection",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/connections/{id}",
-      "registered_by": "ai_connection",
-      "path_params": [
-        "id"
-      ]
-    },
-    {
-      "method": "GET",
       "path": "/health",
       "registered_by": "assembly::create_router",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/login",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/logout",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/mcp/tools",
-      "registered_by": "ai_connection",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/mcp/tools/call",
-      "registered_by": "ai_connection",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/p3/serviceValidate",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/proxy",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/proxyValidate",
-      "registered_by": "cas",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/serviceValidate",
-      "registered_by": "cas",
       "path_params": []
     }
   ]

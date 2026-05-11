@@ -1,7 +1,7 @@
 use super::AppState;
+use super::OptionalAuthenticatedUser;
 use crate::common::ApiError;
 use crate::web::AuthenticatedUser;
-use super::OptionalAuthenticatedUser;
 use axum::{
     body::Bytes,
     extract::{Json, Path, Query, State},
@@ -65,7 +65,9 @@ fn create_media_v3_router() -> Router<AppState> {
 }
 
 fn create_media_r0_router() -> Router<AppState> {
-    create_media_modern_upload_router().merge(create_media_config_router())
+    create_media_modern_upload_router()
+        .merge(create_media_config_router())
+        .merge(create_media_legacy_download_router())
 }
 
 fn create_media_r1_router() -> Router<AppState> {
@@ -74,12 +76,18 @@ fn create_media_r1_router() -> Router<AppState> {
 
 fn create_media_authenticated_router() -> Router<AppState> {
     Router::new()
-        .route("/download/{server_name}/{media_id}", get(download_media_authenticated))
+        .route(
+            "/download/{server_name}/{media_id}",
+            get(download_media_authenticated),
+        )
         .route(
             "/download/{server_name}/{media_id}/{filename}",
             get(download_media_authenticated_with_filename),
         )
-        .route("/thumbnail/{server_name}/{media_id}", get(get_thumbnail_authenticated))
+        .route(
+            "/thumbnail/{server_name}/{media_id}",
+            get(get_thumbnail_authenticated),
+        )
 }
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -90,7 +98,10 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .nest("/_matrix/media/v3", create_media_v3_router())
         .nest("/_matrix/media/r0", create_media_r0_router())
         .nest("/_matrix/media/r1", create_media_r1_router())
-        .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
+        .nest(
+            "/_matrix/client/v1/media",
+            authenticated_media_router.merge(preview_router),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +416,12 @@ fn encode_rfc5987(value: &str) -> String {
     value
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~') {
+            if c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
+                )
+            {
                 c.to_string()
             } else {
                 format!("{}{:02X}", "%", c as u32)
@@ -444,7 +460,10 @@ fn build_media_headers(
                 disposition_kind.to_string()
             } else {
                 let encoded = encode_rfc5987(&safe);
-                format!("{}; filename=\"{}\"; filename*=UTF-8''{}", disposition_kind, safe, encoded)
+                format!(
+                    "{}; filename=\"{}\"; filename*=UTF-8''{}",
+                    disposition_kind, safe, encoded
+                )
             }
         }
         _ => disposition_kind.to_string(),
@@ -596,7 +615,8 @@ async fn download_media(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, stored_filename) = download_media_common(&state, &server_name, &media_id).await?;
+    let (content_type, content, stored_filename) =
+        download_media_common(&state, &server_name, &media_id).await?;
     let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
     Ok((StatusCode::OK, headers, content))
 }
@@ -615,7 +635,8 @@ async fn download_media_authenticated(
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, stored_filename) = download_media_common(&state, &server_name, &media_id).await?;
+    let (content_type, content, stored_filename) =
+        download_media_common(&state, &server_name, &media_id).await?;
     let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
     Ok((StatusCode::OK, headers, content))
 }
@@ -721,7 +742,8 @@ async fn download_media_v1(
 ) -> impl IntoResponse {
     match download_media_common(&state, &server_name, &media_id).await {
         Ok((content_type, content, stored_filename)) => {
-            let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
+            let headers =
+                media_response_headers(content_type, content.len(), stored_filename.as_deref());
             (StatusCode::OK, headers, content)
         }
         Err(error) => media_error_response(error),

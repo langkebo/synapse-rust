@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use synapse_rust::storage::room_tag::RoomTagStorage;
 use tokio::runtime::Runtime;
 

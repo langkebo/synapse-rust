@@ -48,12 +48,18 @@ layout declared in the plan §2.2.
 | `default`  | false | false | false | false | Minimal conditional surface. Canonical "base" manifest. |
 | `oidc`     | true  | false | false | false | External/builtin OIDC enabled. |
 | `worker`   | false | true  | false | false | Worker body routes reachable. |
-| `saml`     | true  | false | true  | false | SAML enabled; implies `oidc_enabled` because `oidc::oidc_enabled()` treats SAML as an OIDC provider. |
-| `openclaw` | false | false | false | true  | Experimental openclaw + ai_connection surface. |
-| `all`      | true  | true  | true  | true  | Union. Every conditional surface declared. |
+| `saml`     | true  | false | true* | false | SAML requested; implies `oidc_enabled` because `oidc::oidc_enabled()` treats SAML as an OIDC provider. |
+| `openclaw` | false | false | false | true* | Experimental openclaw + ai_connection surface requested. |
+| `all`      | true  | true  | true* | true* | Union of runtime profiles, intersected with the cargo features compiled into the exporter binary. |
 
 Consumers typically pin one of `default`, `worker`, or `all` as
 their "canonical" manifest and surface deltas explicitly.
+
+`*` means "enabled if the exporter binary was compiled with the matching feature".
+For example, `cargo run --bin synapse_ledger_export -- --profile=all` built without
+`--features all-extensions` will still emit `state_profile: "all"`, but feature-gated
+booleans such as `saml_enabled` / `openclaw_enabled` will be `false`, and compile-time-only
+route modules such as `cas`, `widget`, or `external_service` will not appear in `entries`.
 
 ## 3. `profile_flags` object
 
@@ -68,10 +74,11 @@ their "canonical" manifest and surface deltas explicitly.
 
 Every field is REQUIRED. Names map 1-to-1 to fields on the Rust-side
 `ProfileFlags` struct, which in turn mirrors the boolean reads each
-`RouteModule::manifest_for_profile` impl performs. A `ProfileFlags`
-projection can always be reconstructed from a live `AppState` via
-`ProfileFlags::from_state`, guaranteeing offline artefacts match
-live-router enumeration.
+`RouteModule::manifest_for_profile` impl performs. These booleans describe the
+effective conditional surface of the compiled exporter binary, not merely the
+requested preset name. A `ProfileFlags` projection can always be reconstructed
+from a live `AppState` via `ProfileFlags::from_state`, guaranteeing offline
+artefacts match live-router enumeration.
 
 ## 4. `LedgerEntry` object
 
@@ -167,6 +174,9 @@ which is exactly what this binary calls. That means:
   --profile=default` is a route that a live server configured with
   `profile_flags` off would also expose — by construction, not by
   convention.
+- Any route omitted because the exporter binary was built without a matching
+  cargo feature is likewise absent from the live server built from the same
+  artifact, even if the preset name is `all`.
 - If a future `RouteModule::manifest_for_profile` impl starts reading
   something outside `ProfileFlags`, the plan requires either
   extending `ProfileFlags` or overriding `manifest_for(&AppState)` to

@@ -289,7 +289,7 @@ async fn get_push_rules_scope(
             .unwrap_or("");
 
         let result = sqlx::query(
-            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
         )
         .bind(&auth_user.user_id)
         .fetch_optional(&*state.services.user_storage.pool)

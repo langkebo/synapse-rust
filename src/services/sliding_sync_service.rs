@@ -76,6 +76,8 @@ impl SlidingSyncService {
 
         let conn_id = request.conn_id.as_deref();
 
+        let is_initial = request.pos.is_none();
+
         if let Some(pos_str) = &request.pos {
             if !self
                 .storage
@@ -123,6 +125,17 @@ impl SlidingSyncService {
                     .map_err(|e| {
                         ApiError::internal(format!("Failed to unsubscribe room: {}", e))
                     })?;
+            }
+        }
+
+        if is_initial {
+            if let Ok(joined_rooms) = self.member_storage.get_joined_rooms(user_id).await {
+                for room_id in &joined_rooms {
+                    let _ = self
+                        .storage
+                        .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
+                        .await;
+                }
             }
         }
 

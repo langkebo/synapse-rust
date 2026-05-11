@@ -29,6 +29,7 @@ async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheM
     Some((create_router(state), pool, cache))
 }
 
+#[cfg(feature = "saml-sso")]
 async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
 {
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
@@ -1045,6 +1046,7 @@ async fn test_additional_admin_routes_require_admin_role() {
 }
 
 #[tokio::test]
+#[cfg(feature = "saml-sso")]
 async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool, cache)) = setup_test_app_with_saml().await else {

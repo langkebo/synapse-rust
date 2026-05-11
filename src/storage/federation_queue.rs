@@ -115,9 +115,7 @@ impl FederationQueueStorage {
         .await
     }
 
-    pub async fn get_all_pending(
-        &self,
-    ) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
+    pub async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
         sqlx::query_as::<_, FederationQueueEntry>(
             r#"
             SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at, retry_count, status

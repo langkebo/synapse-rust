@@ -93,14 +93,10 @@ impl CrossSigningStorage {
                 usage,
                 signatures,
                 key_json,
-                created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts"),
-                )
-                .unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("added_ts"),
-                )
-                .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                    .unwrap_or_default(),
+                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                    .unwrap_or_default(),
             }
         }))
     }
@@ -350,10 +346,8 @@ impl CrossSigningStorage {
             target_device_id: row.get("target_device_id"),
             target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
-            created_ts: chrono::DateTime::from_timestamp_millis(
-                row.get::<i64, _>("created_ts"),
-            )
-            .unwrap_or_default(),
+            created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
+                .unwrap_or_default(),
         }))
     }
 

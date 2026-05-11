@@ -898,7 +898,7 @@ pub struct Config {
     pub identity: IdentityConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ExperimentalConfig {
     /// 是否在顶层路由中挂载 OpenClaw 用户路由
     #[serde(default)]
@@ -907,15 +907,6 @@ pub struct ExperimentalConfig {
     /// 是否启用 MSC3814 (dehydrated devices)
     #[serde(default)]
     pub msc3814_enabled: bool,
-}
-
-impl Default for ExperimentalConfig {
-    fn default() -> Self {
-        Self {
-            openclaw_routes_enabled: false,
-            msc3814_enabled: false,
-        }
-    }
 }
 
 fn default_trusted_identity_servers() -> Vec<String> {
@@ -2815,13 +2806,13 @@ mod tests {
             refresh_token_sliding_window_size: 5000,
             session_duration: 3600,
             warmup_pool: true,
-                allow_public_rooms_without_auth: false,
-                allow_public_rooms_over_federation: true,
-                auto_join_rooms: vec![],
-                autocreate_auto_join_rooms: true,
-                encryption_enabled_by_default_for_room_type: None,
-                app_service_config_files: vec![],
-                presence_enabled: true,
+            allow_public_rooms_without_auth: false,
+            allow_public_rooms_over_federation: true,
+            auto_join_rooms: vec![],
+            autocreate_auto_join_rooms: true,
+            encryption_enabled_by_default_for_room_type: None,
+            app_service_config_files: vec![],
+            presence_enabled: true,
         };
 
         assert_eq!(config.name, "test");

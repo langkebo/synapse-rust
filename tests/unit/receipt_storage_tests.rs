@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use serde_json::json;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use synapse_rust::storage::room::RoomStorage;
 use tokio::runtime::Runtime;
 

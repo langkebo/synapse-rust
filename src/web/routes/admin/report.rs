@@ -56,7 +56,9 @@ pub async fn get_all_reports(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let since_score = params.get("since_score").and_then(|v| v.parse::<i32>().ok());
+    let since_score = params
+        .get("since_score")
+        .and_then(|v| v.parse::<i32>().ok());
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 

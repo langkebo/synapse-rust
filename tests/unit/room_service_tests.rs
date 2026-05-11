@@ -136,6 +136,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             content JSONB NOT NULL,
             state_key TEXT,
             depth BIGINT,
+            stream_ordering BIGSERIAL,
             origin_server_ts BIGINT NOT NULL,
             processed_ts BIGINT,
             not_before BIGINT,
@@ -288,7 +289,7 @@ fn test_join_room_success() {
             .await
             .unwrap();
         let chunk = members["chunk"].as_array().unwrap();
-        assert!(chunk.iter().any(|m| m["user_id"] == bob_id));
+        assert!(chunk.iter().any(|m| m["state_key"] == bob_id || m["user_id"] == bob_id));
     });
 }
 

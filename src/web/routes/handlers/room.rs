@@ -1,4 +1,4 @@
-use crate::common::{parse_stream_token, ApiError};
+use crate::common::{parse_stream_token, ApiError, ContentSanitizer};
 use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::services::CreateRoomConfig;
 use crate::storage::event::{EventStorage, RoomEvent};
@@ -554,7 +554,10 @@ pub(crate) async fn get_messages(
     let from = parse_room_messages_from_token(&params);
     let limit = params
         .get("limit")
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(10)
         .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
@@ -604,6 +607,18 @@ pub(crate) async fn send_message(
             .auth_service
             .verify_power_levels_change(&room_id, &auth_user.user_id, &body)
             .await?;
+    }
+
+    let mut body = body;
+    if event_type == "m.room.message" {
+        let format = body.get("format").and_then(|v| v.as_str()).unwrap_or("");
+        if format == "org.matrix.custom.html" {
+            if let Some(html) = body.get("formatted_body").and_then(|v| v.as_str()) {
+                let sanitizer = ContentSanitizer::default();
+                let cleaned = sanitizer.sanitize(html);
+                body["formatted_body"] = serde_json::Value::String(cleaned);
+            }
+        }
     }
 
     let result = state
@@ -1254,14 +1269,11 @@ pub(crate) async fn create_room(
 
     let preset = body.get("preset").and_then(|v| v.as_str());
 
-    let room_type = body
-        .get("room_type")
-        .and_then(|v| v.as_str())
-        .or_else(|| {
-            body.get("creation_content")
-                .and_then(|cc| cc.get("type"))
-                .and_then(|v| v.as_str())
-        });
+    let room_type = body.get("room_type").and_then(|v| v.as_str()).or_else(|| {
+        body.get("creation_content")
+            .and_then(|cc| cc.get("type"))
+            .and_then(|v| v.as_str())
+    });
 
     let is_direct = body.get("is_direct").and_then(|v| v.as_bool());
     let room_version = body
@@ -1985,7 +1997,7 @@ pub(crate) async fn send_receipt(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
-    Json(body): Json<Value>,
+    body: String,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
@@ -2001,6 +2013,12 @@ pub(crate) async fn send_receipt(
     .await?;
 
     get_room_event(&state.services.event_storage, &room_id, &event_id).await?;
+
+    let body: Value = if body.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(&body).unwrap_or(json!({}))
+    };
 
     state
         .services
@@ -2050,7 +2068,17 @@ pub(crate) async fn send_receipt(
     let _ = state
         .services
         .event_broadcaster
-        .broadcast_edu_to_room(&room_id, &receipt_edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+        .broadcast_edu_to_room(
+            &room_id,
+            &receipt_edu,
+            state
+                .services
+                .config
+                .server
+                .server_name
+                .as_deref()
+                .unwrap_or("localhost"),
+        )
         .await;
 
     Ok(Json(json!({
@@ -4598,5 +4626,108 @@ pub(crate) async fn get_room_resolve(
         "aliases": aliases,
         "name": room.name,
         "canonical_alias": room.canonical_alias
+    })))
+}
+
+#[allow(dead_code)]
+pub(crate) async fn get_relations(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let room_id = room_id.replace("%21", "!").replace("%3A", ":");
+    let event_id = event_id.replace("%24", "$");
+
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
+    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+
+    let mut chunk = Vec::new();
+
+    if rel_type == "m.thread" {
+        if let Some(thread_root) = state
+            .services
+            .thread_storage
+            .get_thread_root_by_event(&room_id, &event_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+        {
+            let thread_id = thread_root.thread_id.clone().unwrap_or_default();
+            if !thread_id.is_empty() {
+                let replies = state
+                    .services
+                    .thread_storage
+                    .get_thread_replies(&room_id, &thread_id, Some(100), None)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to get thread replies: {}", e))
+                    })?;
+
+                for reply in replies {
+                    chunk.push(json!({
+                        "type": "m.room.message",
+                        "room_id": reply.room_id,
+                        "sender": reply.sender,
+                        "content": reply.content,
+                        "event_id": reply.event_id,
+                        "origin_server_ts": reply.origin_server_ts,
+                    }));
+                }
+            }
+        }
+
+        let root_event = state
+            .services
+            .event_storage
+            .get_event(&event_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+
+        if let Some(root) = root_event {
+            chunk.insert(
+                0,
+                json!({
+                    "type": root.event_type,
+                    "room_id": root.room_id,
+                    "sender": root.user_id,
+                    "content": root.content,
+                    "event_id": root.event_id,
+                    "origin_server_ts": root.origin_server_ts,
+                }),
+            );
+        }
+    } else {
+        let params = crate::storage::relations::RelationQueryParams {
+            room_id: room_id.clone(),
+            relates_to_event_id: event_id.clone(),
+            relation_type: Some(rel_type.clone()),
+            limit: Some(100),
+            from: None,
+            direction: Some("b".to_string()),
+        };
+        let related_events = state
+            .services
+            .relations_storage
+            .get_relations(params)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get relations: {}", e)))?;
+
+        for evt in related_events {
+            chunk.push(json!({
+                "type": "m.room.message",
+                "room_id": evt.room_id,
+                "sender": evt.sender,
+                "content": evt.content,
+                "event_id": evt.event_id,
+                "origin_server_ts": evt.origin_server_ts,
+            }));
+        }
+    }
+
+    Ok(Json(json!({
+        "chunk": chunk,
+        "next_batch": Option::<String>::None,
+        "prev_batch": Option::<String>::None,
     })))
 }

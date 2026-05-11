@@ -100,7 +100,10 @@ impl DehydratedDeviceService {
 
     pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_by_user(user_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to delete all dehydrated devices for user: {}", e))
+            ApiError::internal(format!(
+                "Failed to delete all dehydrated devices for user: {}",
+                e
+            ))
         })?;
         Ok(())
     }

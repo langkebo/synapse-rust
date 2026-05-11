@@ -499,9 +499,7 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     let allow_origin = if is_dev_mode() {
         origin.as_deref().or(Some("*"))
     } else if let Some(ref req_origin) = origin {
-        if is_origin_allowed(req_origin) {
-            Some(req_origin.as_str())
-        } else if same_origin(req_origin, request.headers()) {
+        if is_origin_allowed(req_origin) || same_origin(req_origin, request.headers()) {
             Some(req_origin.as_str())
         } else {
             tracing::debug!("CORS origin rejected: {}", req_origin);
@@ -617,17 +615,29 @@ pub async fn security_headers_middleware(
     let mut response = next.run(request).await;
 
     response.headers_mut().insert(
-        "X-Content-Type-Options",
-        HeaderValue::from_static("nosniff"),
+        "Content-Security-Policy",
+        HeaderValue::from_static(
+            "default-src 'none'; \
+             script-src 'self' 'wasm-unsafe-eval'; \
+             style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data: blob: mxc:; \
+             media-src 'self' mxc:; \
+             connect-src 'self'; \
+             frame-src 'none'; \
+             object-src 'none'; \
+             base-uri 'self'; \
+             form-action 'self'",
+        ),
     );
 
-    response
-        .headers_mut()
-        .insert("X-Frame-Options", HeaderValue::from_static("DENY"));
-
     response.headers_mut().insert(
-        "X-XSS-Protection",
-        HeaderValue::from_static("1; mode=block"),
+        "Permissions-Policy",
+        HeaderValue::from_static(
+            "camera=(), microphone=(), geolocation=(), \
+             payment=(), usb=(), magnetometer=(), \
+             gyroscope=(), accelerometer=(), \
+             interest-cohort=()",
+        ),
     );
 
     if std::env::var("FORCE_HTTPS")

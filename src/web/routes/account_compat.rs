@@ -303,7 +303,9 @@ pub(crate) async fn change_password_uia(
 
                 Ok(Json(json!({})).into_response())
             } else {
-                Err(ApiError::bad_request("User identifier required".to_string()))
+                Err(ApiError::bad_request(
+                    "User identifier required".to_string(),
+                ))
             }
         }
         "m.login.email.identity" => {
@@ -492,7 +494,11 @@ pub(crate) async fn deactivate_account(
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .verify_password_stage(
+                            auth_val,
+                            &auth_user.user_id,
+                            &state.services.auth_service,
+                        )
                         .await
                     {
                         let session = state
@@ -543,12 +549,10 @@ pub(crate) async fn deactivate_account(
         .delete(&format!("token:{}", auth_user.access_token))
         .await;
 
-    Ok(
-        Json(json!({
-            "id_server_unbind_result": "success"
-        }))
-        .into_response(),
-    )
+    Ok(Json(json!({
+        "id_server_unbind_result": "success"
+    }))
+    .into_response())
 }
 
 pub(crate) async fn get_threepids(

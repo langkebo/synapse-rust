@@ -169,8 +169,11 @@ mod tests {
 
         let json = serde_json::to_string(&metadata).unwrap();
 
-        assert!(json.contains("\"created_at\":\"2025-01-15T10:30:00Z\""),
-            "created_at should serialize as ISO 8601 format, got: {}", json);
+        assert!(
+            json.contains("\"created_at\":\"2025-01-15T10:30:00Z\""),
+            "created_at should serialize as ISO 8601 format, got: {}",
+            json
+        );
 
         let deserialized: MediaMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.created_at, created);
@@ -212,8 +215,11 @@ mod tests {
 
         let json = serde_json::to_string(&thumbnail).unwrap();
 
-        assert!(json.contains("\"created_at\":\"2025-03-20T14:45:30Z\""),
-            "created_at should serialize as ISO 8601 format, got: {}", json);
+        assert!(
+            json.contains("\"created_at\":\"2025-03-20T14:45:30Z\""),
+            "created_at should serialize as ISO 8601 format, got: {}",
+            json
+        );
 
         let deserialized: ThumbnailMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.created_at, created);

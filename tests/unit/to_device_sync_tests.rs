@@ -8,18 +8,20 @@ use synapse_rust::common::metrics::MetricsCollector;
 use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
+use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::services::PresenceStorage;
 use synapse_rust::storage::device::DeviceStorage;
-use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::filter::FilterStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
 
 async fn setup_test_database() -> Arc<Pool<Postgres>> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
+    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool()
+        .await
+        .expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"
@@ -248,35 +250,55 @@ fn test_to_device_next_batch_token_respects_limit() {
 
         // Add 5 to-device messages
         for i in 1..=5 {
-            to_device_storage.add_message(ToDeviceMessage {
+            to_device_storage
+                .add_message(ToDeviceMessage {
+                    sender_user_id: "@bob:localhost",
+                    sender_device_id: "BOBDEVICE",
+                    recipient_user_id: user_id,
+                    recipient_device_id: device_id,
+                    event_type: "m.test",
+                    content: json!({"index": i}),
+                    message_id: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        // Initial sync to get everything
+        let first_sync = sync_service
+            .sync(user_id, Some(device_id), 0, false, "online", None, None)
+            .await
+            .unwrap();
+        let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
+
+        // Add one more message
+        to_device_storage
+            .add_message(ToDeviceMessage {
                 sender_user_id: "@bob:localhost",
                 sender_device_id: "BOBDEVICE",
                 recipient_user_id: user_id,
                 recipient_device_id: device_id,
                 event_type: "m.test",
-                content: json!({"index": i}),
+                content: json!({"index": 6}),
                 message_id: None,
-            }).await.unwrap();
-        }
+            })
+            .await
+            .unwrap();
 
-        // Initial sync to get everything
-        let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
-        let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
-        
-        // Add one more message
-        to_device_storage.add_message(ToDeviceMessage {
-            sender_user_id: "@bob:localhost",
-            sender_device_id: "BOBDEVICE",
-            recipient_user_id: user_id,
-            recipient_device_id: device_id,
-            event_type: "m.test",
-            content: json!({"index": 6}),
-            message_id: None,
-        }).await.unwrap();
-        
-        let second_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token)).await.unwrap();
+        let second_sync = sync_service
+            .sync(
+                user_id,
+                Some(device_id),
+                0,
+                false,
+                "online",
+                None,
+                Some(&first_token),
+            )
+            .await
+            .unwrap();
         let to_device_events = second_sync["to_device"]["events"].as_array().unwrap();
-        
+
         assert_eq!(to_device_events.len(), 1);
         assert_eq!(to_device_events[0]["content"]["index"], 6);
     });
@@ -290,7 +312,10 @@ fn test_to_device_messages_are_deleted_after_ack() {
 
         let to_device_storage = ToDeviceStorage::new(&pool);
         let sync_service = SyncService::new(
-            PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(CacheConfig::default()))),
+            PresenceStorage::new(
+                pool.clone(),
+                Arc::new(CacheManager::new(CacheConfig::default())),
+            ),
             RoomMemberStorage::new(&pool, "localhost"),
             EventStorage::new(&pool, "localhost".to_string()),
             RoomStorage::new(&pool),
@@ -311,29 +336,52 @@ fn test_to_device_messages_are_deleted_after_ack() {
             .unwrap();
 
         // Add a message
-        to_device_storage.add_message(ToDeviceMessage {
-            sender_user_id: "@bob:localhost",
-            sender_device_id: "BOBDEVICE",
-            recipient_user_id: user_id,
-            recipient_device_id: device_id,
-            event_type: "m.test",
-            content: json!({"index": 1}),
-            message_id: None,
-        }).await.unwrap();
+        to_device_storage
+            .add_message(ToDeviceMessage {
+                sender_user_id: "@bob:localhost",
+                sender_device_id: "BOBDEVICE",
+                recipient_user_id: user_id,
+                recipient_device_id: device_id,
+                event_type: "m.test",
+                content: json!({"index": 1}),
+                message_id: None,
+            })
+            .await
+            .unwrap();
 
         // Initial sync to get the token
-        let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
+        let first_sync = sync_service
+            .sync(user_id, Some(device_id), 0, false, "online", None, None)
+            .await
+            .unwrap();
         let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
-        
+
         // Verify message exists in DB
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages")
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
         assert_eq!(count, 1);
 
         // Sync again with the token (this should trigger deletion of messages up to the token's stream_id)
-        sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token)).await.unwrap();
+        sync_service
+            .sync(
+                user_id,
+                Some(device_id),
+                0,
+                false,
+                "online",
+                None,
+                Some(&first_token),
+            )
+            .await
+            .unwrap();
 
         // Verify message is deleted from DB
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages")
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
         assert_eq!(count, 0);
     });
 }

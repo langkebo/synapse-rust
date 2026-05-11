@@ -157,7 +157,7 @@ impl EventStorage {
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE room_id = $1
-            ORDER BY origin_server_ts DESC
+            ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
             LIMIT $2
             "#,
         )
@@ -668,8 +668,14 @@ impl EventStorage {
         since_stream_ordering: i64,
         limit_per_room: i64,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, None)
-            .await
+        self.get_room_events_batch_inner(
+            room_ids,
+            None,
+            Some(since_stream_ordering),
+            limit_per_room,
+            None,
+        )
+        .await
     }
 
     pub async fn get_room_events_since_batch_filtered(
@@ -690,8 +696,14 @@ impl EventStorage {
         limit_per_room: i64,
         filter: &EventQueryFilter,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, Some(filter))
-            .await
+        self.get_room_events_batch_inner(
+            room_ids,
+            None,
+            Some(since_stream_ordering),
+            limit_per_room,
+            Some(filter),
+        )
+        .await
     }
 
     async fn get_room_events_batch_inner(
@@ -833,6 +845,49 @@ impl EventStorage {
         Ok(result)
     }
 
+    pub async fn get_membership_state_keys_since_stream_batch(
+        &self,
+        room_ids: &[String],
+        since_stream_ordering: i64,
+    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error>
+    {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT room_id, state_key
+            FROM (
+                SELECT DISTINCT ON (room_id, state_key)
+                       room_id, state_key
+                FROM events
+                WHERE room_id = ANY($1)
+                  AND stream_ordering > $2
+                  AND event_type = 'm.room.member'
+                  AND state_key IS NOT NULL
+                ORDER BY room_id, state_key, stream_ordering DESC
+            ) recent_membership
+            "#,
+        )
+        .bind(room_ids)
+        .bind(since_stream_ordering)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            room_ids
+                .iter()
+                .map(|room_id| (room_id.clone(), std::collections::HashSet::new()))
+                .collect();
+
+        for (room_id, state_key) in rows {
+            result.entry(room_id).or_default().insert(state_key);
+        }
+
+        Ok(result)
+    }
+
     pub async fn get_state_events_since_batch(
         &self,
         room_ids: &[String],
@@ -870,6 +925,43 @@ impl EventStorage {
         Ok(Self::group_state_events(room_ids, events))
     }
 
+    pub async fn get_state_events_since_stream_batch(
+        &self,
+        room_ids: &[String],
+        since_stream_ordering: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<StateEvent>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events: Vec<StateEvent> = sqlx::query_as(
+            r#"
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(is_redacted, false) as is_redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+            FROM (
+                SELECT DISTINCT ON (room_id, event_type, state_key)
+                       event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                       unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id, stream_ordering
+                FROM events
+                WHERE room_id = ANY($1)
+                  AND state_key IS NOT NULL
+                  AND stream_ordering > $2
+                ORDER BY room_id, event_type, state_key, stream_ordering DESC
+            ) s
+            ORDER BY room_id, stream_ordering DESC
+            "#,
+        )
+        .bind(room_ids)
+        .bind(since_stream_ordering)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(Self::group_state_events(room_ids, events))
+    }
+
     pub async fn get_state_change_timestamps_batch(
         &self,
         room_ids: &[String],
@@ -891,6 +983,33 @@ impl EventStorage {
         )
         .bind(room_ids)
         .bind(since)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    pub async fn get_state_change_timestamps_since_stream_batch(
+        &self,
+        room_ids: &[String],
+        since_stream_ordering: i64,
+    ) -> Result<std::collections::HashMap<String, i64>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            r#"
+            SELECT room_id, MAX(origin_server_ts) AS latest_ts
+            FROM events
+            WHERE room_id = ANY($1)
+              AND state_key IS NOT NULL
+              AND stream_ordering > $2
+            GROUP BY room_id
+            "#,
+        )
+        .bind(room_ids)
+        .bind(since_stream_ordering)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -1100,11 +1219,10 @@ impl EventStorage {
     }
 
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            "SELECT COALESCE(MAX(stream_ordering), 0) FROM events",
-        )
-        .fetch_optional(&*self.pool)
-        .await?;
+        let result: Option<(i64,)> =
+            sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events")
+                .fetch_optional(&*self.pool)
+                .await?;
         Ok(result.map(|r| r.0).unwrap_or(0))
     }
 

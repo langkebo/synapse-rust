@@ -1,10 +1,10 @@
-use crate::common::error::ApiError;
-use crate::services::push::gateway::PushGateway;
-use crate::services::push::providers::{
+use super::gateway::PushGateway;
+use super::providers::{
     ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload,
     PushProvider, PushResult, WebPushProvider,
 };
-use crate::services::push::queue::{PushQueue, QueueConfig};
+use super::queue::{PushQueue, QueueConfig};
+use crate::common::error::ApiError;
 use crate::storage::push_notification::*;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -257,11 +257,9 @@ impl PushNotificationService {
             room_id: content.room_id.clone(),
             room_name: content.room_name.clone(),
             sender: content.sender.clone(),
-            counts: content.counts.as_ref().map(|c| {
-                crate::services::push::providers::NotificationCounts {
-                    unread: c.unread,
-                    missed_calls: c.missed_calls,
-                }
+            counts: content.counts.as_ref().map(|c| NotificationCounts {
+                unread: c.unread,
+                missed_calls: c.missed_calls,
             }),
         };
 

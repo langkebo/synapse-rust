@@ -18,6 +18,11 @@
 //! ```
 //! (plus `worker`, `openclaw`, `all` — see `regenerate_fixtures.sh` if
 //! that script ever lands).
+//!
+//! Note: these checked-in fixtures intentionally reflect the compile-aware
+//! default build of the exporter binary. The SDK's full-extension ingest path
+//! uses `tests/unit/fixtures/ledger_export_sdk/`, regenerated via
+//! `scripts/generate_sdk_ledger_fixtures.sh`.
 
 use synapse_rust::web::routes::ledger_export::{
     build_artifact, profile_for_name, render, LedgerArtifact, SCHEMA_VERSION,
@@ -130,30 +135,35 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn default_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/default.json");
     assert_fixture_matches("default", fixture);
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn worker_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/worker.json");
     assert_fixture_matches("worker", fixture);
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn openclaw_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/openclaw.json");
     assert_fixture_matches("openclaw", fixture);
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn all_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/all.json");
     assert_fixture_matches("all", fixture);
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn worker_fixture_strictly_supersets_default_fixture() {
     let d_bytes = include_bytes!("fixtures/ledger_export/default.json");
     let w_bytes = include_bytes!("fixtures/ledger_export/worker.json");
@@ -185,6 +195,7 @@ fn worker_fixture_strictly_supersets_default_fixture() {
 }
 
 #[test]
+#[cfg(not(feature = "all-extensions"))]
 fn all_fixture_contains_every_other_profile_entry() {
     let combos = [
         "fixtures/ledger_export/default.json",

@@ -376,10 +376,7 @@ pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<()
     } else if let Ok(addrs) = dns_lookup::lookup_host(host) {
         for addr in addrs {
             if is_ip_in_blacklist(&addr, blacklist) {
-                return Err(format!(
-                    "Host {} resolves to blacklisted IP {}",
-                    host, addr
-                ));
+                return Err(format!("Host {} resolves to blacklisted IP {}", host, addr));
             }
         }
     }

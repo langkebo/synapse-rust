@@ -272,7 +272,7 @@ pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
         {
             vec![]
         }
-    }.into_iter())
+    })
     .collect()
 }
 

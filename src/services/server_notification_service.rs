@@ -41,7 +41,9 @@ impl ServerNotificationService {
         limit: i64,
         from: Option<ServerNotificationCursor>,
     ) -> Result<(Vec<ServerNotification>, Option<String>), ApiError> {
-        self.storage.list_all_notifications(audience, limit, from).await
+        self.storage
+            .list_all_notifications(audience, limit, from)
+            .await
     }
 
     #[instrument(skip(self))]

@@ -11,6 +11,7 @@ use sqlx::Row;
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
+        .route("/_synapse/admin/v1/whoami", get(get_admin_whoami))
         .route(
             "/_synapse/admin/v1/purge_media_cache",
             post(purge_media_cache),
@@ -88,6 +89,19 @@ pub async fn get_admin_info(
         "server_name": state.services.config.server.name,
         "server_version": env!("CARGO_PKG_VERSION"),
         "implementation": "synapse-rust"
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn get_admin_whoami(
+    admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(json!({
+        "user_id": admin.user_id,
+        "name": format!("@{}:{}", admin.user_id, state.services.config.server.name),
+        "is_admin": admin.role == "super_admin" || admin.role == "admin",
+        "role": admin.role
     })))
 }
 

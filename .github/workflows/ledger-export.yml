@@ -34,7 +34,7 @@ jobs:
           toolchain: 1.93.0
 
       - name: Build ledger exporter
-        run: cargo build --locked --bin synapse_ledger_export
+        run: cargo build --locked --features all-extensions --bin synapse_ledger_export
 
       - name: Render ledger export artifacts
         run: |

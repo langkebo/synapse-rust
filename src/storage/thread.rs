@@ -948,9 +948,10 @@ impl ThreadStorage {
         let limit = limit.unwrap_or(20);
         // Escape special characters in the query for ILIKE and plainto_tsquery
         // Double % for literal % in LIKE patterns. _ needs escaping too. Single quotes need escaping.
-        let escaped_query = query.replace('%', r"%%")
-                                 .replace('_', r"\_")
-                                 .replace('\'', r"''");
+        let escaped_query = query
+            .replace('%', r"%%")
+            .replace('_', r"\_")
+            .replace('\'', r"''");
 
         sqlx::query_as::<_, ThreadSummary>(
             r#"

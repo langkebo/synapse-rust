@@ -79,7 +79,10 @@ pub struct RelationsService {
 
 impl RelationsService {
     pub fn new(storage: Arc<RelationsStorage>, server_name: String) -> Self {
-        Self { storage, server_name }
+        Self {
+            storage,
+            server_name,
+        }
     }
 
     pub async fn send_annotation(
