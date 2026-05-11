@@ -51,7 +51,10 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
         .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy_v3));
 
     Router::new()
-        .nest("/_matrix/client/r0", create_search_compat_router().merge(create_room_context_router()))
+        .nest(
+            "/_matrix/client/r0",
+            create_search_compat_router().merge(create_room_context_router()),
+        )
         .nest("/_matrix/client/v1", v1_router)
         .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
@@ -448,9 +451,7 @@ async fn search_room_events(
                 origin_server_ts: row
                     .get::<Option<i64>, _>("origin_server_ts")
                     .unwrap_or_default(),
-                event_id: row
-                    .get::<Option<String>, _>("event_id")
-                    .unwrap_or_default(),
+                event_id: row.get::<Option<String>, _>("event_id").unwrap_or_default(),
             })
         })
     } else {
@@ -549,6 +550,13 @@ async fn build_room_hierarchy_response(
     limit: i32,
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
+    let room_opt = state
+        .services
+        .room_storage
+        .get_room(room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?;
+
     if let Some(space) = state
         .services
         .space_service
@@ -568,49 +576,266 @@ async fn build_room_hierarchy_response(
             )
             .await?;
 
-        return serde_json::to_value(response)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy: {}", e)));
+        let mut response_value = serde_json::to_value(response)
+            .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy: {}", e)))?;
+
+        if let Some(obj) = response_value.as_object_mut() {
+            let rooms = obj
+                .get("rooms")
+                .and_then(|r| r.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let has_space_self = obj
+                .get("rooms")
+                .and_then(|r| r.as_array())
+                .map(|a| {
+                    a.iter()
+                        .any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id))
+                })
+                .unwrap_or(false);
+
+            if !has_space_self || rooms <= 1 {
+                let state_events = state
+                    .services
+                    .event_storage
+                    .get_state_events(room_id)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+                let mut children_state = Vec::new();
+                let mut child_rooms = Vec::new();
+
+                for ev in &state_events {
+                    if ev.event_type.as_deref() == Some("m.space.child") {
+                        let via = ev
+                            .content
+                            .get("via")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        if !via.is_empty() {
+                            children_state.push(json!({
+                                "type": "m.space.child",
+                                "state_key": ev.state_key,
+                                "content": ev.content,
+                                "origin_server_ts": ev.origin_server_ts,
+                            }));
+
+                            if max_depth > 0 {
+                                let child_room_id = match ev.state_key.as_deref() {
+                                    Some(sk) => sk.to_string(),
+                                    None => continue,
+                                };
+                                if let Some(child_room) = state
+                                    .services
+                                    .room_storage
+                                    .get_room(&child_room_id)
+                                    .await
+                                    .map_err(|e| {
+                                        ApiError::internal(format!(
+                                            "Failed to load child room: {}",
+                                            e
+                                        ))
+                                    })?
+                                {
+                                    let child_state_events = state
+                                        .services
+                                        .event_storage
+                                        .get_state_events(&child_room_id)
+                                        .await
+                                        .unwrap_or_default();
+                                    let child_room_type = child_state_events
+                                        .iter()
+                                        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                                        .and_then(|e| e.content.get("type"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| Value::String(s.to_string()))
+                                        .unwrap_or(Value::Null);
+                                    child_rooms.push(json!({
+                                        "room_id": child_room.room_id,
+                                        "name": child_room.name,
+                                        "topic": child_room.topic,
+                                        "avatar_url": child_room.avatar_url,
+                                        "join_rule": child_room.join_rule,
+                                        "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
+                                        "guest_can_join": child_room.is_public,
+                                        "world_readable": child_room.history_visibility == "world_readable",
+                                        "num_joined_members": child_room.member_count,
+                                        "children": [],
+                                        "children_state": [],
+                                        "room_type": child_room_type,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !child_rooms.is_empty() || !has_space_self {
+                    let space_room_type = state_events
+                        .iter()
+                        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                        .and_then(|e| e.content.get("type"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| Value::String(s.to_string()))
+                        .unwrap_or(Value::Null);
+
+                    if let Some(rooms_arr) = obj.get_mut("rooms").and_then(|r| r.as_array_mut()) {
+                        if !has_space_self {
+                            if let Some(ref r) = room_opt {
+                                rooms_arr.insert(0, json!({
+                                    "room_id": r.room_id,
+                                    "name": r.name,
+                                    "topic": r.topic,
+                                    "avatar_url": r.avatar_url,
+                                    "join_rule": r.join_rule,
+                                    "guest_access": if r.is_public { "can_join" } else { "forbidden" },
+                                    "guest_can_join": r.is_public,
+                                    "world_readable": r.history_visibility == "world_readable",
+                                    "num_joined_members": r.member_count,
+                                    "children": child_rooms.iter().filter_map(|r| r.get("room_id").and_then(|v| v.as_str()).map(String::from)).collect::<Vec<_>>(),
+                                    "children_state": children_state,
+                                    "room_type": space_room_type,
+                                }));
+                            }
+                        } else if let Some(first) = rooms_arr.first_mut() {
+                            if let Some(first_obj) = first.as_object_mut() {
+                                first_obj
+                                    .insert("children_state".to_string(), json!(children_state));
+                                first_obj.insert(
+                                    "children".to_string(),
+                                    json!(child_rooms
+                                        .iter()
+                                        .filter_map(|r| r
+                                            .get("room_id")
+                                            .and_then(|v| v.as_str())
+                                            .map(String::from))
+                                        .collect::<Vec<_>>()),
+                                );
+                            }
+                        }
+                        rooms_arr.extend(child_rooms);
+                    }
+                }
+            }
+        }
+
+        return Ok(response_value);
     }
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(room_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+    let room = room_opt.ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let world_readable = room.history_visibility == "world_readable";
 
-    let room_type = state
+    let state_events = state
         .services
-        .room_service.room_summary_service()
-        .get_summary(room_id)
+        .event_storage
+        .get_state_events(room_id)
         .await
-        .map_err(|e| {
-            ::tracing::warn!("Failed to get room summary for room_type: {}", e);
-            ApiError::internal(format!("Failed to get room summary: {}", e))
-        })?
-        .and_then(|s| s.room_type)
-        .map(Value::String)
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+
+    let room_type = state_events
+        .iter()
+        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+        .and_then(|e| e.content.get("type"))
+        .and_then(|v| v.as_str())
+        .map(|s| Value::String(s.to_string()))
         .unwrap_or(Value::Null);
 
+    let mut children_state = Vec::new();
+    let mut child_rooms = Vec::new();
+
+    for ev in &state_events {
+        if ev.event_type.as_deref() == Some("m.space.child") {
+            let via = ev
+                .content
+                .get("via")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !via.is_empty() {
+                children_state.push(json!({
+                    "type": "m.space.child",
+                    "state_key": ev.state_key,
+                    "content": ev.content,
+                    "origin_server_ts": ev.origin_server_ts,
+                }));
+
+                if max_depth > 0 {
+                    let child_room_id = match ev.state_key.as_deref() {
+                        Some(sk) => sk.to_string(),
+                        None => continue,
+                    };
+                    if let Some(child_room) = state
+                        .services
+                        .room_storage
+                        .get_room(&child_room_id)
+                        .await
+                        .map_err(|e| {
+                            ApiError::internal(format!("Failed to load child room: {}", e))
+                        })?
+                    {
+                        let child_state_events = state
+                            .services
+                            .event_storage
+                            .get_state_events(&child_room_id)
+                            .await
+                            .unwrap_or_default();
+                        let child_room_type = child_state_events
+                            .iter()
+                            .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                            .and_then(|e| e.content.get("type"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| Value::String(s.to_string()))
+                            .unwrap_or(Value::Null);
+                        child_rooms.push(json!({
+                            "room_id": child_room.room_id,
+                            "name": child_room.name,
+                            "topic": child_room.topic,
+                            "avatar_url": child_room.avatar_url,
+                            "join_rule": child_room.join_rule,
+                            "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
+                            "guest_can_join": child_room.is_public,
+                            "world_readable": child_room.history_visibility == "world_readable",
+                            "num_joined_members": child_room.member_count,
+                            "children": [],
+                            "children_state": [],
+                            "room_type": child_room_type,
+                            "required_state_info": []
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut rooms = vec![json!({
+        "room_id": room.room_id,
+        "name": room.name,
+        "topic": room.topic,
+        "avatar_url": room.avatar_url,
+        "join_rule": room.join_rule,
+        "guest_access": if room.is_public { "can_join" } else { "forbidden" },
+        "guest_can_join": room.is_public,
+        "world_readable": world_readable,
+        "num_joined_members": room.member_count,
+        "children": child_rooms.iter().filter_map(|r| r.get("room_id").and_then(|v| v.as_str()).map(String::from)).collect::<Vec<_>>(),
+        "children_state": children_state,
+        "room_type": room_type,
+        "required_state_info": []
+    })];
+    rooms.extend(child_rooms);
+
     Ok(json!({
-        "rooms": [{
-            "room_id": room.room_id,
-            "name": room.name,
-            "topic": room.topic,
-            "avatar_url": room.avatar_url,
-            "join_rule": room.join_rule,
-            "guest_access": if room.is_public { "can_join" } else { "forbidden" },
-            "guest_can_join": room.is_public,
-            "world_readable": world_readable,
-            "num_joined_members": room.member_count,
-            "children": [],
-            "children_state": [],
-            "room_type": room_type,
-            "required_state_info": []
-        }],
+        "rooms": rooms,
         "next_batch": Value::Null
     }))
 }

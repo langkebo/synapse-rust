@@ -40,10 +40,9 @@ mod registration_token_api_tests;
 mod retention_api_tests;
 mod retention_storage_tests;
 mod room_service_tests;
-mod room_tag_storage_tests;
-mod to_device_sync_tests;
 mod room_summary_api_tests;
 mod room_summary_storage_tests;
+mod room_tag_storage_tests;
 mod schema_contract_p0_tests;
 mod schema_contract_room_summary_queue_driver_tests;
 mod search_service_tests;
@@ -54,11 +53,13 @@ mod sync_service_tests;
 mod telemetry_api_tests;
 mod thread_api_tests;
 mod thread_storage_tests;
+mod to_device_sync_tests;
 mod worker_api_tests;
 
 mod directory_service_tests;
 mod dm_service_tests;
 mod typing_service_tests;
+#[cfg(feature = "voice-extended")]
 mod voice_service_tests;
 
 mod identity_service_tests;

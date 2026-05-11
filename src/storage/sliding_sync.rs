@@ -99,7 +99,8 @@ pub fn encode_room_token_sync_cursor(cursor: &RoomTokenSyncCursor) -> String {
     let encoded_user_id = URL_SAFE_NO_PAD.encode(cursor.user_id.as_bytes());
     let encoded_device_id = URL_SAFE_NO_PAD.encode(cursor.device_id.as_bytes());
     let is_conn_id_null = if cursor.conn_id.is_none() { 1 } else { 0 };
-    let encoded_conn_id = URL_SAFE_NO_PAD.encode(cursor.conn_id.as_deref().unwrap_or("").as_bytes());
+    let encoded_conn_id =
+        URL_SAFE_NO_PAD.encode(cursor.conn_id.as_deref().unwrap_or("").as_bytes());
 
     format!(
         "{}|{}|{}|{}|{}",
@@ -524,10 +525,9 @@ impl SlidingSyncStorage {
         query.push_bind(device_id);
         query.push(" AND (conn_id = ");
         query.push_bind(conn_id);
-        query.push(" OR (");
-        query.push_bind(conn_id);
-        query.push(" IS NULL AND conn_id IS NULL)) AND list_key = ");
+        query.push(" OR conn_id IS NULL) AND (list_key = ");
         query.push_bind(list_key);
+        query.push(" OR list_key IS NULL)");
 
         Self::push_room_filters(&mut query, filters);
 
@@ -634,9 +634,42 @@ impl SlidingSyncStorage {
         .await?
         .unwrap_or(now);
 
+        let room_info = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            SELECT name FROM rooms WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?
+        .flatten();
+
+        let avatar_info = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            SELECT avatar_url FROM rooms WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?
+        .flatten();
+
         self.upsert_room(
-            user_id, device_id, room_id, conn_id, None, bump_stamp, 0, 0, false, false, false,
-            false, None, None, now,
+            user_id,
+            device_id,
+            room_id,
+            conn_id,
+            None,
+            bump_stamp,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            room_info.as_deref(),
+            avatar_info.as_deref(),
+            now,
         )
         .await?;
 

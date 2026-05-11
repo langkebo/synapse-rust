@@ -181,6 +181,15 @@ jobs:
   build:
     name: Build Check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        profile:
+          - name: core-matrix-min
+            features: server
+          - name: core-private-chat
+            features: server,friends,burn-after-read
+          - name: all-extensions
+            features: server,all-extensions
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -190,10 +199,23 @@ jobs:
         with:
           toolchain: 1.93.0
 
-      - name: Build release
-        run: cargo build --release --all-features --locked
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.profile.name }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.profile.name }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Build ${{ matrix.profile.name }}
+        run: cargo build --release --no-default-features --features ${{ matrix.profile.features }} --locked
 
       - name: Build wasm (if applicable)
+        if: matrix.profile.name == 'all-extensions'
         run: cargo build --release --workspace --exclude synapse_worker --locked || true
 
   coverage:

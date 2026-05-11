@@ -219,7 +219,8 @@ pub async fn get_public_rooms_handler(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms.last()
+        rooms
+            .last()
             .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
@@ -289,7 +290,8 @@ pub async fn search_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms.last()
+        rooms
+            .last()
             .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
@@ -338,6 +340,9 @@ mod cursor_tests {
 
     #[test]
     fn test_public_rooms_cursor_rejects_invalid_timestamp() {
-        assert_eq!(decode_public_rooms_cursor(Some("abc|!room:example.com")), None);
+        assert_eq!(
+            decode_public_rooms_cursor(Some("abc|!room:example.com")),
+            None
+        );
     }
 }

@@ -812,14 +812,17 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
         match path {
             "/_matrix/client/v3/thirdparty/protocols" => {
                 assert_eq!(json, json!({}));
-            },
+            }
             "/_matrix/client/r0/thirdparty/protocol/irc" => {
-                assert_eq!(json, json!({
-                    "instances": [],
-                    "user_fields": [],
-                    "location_fields": []
-                }));
-            },
+                assert_eq!(
+                    json,
+                    json!({
+                        "instances": [],
+                        "user_fields": [],
+                        "location_fields": []
+                    })
+                );
+            }
             _ => unreachable!(),
         }
     }

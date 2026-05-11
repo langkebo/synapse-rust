@@ -459,8 +459,13 @@ impl DeviceKeyStorage {
 
         let row = sqlx::query(
             r#"
+            WITH target AS (
+                SELECT id FROM device_keys
+                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)
+                LIMIT 1
+            )
             DELETE FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)
+            WHERE id IN (SELECT id FROM target)
             RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data, is_fallback
             "#,
         )

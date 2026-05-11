@@ -531,7 +531,8 @@ pub(crate) async fn get_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms.last()
+        rooms
+            .last()
             .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
@@ -634,7 +635,8 @@ pub(crate) async fn query_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms.last()
+        rooms
+            .last()
             .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None

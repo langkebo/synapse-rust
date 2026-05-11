@@ -198,18 +198,22 @@ pub async fn call_invite(
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let _ = state.services.event_storage.create_event(
-        crate::storage::event::CreateEventParams {
-            event_id: event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id.clone(),
-            event_type: "m.call.invite".to_string(),
-            content: serde_json::to_value(content).unwrap_or_default(),
-            state_key: None,
-            origin_server_ts: now,
-        },
-        None,
-    ).await;
+    let _ = state
+        .services
+        .event_storage
+        .create_event(
+            crate::storage::event::CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: "m.call.invite".to_string(),
+                content: serde_json::to_value(content).unwrap_or_default(),
+                state_key: None,
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id
@@ -256,18 +260,22 @@ pub async fn call_answer(
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
-    let _ = state.services.event_storage.create_event(
-        crate::storage::event::CreateEventParams {
-            event_id: event_id.clone(),
-            room_id: room_id.clone(),
-            user_id: auth_user.user_id.clone(),
-            event_type: "m.call.answer".to_string(),
-            content: serde_json::to_value(content).unwrap_or_default(),
-            state_key: None,
-            origin_server_ts: now,
-        },
-        None,
-    ).await;
+    let _ = state
+        .services
+        .event_storage
+        .create_event(
+            crate::storage::event::CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: "m.call.answer".to_string(),
+                content: serde_json::to_value(content).unwrap_or_default(),
+                state_key: None,
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id

@@ -1,9 +1,9 @@
 use axum::extract::State;
-use axum::routing::{Router, post};
+use axum::routing::{post, Router};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::web::routes::{AppState, ApiError};
+use crate::web::routes::{ApiError, AppState};
 
 fn generate_token() -> String {
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
@@ -63,7 +63,11 @@ pub async fn request_token(
     let session_id = format!(
         "3pid_{}_{}",
         chrono::Utc::now().timestamp_millis(),
-        uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("")
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("")
     );
 
     let token = generate_token();
@@ -108,7 +112,9 @@ pub async fn submit_token(
     Json(req): Json<SubmitTokenRequest>,
 ) -> Result<Json<SubmitTokenResponse>, ApiError> {
     if req.sid.is_empty() || req.client_secret.is_empty() || req.token.is_empty() {
-        return Err(ApiError::bad_request("sid, client_secret, and token are required"));
+        return Err(ApiError::bad_request(
+            "sid, client_secret, and token are required",
+        ));
     }
 
     let session = state

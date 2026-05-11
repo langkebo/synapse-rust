@@ -51,7 +51,11 @@ impl TransactionManager {
         &self,
         statement: &'static str,
     ) -> TransactionResult<Transaction<'static, Postgres>> {
-        let mut tx = self.pool.begin().await.map_err(TransactionError::Database)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(TransactionError::Database)?;
         sqlx::query(statement)
             .execute(&mut *tx)
             .await

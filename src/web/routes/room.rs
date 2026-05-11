@@ -86,7 +86,7 @@ fn create_room_r0_v3_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/state", get(get_room_state))
         .route(
             "/rooms/{room_id}/redact/{event_id}/{txn_id}",
-            put(redact_event),
+            put(redact_event).post(redact_event),
         )
         .route("/rooms/{room_id}/kick", post(kick_user))
         .route("/rooms/{room_id}/ban", post(ban_user))

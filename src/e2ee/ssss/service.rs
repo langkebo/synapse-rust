@@ -169,7 +169,9 @@ impl SecretStorageService {
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
         self.storage.delete_key(user_id, key_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
-            dehydrated_device_service.delete_all_for_user(user_id).await?;
+            dehydrated_device_service
+                .delete_all_for_user(user_id)
+                .await?;
         }
         Ok(())
     }

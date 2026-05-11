@@ -262,7 +262,10 @@ impl RoomService {
         if let Err(e) = &result {
             eprintln!("DEBUG: m.room.create event failed: {}", e);
             let _ = tx.rollback().await;
-            return Err(ApiError::internal(format!("Failed to create m.room.create event: {}", e)));
+            return Err(ApiError::internal(format!(
+                "Failed to create m.room.create event: {}",
+                e
+            )));
         }
 
         let result = self
@@ -891,6 +894,12 @@ impl RoomService {
 
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
+        let max_ts = self
+            .event_storage
+            .get_max_origin_server_ts_for_room(room_id)
+            .await
+            .unwrap_or(0);
+        let now = now.max(max_ts + 1);
 
         #[allow(unused_variables)]
         let beacon_location_params = {
@@ -1047,7 +1056,10 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
 
-        if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
+        if let Some(relates_to) = content
+            .get("m.relates_to")
+            .or_else(|| content.get("relates_to"))
+        {
             if let (Some(rel_type), Some(target_event_id)) = (
                 relates_to.get("rel_type").and_then(|v| v.as_str()),
                 relates_to.get("event_id").and_then(|v| v.as_str()),
@@ -1317,7 +1329,8 @@ impl RoomService {
             .map(|(m, user_displayname, user_avatar_url)| {
                 let mut content = serde_json::Map::new();
                 content.insert("membership".to_string(), json!(m.membership));
-                let effective_displayname = m.display_name.as_deref().or(user_displayname.as_deref());
+                let effective_displayname =
+                    m.display_name.as_deref().or(user_displayname.as_deref());
                 if let Some(dn) = effective_displayname {
                     content.insert("displayname".to_string(), json!(dn));
                 }

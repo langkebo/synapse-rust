@@ -90,10 +90,13 @@ push.rs:584
 # AppService routes (spec-allowed / real ACK after successful namespace or transaction handling)
 app_service.rs:486
 app_service.rs:503
+app_service.rs:505
 app_service.rs:514
 app_service.rs:531
+app_service.rs:533
 app_service.rs:542
 app_service.rs:559
+app_service.rs:561
 
 # Directory routes
 directory.rs:221
@@ -104,24 +107,34 @@ handlers/presence.rs:80
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
 e2ee_routes.rs:587
+e2ee_routes.rs:626
 e2ee_routes.rs:661
+e2ee_routes.rs:691
 e2ee_routes.rs:755
+e2ee_routes.rs:785
 e2ee_routes.rs:1138
+e2ee_routes.rs:1168
 e2ee_routes.rs:1239
 
 # Sticky event routes (storage mutation ACK)
 sticky_event.rs:135
 sticky_event.rs:138
+sticky_event.rs:154
 sticky_event.rs:158
 sticky_event.rs:164
+sticky_event.rs:174
 
 # Room tag routes (Matrix-style tag mutation ACK)
 tags.rs:132
 tags.rs:148
+tags.rs:152
+tags.rs:168
 
 # VoIP routes (call state mutation ACK)
 voip.rs:221
+voip.rs:240
 voip.rs:264
+voip.rs:302
 
 # Room routes (main)
 room.rs:476

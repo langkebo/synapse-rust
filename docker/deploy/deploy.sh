@@ -8,6 +8,7 @@
 # 用法:
 #   ./deploy.sh                   # 交互式选择功能
 #   ./deploy.sh --all             # 部署所有功能（跳过交互）
+#   ./deploy.sh --core-private-chat # 部署核心私密聊天能力（默认推荐）
 #   ./deploy.sh --core-only       # 仅部署核心 Matrix 功能
 #   ./deploy.sh --features LIST   # 部署指定功能（逗号分隔）
 #   ./deploy.sh --skip-build      # 跳过编译与镜像构建
@@ -78,6 +79,10 @@ EXTENSION_DESCRIPTIONS=(
     "外部服务集成 (Webhook 通知)"
 )
 
+# Default product mode: preserve the private chat core while slimming optional
+# modules from the default deployment shape.
+CORE_PRIVATE_CHAT_EXTENSIONS="friends,burn-after-read"
+
 # Will be set by parse_args or select_features
 ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-}"
 
@@ -117,6 +122,9 @@ parse_args() {
             --all)
                 ENABLED_EXTENSIONS="all"
                 ;;
+            --core-private-chat)
+                ENABLED_EXTENSIONS="$CORE_PRIVATE_CHAT_EXTENSIONS"
+                ;;
             --core-only)
                 ENABLED_EXTENSIONS="none"
                 ;;
@@ -153,6 +161,7 @@ show_usage() {
 
 选项:
   --all             部署所有功能（包含全部扩展，跳过交互选择）
+  --core-private-chat 部署核心私密聊天能力（friends + burn-after-read）
   --core-only       仅部署核心 Matrix 功能（不含任何扩展）
   --features LIST   部署指定扩展功能（逗号分隔）
   --skip-build      跳过 cargo build 和 Docker 镜像构建
@@ -193,30 +202,35 @@ select_features() {
     echo -e "${BOLD}  功能选择${NC}"
     echo -e "${BOLD}==========================================${NC}"
     echo ""
-    echo -e "  ${CYAN}[0]${NC} 全部功能 (all-extensions)"
-    echo -e "  ${CYAN}[1]${NC} 仅核心 Matrix 功能 (无扩展)"
-    echo -e "  ${CYAN}[2]${NC} 自定义选择扩展功能"
+    echo -e "  ${CYAN}[0]${NC} 核心私密聊天 (friends + burn-after-read，默认推荐)"
+    echo -e "  ${CYAN}[1]${NC} 全部功能 (all-extensions)"
+    echo -e "  ${CYAN}[2]${NC} 仅核心 Matrix 功能 (无扩展)"
+    echo -e "  ${CYAN}[3]${NC} 自定义选择扩展功能"
     echo ""
 
     local choice
-    read -rp "请选择部署模式 [0/1/2] (默认 0): " choice
+    read -rp "请选择部署模式 [0/1/2/3] (默认 0): " choice
     choice="${choice:-0}"
 
     case "$choice" in
         0)
+            ENABLED_EXTENSIONS="$CORE_PRIVATE_CHAT_EXTENSIONS"
+            log_info "已选择: 核心私密聊天"
+            ;;
+        1)
             ENABLED_EXTENSIONS="all"
             log_info "已选择: 全部功能"
             ;;
-        1)
+        2)
             ENABLED_EXTENSIONS="none"
             log_info "已选择: 仅核心 Matrix 功能"
             ;;
-        2)
+        3)
             select_individual_features
             ;;
         *)
-            ENABLED_EXTENSIONS="all"
-            log_warning "无效输入，默认使用全部功能"
+            ENABLED_EXTENSIONS="$CORE_PRIVATE_CHAT_EXTENSIONS"
+            log_warning "无效输入，默认使用核心私密聊天"
             ;;
     esac
 }
@@ -280,6 +294,8 @@ show_feature_summary() {
     echo -e "${BOLD}部署功能配置:${NC}"
     if [ "$ENABLED_EXTENSIONS" = "all" ]; then
         echo -e "  模式: ${GREEN}全部功能${NC} (core + all extensions)"
+    elif [ "$ENABLED_EXTENSIONS" = "$CORE_PRIVATE_CHAT_EXTENSIONS" ]; then
+        echo -e "  模式: ${GREEN}核心私密聊天${NC} (friends + burn-after-read)"
     elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
         echo -e "  模式: ${YELLOW}仅核心${NC} (pure Matrix homeserver)"
     else
@@ -535,7 +551,15 @@ rebuild_project() {
         return
     fi
     log_info "重新编译项目..."
-    (cd "$PROJECT_ROOT" && cargo build --release --locked --bin synapse-rust --bin healthcheck)
+    if [ "$ENABLED_EXTENSIONS" = "all" ]; then
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --features all-extensions --bin synapse-rust --bin healthcheck)
+    elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features server --bin synapse-rust --bin healthcheck)
+    elif [ "$ENABLED_EXTENSIONS" = "$CORE_PRIVATE_CHAT_EXTENSIONS" ]; then
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features server,core-private-chat --bin synapse-rust --bin healthcheck)
+    else
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features "server,$ENABLED_EXTENSIONS" --bin synapse-rust --bin healthcheck)
+    fi
     log_success "项目编译完成"
 }
 

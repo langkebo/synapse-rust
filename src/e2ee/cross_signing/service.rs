@@ -34,9 +34,7 @@ impl CrossSigningService {
                     None
                 }
             })
-            .ok_or_else(|| {
-                ApiError::bad_request(format!("Missing ed25519 key in {field_name}"))
-            })
+            .ok_or_else(|| ApiError::bad_request(format!("Missing ed25519 key in {field_name}")))
     }
 
     pub fn new(storage: CrossSigningStorage) -> Self {
@@ -544,7 +542,9 @@ impl CrossSigningService {
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
-            dehydrated_device_service.delete_all_for_user(user_id).await?;
+            dehydrated_device_service
+                .delete_all_for_user(user_id)
+                .await?;
         }
         Ok(())
     }

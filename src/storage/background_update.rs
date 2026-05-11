@@ -179,9 +179,7 @@ impl BackgroundUpdateStorage {
         limit: i64,
         from: Option<String>,
     ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error> {
-        let decoded = from
-            .as_deref()
-            .and_then(decode_background_update_cursor);
+        let decoded = from.as_deref().and_then(decode_background_update_cursor);
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
             "SELECT * FROM background_updates
              WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)

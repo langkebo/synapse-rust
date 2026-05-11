@@ -409,8 +409,7 @@ impl RegistrationTokenStorage {
 #[cfg(test)]
 mod cursor_tests {
     use super::{
-        decode_registration_token_cursor, encode_registration_token_cursor,
-        RegistrationTokenCursor,
+        decode_registration_token_cursor, encode_registration_token_cursor, RegistrationTokenCursor,
     };
 
     #[test]

@@ -9,12 +9,12 @@ use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::validation::Validator;
+use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::services::PresenceStorage;
 use synapse_rust::storage::device::DeviceStorage;
-use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -538,7 +538,15 @@ fn test_sync_presence_events_reflect_persisted_presence_state() {
         );
 
         let response = sync_service
-            .sync("@alice:localhost", None, 0, false, "unavailable", None, None)
+            .sync(
+                "@alice:localhost",
+                None,
+                0,
+                false,
+                "unavailable",
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -547,7 +555,10 @@ fn test_sync_presence_events_reflect_persisted_presence_state() {
         assert_eq!(presence_events[0]["type"], "m.presence");
         assert_eq!(presence_events[0]["sender"], "@alice:localhost");
         assert_eq!(presence_events[0]["content"]["presence"], "unavailable");
-        assert_eq!(presence_events[0]["content"]["currently_active"], json!(false));
+        assert_eq!(
+            presence_events[0]["content"]["currently_active"],
+            json!(false)
+        );
     });
 }
 
@@ -1074,13 +1085,13 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
             .unwrap();
 
         let room = &sync["rooms"]["join"][&room_id];
+        let timeline_events = room["timeline"]["events"].as_array().unwrap();
         assert_eq!(
             room["timeline"]["limited"],
             json!(false),
             "timeline should only be marked limited when more events exist than the requested limit"
         );
 
-        let timeline_events = room["timeline"]["events"].as_array().unwrap();
         let bodies: Vec<&str> = timeline_events
             .iter()
             .map(|event| event["content"]["body"].as_str().unwrap())

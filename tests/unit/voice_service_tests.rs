@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![cfg(feature = "voice-extended")]
 
 use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService};
 

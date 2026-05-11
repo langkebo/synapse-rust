@@ -53,11 +53,7 @@ async fn write_typing_ephemeral(
     .await;
 }
 
-async fn clear_typing_ephemeral(
-    state: &AppState,
-    room_id: &str,
-    user_id: &str,
-) {
+async fn clear_typing_ephemeral(state: &AppState, room_id: &str, user_id: &str) {
     let _ = sqlx::query(
         r#"
         DELETE FROM room_ephemeral
@@ -100,7 +96,14 @@ pub async fn set_typing(
             .set_typing(&room_id, &user_id, timeout)
             .await?;
 
-        write_typing_ephemeral(&state, &room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64).await;
+        write_typing_ephemeral(
+            &state,
+            &room_id,
+            &user_id,
+            std::slice::from_ref(&user_id),
+            timeout as i64,
+        )
+        .await;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",
@@ -112,7 +115,17 @@ pub async fn set_typing(
         let _ = state
             .services
             .event_broadcaster
-            .broadcast_edu_to_room(&room_id, &edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+            .broadcast_edu_to_room(
+                &room_id,
+                &edu,
+                state
+                    .services
+                    .config
+                    .server
+                    .server_name
+                    .as_deref()
+                    .unwrap_or("localhost"),
+            )
             .await;
 
         let expires_at = chrono::Utc::now().timestamp_millis() + timeout as i64;
@@ -140,7 +153,17 @@ pub async fn set_typing(
         let _ = state
             .services
             .event_broadcaster
-            .broadcast_edu_to_room(&room_id, &edu, state.services.config.server.server_name.as_deref().unwrap_or("localhost"))
+            .broadcast_edu_to_room(
+                &room_id,
+                &edu,
+                state
+                    .services
+                    .config
+                    .server
+                    .server_name
+                    .as_deref()
+                    .unwrap_or("localhost"),
+            )
             .await;
 
         Ok(Json(json!({

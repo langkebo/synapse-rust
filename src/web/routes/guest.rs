@@ -149,7 +149,11 @@ pub async fn upgrade_guest(
             let access_token = state
                 .services
                 .auth_service
-                .generate_access_token(&auth_user.user_id, auth_user.device_id.as_deref().unwrap_or(""), false)
+                .generate_access_token(
+                    &auth_user.user_id,
+                    auth_user.device_id.as_deref().unwrap_or(""),
+                    false,
+                )
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
 

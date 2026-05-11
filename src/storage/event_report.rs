@@ -245,7 +245,7 @@ impl EventReportStorage {
                     (score = $3 AND received_ts = $4 AND id < $5)
                 ) 
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2
-                "#
+                "#,
             )
             .bind(status)
             .bind(limit)
@@ -284,7 +284,7 @@ impl EventReportStorage {
                     (score = $3 AND received_ts = $4 AND id < $5)
                 ) 
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1
-                "#
+                "#,
             )
             .bind(limit)
             .bind(score)

@@ -75,18 +75,12 @@ impl UiaService {
     }
 
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
-        vec![
-            UiaFlow {
-                stages: vec!["m.login.password".to_string()],
-            },
-        ]
+        vec![UiaFlow {
+            stages: vec!["m.login.password".to_string()],
+        }]
     }
 
-    pub async fn create_session(
-        &self,
-        user_id: &str,
-        flows: Vec<UiaFlow>,
-    ) -> UiaSession {
+    pub async fn create_session(&self, user_id: &str, flows: Vec<UiaFlow>) -> UiaSession {
         let session_id = uuid::Uuid::new_v4().to_string();
         let session = UiaSession {
             session_id: session_id.clone(),
@@ -108,11 +102,7 @@ impl UiaService {
         self.cache.get(&key).await.ok().flatten()
     }
 
-    pub async fn complete_stage(
-        &self,
-        session_id: &str,
-        stage: &str,
-    ) -> Option<UiaSession> {
+    pub async fn complete_stage(&self, session_id: &str, stage: &str) -> Option<UiaSession> {
         let key = format!("uia:session:{}", session_id);
         let mut session: UiaSession = self.cache.get(&key).await.ok().flatten()?;
 
@@ -134,19 +124,18 @@ impl UiaService {
 
     pub fn is_session_complete(&self, session: &UiaSession) -> bool {
         for flow in &session.flows {
-            if flow.stages.iter().all(|stage| session.completed.contains(stage)) {
+            if flow
+                .stages
+                .iter()
+                .all(|stage| session.completed.contains(stage))
+            {
                 return true;
             }
         }
         false
     }
 
-    pub fn build_uia_response(
-        &self,
-        session: &UiaSession,
-        errcode: &str,
-        error: &str,
-    ) -> Value {
+    pub fn build_uia_response(&self, session: &UiaSession, errcode: &str, error: &str) -> Value {
         let flows: Vec<Value> = session
             .flows
             .iter()
@@ -275,7 +264,9 @@ impl UiaService {
         let password = auth
             .get("password")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::bad_request("Password required for m.login.password".to_string()))?;
+            .ok_or_else(|| {
+                ApiError::bad_request("Password required for m.login.password".to_string())
+            })?;
 
         let identifier_user = auth
             .get("identifier")
@@ -296,20 +287,13 @@ impl UiaService {
         Ok(())
     }
 
-    pub async fn verify_token_stage(
-        &self,
-        auth: &Value,
-        _user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn verify_token_stage(&self, auth: &Value, _user_id: &str) -> Result<(), ApiError> {
         let _token = auth
             .get("token")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Token required for m.login.token".to_string()))?;
 
-        let txn_id = auth
-            .get("txn_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let txn_id = auth.get("txn_id").and_then(|v| v.as_str()).unwrap_or("");
 
         if txn_id.is_empty() {
             return Err(ApiError::bad_request("Transaction ID required".to_string()));

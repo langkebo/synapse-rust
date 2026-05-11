@@ -15,7 +15,10 @@ pub async fn get_client_versions(
     let mut versions: Value =
         serde_json::from_str(CLIENT_VERSIONS_JSON_BASE).expect("base versions json is valid");
 
-    if let Some(unstable_features) = versions.get_mut("unstable_features").and_then(|f| f.as_object_mut()) {
+    if let Some(unstable_features) = versions
+        .get_mut("unstable_features")
+        .and_then(|f| f.as_object_mut())
+    {
         if config.experimental.msc3814_enabled {
             unstable_features.insert("org.matrix.msc3814".to_string(), json!(true));
         }
@@ -107,7 +110,7 @@ pub async fn get_capabilities() -> impl axum::response::IntoResponse {
             "m.3pid_changes": { "enabled": true },
             "m.room.summary": { "enabled": true },
             "m.room.suggested": { "enabled": true },
-            "io.hula.friends": { "enabled": true }
+            "io.hula.friends": true
         },
         "unstable_features": {
             "io.hula.friends": true
@@ -117,19 +120,17 @@ pub async fn get_capabilities() -> impl axum::response::IntoResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_well_known_client, derive_well_known_server, get_client_versions,
-    };
+    use super::{build_well_known_client, derive_well_known_server, get_client_versions};
+    use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::Config;
     use crate::services::ServiceContainer;
     use crate::web::AppState;
-    use crate::cache::{CacheManager, CacheConfig};
     use std::sync::Arc;
 
     fn make_test_state() -> AppState {
         let mut config = Config::default();
         config.experimental.msc3814_enabled = true;
-        
+
         let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
@@ -146,14 +147,15 @@ mod tests {
     async fn test_get_client_versions_includes_msc3814() {
         use axum::response::IntoResponse;
         let state = make_test_state();
-        let response = get_client_versions(axum::extract::State(state)).await.into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+        let response = get_client_versions(axum::extract::State(state))
+            .await
+            .into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        
-        assert_eq!(
-            body["unstable_features"]["org.matrix.msc3814"],
-            true
-        );
+
+        assert_eq!(body["unstable_features"]["org.matrix.msc3814"], true);
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // =============================================================================
-// Core Matrix storage modules (always compiled)
+// L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
 pub mod application_service;
 pub mod audit;
@@ -51,7 +51,7 @@ pub mod token;
 pub mod user;
 
 // =============================================================================
-// Feature-gated extension storage modules
+// L3 — Feature-gated extension storage modules (off by default in core builds)
 // =============================================================================
 #[cfg(feature = "openclaw-routes")]
 pub mod ai_connection;
@@ -87,7 +87,7 @@ pub mod server_notification;
 #[cfg(feature = "privacy-ext")]
 pub mod privacy;
 
-// Captcha is used by registration flow — keep unconditional
+// L0 — Captcha is used by registration flow — keep unconditional
 pub mod captcha;
 
 pub use self::threepid::UserThreepid;
@@ -183,9 +183,16 @@ impl Database {
     /// # 返回值
     ///
     /// 成功时返回 `Ok(Database)`，连接失败时返回 `Err(sqlx::Error)`
-    pub async fn new(database_url: &str, redis_pool: Option<RedisPool>) -> Result<Self, sqlx::Error> {
+    pub async fn new(
+        database_url: &str,
+        redis_pool: Option<RedisPool>,
+    ) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(
+            pool.clone(),
+            redis_pool,
+            10000,
+        )));
         Ok(Self { pool, monitor })
     }
 
@@ -201,7 +208,11 @@ impl Database {
     ///
     /// 返回使用给定连接池的 `Database` 实例
     pub fn from_pool(pool: Pool<Postgres>, redis_pool: Option<RedisPool>) -> Self {
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(
+            pool.clone(),
+            redis_pool,
+            10000,
+        )));
         Self { pool, monitor }
     }
 

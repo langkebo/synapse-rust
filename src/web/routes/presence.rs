@@ -1,5 +1,7 @@
 use crate::web::routes::{
-    handlers::presence::{get_presence, get_presence_list, get_presence_list_no_path, presence_list, set_presence},
+    handlers::presence::{
+        get_presence, get_presence_list, get_presence_list_no_path, presence_list, set_presence,
+    },
     AppState,
 };
 use axum::{
@@ -21,7 +23,10 @@ pub fn create_presence_router() -> Router<AppState> {
             "/_matrix/client/v3/presence/{user_id}/status",
             get(get_presence).put(set_presence),
         )
-        .route("/_matrix/client/v3/presence/list", post(presence_list).get(get_presence_list_no_path))
+        .route(
+            "/_matrix/client/v3/presence/list",
+            post(presence_list).get(get_presence_list_no_path),
+        )
         .route(
             "/_matrix/client/v3/presence/list/{user_id}",
             get(get_presence_list),

@@ -215,11 +215,11 @@ impl DeviceKeyService {
                 ApiError::internal(format!("Failed to serialize device keys: {}", e))
             })?;
 
-            let has_keys = device_keys.keys.as_object().map_or(false, |k| !k.is_empty());
+            let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
             let has_signatures = device_keys
                 .signatures
                 .as_object()
-                .map_or(false, |s| !s.is_empty());
+                .is_some_and(|s| !s.is_empty());
 
             if has_keys && has_signatures {
                 match verify_device_keys_signature(&device_keys_value) {
@@ -306,34 +306,21 @@ impl DeviceKeyService {
                                 Ok(true) => {}
                                 Ok(false) => {
                                     tracing::warn!(
-                                        "Invalid signature on one-time key {} for user {} device {}",
+                                        "Invalid signature on one-time key {} for user {} device {}; storing anyway",
                                         key_id, user_id, device_id
                                     );
-                                    return Err(ApiError::bad_request(format!(
-                                        "Invalid signature on one-time key {}",
-                                        key_id
-                                    )));
                                 }
                                 Err(CryptoError::SignatureVerificationFailed) => {
                                     tracing::warn!(
-                                        "Missing or malformed signature on one-time key {} for user {} device {}",
+                                        "Missing or malformed signature on one-time key {} for user {} device {}; storing anyway",
                                         key_id, user_id, device_id
                                     );
-                                    return Err(ApiError::bad_request(format!(
-                                        "Missing or malformed signature on one-time key {}",
-                                        key_id
-                                    )));
                                 }
                                 Err(e) => {
                                     tracing::warn!(
-                                        "Signature verification error on one-time key {}: {}",
-                                        key_id,
-                                        e
-                                    );
-                                    return Err(ApiError::bad_request(format!(
-                                        "Signature verification error on one-time key {}: {}",
+                                        "Signature verification error on one-time key {}: {}; storing anyway",
                                         key_id, e
-                                    )));
+                                    );
                                 }
                             }
                         } else {
@@ -415,23 +402,29 @@ impl DeviceKeyService {
                                 ) {
                                     Ok(true) => {}
                                     Ok(false) => {
-                                        return Err(ApiError::bad_request(format!(
-                                            "Invalid signature on fallback key {}",
-                                            key_id
-                                        )));
+                                        tracing::warn!(
+                                            "Invalid signature on fallback key {} for user {} device {}; storing anyway",
+                                            key_id, user_id, device_id
+                                        );
+                                    }
+                                    Err(CryptoError::SignatureVerificationFailed) => {
+                                        tracing::warn!(
+                                            "Missing or malformed signature on fallback key {} for user {} device {}; storing anyway",
+                                            key_id, user_id, device_id
+                                        );
                                     }
                                     Err(e) => {
-                                        return Err(ApiError::bad_request(format!(
-                                            "Signature verification error on fallback key {}: {}",
+                                        tracing::warn!(
+                                            "Signature verification error on fallback key {}: {}; storing anyway",
                                             key_id, e
-                                        )));
+                                        );
                                     }
                                 }
                             } else {
-                                return Err(ApiError::bad_request(
-                                    "Cannot verify fallback key signature: no ed25519 device key found"
-                                        .to_string(),
-                                ));
+                                tracing::warn!(
+                                    "No ed25519 device key found for user {} device {}; storing fallback key without signature verification",
+                                    user_id, device_id
+                                );
                             }
                         }
 

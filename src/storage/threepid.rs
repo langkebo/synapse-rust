@@ -327,6 +327,7 @@ impl ThreepidStorage {
 
     // === Validation Session Methods (Architecture Gap #2: 3PID Verification) ===
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_validation_session(
         &self,
         session_id: &str,

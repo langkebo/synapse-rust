@@ -8,36 +8,36 @@ pub struct ServerMetrics {
     pub auth_success_total: Counter,
     pub token_validations_total: Counter,
     pub token_validation_errors: Counter,
-    
+
     pub db_query_duration: Histogram,
     pub db_connections_active: Gauge,
     pub db_connections_idle: Gauge,
     pub db_query_errors: Counter,
     pub db_transaction_duration: Histogram,
-    
+
     pub cache_hits_total: Counter,
     pub cache_misses_total: Counter,
     pub cache_evictions_total: Counter,
     pub cache_errors: Counter,
-    
+
     pub federation_requests_total: Counter,
     pub federation_request_duration: Histogram,
     pub federation_signature_verifications: Counter,
     pub federation_signature_errors: Counter,
     pub federation_replay_attacks_blocked: Counter,
-    
+
     pub http_requests_total: Counter,
     pub http_request_duration: Histogram,
     pub http_request_errors: Counter,
     pub http_active_requests: Gauge,
-    
+
     pub security_jwt_validation_errors: Counter,
     pub security_origin_validation_errors: Counter,
     pub security_timestamp_validation_errors: Counter,
-    
+
     pub pool_utilization: Gauge,
     pub pool_health_status: Gauge,
-    
+
     // Admin / Global Stats
     pub total_users: Gauge,
     pub total_rooms: Gauge,
@@ -66,23 +66,17 @@ impl ServerMetrics {
                 "auth_success_total".to_string(),
                 Self::labels(&[("type", "success")]),
             ),
-            token_validations_total: collector.register_counter(
-                "token_validations_total".to_string(),
-            ),
-            token_validation_errors: collector.register_counter(
-                "token_validation_errors".to_string(),
-            ),
+            token_validations_total: collector
+                .register_counter("token_validations_total".to_string()),
+            token_validation_errors: collector
+                .register_counter("token_validation_errors".to_string()),
 
             db_query_duration: collector.register_histogram_with_labels(
                 "db_query_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
-            db_connections_active: collector.register_gauge(
-                "db_connections_active".to_string(),
-            ),
-            db_connections_idle: collector.register_gauge(
-                "db_connections_idle".to_string(),
-            ),
+            db_connections_active: collector.register_gauge("db_connections_active".to_string()),
+            db_connections_idle: collector.register_gauge("db_connections_idle".to_string()),
             db_query_errors: collector.register_counter("db_query_errors".to_string()),
             db_transaction_duration: collector.register_histogram_with_labels(
                 "db_transaction_duration_ms".to_string(),
@@ -97,27 +91,21 @@ impl ServerMetrics {
                 "cache_misses_total".to_string(),
                 Self::labels(&[("result", "miss")]),
             ),
-            cache_evictions_total: collector.register_counter(
-                "cache_evictions_total".to_string(),
-            ),
+            cache_evictions_total: collector.register_counter("cache_evictions_total".to_string()),
             cache_errors: collector.register_counter("cache_errors".to_string()),
 
-            federation_requests_total: collector.register_counter(
-                "federation_requests_total".to_string(),
-            ),
+            federation_requests_total: collector
+                .register_counter("federation_requests_total".to_string()),
             federation_request_duration: collector.register_histogram_with_labels(
                 "federation_request_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
-            federation_signature_verifications: collector.register_counter(
-                "federation_signature_verifications".to_string(),
-            ),
-            federation_signature_errors: collector.register_counter(
-                "federation_signature_errors".to_string(),
-            ),
-            federation_replay_attacks_blocked: collector.register_counter(
-                "federation_replay_attacks_blocked".to_string(),
-            ),
+            federation_signature_verifications: collector
+                .register_counter("federation_signature_verifications".to_string()),
+            federation_signature_errors: collector
+                .register_counter("federation_signature_errors".to_string()),
+            federation_replay_attacks_blocked: collector
+                .register_counter("federation_replay_attacks_blocked".to_string()),
 
             http_requests_total: collector.register_counter("http_requests_total".to_string()),
             http_request_duration: collector.register_histogram_with_labels(
@@ -127,26 +115,29 @@ impl ServerMetrics {
             http_request_errors: collector.register_counter("http_request_errors".to_string()),
             http_active_requests: collector.register_gauge("http_active_requests".to_string()),
 
-            security_jwt_validation_errors: collector.register_counter(
-                "security_jwt_validation_errors".to_string(),
-            ),
-            security_origin_validation_errors: collector.register_counter(
-                "security_origin_validation_errors".to_string(),
-            ),
-            security_timestamp_validation_errors: collector.register_counter(
-                "security_timestamp_validation_errors".to_string(),
-            ),
+            security_jwt_validation_errors: collector
+                .register_counter("security_jwt_validation_errors".to_string()),
+            security_origin_validation_errors: collector
+                .register_counter("security_origin_validation_errors".to_string()),
+            security_timestamp_validation_errors: collector
+                .register_counter("security_timestamp_validation_errors".to_string()),
 
             pool_utilization: collector.register_gauge("pool_utilization".to_string()),
             pool_health_status: collector.register_gauge("pool_health_status".to_string()),
-            
+
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
 
-            dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
-            dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
-            dehydrated_device_cleanup_errors_total: collector.register_counter("dehydrated_device_cleanup_errors_total".to_string()),
-            dehydrated_device_cleanup_duration: collector.register_histogram_with_labels("dehydrated_device_cleanup_duration_ms".to_string(), Self::labels(&[("unit", "ms")])),
+            dehydrated_device_cleanup_total: collector
+                .register_counter("dehydrated_device_cleanup_total".to_string()),
+            dehydrated_device_cleaned_total: collector
+                .register_counter("dehydrated_device_cleaned_total".to_string()),
+            dehydrated_device_cleanup_errors_total: collector
+                .register_counter("dehydrated_device_cleanup_errors_total".to_string()),
+            dehydrated_device_cleanup_duration: collector.register_histogram_with_labels(
+                "dehydrated_device_cleanup_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
 
             collector,
         }
@@ -186,7 +177,8 @@ impl ServerMetrics {
         self.db_connections_active.set(active);
         self.db_connections_idle.set(idle);
         self.pool_utilization.set(utilization);
-        self.pool_health_status.set(if is_healthy { 1.0 } else { 0.0 });
+        self.pool_health_status
+            .set(if is_healthy { 1.0 } else { 0.0 });
     }
 
     pub fn record_cache_operation(&self, hit: bool) {
@@ -232,12 +224,18 @@ impl ServerMetrics {
         self.http_active_requests.dec();
     }
 
-    pub fn record_security_validation(&self, validation_type: SecurityValidationType, success: bool) {
+    pub fn record_security_validation(
+        &self,
+        validation_type: SecurityValidationType,
+        success: bool,
+    ) {
         if !success {
             match validation_type {
                 SecurityValidationType::Jwt => self.security_jwt_validation_errors.inc(),
                 SecurityValidationType::Origin => self.security_origin_validation_errors.inc(),
-                SecurityValidationType::Timestamp => self.security_timestamp_validation_errors.inc(),
+                SecurityValidationType::Timestamp => {
+                    self.security_timestamp_validation_errors.inc()
+                }
             }
         }
     }
@@ -328,7 +326,7 @@ mod tests {
     fn test_server_metrics_creation() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         assert_eq!(metrics.auth_attempts_total.get(), 0);
         assert_eq!(metrics.cache_hits_total.get(), 0);
     }
@@ -337,12 +335,12 @@ mod tests {
     fn test_record_auth_attempt() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_auth_attempt(true);
         assert_eq!(metrics.auth_attempts_total.get(), 1);
         assert_eq!(metrics.auth_success_total.get(), 1);
         assert_eq!(metrics.auth_failures_total.get(), 0);
-        
+
         metrics.record_auth_attempt(false);
         assert_eq!(metrics.auth_attempts_total.get(), 2);
         assert_eq!(metrics.auth_success_total.get(), 1);
@@ -353,11 +351,11 @@ mod tests {
     fn test_record_cache_operation() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_cache_operation(true);
         metrics.record_cache_operation(true);
         metrics.record_cache_operation(false);
-        
+
         assert_eq!(metrics.cache_hits_total.get(), 2);
         assert_eq!(metrics.cache_misses_total.get(), 1);
     }
@@ -366,14 +364,14 @@ mod tests {
     fn test_update_pool_metrics() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.update_pool_metrics(15.0, 5.0, 0.75, true);
-        
+
         assert_eq!(metrics.db_connections_active.get(), 15.0);
         assert_eq!(metrics.db_connections_idle.get(), 5.0);
         assert_eq!(metrics.pool_utilization.get(), 0.75);
         assert_eq!(metrics.pool_health_status.get(), 1.0);
-        
+
         metrics.update_pool_metrics(19.0, 1.0, 0.95, false);
         assert_eq!(metrics.pool_health_status.get(), 0.0);
     }
@@ -382,10 +380,10 @@ mod tests {
     fn test_record_federation_request() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_federation_request(50.0, true);
         metrics.record_federation_request(100.0, false);
-        
+
         assert_eq!(metrics.federation_requests_total.get(), 2);
         assert_eq!(metrics.federation_signature_errors.get(), 1);
     }
@@ -394,10 +392,10 @@ mod tests {
     fn test_record_replay_attack_blocked() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_replay_attack_blocked();
         metrics.record_replay_attack_blocked();
-        
+
         assert_eq!(metrics.federation_replay_attacks_blocked.get(), 2);
     }
 
@@ -405,16 +403,16 @@ mod tests {
     fn test_get_summary() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_auth_attempt(true);
         metrics.record_auth_attempt(false);
         metrics.record_cache_operation(true);
         metrics.record_cache_operation(false);
         metrics.record_http_request(50.0, true);
         metrics.record_http_request(100.0, false);
-        
+
         let summary = metrics.get_summary();
-        
+
         assert_eq!(summary.auth_attempts, 2);
         assert_eq!(summary.auth_success, 1);
         assert_eq!(summary.auth_failures, 1);
@@ -442,7 +440,7 @@ mod tests {
             http_errors: 20,
             db_errors: 5,
         };
-        
+
         assert_eq!(summary.auth_success_rate(), 90.0);
         assert_eq!(summary.error_rate(), 2.0);
     }
@@ -451,11 +449,11 @@ mod tests {
     fn test_security_validation_recording() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector);
-        
+
         metrics.record_security_validation(SecurityValidationType::Jwt, false);
         metrics.record_security_validation(SecurityValidationType::Origin, false);
         metrics.record_security_validation(SecurityValidationType::Timestamp, false);
-        
+
         assert_eq!(metrics.security_jwt_validation_errors.get(), 1);
         assert_eq!(metrics.security_origin_validation_errors.get(), 1);
         assert_eq!(metrics.security_timestamp_validation_errors.get(), 1);

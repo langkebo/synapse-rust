@@ -49,6 +49,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             content JSONB NOT NULL,
             state_key TEXT,
             depth BIGINT,
+            stream_ordering BIGSERIAL,
             origin_server_ts BIGINT NOT NULL,
             processed_ts BIGINT,
             not_before BIGINT,

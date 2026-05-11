@@ -5,8 +5,8 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_rust::e2ee::cross_signing::models::CrossSigningUpload;
-use synapse_rust::e2ee::cross_signing::service::CrossSigningService;
 use synapse_rust::e2ee::cross_signing::models::{CrossSigningKey, DeviceSignature};
+use synapse_rust::e2ee::cross_signing::service::CrossSigningService;
 use synapse_rust::e2ee::cross_signing::storage::CrossSigningStorage;
 use tokio::runtime::Runtime;
 
@@ -118,7 +118,10 @@ fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
 
         storage.save_device_signature(&signature).await.unwrap();
 
-        let user_signatures = storage.get_user_signatures("@alice:localhost").await.unwrap();
+        let user_signatures = storage
+            .get_user_signatures("@alice:localhost")
+            .await
+            .unwrap();
         assert_eq!(user_signatures.len(), 1);
         assert_eq!(user_signatures[0].signature, "device_sig");
         assert!(user_signatures[0].created_ts.timestamp_millis() > 1_700_000_000_000);

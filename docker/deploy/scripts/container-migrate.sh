@@ -7,7 +7,8 @@
 # unless their feature is listed in ENABLED_EXTENSIONS.
 #
 # Examples:
-#   ENABLED_EXTENSIONS=all              — apply everything (default)
+#   ENABLED_EXTENSIONS=all              — apply everything
+#   ENABLED_EXTENSIONS=friends,burn-after-read — core-private-chat (recommended default)
 #   ENABLED_EXTENSIONS=none             — core only, skip all extensions
 #   ENABLED_EXTENSIONS=openclaw-routes,friends  — only named extensions
 # =============================================================================
@@ -20,7 +21,7 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-synapse}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-}"
-ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-all}"
+ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-friends,burn-after-read}"
 EXTENSION_MAP="${MIGRATIONS_DIR}/extension_map.conf"
 
 if [ -n "$DB_PASSWORD" ]; then

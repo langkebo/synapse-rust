@@ -1,5 +1,5 @@
-use deadpool_redis::Pool as RedisPool;
 use axum::{response::IntoResponse, routing::get, Router};
+use deadpool_redis::Pool as RedisPool;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,9 +29,7 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
 
 fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration {
-    Duration::from_secs(
-        configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS),
-    )
+    Duration::from_secs(configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS))
 }
 
 pub struct SynapseServer {
@@ -498,7 +496,7 @@ impl SynapseServer {
                                         message = "Swept expired dehydrated device(s)",
                                         devices_swept = n
                                     );
-                                    server_metrics.dehydrated_device_cleaned_total.inc_by(n as u64);
+                                    server_metrics.dehydrated_device_cleaned_total.inc_by(n);
                                 }
                                 Err(e) => {
                                     ::tracing::warn!(

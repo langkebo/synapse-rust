@@ -137,7 +137,13 @@ impl AuthService {
     ) -> ApiResult<(User, String, String, String)> {
         let start = std::time::Instant::now();
         let result = self
-            .register_internal(username, password, admin, displayname, initial_device_display_name)
+            .register_internal(
+                username,
+                password,
+                admin,
+                displayname,
+                initial_device_display_name,
+            )
             .await;
 
         let duration = start.elapsed().as_secs_f64();
@@ -381,7 +387,9 @@ impl AuthService {
         self.cache.delete(&logout_marker).await;
         self.log_login_success(&user, device_id);
 
-        let device_id = self.get_or_create_device_id(device_id, &user, initial_display_name).await?;
+        let device_id = self
+            .get_or_create_device_id(device_id, &user, initial_display_name)
+            .await?;
 
         let access_token = self
             .generate_access_token(&user.user_id, &device_id, user.is_admin)

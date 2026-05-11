@@ -144,7 +144,11 @@ impl FeatureFlagStorage {
         let flag = to_feature_flag(record, targets);
         let _ = self
             .cache
-            .set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS)
+            .set(
+                &Self::flag_cache_key(&flag.flag_key),
+                &flag,
+                FEATURE_FLAG_CACHE_TTL_SECS,
+            )
             .await;
         self.cache
             .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
@@ -207,7 +211,11 @@ impl FeatureFlagStorage {
         let flag = to_feature_flag(record, targets);
         let _ = self
             .cache
-            .set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS)
+            .set(
+                &Self::flag_cache_key(&flag.flag_key),
+                &flag,
+                FEATURE_FLAG_CACHE_TTL_SECS,
+            )
             .await;
         self.cache
             .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
@@ -238,10 +246,7 @@ impl FeatureFlagStorage {
         };
 
         let targets = self.list_targets(&[flag_key.to_string()]).await?;
-        let flag = to_feature_flag(
-            record,
-            targets.get(flag_key).cloned().unwrap_or_default(),
-        );
+        let flag = to_feature_flag(record, targets.get(flag_key).cloned().unwrap_or_default());
         let _ = self
             .cache
             .set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS)
