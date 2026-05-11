@@ -69,6 +69,9 @@ pub struct LedgerEntryJson {
 /// Named profile presets recognised by the exporter. Centralised here
 /// so both the binary CLI and consumer tests agree on the set.
 pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
+    let saml_enabled = cfg!(feature = "saml-sso");
+    let openclaw_enabled = cfg!(feature = "openclaw-routes");
+
     match name {
         "default" => Some(ProfileFlags::DEFAULT),
         "oidc" => Some(ProfileFlags {
@@ -80,19 +83,19 @@ pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
             ..ProfileFlags::DEFAULT
         }),
         "saml" => Some(ProfileFlags {
-            saml_enabled: true,
+            saml_enabled,
             oidc_enabled: true,
             ..ProfileFlags::DEFAULT
         }),
         "openclaw" => Some(ProfileFlags {
-            openclaw_enabled: true,
+            openclaw_enabled,
             ..ProfileFlags::DEFAULT
         }),
         "all" => Some(ProfileFlags {
             oidc_enabled: true,
             worker_enabled: true,
-            saml_enabled: true,
-            openclaw_enabled: true,
+            saml_enabled,
+            openclaw_enabled,
         }),
         _ => None,
     }
@@ -268,5 +271,19 @@ mod tests {
     #[test]
     fn unknown_profile_returns_none() {
         assert!(profile_for_name("this-does-not-exist").is_none());
+    }
+
+    #[test]
+    fn profile_flags_respect_compiled_features() {
+        let saml = profile_for_name("saml").expect("saml profile should exist");
+        let openclaw = profile_for_name("openclaw").expect("openclaw profile should exist");
+        let all = profile_for_name("all").expect("all profile should exist");
+
+        assert_eq!(saml.saml_enabled, cfg!(feature = "saml-sso"));
+        assert_eq!(openclaw.openclaw_enabled, cfg!(feature = "openclaw-routes"));
+        assert_eq!(all.saml_enabled, cfg!(feature = "saml-sso"));
+        assert_eq!(all.openclaw_enabled, cfg!(feature = "openclaw-routes"));
+        assert!(all.oidc_enabled);
+        assert!(all.worker_enabled);
     }
 }

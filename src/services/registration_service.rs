@@ -53,7 +53,13 @@ impl RegistrationService {
         let start = std::time::Instant::now();
         let result = self
             .auth_service
-            .register_with_device_name(username, password, false, displayname, initial_device_display_name)
+            .register_with_device_name(
+                username,
+                password,
+                false,
+                displayname,
+                initial_device_display_name,
+            )
             .await;
 
         let duration = start.elapsed().as_secs_f64();

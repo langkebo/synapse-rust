@@ -1,5 +1,6 @@
 ARG RUST_VERSION=1.93
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12
+ARG CARGO_FEATURE_ARGS="--features server,core-private-chat --no-default-features"
 
 # ============================================================================
 # Stage 1: builder — 编译 Rust 二进制 + 收集运行时所需文件到 /out/app
@@ -37,7 +38,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
     mkdir src && echo "fn main() {}" > src/main.rs && \
     mkdir -p src/bin && echo "fn main() {}" > src/bin/healthcheck.rs && \
-    cargo build --release --locked --bin synapse-rust --bin healthcheck && \
+    cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
     rm -rf src/
 
 # 复制真正的源码 + 迁移脚本 + 启动脚本
@@ -58,7 +59,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     find target/release/.fingerprint -name '*synapse*' -delete 2>/dev/null; \
     find target/release/deps -name '*synapse*' -delete 2>/dev/null; \
     touch src/main.rs && \
-    cargo build --release --locked --bin synapse-rust --bin healthcheck && \
+    cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh && \

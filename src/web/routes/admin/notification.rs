@@ -35,7 +35,10 @@ mod cursor_tests {
     #[test]
     fn test_notice_cursor_round_trip() {
         let cursor = encode_notice_cursor(1_700_000_000_000, 42);
-        assert_eq!(decode_notice_cursor(Some(&cursor)), Some((1_700_000_000_000, 42)));
+        assert_eq!(
+            decode_notice_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, 42))
+        );
     }
 
     #[test]
@@ -754,7 +757,7 @@ pub async fn get_server_notices(
             OR sent_ts < $1
             OR (sent_ts = $1 AND id < $2)
          ORDER BY sent_ts DESC, id DESC
-         LIMIT $3"
+         LIMIT $3",
     )
     .bind(cursor.map(|(sent_ts, _)| sent_ts))
     .bind(cursor.map(|(_, id)| id))

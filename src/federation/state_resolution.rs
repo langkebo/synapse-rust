@@ -87,11 +87,12 @@ impl StateResolutionService {
 
         let event_ids: Vec<&str> = event_data.keys().map(|s| s.as_str()).collect();
 
-        let resolved =
-            chain.resolve_state_with_auth_chain(&event_data, &event_ids);
+        let resolved = chain.resolve_state_with_auth_chain(&event_data, &event_ids);
 
-        let resolved_ids: std::collections::HashSet<&str> =
-            resolved.keys().map(|s| s.split(':').next().unwrap_or("")).collect();
+        let resolved_ids: std::collections::HashSet<&str> = resolved
+            .keys()
+            .map(|s| s.split(':').next().unwrap_or(""))
+            .collect();
 
         let accepted: Vec<String> = event_ids
             .iter()

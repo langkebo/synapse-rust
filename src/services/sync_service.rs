@@ -679,9 +679,10 @@ impl SyncService {
                 "m.receipt" => {
                     if let Some(content) = event.get("content").and_then(|v| v.as_object()) {
                         for (event_id, receipt_data) in content {
-                            let entry = receipt_content
-                                .entry(event_id.clone())
-                                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                            let entry =
+                                receipt_content.entry(event_id.clone()).or_insert_with(|| {
+                                    serde_json::Value::Object(serde_json::Map::new())
+                                });
                             if let Some(entry_obj) = entry.as_object_mut() {
                                 if let Some(data_obj) = receipt_data.as_object() {
                                     for (receipt_type, user_data) in data_obj {
@@ -767,11 +768,7 @@ impl SyncService {
                     }
                     None => {
                         self.event_storage
-                            .get_room_events_since_stream_batch(
-                                room_ids,
-                                stream_ord,
-                                fetch_limit,
-                            )
+                            .get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit)
                             .await?
                     }
                 };
@@ -1018,22 +1015,39 @@ impl SyncService {
             .unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
         let since_ts = self.event_since_ts(since_token);
+        let since_stream_ordering = since_token
+            .as_ref()
+            .filter(|t| t.stream_id < Self::TIMESTAMP_TOKEN_MIN && t.stream_id > 0)
+            .map(|t| t.stream_id);
         let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
+            let state_ts_result = if let Some(stream_ord) = since_stream_ordering {
+                self.event_storage
+                    .get_state_change_timestamps_since_stream_batch(room_ids, stream_ord)
+                    .await
+                    .map_err(ApiError::from)?
+            } else {
+                self.event_storage
+                    .get_state_change_timestamps_batch(room_ids, since_ts)
+                    .await
+                    .map_err(ApiError::from)?
+            };
             if lazy_load_members {
-                tokio::try_join!(
+                let changed_members = if let Some(stream_ord) = since_stream_ordering {
                     self.event_storage
-                        .get_membership_state_keys_since_batch(room_ids, since_ts),
+                        .get_membership_state_keys_since_stream_batch(room_ids, stream_ord)
+                        .await
+                        .map_err(ApiError::from)?
+                } else {
                     self.event_storage
-                        .get_state_change_timestamps_batch(room_ids, since_ts),
-                )
-                .map_err(ApiError::from)?
+                        .get_membership_state_keys_since_batch(room_ids, since_ts)
+                        .await
+                        .map_err(ApiError::from)?
+                };
+                (changed_members, state_ts_result)
             } else {
                 (
                     HashMap::<String, HashSet<String>>::new(),
-                    self.event_storage
-                        .get_state_change_timestamps_batch(room_ids, since_ts)
-                        .await
-                        .map_err(ApiError::from)?,
+                    state_ts_result,
                 )
             }
         } else {
@@ -1087,6 +1101,7 @@ impl SyncService {
                 &rooms_to_include,
                 event_format,
                 since_ts,
+                since_stream_ordering,
                 is_incremental,
                 lazy_load_members,
                 user_id,
@@ -1271,6 +1286,7 @@ impl SyncService {
                         &[room_id.to_string()],
                         SyncEventFormat::Client,
                         since_ts,
+                        None,
                         is_incremental,
                         lazy_load_members,
                         user_id,
@@ -1776,6 +1792,7 @@ impl SyncService {
             &known_members,
             include_redundant_members,
             &changed_member_ids,
+            timeline_limited,
         );
 
         if !known_now.is_empty() {
@@ -1798,7 +1815,33 @@ impl SyncService {
         known_members: &HashSet<String>,
         include_redundant_members: bool,
         changed_member_ids: &HashSet<String>,
+        timeline_limited: bool,
     ) -> (Vec<Value>, HashSet<String>) {
+        if timeline_limited {
+            let known_now: HashSet<String> = state_events
+                .iter()
+                .filter(|event| {
+                    event.get("type").and_then(|value| value.as_str()) == Some("m.room.member")
+                })
+                .filter_map(|event| event.get("state_key").and_then(|value| value.as_str()))
+                .map(|s| s.to_string())
+                .collect();
+            let filtered_events = state_events
+                .into_iter()
+                .filter(|event| {
+                    if event.get("type").and_then(|value| value.as_str()) != Some("m.room.member") {
+                        return true;
+                    }
+                    let Some(state_key) = event.get("state_key").and_then(|value| value.as_str())
+                    else {
+                        return false;
+                    };
+                    include_redundant_members || !known_members.contains(state_key)
+                })
+                .collect();
+            return (filtered_events, known_now);
+        }
+
         let mut required_members: HashSet<&str> = HashSet::from([user_id]);
         for event in timeline_events {
             required_members.insert(event.user_id.as_str());
@@ -1961,6 +2004,7 @@ impl SyncService {
         room_ids: &[String],
         event_format: SyncEventFormat,
         since_ts: i64,
+        since_stream_ordering: Option<i64>,
         is_incremental: bool,
         lazy_load_members: bool,
         user_id: &str,
@@ -1975,11 +2019,17 @@ impl SyncService {
                 .await;
         }
 
-        let delta_state_by_room = self
-            .event_storage
-            .get_state_events_since_batch(room_ids, since_ts)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
+        let delta_state_by_room = if let Some(stream_ord) = since_stream_ordering {
+            self.event_storage
+                .get_state_events_since_stream_batch(room_ids, stream_ord)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?
+        } else {
+            self.event_storage
+                .get_state_events_since_batch(room_ids, since_ts)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?
+        };
 
         // Detect "newly visible" rooms in this incremental sync — rooms where
         // the syncing user just joined or was invited. Their state delta will
@@ -1996,7 +2046,8 @@ impl SyncService {
                         && matches!(
                             e.content.get("membership").and_then(|v| v.as_str()),
                             Some("join") | Some("invite")
-                        ) && e.stream_ordering.is_some()
+                        )
+                        && e.stream_ordering.is_some()
                 });
                 if user_just_joined {
                     Some(room_id.clone())
@@ -3610,6 +3661,7 @@ mod tests {
             &HashSet::new(),
             false,
             &HashSet::new(),
+            false,
         );
 
         assert_eq!(filtered.len(), 3);
@@ -3670,6 +3722,7 @@ mod tests {
             &HashSet::from([String::from("@bob:localhost")]),
             false,
             &HashSet::new(),
+            false,
         );
 
         assert_eq!(filtered.len(), 2);
@@ -3721,6 +3774,7 @@ mod tests {
             &HashSet::from([String::from("@bob:localhost")]),
             true,
             &HashSet::new(),
+            false,
         );
 
         assert_eq!(filtered.len(), 2);
@@ -3754,6 +3808,7 @@ mod tests {
             &HashSet::new(),
             false,
             &HashSet::from([String::from("@dave:localhost")]),
+            false,
         );
 
         assert_eq!(filtered.len(), 2);
@@ -3781,6 +3836,7 @@ mod tests {
             &HashSet::from([String::from("@dave:localhost")]),
             false,
             &HashSet::from([String::from("@dave:localhost")]),
+            false,
         );
 
         assert_eq!(filtered.len(), 1);

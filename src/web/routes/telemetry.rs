@@ -1,5 +1,7 @@
 use crate::common::error::ApiError;
-use crate::services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
+use crate::services::telemetry_service::{
+    ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService,
+};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},

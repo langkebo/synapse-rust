@@ -154,8 +154,9 @@ impl RoomMemberStorage {
             UPDATE room_memberships 
             SET membership = 'leave', 
                 left_ts = $3,
-                updated_ts = $3
-            WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
+                updated_ts = $3,
+                is_banned = false
+            WHERE room_id = $1 AND user_id = $2 AND membership IN ('join', 'ban')
             "#,
         )
         .bind(room_id)
@@ -198,6 +199,22 @@ impl RoomMemberStorage {
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
+    }
+
+    pub async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT DISTINCT m2.user_id
+            FROM room_memberships m1
+            JOIN room_memberships m2 ON m1.room_id = m2.room_id
+            WHERE m1.user_id = $1 AND m1.membership = 'join'
+              AND m2.membership = 'join'
+              AND m2.user_id != $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {

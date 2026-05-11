@@ -29,7 +29,10 @@ mod cursor_tests {
     #[test]
     fn test_media_cursor_round_trip() {
         let cursor = encode_media_cursor(1_700_000_000_000, "abc123");
-        assert_eq!(decode_media_cursor(Some(&cursor)), Some((1_700_000_000_000, "abc123")));
+        assert_eq!(
+            decode_media_cursor(Some(&cursor)),
+            Some((1_700_000_000_000, "abc123"))
+        );
     }
 
     #[test]

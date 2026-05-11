@@ -918,21 +918,15 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
-            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS key_data TEXT",
-        )
-        .execute(&*self.pool)
-        .await?;
-        sqlx::query(
-            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS signatures JSONB",
-        )
-        .execute(&*self.pool)
-        .await?;
-        sqlx::query(
-            "ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS added_ts BIGINT",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS key_data TEXT")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query("ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS signatures JSONB")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query("ALTER TABLE cross_signing_keys ADD COLUMN IF NOT EXISTS added_ts BIGINT")
+            .execute(&*self.pool)
+            .await?;
         sqlx::query(
             r#"
             DO $$

@@ -182,14 +182,13 @@ async fn upload_keys(
             if dk.get("algorithms").is_some() || dk.get("keys").is_some() {
                 Some(dk.clone())
             } else {
-                dk.as_object()
-                    .and_then(|map| {
-                        map.values().next().and_then(|user_entry| {
-                            user_entry
-                                .as_object()
-                                .and_then(|m| m.values().next().cloned())
-                        })
+                dk.as_object().and_then(|map| {
+                    map.values().next().and_then(|user_entry| {
+                        user_entry
+                            .as_object()
+                            .and_then(|m| m.values().next().cloned())
                     })
+                })
             }
         })
         .unwrap_or(serde_json::json!({}));
@@ -250,20 +249,49 @@ async fn query_keys(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
-        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest =
+        serde_json::from_value(body.clone())
+            .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
 
-    let requested_users = request
-        .device_keys
+    let device_keys_raw = body
+        .get("device_keys")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+
+    let requested_users: Vec<String> = device_keys_raw
         .as_object()
-        .map(|map| map.keys().cloned().collect::<Vec<_>>())
+        .map(|map| map.keys().cloned().collect())
         .unwrap_or_default();
+
     let allowed_users =
         filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
-    if let Some(device_keys) = request.device_keys.as_object_mut() {
-        device_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
-    }
+    let device_keys = if requested_users.is_empty() {
+        let mut shared = state
+            .services
+            .member_storage
+            .get_shared_room_users(&auth_user.user_id)
+            .await
+            .unwrap_or_default();
+        shared.push(auth_user.user_id.clone());
+        let map: serde_json::Map<String, Value> = shared
+            .into_iter()
+            .map(|uid| (uid, serde_json::json!([])))
+            .collect();
+        serde_json::Value::Object(map)
+    } else {
+        let mut filtered = serde_json::Map::new();
+        if let Some(obj) = device_keys_raw.as_object() {
+            for (uid, val) in obj {
+                if allowed_users.contains(uid) {
+                    filtered.insert(uid.clone(), val.clone());
+                }
+            }
+        }
+        serde_json::Value::Object(filtered)
+    };
+
+    request.device_keys = device_keys;
 
     let response = state
         .services

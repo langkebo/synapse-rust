@@ -691,6 +691,11 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/v3/pushrules/global/",
             get(get_push_rules_global_default),
         )
+        .route("/_matrix/client/r0/pushrules/", get(get_push_rules_default))
+        .route(
+            "/_matrix/client/r0/pushrules/global/",
+            get(get_push_rules_global_default),
+        )
         .route(
             "/.well-known/matrix/server",
             get(handlers::get_well_known_server),

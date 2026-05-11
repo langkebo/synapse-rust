@@ -1,5 +1,5 @@
 // =============================================================================
-// Core Matrix route modules (always compiled)
+// L0 — Core Matrix route modules (always compiled, required for core-private-chat)
 // =============================================================================
 mod account_compat;
 pub mod account_data;
@@ -59,7 +59,12 @@ pub mod verification_routes;
 pub mod worker;
 
 // =============================================================================
-// Feature-gated extension route modules
+// L1 — VoIP routes (standard Matrix TURN support, always available)
+// =============================================================================
+pub mod voip;
+
+// =============================================================================
+// L3 — Feature-gated extension route modules (off by default in core builds)
 // =============================================================================
 #[cfg(feature = "openclaw-routes")]
 pub mod ai_connection;
@@ -77,8 +82,6 @@ pub mod saml;
 
 #[cfg(feature = "cas-sso")]
 pub mod cas;
-
-pub mod voip;
 
 #[cfg(feature = "widgets")]
 pub mod widget;

@@ -15,7 +15,9 @@ pub fn encode_federation_blacklist_cursor(cursor: &FederationBlacklistCursor) ->
     format!("{}|{}", cursor.created_ts, cursor.server_name)
 }
 
-pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<FederationBlacklistCursor> {
+pub fn decode_federation_blacklist_cursor(
+    cursor: Option<&str>,
+) -> Option<FederationBlacklistCursor> {
     let cursor = cursor?;
     let (created_ts, server_name) = cursor.split_once('|')?;
     let created_ts = created_ts.parse::<i64>().ok()?;

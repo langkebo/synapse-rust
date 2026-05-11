@@ -15,7 +15,7 @@ pub(super) use crate::web::routes::response_helpers::{
 };
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 
-mod children_hierarchy;
+pub mod children_hierarchy;
 mod lifecycle_query;
 mod membership_state;
 mod summary;

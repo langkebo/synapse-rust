@@ -61,7 +61,11 @@ async fn require_password_uia(
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .verify_password_stage(
+                            auth_val,
+                            &auth_user.user_id,
+                            &state.services.auth_service,
+                        )
                         .await
                     {
                         let session = state
@@ -164,7 +168,13 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
 }
 
 async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id: &str) {
-    let server_name = state.services.config.server.server_name.as_deref().unwrap_or("localhost");
+    let server_name = state
+        .services
+        .config
+        .server
+        .server_name
+        .as_deref()
+        .unwrap_or("localhost");
     let edu = serde_json::json!({
         "edu_type": "m.device_list_update",
         "content": {
@@ -178,14 +188,27 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = state.services.member_storage.get_joined_rooms(user_id).await {
-                let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
+            if let Ok(shared_rooms) = state
+                .services
+                .member_storage
+                .get_joined_rooms(user_id)
+                .await
+            {
+                let mut sent_servers: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 for room_id in &shared_rooms {
-                    if let Ok(members) = state.services.member_storage.get_joined_members(room_id).await {
+                    if let Ok(members) = state
+                        .services
+                        .member_storage
+                        .get_joined_members(room_id)
+                        .await
+                    {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {
                                 let member_server = &member.user_id[mpos + 1..];
-                                if member_server != server_name && !sent_servers.contains(member_server) {
+                                if member_server != server_name
+                                    && !sent_servers.contains(member_server)
+                                {
                                     sent_servers.insert(member_server.to_string());
                                     let _ = state
                                         .services
@@ -231,6 +254,7 @@ pub async fn get_devices(
                 "device_id": d.device_id,
                 "display_name": d.display_name,
                 "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip,
             })
         })
         .collect();

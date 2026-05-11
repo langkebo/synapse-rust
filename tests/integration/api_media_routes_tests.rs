@@ -345,10 +345,9 @@ async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() 
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let thumbnail_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), thumbnail_request)
-            .await
-            .unwrap();
+    let thumbnail_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), thumbnail_request)
+        .await
+        .unwrap();
     assert_eq!(thumbnail_response.status(), StatusCode::OK);
     assert_eq!(
         thumbnail_response.headers().get("content-type").unwrap(),
@@ -367,7 +366,10 @@ async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() 
         ServiceExt::<Request<Body>>::oneshot(app, anonymous_thumbnail_request)
             .await
             .unwrap();
-    assert_eq!(anonymous_thumbnail_response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        anonymous_thumbnail_response.status(),
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]

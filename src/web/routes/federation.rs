@@ -1595,12 +1595,8 @@ async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
-        let already_processed: Option<bool> = state
-            .services
-            .cache
-            .get(&dedup_key)
-            .await
-            .unwrap_or(None);
+        let already_processed: Option<bool> =
+            state.services.cache.get(&dedup_key).await.unwrap_or(None);
         if already_processed.unwrap_or(false) {
             ::tracing::debug!(
                 "Dedup: transaction {} from {} already processed, returning empty result",
@@ -1922,11 +1918,7 @@ async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
-        let _ = state
-            .services
-            .cache
-            .set(&dedup_key, true, 86400)
-            .await;
+        let _ = state.services.cache.set(&dedup_key, true, 86400).await;
     }
 
     Ok(Json(json!({
@@ -1977,27 +1969,27 @@ async fn make_join(
             .collect();
 
         let room_version = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|r| r.room_version)
-        .unwrap_or_else(|| "10".to_string());
+            .services
+            .room_storage
+            .get_room(&room_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.room_version)
+            .unwrap_or_else(|| "10".to_string());
 
-    Ok(Json(json!({
-        "room_version": room_version,
-        "auth_events": auth_events_json,
-        "event": {
-            "type": "m.room.member",
-            "content": {
-                "membership": "join"
-            },
-            "sender": user_id,
-            "state_key": user_id
-        }
-    })))
+        Ok(Json(json!({
+            "room_version": room_version,
+            "auth_events": auth_events_json,
+            "event": {
+                "type": "m.room.member",
+                "content": {
+                    "membership": "join"
+                },
+                "sender": user_id,
+                "state_key": user_id
+            }
+        })))
     }
     .await;
 

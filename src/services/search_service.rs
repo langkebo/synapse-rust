@@ -71,7 +71,10 @@ struct ElasticsearchSearchCursor {
 }
 
 fn encode_postgres_search_cursor(cursor: &PostgresSearchCursor) -> String {
-    let raw = format!("{}|{}|{}", cursor.rank, cursor.origin_server_ts, cursor.event_id);
+    let raw = format!(
+        "{}|{}|{}",
+        cursor.rank, cursor.origin_server_ts, cursor.event_id
+    );
     URL_SAFE_NO_PAD.encode(raw.as_bytes())
 }
 
@@ -251,7 +254,11 @@ impl SearchService {
         .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
 
         let has_more = rows.len() > limit as usize;
-        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+        let visible_rows = if has_more {
+            &rows[..limit as usize]
+        } else {
+            &rows[..]
+        };
         let mut results = Vec::new();
         for row in visible_rows {
             let content: serde_json::Value = row
@@ -285,7 +292,9 @@ impl SearchService {
             visible_rows.last().map(|row| {
                 encode_postgres_search_cursor(&PostgresSearchCursor {
                     rank: row.try_get::<f64, _>("rank").unwrap_or_default(),
-                    origin_server_ts: row.try_get::<i64, _>("origin_server_ts").unwrap_or_default(),
+                    origin_server_ts: row
+                        .try_get::<i64, _>("origin_server_ts")
+                        .unwrap_or_default(),
                     event_id: row.try_get::<String, _>("event_id").unwrap_or_default(),
                 })
             })
@@ -1040,7 +1049,10 @@ mod tests {
             event_id: "$event:example.com".to_string(),
         };
         let encoded = encode_elasticsearch_search_cursor(&cursor);
-        assert_eq!(decode_elasticsearch_search_cursor(Some(&encoded)), Some(cursor));
+        assert_eq!(
+            decode_elasticsearch_search_cursor(Some(&encoded)),
+            Some(cursor)
+        );
     }
 
     #[test]

@@ -335,14 +335,11 @@ impl DatabaseIntegrityChecker {
 
         Ok(missing)
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
 
     async fn ensure_public_schema_contract_repairs(
         pool: &Pool<Postgres>,

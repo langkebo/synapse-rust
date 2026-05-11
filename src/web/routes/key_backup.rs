@@ -208,7 +208,11 @@ async fn create_backup_version(
             let result = state
                 .services
                 .uia_service
-                .validate_auth(auth_val, &auth_user.user_id, UiaService::get_default_flows())
+                .validate_auth(
+                    auth_val,
+                    &auth_user.user_id,
+                    UiaService::get_default_flows(),
+                )
                 .await;
 
             match result {
@@ -224,7 +228,11 @@ async fn create_backup_version(
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .verify_password_stage(
+                            auth_val,
+                            &auth_user.user_id,
+                            &state.services.auth_service,
+                        )
                         .await
                     {
                         let session = state
@@ -286,7 +294,8 @@ async fn create_backup_version(
 
     Ok(Json(json!({
         "version": version
-    })).into_response())
+    }))
+    .into_response())
 }
 
 #[axum::debug_handler]

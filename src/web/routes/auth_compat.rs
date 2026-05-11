@@ -77,7 +77,8 @@ pub(crate) async fn register(
                     "base_url": state.services.config.server.get_public_baseurl()
                 }
             }
-        })).into_response());
+        }))
+        .into_response());
     }
 
     let auth = body.get("auth").cloned();

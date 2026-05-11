@@ -218,7 +218,8 @@ pub async fn get_room_summary(
 
     let summary = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_summary(&room_id)
         .await?;
 
@@ -231,7 +232,8 @@ pub async fn get_user_summaries(
 ) -> Result<impl IntoResponse, ApiError> {
     let summaries = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_summaries_for_user(&_auth_user.user_id)
         .await?;
 
@@ -255,7 +257,8 @@ pub async fn create_room_summary(
 
     let summary = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .create_summary(request)
         .await?;
 
@@ -269,7 +272,8 @@ pub async fn create_internal_room_summary(
 ) -> Result<impl IntoResponse, ApiError> {
     let summary = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .create_summary(body)
         .await?;
 
@@ -288,7 +292,8 @@ pub async fn update_room_summary(
 
     let summary = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .update_summary(&room_id, request)
         .await?;
 
@@ -304,7 +309,8 @@ pub async fn delete_room_summary(
 
     state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .delete_summary(&room_id)
         .await?;
 
@@ -320,7 +326,8 @@ pub async fn sync_room_summary(
 
     let summary = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .sync_from_room(&room_id)
         .await?;
 
@@ -336,7 +343,8 @@ pub async fn get_members(
 
     let members = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_members(&room_id)
         .await?;
 
@@ -355,7 +363,8 @@ pub async fn add_member(
 
     let member = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .add_member(request)
         .await?;
 
@@ -374,7 +383,8 @@ pub async fn update_member(
 
     let member = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .update_member(&room_id, &user_id, request)
         .await?;
 
@@ -390,7 +400,8 @@ pub async fn remove_member(
 
     state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .remove_member(&room_id, &user_id)
         .await?;
 
@@ -406,7 +417,8 @@ pub async fn get_state(
 
     let state = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_state(&room_id, &event_type, &state_key)
         .await?;
 
@@ -426,7 +438,8 @@ pub async fn update_state(
 
     let state = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .update_state(
             &room_id,
             &event_type,
@@ -448,7 +461,8 @@ pub async fn get_all_state(
 
     let states = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_all_state(&room_id)
         .await?;
 
@@ -476,7 +490,8 @@ pub async fn get_stats(
 
     let stats = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_stats(&room_id)
         .await?;
 
@@ -485,7 +500,8 @@ pub async fn get_stats(
         None => {
             state
                 .services
-                .room_service.room_summary_service()
+                .room_service
+                .room_summary_service()
                 .recalculate_stats(&room_id)
                 .await?
         }
@@ -503,7 +519,8 @@ pub async fn recalculate_stats(
 
     let stats = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .recalculate_stats(&room_id)
         .await?;
 
@@ -518,7 +535,8 @@ pub async fn process_updates(
     let limit = query.limit.unwrap_or(100);
     let processed = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .process_pending_updates(limit)
         .await?;
 
@@ -536,7 +554,8 @@ pub async fn recalculate_heroes(
 
     let hero_ids = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .recalculate_heroes(&room_id)
         .await?;
 
@@ -554,7 +573,8 @@ pub async fn clear_unread(
 
     state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .clear_unread(&room_id)
         .await?;
 
@@ -667,7 +687,8 @@ pub async fn batch_get_room_summaries(
 ) -> Result<impl IntoResponse, ApiError> {
     let responses = state
         .services
-        .room_service.room_summary_service()
+        .room_service
+        .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
@@ -681,8 +702,10 @@ pub async fn batch_get_room_summaries(
         responses
     };
 
-    let msc_responses: Vec<Msc3266RoomSummaryResponse> =
-        filtered.into_iter().map(Msc3266RoomSummaryResponse::from).collect();
+    let msc_responses: Vec<Msc3266RoomSummaryResponse> = filtered
+        .into_iter()
+        .map(Msc3266RoomSummaryResponse::from)
+        .collect();
 
     let total_count = msc_responses.len();
     let response = Msc3266RoomSummaryBatchResponse {
@@ -696,8 +719,7 @@ pub async fn batch_get_room_summaries(
 }
 
 fn create_room_summary_v1_router() -> Router<AppState> {
-    Router::new()
-        .route("/rooms/{room_id}/summary", get(get_room_summary))
+    Router::new().route("/rooms/{room_id}/summary", get(get_room_summary))
 }
 
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
@@ -976,7 +998,13 @@ mod tests {
 
         let json = serde_json::to_value(&response).expect("Should serialize");
         assert!(json.get("rooms").is_some());
-        assert_eq!(json.get("total_room_count_estimate").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(
+            json.get("total_room_count_estimate")
+                .unwrap()
+                .as_u64()
+                .unwrap(),
+            1
+        );
         assert!(json.get("events").is_some());
 
         let rooms = json["rooms"].as_array().unwrap();

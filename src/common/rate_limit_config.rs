@@ -119,7 +119,32 @@ impl Default for RateLimitConfigFile {
         Self {
             enabled: default_enabled(),
             default: RateLimitRule::default(),
-            endpoints: Vec::new(),
+            endpoints: vec![
+                RateLimitEndpointRule {
+                    path: "/_matrix/client/v3/login".to_string(),
+                    match_type: RateLimitMatchType::Prefix,
+                    rule: RateLimitRule {
+                        per_second: 1,
+                        burst_size: 3,
+                    },
+                },
+                RateLimitEndpointRule {
+                    path: "/_matrix/client/v3/register".to_string(),
+                    match_type: RateLimitMatchType::Prefix,
+                    rule: RateLimitRule {
+                        per_second: 1,
+                        burst_size: 2,
+                    },
+                },
+                RateLimitEndpointRule {
+                    path: "/_matrix/client/v3/register/captcha".to_string(),
+                    match_type: RateLimitMatchType::Prefix,
+                    rule: RateLimitRule {
+                        per_second: 1,
+                        burst_size: 1,
+                    },
+                },
+            ],
             ip_header_priority: default_ip_header_priority(),
             include_headers: default_include_headers(),
             exempt_paths: vec!["/".to_string(), "/_matrix/client/versions".to_string()],

@@ -13,8 +13,8 @@ use url::Url;
 
 use crate::common::ApiError;
 use crate::storage::openclaw::{
-    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation,
-    AiGeneration, AiMessage, OpenClawConnection, OpenClawStorage,
+    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation, AiGeneration,
+    AiMessage, OpenClawConnection, OpenClawStorage,
 };
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::AppState;
@@ -984,12 +984,7 @@ async fn list_generations(
 
     let (generations, next_batch) = state
         .storage
-        .get_user_generations(
-            &auth.user_id,
-            query.r#type.as_deref(),
-            query.limit,
-            from,
-        )
+        .get_user_generations(&auth.user_id, query.r#type.as_deref(), query.limit, from)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get generations: {}", e)))?;
 

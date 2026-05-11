@@ -7,7 +7,8 @@ fn project_root() -> PathBuf {
 }
 
 fn read(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+    fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
 #[test]
@@ -22,12 +23,18 @@ fn test_v7_batches_have_primary_and_deploy_rollbacks() {
     ];
 
     for name in required {
-        assert!(primary.join(format!("{name}.sql")).exists(), "missing primary migration for {name}");
+        assert!(
+            primary.join(format!("{name}.sql")).exists(),
+            "missing primary migration for {name}"
+        );
         assert!(
             primary.join(format!("{name}.undo.sql")).exists(),
             "missing primary rollback for {name}"
         );
-        assert!(deploy.join(format!("{name}.sql")).exists(), "missing deploy migration for {name}");
+        assert!(
+            deploy.join(format!("{name}.sql")).exists(),
+            "missing deploy migration for {name}"
+        );
         assert!(
             deploy.join(format!("{name}.undo.sql")).exists(),
             "missing deploy rollback for {name}"
@@ -55,7 +62,10 @@ fn test_v7_primary_and_deploy_migrations_match() {
     for file_name in mirrored {
         let primary_contents = read(&primary.join(file_name));
         let deploy_contents = read(&deploy.join(file_name));
-        assert_eq!(primary_contents, deploy_contents, "deploy mirror drifted for {file_name}");
+        assert_eq!(
+            primary_contents, deploy_contents,
+            "deploy mirror drifted for {file_name}"
+        );
     }
 }
 

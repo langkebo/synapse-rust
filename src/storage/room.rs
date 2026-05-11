@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -74,7 +74,10 @@ pub fn decode_room_search_cursor(cursor: Option<&str>) -> Option<RoomSearchCurso
             if room_id.is_empty() || parts.next().is_some() {
                 return None;
             }
-            Some(RoomSearchCursor::Created { created_ts, room_id })
+            Some(RoomSearchCursor::Created {
+                created_ts,
+                room_id,
+            })
         }
         "name" => {
             let is_null = parts.next()?.parse::<u8>().ok()?;
@@ -170,10 +173,12 @@ mod cursor_tests {
     fn test_room_search_cursor_rejects_invalid_value() {
         assert_eq!(decode_room_search_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_room_search_cursor(Some("created|123|")), None);
-        assert_eq!(decode_room_search_cursor(Some("name|0|bad%%%|123|!room:example.com")), None);
+        assert_eq!(
+            decode_room_search_cursor(Some("name|0|bad%%%|123|!room:example.com")),
+            None
+        );
     }
 }
-
 
 const DEFAULT_JOIN_RULE: &str = "invite";
 const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
@@ -372,7 +377,9 @@ impl RoomStorage {
                     .join_rule
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator,
-                room_version: row.room_version.unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row
+                    .room_version
+                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -420,7 +427,10 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
-                room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row
+                    .room_version
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -505,7 +515,10 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
-                room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row
+                    .room_version
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -612,7 +625,8 @@ impl RoomStorage {
                 query_builder.push(" ORDER BY r.name DESC, r.created_ts DESC, r.room_id DESC");
             }
             RoomSearchOrder::Size => {
-                query_builder.push(" ORDER BY rs.member_count DESC, r.created_ts DESC, r.room_id DESC");
+                query_builder
+                    .push(" ORDER BY rs.member_count DESC, r.created_ts DESC, r.room_id DESC");
             }
         }
 
@@ -1322,7 +1336,10 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
-                    room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                    room_version: row
+                        .room_version
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                     encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -1502,7 +1519,10 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
-                    room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                    room_version: row
+                        .room_version
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                     encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),

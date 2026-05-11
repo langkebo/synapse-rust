@@ -386,10 +386,11 @@ impl MediaService {
 
         let original_content = self.download_media(_server_name, media_id).await?;
 
-        let thumbnail = match self.generate_thumbnail(&original_content, width, height, thumbnail_method) {
-            Ok(t) => t,
-            Err(_) => return Ok(original_content),
-        };
+        let thumbnail =
+            match self.generate_thumbnail(&original_content, width, height, thumbnail_method) {
+                Ok(t) => t,
+                Err(_) => return Ok(original_content),
+            };
 
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
             ::tracing::warn!("Failed to cache thumbnail {}: {}", thumbnail_filename, e);
@@ -521,21 +522,22 @@ impl MediaService {
         }
 
         if let Some(pool) = &self.pool {
-            if let Ok(row) = sqlx::query_as::<_, (String, Option<String>, i64)>(
+            if let Ok(Some((content_type, file_name, size))) = sqlx::query_as::<
+                _,
+                (String, Option<String>, i64),
+            >(
                 r#"SELECT content_type, file_name, size FROM media_metadata WHERE media_id = $1"#,
             )
             .bind(media_id)
             .fetch_optional(pool.as_ref())
             .await
             {
-                if let Some((content_type, file_name, size)) = row {
-                    return Some(serde_json::json!({
-                        "media_id": media_id,
-                        "content_type": content_type,
-                        "filename": file_name,
-                        "size": size
-                    }));
-                }
+                return Some(serde_json::json!({
+                    "media_id": media_id,
+                    "content_type": content_type,
+                    "filename": file_name,
+                    "size": size
+                }));
             }
         }
 
@@ -738,7 +740,7 @@ impl MediaService {
 fn media_file_matches_id(file_name: &str, media_id: &str) -> bool {
     file_name
         .strip_prefix(media_id)
-        .is_some_and(|rest| rest.starts_with('.'))
+        .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('_'))
 }
 
 #[cfg(test)]

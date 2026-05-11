@@ -373,9 +373,8 @@ impl ModuleStorage {
         .await?;
 
         let next_from = if rows.len() as i64 == limit {
-            rows.last().map(|row| {
-                encode_module_cursor(&row.module_type, row.priority, &row.module_name)
-            })
+            rows.last()
+                .map(|row| encode_module_cursor(&row.module_type, row.priority, &row.module_name))
         } else {
             None
         };

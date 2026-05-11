@@ -202,7 +202,25 @@ impl RouteModule for FederationModule {
 impl RouteModule for OidcModule {
     fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
         if flags.oidc_enabled {
-            oidc::oidc_route_manifest()
+            #[cfg(not(feature = "builtin-oidc"))]
+            let mut entries = oidc::oidc_route_manifest();
+            #[cfg(feature = "builtin-oidc")]
+            let entries = oidc::oidc_route_manifest();
+            #[cfg(not(feature = "builtin-oidc"))]
+            {
+                let fallback = oidc::oidc_fallback_manifest();
+                let has_jwks = entries.iter().any(|e| e.path == "/.well-known/jwks.json");
+                let has_discovery = entries.iter().any(|e| e.path == "/.well-known/openid-configuration");
+                for e in &fallback {
+                    if e.path == "/.well-known/jwks.json" && !has_jwks {
+                        entries.push(e.clone());
+                    }
+                    if e.path == "/.well-known/openid-configuration" && !has_discovery {
+                        entries.push(e.clone());
+                    }
+                }
+            }
+            entries
         } else {
             oidc::oidc_fallback_manifest()
         }

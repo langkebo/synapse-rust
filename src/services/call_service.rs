@@ -118,7 +118,10 @@ impl CallService {
             call_id: content.call_id.clone(),
             room_id: room_id.to_string(),
             caller_id: sender_id.to_string(),
-            callee_id: content.invitee.as_ref().and_then(|v| v.as_str().map(|s| s.to_string())),
+            callee_id: content
+                .invitee
+                .as_ref()
+                .and_then(|v| v.as_str().map(|s| s.to_string())),
             offer_sdp: content.offer.as_ref().map(|o| o.sdp.clone()),
             lifetime: content.lifetime,
         };

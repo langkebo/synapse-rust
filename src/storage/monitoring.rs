@@ -1,5 +1,5 @@
-use deadpool_redis::Pool as RedisPool;
 use chrono::Utc;
+use deadpool_redis::Pool as RedisPool;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tracing::{debug, error};
@@ -144,15 +144,16 @@ impl DatabaseMonitor {
     }
 
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
-        let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
-            "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
+        let db_stats =
+            sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
+                "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
                     COALESCE(blks_hit, 0), COALESCE(blks_read, 0), COALESCE(deadlocks, 0), \
                     stats_reset \
              FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
-        )
-        .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or((0, 0, 0, 0, 0, None));
+            )
+            .fetch_optional(&self.pool)
+            .await?
+            .unwrap_or((0, 0, 0, 0, 0, None));
 
         let cache_hit_ratio = if db_stats.2 + db_stats.3 > 0 {
             db_stats.2 as f64 / (db_stats.2 + db_stats.3) as f64
@@ -173,46 +174,51 @@ impl DatabaseMonitor {
         .await
         .unwrap_or(false);
 
-        let (average_query_time_ms, slow_queries_count, total_queries) = if pg_stat_statements_enabled {
-            sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
-                "SELECT AVG(mean_exec_time), \
+        let (average_query_time_ms, slow_queries_count, total_queries) =
+            if pg_stat_statements_enabled {
+                sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
+                    "SELECT AVG(mean_exec_time), \
                         COUNT(*) FILTER (WHERE mean_exec_time >= 1000.0), \
                         SUM(calls) \
                  FROM pg_stat_statements \
                  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
-            )
-            .fetch_one(&self.pool)
-            .await
-            .map(|(avg, slow, total)| {
-                (
-                    avg.unwrap_or(0.0),
-                    slow.unwrap_or(0) as u64,
-                    total.unwrap_or(total_transactions) as u64,
                 )
-            })
-            .unwrap_or((0.0, 0, total_transactions as u64))
-        } else {
-            (0.0, 0, total_transactions as u64)
-        };
+                .fetch_one(&self.pool)
+                .await
+                .map(|(avg, slow, total)| {
+                    (
+                        avg.unwrap_or(0.0),
+                        slow.unwrap_or(0) as u64,
+                        total.unwrap_or(total_transactions) as u64,
+                    )
+                })
+                .unwrap_or((0.0, 0, total_transactions as u64))
+            } else {
+                (0.0, 0, total_transactions as u64)
+            };
 
-        let (redis_latency_ms, redis_slow_commands_count) = if let Some(redis_pool) = &self.redis_pool {
-            let mut conn = redis_pool.get().await.map_err(|_e| sqlx::Error::PoolTimedOut)?; // Simplified error handling
-            let latency: Result<Option<i64>, _> = redis::cmd("LATENCY")
-                .arg("LATEST")
-                .query_async(&mut *conn)
-                .await;
-            let slowlog_len: Result<u64, _> = redis::cmd("SLOWLOG")
-                .arg("LEN")
-                .query_async(&mut *conn)
-                .await;
+        let (redis_latency_ms, redis_slow_commands_count) =
+            if let Some(redis_pool) = &self.redis_pool {
+                let mut conn = redis_pool
+                    .get()
+                    .await
+                    .map_err(|_e| sqlx::Error::PoolTimedOut)?; // Simplified error handling
+                let latency: Result<Option<i64>, _> = redis::cmd("LATENCY")
+                    .arg("LATEST")
+                    .query_async(&mut *conn)
+                    .await;
+                let slowlog_len: Result<u64, _> = redis::cmd("SLOWLOG")
+                    .arg("LEN")
+                    .query_async(&mut *conn)
+                    .await;
 
-            (
-                latency.unwrap_or(None).unwrap_or(0) as f64,
-                slowlog_len.unwrap_or(0),
-            )
-        } else {
-            (0.0, 0)
-        };
+                (
+                    latency.unwrap_or(None).unwrap_or(0) as f64,
+                    slowlog_len.unwrap_or(0),
+                )
+            } else {
+                (0.0, 0)
+            };
 
         Ok(PerformanceMetrics {
             average_query_time_ms,

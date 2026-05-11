@@ -10,6 +10,7 @@
 //!     cargo run --bin synapse_ledger_export -- --profile=default
 //!     cargo run --bin synapse_ledger_export -- --profile=worker > out.json
 //!     cargo run --bin synapse_ledger_export -- --profile=openclaw --output=/tmp/openclaw.json
+//!     cargo run --features all-extensions --bin synapse_ledger_export -- --profile=all
 //!
 //! Schema documented at `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md` and
 //! frozen at schema_version = "1".
@@ -89,6 +90,11 @@ Profiles:
     openclaw  openclaw_enabled = true
     all       every flag true
 
+Note:
+    Feature-gated routes only appear if this binary is compiled with the matching
+    cargo features. For a full extension ledger, prefer:
+        cargo run --features all-extensions --bin synapse_ledger_export -- --profile=all
+
 Flags:
     --profile=NAME    named profile preset (default: default)
     --output=PATH     write to file instead of stdout
@@ -99,6 +105,36 @@ Flags:
 Schema: docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md
 "
     );
+}
+
+fn missing_feature_warnings(profile: &str) -> Vec<&'static str> {
+    #[allow(unused_mut)]
+    let mut warnings = Vec::new();
+
+    if matches!(profile, "all" | "saml") {
+        #[cfg(not(feature = "saml-sso"))]
+        warnings.push("requested profile enables SAML flags, but this binary was built without `saml-sso`");
+    }
+
+    if profile == "all" {
+        #[cfg(not(feature = "cas-sso"))]
+        warnings.push("requested profile implies CAS coverage, but this binary was built without `cas-sso`");
+        #[cfg(not(feature = "openclaw-routes"))]
+        warnings.push("requested profile implies OpenClaw coverage, but this binary was built without `openclaw-routes`");
+        #[cfg(not(feature = "external-services"))]
+        warnings.push("requested profile implies external-service coverage, but this binary was built without `external-services`");
+        #[cfg(not(feature = "voice-extended"))]
+        warnings.push("requested profile implies voice coverage, but this binary was built without `voice-extended`");
+        #[cfg(not(feature = "widgets"))]
+        warnings.push("requested profile implies widget coverage, but this binary was built without `widgets`");
+    }
+
+    if profile == "openclaw" {
+        #[cfg(not(feature = "openclaw-routes"))]
+        warnings.push("requested profile enables OpenClaw flags, but this binary was built without `openclaw-routes`");
+    }
+
+    warnings
 }
 
 fn run(args: CliArgs) -> Result<(), String> {
@@ -113,6 +149,10 @@ fn run(args: CliArgs) -> Result<(), String> {
             args.profile
         )
     })?;
+
+    for warning in missing_feature_warnings(&args.profile) {
+        eprintln!("warning: {}", warning);
+    }
 
     let generated_at = args
         .timestamp
