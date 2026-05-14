@@ -426,7 +426,7 @@ impl SearchService {
             return Ok(());
         }
 
-        let mut body = String::new();
+        let mut body = String::with_capacity(events.len() * 512);
         for event in events {
             let action = json!({ "index": { "_index": self.index_name, "_id": event.event_id } });
             let doc = json!({

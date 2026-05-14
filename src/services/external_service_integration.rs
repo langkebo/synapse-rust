@@ -189,7 +189,11 @@ impl ExternalServiceIntegration {
             .as_deref()
             .into_iter()
             .chain(auth.signature.as_deref())
-            .any(|candidate| secrets.contains(&candidate))
+            .any(|candidate| {
+                secrets
+                    .iter()
+                    .any(|s| crate::common::crypto::secure_compare(candidate, s))
+            })
         {
             return Ok(());
         }
@@ -206,7 +210,8 @@ impl ExternalServiceIntegration {
                 secrets.iter().any(|secret| {
                     let expected = URL_SAFE_NO_PAD
                         .encode(crate::common::crypto::hmac_sha256(secret, &payload_bytes));
-                    normalized == expected || signature == expected
+                    crate::common::crypto::secure_compare(normalized, &expected)
+                        || crate::common::crypto::secure_compare(signature, &expected)
                 })
             })
             .unwrap_or(false);

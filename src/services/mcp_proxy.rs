@@ -107,6 +107,57 @@ impl McpProxyService {
 
     /// 底层发送 MCP 协议格式请求 (JSON-RPC)
     async fn send_mcp_request(&self, endpoint: &str, payload: Value) -> ApiResult<Value> {
+        if !endpoint.starts_with("https://") && !endpoint.starts_with("http://") {
+            return Err(ApiError::bad_request(
+                "MCP endpoint must use HTTP(S) protocol".to_string(),
+            ));
+        }
+
+        let host = endpoint
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
+
+        if host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "0.0.0.0"
+        {
+            return Err(ApiError::bad_request(
+                "MCP endpoint cannot point to loopback address".to_string(),
+            ));
+        }
+
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            match ip {
+                std::net::IpAddr::V4(ip) => {
+                    if ip.is_private() || ip.is_link_local() || ip.is_loopback() {
+                        return Err(ApiError::bad_request(
+                            "MCP endpoint cannot point to private/local address".to_string(),
+                        ));
+                    }
+                    let octets = ip.octets();
+                    if octets[0] == 169 && octets[1] == 254 {
+                        return Err(ApiError::bad_request(
+                            "MCP endpoint cannot point to link-local metadata address".to_string(),
+                        ));
+                    }
+                }
+                std::net::IpAddr::V6(ip) => {
+                    if ip.is_loopback() {
+                        return Err(ApiError::bad_request(
+                            "MCP endpoint cannot point to loopback address".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
         info!("Sending MCP request to {}: {}", endpoint, payload);
 
         let response = self

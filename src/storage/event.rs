@@ -1025,7 +1025,10 @@ impl EventStorage {
         events: Vec<StateEvent>,
     ) -> std::collections::HashMap<String, Vec<StateEvent>> {
         let mut result: std::collections::HashMap<String, Vec<StateEvent>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+            std::collections::HashMap::with_capacity(room_ids.len());
+        for id in room_ids {
+            result.insert(id.clone(), Vec::new());
+        }
 
         for event in events {
             result.entry(event.room_id.clone()).or_default().push(event);
@@ -1040,7 +1043,10 @@ impl EventStorage {
         limit_per_room: i64,
     ) -> std::collections::HashMap<String, Vec<RoomEvent>> {
         let mut result: std::collections::HashMap<String, Vec<RoomEvent>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+            std::collections::HashMap::with_capacity(room_ids.len());
+        for id in room_ids {
+            result.insert(id.clone(), Vec::new());
+        }
 
         for event in events {
             if let Some(room_events) = result.get_mut(&event.room_id) {
@@ -1123,7 +1129,10 @@ impl EventStorage {
         .await?;
 
         let mut result: std::collections::HashMap<String, Vec<StateEvent>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+            std::collections::HashMap::with_capacity(room_ids.len());
+        for id in room_ids {
+            result.insert(id.clone(), Vec::new());
+        }
 
         for event in events {
             if let Some(room_events) = result.get_mut(&event.room_id) {

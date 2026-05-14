@@ -436,7 +436,13 @@ impl TelemetryAlertService {
         filters: TelemetryAlertFilters,
     ) -> Result<Vec<TelemetryAlert>, ApiError> {
         Self::validate_filters(&filters)?;
-        let alerts = self.alerts.read().unwrap();
+        let alerts = match self.alerts.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire alerts read lock: {}", e);
+                return Ok(Vec::new());
+            }
+        };
         let mut entries: Vec<TelemetryAlert> = alerts
             .values()
             .filter(|a| {
@@ -462,7 +468,13 @@ impl TelemetryAlertService {
         alert_id: &str,
         acknowledged_by: &str,
     ) -> Result<TelemetryAlert, ApiError> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = match self.alerts.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                return Err(ApiError::internal("Failed to acquire alerts write lock"));
+            }
+        };
         let now = chrono::Utc::now().timestamp_millis();
         let alert = alerts
             .values_mut()

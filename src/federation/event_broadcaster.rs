@@ -188,14 +188,18 @@ impl EventBroadcaster {
     async fn push_pdu(&self, destination: &str, pdu: serde_json::Value) {
         let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send((destination.to_string(), OutgoingItem::Pdu(pdu)));
+            if let Err(e) = tx.send((destination.to_string(), OutgoingItem::Pdu(pdu))) {
+                ::tracing::warn!("Failed to queue PDU for federation broadcast to {}: {}", destination, e);
+            }
         }
     }
 
     async fn push_edu(&self, destination: &str, edu: serde_json::Value) {
         let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send((destination.to_string(), OutgoingItem::Edu(edu)));
+            if let Err(e) = tx.send((destination.to_string(), OutgoingItem::Edu(edu))) {
+                ::tracing::warn!("Failed to queue EDU for federation broadcast to {}: {}", destination, e);
+            }
         }
     }
 

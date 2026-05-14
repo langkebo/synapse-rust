@@ -18,6 +18,8 @@ use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Instant};
 
+const TXN_DEDUP_TTL_SECS: u64 = 86400;
+
 fn validate_federation_origin(
     authenticated_origin: &str,
     declared_origin: Option<&str>,
@@ -1918,7 +1920,9 @@ async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
-        let _ = state.services.cache.set(&dedup_key, true, 86400).await;
+        if let Err(e) = state.services.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
+            ::tracing::warn!("Failed to set transaction dedup cache: {}", e);
+        }
     }
 
     Ok(Json(json!({
@@ -3664,11 +3668,15 @@ async fn fetch_remote_server_keys_response(
         });
 
         let ttl = state.services.config.federation.key_cache_ttl.max(60);
-        let _ = state.cache.set(&cache_key, &canonical_response, ttl).await;
+        if let Err(e) = state.cache.set(&cache_key, &canonical_response, ttl).await {
+            ::tracing::debug!("Failed to cache federation key response: {}", e);
+        }
         return Ok(canonical_response);
     }
 
-    let _ = state.cache.set(&backoff_key, true, 30).await;
+    if let Err(e) = state.cache.set(&backoff_key, true, 30).await {
+        ::tracing::debug!("Failed to set federation backoff cache: {}", e);
+    }
     Err(ApiError::not_found(format!(
         "Remote server key '{}' for '{}' not found",
         key_id, server_name

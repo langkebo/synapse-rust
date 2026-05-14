@@ -262,7 +262,7 @@ impl RefreshTokenService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
 
-        info!("Token revoked: {}", token_hash);
+        info!("Token revoked: {}***", &token_hash[..token_hash.len().min(8)]);
 
         Ok(())
     }
