@@ -172,8 +172,8 @@ pub struct AuthorizeRequest {
     pub password: String,
 }
 
-const OIDC_TOKEN_EXPIRY_SECS: u64 = 3600;
-const AUTH_CODE_EXPIRY_SECS: u64 = 600;
+const OIDC_TOKEN_EXPIRY_SECS: i64 = 3600;
+const AUTH_CODE_EXPIRY_SECS: i64 = 600;
 
 impl BuiltinOidcProvider {
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
@@ -395,7 +395,7 @@ impl BuiltinOidcProvider {
         if session.client_id != *client_id {
             return Err(ApiError::unauthorized("Client ID mismatch".to_string()));
         }
-        if session.created_at.elapsed() > Duration::from_secs(AUTH_CODE_EXPIRY_SECS) {
+        if session.created_at.elapsed() > Duration::from_secs(AUTH_CODE_EXPIRY_SECS as u64) {
             return Err(ApiError::unauthorized("Code expired".to_string()));
         }
 
