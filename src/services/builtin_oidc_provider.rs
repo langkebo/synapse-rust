@@ -352,8 +352,8 @@ impl BuiltinOidcProvider {
         let grant_type = &request.grant_type;
 
         match grant_type.as_str() {
-            "authorization_code" => self.handle_authorization_code_grant(request),
-            "refresh_token" => self.handle_refresh_token_grant(request),
+            "authorization_code" => self.handle_authorization_code_grant(request).await,
+            "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(ApiError::bad_request("Unsupported grant_type".to_string())),
         }
     }
@@ -429,7 +429,7 @@ impl BuiltinOidcProvider {
         let access_token = self.generate_access_token(user, session.scope.as_str())?;
         let id_token =
             self.generate_id_token(user, client_id, session.nonce.as_deref(), &access_token)?;
-        let refresh_token = self.generate_refresh_token(user, session.scope.as_str())?;
+        let refresh_token = self.generate_refresh_token(user, session.scope.as_str()).await?;
 
         Ok(OidcTokenResponse {
             access_token,
@@ -647,7 +647,7 @@ impl BuiltinOidcProvider {
 
     /// 登出: 仅撤销给定 refresh_token 关联用户的所有 refresh, 不动其他用户.
     /// 不再清空全局 auth_sessions.
-    pub fn logout(&self, refresh_token: Option<&str>) -> Result<(), ApiError> {
+    pub async fn logout(&self, refresh_token: Option<&str>) -> Result<(), ApiError> {
         let Some(token) = refresh_token else {
             return Ok(());
         };
