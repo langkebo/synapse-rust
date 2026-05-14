@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -5,7 +6,7 @@ pub struct SchemaValidator {
     pool: Arc<Pool<Postgres>>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SchemaValidationResult {
     pub is_valid: bool,
     pub is_healthy: bool,
@@ -15,7 +16,7 @@ pub struct SchemaValidationResult {
     pub schema_info: Vec<TableSchemaInfo>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TableSchemaInfo {
     pub table_name: String,
     pub missing_columns: Vec<String>,

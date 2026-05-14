@@ -194,7 +194,7 @@ impl FederationBlacklistService {
             .storage
             .update_access_stats(crate::storage::federation_blacklist::UpdateStatsRequest {
                 server_name: server_name.to_string(),
-                success,
+                is_success: success,
                 response_time_ms,
             })
             .await?;

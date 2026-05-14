@@ -28,7 +28,7 @@ impl MediaQuotaService {
         if let Some(max_file_size) = server_quota.max_file_size_bytes {
             if file_size > max_file_size {
                 return Ok(QuotaCheckResult {
-                    allowed: false,
+                    is_allowed: false,
                     reason: Some(format!(
                         "File size {} exceeds maximum allowed size {}",
                         file_size, max_file_size
@@ -45,7 +45,7 @@ impl MediaQuotaService {
                 let new_total = server_quota.current_storage_bytes + file_size;
                 if new_total > max_storage {
                     return Ok(QuotaCheckResult {
-                        allowed: false,
+                        is_allowed: false,
                         reason: Some("Server storage quota exceeded".to_string()),
                         current_usage: server_quota.current_storage_bytes,
                         quota_limit: max_storage,

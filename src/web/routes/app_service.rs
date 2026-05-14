@@ -131,7 +131,8 @@ pub struct AppServiceResponse {
     pub url: String,
     pub sender: String,
     pub description: Option<String>,
-    pub rate_limited: bool,
+    #[serde(rename = "rate_limited")]
+    pub is_rate_limited: bool,
     pub protocols: Vec<String>,
     pub is_enabled: bool,
     pub created_ts: i64,
@@ -145,7 +146,7 @@ impl From<ApplicationService> for AppServiceResponse {
             url: svc.url,
             sender: svc.sender_localpart,
             description: svc.description,
-            rate_limited: svc.rate_limited,
+            is_rate_limited: svc.rate_limited,
             protocols: svc.protocols,
             is_enabled: svc.is_enabled,
             created_ts: svc.created_ts,

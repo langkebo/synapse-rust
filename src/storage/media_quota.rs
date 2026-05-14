@@ -102,7 +102,8 @@ pub struct UpdateUsageRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaCheckResult {
-    pub allowed: bool,
+    #[serde(rename = "allowed")]
+    pub is_allowed: bool,
     pub reason: Option<String>,
     pub current_usage: i64,
     pub quota_limit: i64,
@@ -387,7 +388,7 @@ impl MediaQuotaStorage {
 
         if max_storage == 0 {
             return Ok(QuotaCheckResult {
-                allowed: true,
+                is_allowed: true,
                 reason: None,
                 current_usage: user_quota.current_storage_bytes,
                 quota_limit: max_storage,
@@ -396,12 +397,12 @@ impl MediaQuotaStorage {
         }
 
         let new_usage = user_quota.current_storage_bytes + file_size;
-        let allowed = new_usage <= max_storage;
+        let is_allowed = new_usage <= max_storage;
         let usage_percent = (user_quota.current_storage_bytes as f64 / max_storage as f64) * 100.0;
 
         Ok(QuotaCheckResult {
-            allowed,
-            reason: if !allowed {
+            is_allowed,
+            reason: if !is_allowed {
                 Some("Quota exceeded".to_string())
             } else {
                 None
@@ -667,13 +668,13 @@ mod tests {
     #[test]
     fn test_quota_check_result() {
         let result = QuotaCheckResult {
-            allowed: true,
+            is_allowed: true,
             reason: None,
             current_usage: 524288000,
             quota_limit: 1073741824,
             usage_percent: 48.8,
         };
-        assert!(result.allowed);
+        assert!(result.is_allowed);
         assert!(result.reason.is_none());
         assert!(result.usage_percent < 100.0);
     }
@@ -681,13 +682,13 @@ mod tests {
     #[test]
     fn test_quota_check_result_exceeded() {
         let result = QuotaCheckResult {
-            allowed: false,
+            is_allowed: false,
             reason: Some("Quota exceeded".to_string()),
             current_usage: 1073741824,
             quota_limit: 1073741824,
             usage_percent: 100.0,
         };
-        assert!(!result.allowed);
+        assert!(!result.is_allowed);
         assert!(result.reason.is_some());
     }
 

@@ -46,7 +46,7 @@ pub struct EventBroadcaster {
     pending_queue: Arc<RwLock<Vec<PendingTransaction>>>,
     backoff_schedule: Vec<u64>,
     pool: Option<sqlx::PgPool>,
-    batch_tx: Arc<std::sync::Mutex<Option<BatchSender>>>,
+    batch_tx: Arc<tokio::sync::Mutex<Option<BatchSender>>>,
 }
 
 type DbPendingRow = (
@@ -69,7 +69,7 @@ impl EventBroadcaster {
             pending_queue: Arc::new(RwLock::new(Vec::new())),
             backoff_schedule: vec![1000, 5000, 15000, 30000, 60000, 300000, 900000],
             pool: None,
-            batch_tx: Arc::new(std::sync::Mutex::new(None)),
+            batch_tx: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -100,14 +100,14 @@ impl EventBroadcaster {
         self.pool = Some(pool);
     }
 
-    pub fn start_batch_sender(
+    pub async fn start_batch_sender(
         &self,
         origin: String,
         batch_max_size: usize,
         flush_interval_ms: u64,
     ) {
         let (tx, mut rx) = mpsc::unbounded_channel::<(String, OutgoingItem)>();
-        *self.batch_tx.lock().unwrap() = Some(tx);
+        *self.batch_tx.lock().await = Some(tx);
 
         let client = self.federation_client.clone();
         let retry_queue = self.pending_queue.clone();
@@ -185,15 +185,15 @@ impl EventBroadcaster {
         });
     }
 
-    fn push_pdu(&self, destination: &str, pdu: serde_json::Value) {
-        let guard = self.batch_tx.lock().unwrap();
+    async fn push_pdu(&self, destination: &str, pdu: serde_json::Value) {
+        let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
             let _ = tx.send((destination.to_string(), OutgoingItem::Pdu(pdu)));
         }
     }
 
-    fn push_edu(&self, destination: &str, edu: serde_json::Value) {
-        let guard = self.batch_tx.lock().unwrap();
+    async fn push_edu(&self, destination: &str, edu: serde_json::Value) {
+        let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
             let _ = tx.send((destination.to_string(), OutgoingItem::Edu(edu)));
         }
@@ -278,13 +278,13 @@ impl EventBroadcaster {
             return Ok(());
         }
 
-        let has_batch = self.batch_tx.lock().unwrap().is_some();
+        let has_batch = self.batch_tx.lock().await.is_some();
         if has_batch {
             for destination in &destinations {
                 if destination == &self.server_name {
                     continue;
                 }
-                self.push_pdu(destination, event.clone());
+                self.push_pdu(destination, event.clone()).await;
             }
             ::tracing::debug!(
                 "Pushed event {} to batch channel ({} destinations)",
@@ -349,9 +349,9 @@ impl EventBroadcaster {
             return Ok(());
         }
 
-        let has_batch = self.batch_tx.lock().unwrap().is_some();
+        let has_batch = self.batch_tx.lock().await.is_some();
         if has_batch {
-            self.push_edu(destination, edu.clone());
+            self.push_edu(destination, edu.clone()).await;
             return Ok(());
         }
 
@@ -395,13 +395,13 @@ impl EventBroadcaster {
             return Ok(());
         }
 
-        let has_batch = self.batch_tx.lock().unwrap().is_some();
+        let has_batch = self.batch_tx.lock().await.is_some();
         if has_batch {
             for destination in &destinations {
                 if destination.as_str() == self.server_name.as_str() {
                     continue;
                 }
-                self.push_edu(destination, edu.clone());
+                self.push_edu(destination, edu.clone()).await;
             }
             return Ok(());
         }

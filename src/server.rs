@@ -208,7 +208,7 @@ impl SynapseServer {
             Arc::new(CacheManager::new(CacheConfig::default()))
         };
 
-        let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue);
+        let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
         let app_state = Arc::new(AppState::new(services, cache));
 
         let rate_limit_config_path = std::path::PathBuf::from(

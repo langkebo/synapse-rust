@@ -341,6 +341,6 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
         };
 
         let result = provider.send("token", &payload).await;
-        assert!(result.success);
+        assert!(result.is_success);
     }
 }

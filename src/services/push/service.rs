@@ -290,7 +290,7 @@ impl PushNotificationService {
         };
 
         let response_time_ms = start.elapsed().as_millis() as i32;
-        let success = result.success;
+        let success = result.is_success;
         let error_message = result.error;
         let provider_response = result.provider_response;
 

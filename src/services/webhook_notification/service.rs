@@ -39,7 +39,7 @@ impl WebhookNotifier {
 
             let result = Self::deliver_with_retry(&http_client, &config, &event).await;
 
-            if !result.success {
+            if !result.is_success {
                 tracing::warn!(
                     "Webhook delivery failed after {} attempts: {:?}",
                     result.attempts,
@@ -69,7 +69,7 @@ impl WebhookNotifier {
         }
 
         WebhookDeliveryResult {
-            success: false,
+            is_success: false,
             status_code: None,
             response_body: None,
             attempts: config.retry_count,
@@ -98,7 +98,7 @@ impl WebhookNotifier {
 
         if status.is_success() {
             Ok(WebhookDeliveryResult {
-                success: true,
+                is_success: true,
                 status_code: Some(status.as_u16()),
                 response_body: body,
                 attempts: 1,

@@ -12,7 +12,7 @@ struct SyncParams<'a> {
     user_id: String,
     device_id: Option<String>,
     timeout: u64,
-    full_state: bool,
+    is_full_state: bool,
     set_presence: &'a str,
     filter: Option<&'a str>,
     since: Option<&'a str>,
@@ -27,7 +27,7 @@ pub(crate) async fn sync(
     let (user_id, device_id, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
-    let full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
+    let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
     let set_presence = params
         .get("set_presence")
         .and_then(|v| v.as_str())
@@ -112,7 +112,7 @@ pub(crate) async fn sync(
         user_id,
         device_id,
         timeout,
-        full_state,
+        is_full_state,
         set_presence,
         filter,
         since,
@@ -135,7 +135,7 @@ async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
                 user_id: &params.user_id,
                 device_id: params.device_id.as_deref(),
                 timeout: params.timeout,
-                full_state: params.full_state,
+                is_full_state: params.is_full_state,
                 set_presence: params.set_presence,
                 filter_id: params.filter,
                 since: params.since,

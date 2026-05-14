@@ -80,8 +80,10 @@ pub struct PublicRoom {
     pub topic: Option<String>,
     pub avatar_url: Option<String>,
     pub member_count: i64,
-    pub world_readable: bool,
-    pub guest_can_join: bool,
+    #[serde(rename = "world_readable")]
+    pub is_world_readable: bool,
+    #[serde(rename = "guest_can_join")]
+    pub is_guest_can_join: bool,
 }
 
 pub async fn get_directory_room(

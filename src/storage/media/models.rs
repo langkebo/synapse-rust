@@ -142,7 +142,8 @@ pub struct MediaQuarantineRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaQuarantineResponse {
     pub media_id: String,
-    pub quarantined: bool,
+    #[serde(rename = "quarantined")]
+    pub is_quarantined: bool,
     pub reason: String,
     pub quarantined_at: DateTime<Utc>,
 }

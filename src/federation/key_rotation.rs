@@ -1,3 +1,4 @@
+use crate::common::ApiError;
 use crate::federation::signing::sign_json;
 use base64::Engine;
 use chrono::{Duration, Utc};
@@ -72,7 +73,7 @@ impl KeyRotationManager {
         }
     }
 
-    async fn ensure_signing_keys_table(&self) -> Result<(), anyhow::Error> {
+    async fn ensure_signing_keys_table(&self) -> Result<(), ApiError> {
         if self.signing_keys_table_ready.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -190,7 +191,7 @@ impl KeyRotationManager {
         tracing::info!("Key rotation scheduler started");
     }
 
-    pub async fn load_or_create_key(&self) -> Result<(), anyhow::Error> {
+    pub async fn load_or_create_key(&self) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
         let existing_key = sqlx::query_as::<_, SigningKey>(
@@ -227,7 +228,7 @@ impl KeyRotationManager {
             }
             Ok(None) => {}
             Err(e) => {
-                return Err(e.into());
+                return Err(ApiError::from(e));
             }
         }
 
@@ -244,7 +245,7 @@ impl KeyRotationManager {
         }
     }
 
-    pub async fn export_signing_key_to_file(&self, key: &SigningKey) -> Result<(), anyhow::Error> {
+    pub async fn export_signing_key_to_file(&self, key: &SigningKey) -> Result<(), ApiError> {
         let path = match &self.signing_key_path {
             Some(p) => p.clone(),
             None => return Ok(()),
@@ -265,7 +266,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
-    pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), anyhow::Error> {
+    pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
         let created_ts = Utc::now().timestamp_millis();
@@ -339,7 +340,7 @@ impl KeyRotationManager {
         }
     }
 
-    pub async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), anyhow::Error> {
+    pub async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError> {
         let current = self.current_key.read().await;
         if let Some(key) = current.as_ref() {
             self.historical_keys
@@ -368,12 +369,12 @@ impl KeyRotationManager {
         (key_id.to_string(), secret_key)
     }
 
-    async fn derive_public_key(&self, secret_key: &str) -> Result<String, anyhow::Error> {
+    async fn derive_public_key(&self, secret_key: &str) -> Result<String, ApiError> {
         let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(secret_key)
-            .map_err(|_| anyhow::anyhow!("Invalid secret key format"))?
+            .map_err(|_| ApiError::internal("Invalid secret key format"))?
             .try_into()
-            .map_err(|_| anyhow::anyhow!("Secret key must be 32 bytes"))?;
+            .map_err(|_| ApiError::internal("Secret key must be 32 bytes"))?;
 
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -381,7 +382,7 @@ impl KeyRotationManager {
         Ok(base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes()))
     }
 
-    pub async fn get_current_key(&self) -> Result<Option<SigningKey>, anyhow::Error> {
+    pub async fn get_current_key(&self) -> Result<Option<SigningKey>, ApiError> {
         Ok(self.current_key.read().await.clone())
     }
 
@@ -391,7 +392,7 @@ impl KeyRotationManager {
         key_id: &str,
         signature: &str,
         content: &[u8],
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, ApiError> {
         if let Some(current) = &*self.current_key.read().await {
             if current.key_id == key_id {
                 if let Ok(()) = self
@@ -429,26 +430,26 @@ impl KeyRotationManager {
         public_key: &str,
         signature: &str,
         content: &[u8],
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), ApiError> {
         let pub_key_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(public_key)
-            .map_err(|_| anyhow::anyhow!("Invalid public key format"))?
+            .map_err(|_| ApiError::internal("Invalid public key format"))?
             .try_into()
-            .map_err(|_| anyhow::anyhow!("Public key must be 32 bytes"))?;
+            .map_err(|_| ApiError::internal("Public key must be 32 bytes"))?;
 
         let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes)
-            .map_err(|_| anyhow::anyhow!("Invalid verifying key"))?;
+            .map_err(|_| ApiError::internal("Invalid verifying key"))?;
 
         let sig_bytes = base64::engine::general_purpose::STANDARD
             .decode(signature)
-            .map_err(|_| anyhow::anyhow!("Invalid signature format"))?;
+            .map_err(|_| ApiError::internal("Invalid signature format"))?;
 
         let dalek_signature = ed25519_dalek::Signature::from_slice(&sig_bytes)
-            .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
+            .map_err(|_| ApiError::internal("Invalid signature length"))?;
 
         verifying_key
             .verify(content, &dalek_signature)
-            .map_err(|_| anyhow::anyhow!("Signature verification failed"))?;
+            .map_err(|_| ApiError::internal("Signature verification failed"))?;
 
         Ok(())
     }
@@ -458,7 +459,7 @@ impl KeyRotationManager {
         key_id: &str,
         signature: &str,
         content: &[u8],
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, ApiError> {
         self.ensure_signing_keys_table().await?;
 
         let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
@@ -502,10 +503,10 @@ impl KeyRotationManager {
         cache.insert(cache_key, (public_key, expires_at));
     }
 
-    pub async fn get_server_keys_response(&self) -> Result<serde_json::Value, anyhow::Error> {
+    pub async fn get_server_keys_response(&self) -> Result<serde_json::Value, ApiError> {
         let current_key = match &*self.current_key.read().await {
             Some(key) => key.clone(),
-            None => return Err(anyhow::anyhow!("No signing key available")),
+            None => return Err(ApiError::internal("No signing key available")),
         };
 
         let mut old_verify_keys = serde_json::Map::new();
@@ -539,12 +540,12 @@ impl KeyRotationManager {
             &secret_key,
             &mut response,
         )
-        .map_err(|e| anyhow::Error::msg(format!("Failed to sign server keys: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {}", e)))?;
 
         Ok(response)
     }
 
-    pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), anyhow::Error> {
+    pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), ApiError> {
         tracing::info!(
             "Notifying {} about key change for server {}",
             remote_server,
@@ -555,7 +556,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
-    pub async fn broadcast_key_change_to_federation(&self) -> Result<(), anyhow::Error> {
+    pub async fn broadcast_key_change_to_federation(&self) -> Result<(), ApiError> {
         let known_servers = self.get_known_federation_servers().await?;
         if known_servers.is_empty() {
             tracing::debug!("No known federation servers to notify about key change");
@@ -573,7 +574,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
-    async fn get_known_federation_servers(&self) -> Result<Vec<String>, anyhow::Error> {
+    async fn get_known_federation_servers(&self) -> Result<Vec<String>, ApiError> {
         let servers: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT server_name FROM federation_servers WHERE server_name != $1",
         )

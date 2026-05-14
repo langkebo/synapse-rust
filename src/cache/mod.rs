@@ -1198,9 +1198,9 @@ mod tests {
             sub: "test_subject".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-cache-ops".to_string(),
-            admin: false,
+            is_admin: false,
             device_id: Some("DEVICE123".to_string()),
-            exp: now + 3600, // Expire in 1 hour
+            exp: now + 3600,
             iat: now,
         };
 
@@ -1220,7 +1220,7 @@ mod tests {
             sub: "user_subject".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: "test-jti-claims-struct".to_string(),
-            admin: false,
+            is_admin: false,
             device_id: Some("DEVICE456".to_string()),
             exp: 1234567890,
             iat: 1234567890,

@@ -194,7 +194,8 @@ pub struct ThirdPartyRuleResultResponse {
     pub sender: String,
     pub event_type: String,
     pub rule_name: String,
-    pub allowed: bool,
+    #[serde(rename = "allowed")]
+    pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
     pub checked_ts: i64,
@@ -209,7 +210,7 @@ impl From<ThirdPartyRuleResult> for ThirdPartyRuleResultResponse {
             sender: r.sender,
             event_type: r.event_type,
             rule_name: r.rule_name,
-            allowed: r.allowed,
+            is_allowed: r.is_allowed,
             reason: r.reason,
             modified_content: r.modified_content,
             checked_ts: r.checked_ts,

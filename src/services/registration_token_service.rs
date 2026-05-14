@@ -519,10 +519,10 @@ mod tests {
             ip_address: Some("127.0.0.1".to_string()),
             user_agent: Some("Mozilla/5.0".to_string()),
             used_ts: 1234567890,
-            success: true,
+            is_success: true,
             error_message: None,
         };
-        assert!(usage.success);
+        assert!(usage.is_success);
         assert!(usage.error_message.is_none());
     }
 

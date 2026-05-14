@@ -2099,7 +2099,7 @@ mod tests {
         });
         let uri = "/_matrix/federation/v1/exchange_third_party_invite/!room:test.example.com";
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.config.federation.enabled = true;
         services.config.federation.allow_ingress = true;
         services.config.federation.server_name = origin.clone();
@@ -2336,7 +2336,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -2377,7 +2377,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.config.rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule {
@@ -2456,7 +2456,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.config.rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule {
@@ -2521,7 +2521,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -2562,7 +2562,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let mut services = ServiceContainer::new_test();
+        let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
 
         let csrf_manager = CsrfTokenManager::new(services.server_name.clone());

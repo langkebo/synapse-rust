@@ -158,7 +158,7 @@ impl CaptchaService {
                 target: captcha.target.clone(),
                 ip_address: ip_address.map(|s| s.to_string()),
                 user_agent: user_agent.map(|s| s.to_string()),
-                success: send_result.is_ok(),
+                is_success: send_result.is_ok(),
                 error_message: send_result.as_ref().err().map(|e| e.to_string()),
                 provider: Some(captcha_type.to_string()),
                 provider_response: None,

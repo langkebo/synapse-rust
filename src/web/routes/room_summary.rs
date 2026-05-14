@@ -589,8 +589,8 @@ pub async fn clear_unread(
 #[derive(Debug, Deserialize)]
 pub struct RoomSummaryBatchRequest {
     pub rooms: Vec<String>,
-    #[serde(default)]
-    pub suggested_only: bool,
+    #[serde(default, rename = "suggested_only")]
+    pub is_suggested_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -603,8 +603,10 @@ pub struct Msc3266RoomSummaryResponse {
     pub canonical_alias: Option<String>,
     pub join_rule: String,
     pub num_joined_members: i64,
-    pub world_readable: bool,
-    pub guest_can_join: bool,
+    #[serde(rename = "world_readable")]
+    pub is_world_readable: bool,
+    #[serde(rename = "guest_can_join")]
+    pub is_guest_can_join: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children_state: Option<Vec<serde_json::Value>>,
 }
@@ -629,8 +631,8 @@ impl From<RoomSummaryResponse> for Msc3266RoomSummaryResponse {
             canonical_alias: s.canonical_alias,
             join_rule: s.join_rule,
             num_joined_members: s.joined_member_count,
-            world_readable: s.history_visibility == "world_readable",
-            guest_can_join: s.guest_access == "can_join",
+            is_world_readable: s.history_visibility == "world_readable",
+            is_guest_can_join: s.guest_access == "can_join",
             children_state: None,
         }
     }
@@ -693,7 +695,7 @@ pub async fn batch_get_room_summaries(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
 
-    let filtered = if body.suggested_only {
+    let filtered = if body.is_suggested_only {
         responses
             .into_iter()
             .filter(|r| r.room_type.as_deref() == Some("m.space"))
@@ -987,8 +989,8 @@ mod tests {
                 canonical_alias: None,
                 join_rule: "invite".to_string(),
                 num_joined_members: 42,
-                world_readable: false,
-                guest_can_join: false,
+                is_world_readable: false,
+                is_guest_can_join: false,
                 children_state: None,
             }],
             events: vec![],
