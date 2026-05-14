@@ -33,6 +33,8 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
         })
 });
 
+const ADMIN_TOKEN_TTL_SECS: u64 = 24 * 3600;
+
 static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
 /// Register CORS allowed origins loaded from the homeserver config file.
@@ -66,7 +68,7 @@ impl CsrfTokenManager {
     pub fn new(secret: String) -> Self {
         Self {
             secret,
-            token_ttl: std::time::Duration::from_secs(24 * 3600), // 24 hours
+            token_ttl: std::time::Duration::from_secs(ADMIN_TOKEN_TTL_SECS),
         }
     }
 

@@ -195,7 +195,7 @@ impl SlidingSyncService {
         let mut lists_json = serde_json::Map::new();
 
         for (list_key, list_data) in lists {
-            let mut range_snapshots = Vec::new();
+            let mut range_snapshots = Vec::with_capacity(lists.len());
 
             for range in &list_data.ranges {
                 if range.len() >= 2 {
@@ -613,7 +613,7 @@ impl SlidingSyncService {
             let member_list: Vec<String> = all_members.into_iter().collect();
             let presences = self.presence_storage.get_presences(&member_list).await?;
 
-            let mut presence_events = Vec::new();
+            let mut presence_events = Vec::with_capacity(presences.len().min(32));
             for (uid, (presence, status_msg)) in presences {
                 presence_events.push(serde_json::json!({
                     "sender": uid,
@@ -1008,7 +1008,7 @@ impl SlidingSyncService {
             .map(|range| {
                 json!({
                     "op": "SYNC",
-                    "range": [range.start, range.start + range.room_ids.len() as u32 - 1],
+                    "range": [range.start, range.start + range.room_ids.len().saturating_sub(1) as u32],
                     "room_ids": range.room_ids,
                 })
             })
@@ -1031,7 +1031,7 @@ impl SlidingSyncService {
         }
 
         let mut working = previous.room_ids.clone();
-        let mut ops = Vec::new();
+        let mut ops = Vec::with_capacity(current.room_ids.len());
         let mut index = 0usize;
 
         while index < current.room_ids.len() || index < working.len() {
