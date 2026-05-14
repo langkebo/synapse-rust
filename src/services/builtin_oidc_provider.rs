@@ -376,14 +376,14 @@ impl BuiltinOidcProvider {
             .ok_or(ApiError::bad_request("Missing client_id".to_string()))?;
 
         // 提取会话
-        let session = self
-            .auth_sessions
-            .write()
-            .await
-            .remove(code)
-            .ok_or(ApiError::unauthorized(
-                "Invalid or expired code".to_string(),
-            ))?;
+        let session =
+            self.auth_sessions
+                .write()
+                .await
+                .remove(code)
+                .ok_or(ApiError::unauthorized(
+                    "Invalid or expired code".to_string(),
+                ))?;
 
         // 验证会话
         if session.redirect_uri != *redirect_uri {
@@ -429,7 +429,9 @@ impl BuiltinOidcProvider {
         let access_token = self.generate_access_token(user, session.scope.as_str())?;
         let id_token =
             self.generate_id_token(user, client_id, session.nonce.as_deref(), &access_token)?;
-        let refresh_token = self.generate_refresh_token(user, session.scope.as_str()).await?;
+        let refresh_token = self
+            .generate_refresh_token(user, session.scope.as_str())
+            .await?;
 
         Ok(OidcTokenResponse {
             access_token,
