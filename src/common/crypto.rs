@@ -195,7 +195,20 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
 }
 
 pub fn hash_token(token: &str) -> String {
+    let server_secret = std::env::var("TOKEN_HASH_SECRET")
+        .unwrap_or_else(|_| "synapse-rust-default-token-hash-secret".to_string());
+    encode_base64(hmac_sha256(server_secret, token))
+}
+
+pub fn hash_token_legacy(token: &str) -> String {
     compute_hash(token)
+}
+
+pub fn verify_token_hash(token: &str, stored_hash: &str) -> bool {
+    if secure_compare(&hash_token(token), stored_hash) {
+        return true;
+    }
+    secure_compare(&hash_token_legacy(token), stored_hash)
 }
 
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {

@@ -102,7 +102,7 @@ impl DatabaseInitService {
     /// Returns sqlx::Error if database operations fail
     pub async fn initialize(&self) -> Result<InitializationReport, sqlx::Error> {
         let mut report = InitializationReport {
-            success: true,
+            is_success: true,
             steps: Vec::new(),
             errors: Vec::new(),
             schema_status: None,
@@ -118,7 +118,7 @@ impl DatabaseInitService {
                 report.steps.push(msg);
             }
             Err(e) => {
-                report.success = false;
+                report.is_success = false;
                 report.errors.push(format!("连接测试失败: {}", e));
                 return Ok(report);
             }
@@ -143,7 +143,7 @@ impl DatabaseInitService {
             }
             Err(e) => {
                 error!("数据库迁移失败: {}", e);
-                report.success = false;
+                report.is_success = false;
                 report.errors.push(format!("数据库迁移失败: {}", e));
                 return Ok(report);
             }
@@ -173,7 +173,7 @@ impl DatabaseInitService {
         match self.step_schema_validation().await {
             Ok(status) => report.schema_status = Some(status),
             Err(e) => {
-                report.success = false;
+                report.is_success = false;
                 report.errors.push(format!("Schema验证失败: {}", e));
             }
         };
@@ -201,7 +201,7 @@ impl DatabaseInitService {
                     }
                 }
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report.errors.push(format!("运行时列修复失败: {}", e));
                 }
             }
@@ -214,7 +214,7 @@ impl DatabaseInitService {
                     }
                 }
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report.errors.push(format!("运行时索引修复失败: {}", e));
                 }
             }
@@ -222,7 +222,7 @@ impl DatabaseInitService {
             match self.step_create_e2ee_tables().await {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report
                         .errors
                         .push(format!("运行时 E2EE 兼容表检查失败: {}", e));
@@ -232,7 +232,7 @@ impl DatabaseInitService {
             match self.step_create_e2ee_core_tables().await {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report
                         .errors
                         .push(format!("运行时 E2EE 核心表检查失败: {}", e));
@@ -242,7 +242,7 @@ impl DatabaseInitService {
             match self.step_ensure_additional_tables().await {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report
                         .errors
                         .push(format!("运行时附加表兼容检查失败: {}", e));
@@ -252,7 +252,7 @@ impl DatabaseInitService {
             match self.step_schema_validation().await {
                 Ok(status) => report.schema_status = Some(status),
                 Err(e) => {
-                    report.success = false;
+                    report.is_success = false;
                     report
                         .errors
                         .push(format!("运行时修复后 Schema 复检失败: {}", e));
@@ -260,14 +260,14 @@ impl DatabaseInitService {
             }
         }
 
-        if report.success {
+        if report.is_success {
             self.update_init_timestamp().await?;
         }
 
         if self.environment.is_development() {
-            info!("数据库初始化完成: success={}", report.success);
+            info!("数据库初始化完成: success={}", report.is_success);
         } else {
-            debug!("数据库初始化完成: success={}", report.success);
+            debug!("数据库初始化完成: success={}", report.is_success);
         }
         Ok(report)
     }
@@ -1789,7 +1789,7 @@ impl DatabaseInitService {
 
 #[derive(Debug, Clone)]
 pub struct InitializationReport {
-    pub success: bool,
+    pub is_success: bool,
     pub steps: Vec<String>,
     pub errors: Vec<String>,
     pub schema_status: Option<crate::storage::SchemaValidationResult>,
@@ -1799,7 +1799,7 @@ pub struct InitializationReport {
 
 impl InitializationReport {
     pub fn summary(&self) -> String {
-        let mut summary = format!("数据库初始化: success={}", self.success);
+        let mut summary = format!("数据库初始化: success={}", self.is_success);
 
         if self.skipped {
             summary.push_str(" (使用缓存)");
@@ -1854,7 +1854,7 @@ pub async fn initialize_database(pool: &PgPool) -> Result<(), String> {
 
     match initializer.initialize().await {
         Ok(report) => {
-            if report.success {
+            if report.is_success {
                 info!("{}", report.summary());
                 Ok(())
             } else {

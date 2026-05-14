@@ -144,9 +144,9 @@ pub struct BuiltinOidcProvider {
     decoding_key: DecodingKey,
     key_id: String,
     auth_sessions:
-        std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
+        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
     refresh_tokens:
-        std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
+        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -198,8 +198,8 @@ impl BuiltinOidcProvider {
             encoding_key,
             decoding_key,
             key_id,
-            auth_sessions: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
-            refresh_tokens: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            auth_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            refresh_tokens: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         })
     }
 
@@ -300,12 +300,8 @@ impl BuiltinOidcProvider {
         }
     }
 
-    fn lock_err() -> ApiError {
-        ApiError::internal("OIDC internal lock poisoned".to_string())
-    }
-
     /// 处理授权请求
-    pub fn authorize(&self, request: AuthorizeRequest) -> Result<String, ApiError> {
+    pub async fn authorize(&self, request: AuthorizeRequest) -> Result<String, ApiError> {
         // 验证用户
         let user = self.verify_user(&request.username, &request.password)?;
 
@@ -344,7 +340,7 @@ impl BuiltinOidcProvider {
 
         self.auth_sessions
             .write()
-            .map_err(|_| Self::lock_err())?
+            .await
             .insert(code.clone(), session);
 
         info!("OIDC authorization code generated for user: {}", user.id);
@@ -352,7 +348,7 @@ impl BuiltinOidcProvider {
     }
 
     /// 处理令牌请求
-    pub fn token(&self, request: OidcTokenRequest) -> Result<OidcTokenResponse, ApiError> {
+    pub async fn token(&self, request: OidcTokenRequest) -> Result<OidcTokenResponse, ApiError> {
         let grant_type = &request.grant_type;
 
         match grant_type.as_str() {
@@ -362,7 +358,7 @@ impl BuiltinOidcProvider {
         }
     }
 
-    fn handle_authorization_code_grant(
+    async fn handle_authorization_code_grant(
         &self,
         request: OidcTokenRequest,
     ) -> Result<OidcTokenResponse, ApiError> {
@@ -383,7 +379,7 @@ impl BuiltinOidcProvider {
         let session = self
             .auth_sessions
             .write()
-            .map_err(|_| Self::lock_err())?
+            .await
             .remove(code)
             .ok_or(ApiError::unauthorized(
                 "Invalid or expired code".to_string(),
@@ -445,7 +441,7 @@ impl BuiltinOidcProvider {
         })
     }
 
-    fn handle_refresh_token_grant(
+    async fn handle_refresh_token_grant(
         &self,
         request: OidcTokenRequest,
     ) -> Result<OidcTokenResponse, ApiError> {
@@ -458,7 +454,7 @@ impl BuiltinOidcProvider {
         let token_data = self
             .refresh_tokens
             .read()
-            .map_err(|_| Self::lock_err())?
+            .await
             .get(refresh_token)
             .cloned()
             .ok_or(ApiError::unauthorized("Invalid refresh_token".to_string()))?;
@@ -615,7 +611,7 @@ impl BuiltinOidcProvider {
     }
 
     /// 生成 Refresh Token
-    fn generate_refresh_token(
+    async fn generate_refresh_token(
         &self,
         user: &BuiltinOidcUser,
         scope: &str,
@@ -631,7 +627,7 @@ impl BuiltinOidcProvider {
 
         self.refresh_tokens
             .write()
-            .map_err(|_| Self::lock_err())?
+            .await
             .insert(token.clone(), refresh_token);
 
         Ok(token)
@@ -658,7 +654,7 @@ impl BuiltinOidcProvider {
 
         // 找出 token 所属用户
         let owner = {
-            let map = self.refresh_tokens.read().map_err(|_| Self::lock_err())?;
+            let map = self.refresh_tokens.read().await;
             map.get(token).map(|t| t.user_id.clone())
         };
 
@@ -666,15 +662,13 @@ impl BuiltinOidcProvider {
             return Ok(());
         };
 
-        // 仅删除该用户的 refresh tokens
         {
-            let mut map = self.refresh_tokens.write().map_err(|_| Self::lock_err())?;
+            let mut map = self.refresh_tokens.write().await;
             map.retain(|_, t| t.user_id != user_id);
         }
 
-        // 仅删除该用户尚未兑换的 auth_sessions
         {
-            let mut map = self.auth_sessions.write().map_err(|_| Self::lock_err())?;
+            let mut map = self.auth_sessions.write().await;
             map.retain(|_, s| s.user_id != user_id);
         }
 

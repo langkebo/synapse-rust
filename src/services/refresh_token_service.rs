@@ -20,6 +20,10 @@ impl RefreshTokenService {
         crate::common::crypto::hash_token(token)
     }
 
+    pub fn hash_token_legacy(token: &str) -> String {
+        crate::common::crypto::hash_token_legacy(token)
+    }
+
     pub fn generate_token() -> String {
         crate::common::crypto::generate_token(32)
     }
@@ -46,6 +50,7 @@ impl RefreshTokenService {
     #[instrument(skip(self))]
     pub async fn validate_token(&self, token: &str) -> Result<RefreshToken, ApiError> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
 
         let is_blacklisted = self
             .storage
@@ -53,7 +58,16 @@ impl RefreshTokenService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to check blacklist: {}", e)))?;
 
-        if is_blacklisted {
+        let is_legacy_blacklisted = if !is_blacklisted {
+            self.storage
+                .is_blacklisted(&legacy_hash)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to check blacklist: {}", e)))?
+        } else {
+            true
+        };
+
+        if is_legacy_blacklisted {
             return Err(ApiError::unauthorized("Token has been revoked"));
         }
 
@@ -61,8 +75,17 @@ impl RefreshTokenService {
             .storage
             .get_token(&token_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?
-            .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?;
+
+        let token_record = match token_record {
+            Some(r) => r,
+            None => self
+                .storage
+                .get_token(&legacy_hash)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to get token: {}", e)))?
+                .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?,
+        };
 
         if token_record.is_revoked {
             return Err(ApiError::unauthorized("Token has been revoked"));
@@ -92,7 +115,7 @@ impl RefreshTokenService {
 
         let new_refresh_token = Self::generate_token();
         let new_token_hash = Self::hash_token(&new_refresh_token);
-        let old_token_hash = Self::hash_token(refresh_token);
+        let old_token_hash = old_token.token_hash.clone();
 
         let family_id = match self.storage.get_rotations(&old_token.user_id).await {
             Ok(rotations) if !rotations.is_empty() => rotations[0].family_id.clone(),
@@ -227,9 +250,15 @@ impl RefreshTokenService {
     #[instrument(skip(self))]
     pub async fn revoke_token(&self, token: &str, reason: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
 
         self.storage
             .revoke_token(&token_hash, reason)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
+
+        self.storage
+            .revoke_token(&legacy_hash, reason)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to revoke token: {}", e)))?;
 
@@ -328,9 +357,15 @@ impl RefreshTokenService {
         reason: Option<&str>,
     ) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
 
         self.storage
             .add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to add to blacklist: {}", e)))?;
+
+        self.storage
+            .add_to_blacklist(&legacy_hash, token_type, user_id, expires_at, reason)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add to blacklist: {}", e)))?;
 
@@ -364,9 +399,15 @@ impl RefreshTokenService {
     #[instrument(skip(self))]
     pub async fn delete_token(&self, token: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
 
         self.storage
             .delete_token(&token_hash)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
+
+        self.storage
+            .delete_token(&legacy_hash)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
 

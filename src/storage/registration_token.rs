@@ -57,7 +57,9 @@ pub struct RegistrationTokenUsage {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub used_ts: i64,
-    pub success: bool,
+    #[serde(rename = "success")]
+    #[sqlx(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
 }
 
@@ -1159,13 +1161,13 @@ mod tests {
             ip_address: Some("192.168.1.1".to_string()),
             user_agent: Some("Mozilla/5.0".to_string()),
             used_ts: 1700000000000,
-            success: true,
+            is_success: true,
             error_message: None,
         };
 
         assert_eq!(usage.token_id, 100);
         assert_eq!(usage.user_id, "@user:example.com");
-        assert!(usage.success);
+        assert!(usage.is_success);
         assert!(usage.error_message.is_none());
     }
 
@@ -1181,11 +1183,11 @@ mod tests {
             ip_address: Some("192.168.1.2".to_string()),
             user_agent: None,
             used_ts: 1700000000000,
-            success: false,
+            is_success: false,
             error_message: Some("Token expired".to_string()),
         };
 
-        assert!(!failed_usage.success);
+        assert!(!failed_usage.is_success);
         assert_eq!(
             failed_usage.error_message,
             Some("Token expired".to_string())

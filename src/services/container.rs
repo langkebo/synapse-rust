@@ -669,7 +669,7 @@ fn assemble_admin_support(
 // =============================================================================
 
 impl ServiceContainer {
-    pub fn new(
+    pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
         config: Config,
@@ -1032,13 +1032,13 @@ impl ServiceContainer {
                 .with_client(broadcaster_federation_client)
                 .with_pool(pool.as_ref().clone())
                 .with_membership_storage(Arc::new(broadcaster_member_storage));
-                broadcaster.start_batch_sender(broadcaster_origin, 20, 100);
+                broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
                 Arc::new(broadcaster)
             },
         }
     }
 
-    pub fn new_test() -> Self {
+    pub async fn new_test() -> Self {
         let _ = crate::common::argon2_config::Argon2Config::initialize_global_owasp(
             crate::common::argon2_config::Argon2Config::default(),
         );
@@ -1057,18 +1057,18 @@ impl ServiceContainer {
                     .expect("Failed to create test database pool"),
             )
         });
-        Self::new_test_with_pool(pool)
+        Self::new_test_with_pool(pool).await
     }
 
-    pub fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
+    pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
         let config = build_test_config();
-        Self::new(&pool, cache, config, None)
+        Self::new(&pool, cache, config, None).await
     }
 
-    pub fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
+    pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = build_test_config();
-        Self::new(&pool, cache, config, None)
+        Self::new(&pool, cache, config, None).await
     }
 }
 

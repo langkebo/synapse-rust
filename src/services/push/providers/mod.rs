@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushResult {
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub error: Option<String>,
     pub provider_response: Option<String>,
     pub should_retry: bool,
@@ -20,7 +21,7 @@ pub struct PushResult {
 impl PushResult {
     pub fn success() -> Self {
         Self {
-            success: true,
+            is_success: true,
             error: None,
             provider_response: None,
             should_retry: false,
@@ -29,7 +30,7 @@ impl PushResult {
 
     pub fn success_with_response(response: &str) -> Self {
         Self {
-            success: true,
+            is_success: true,
             error: None,
             provider_response: Some(response.to_string()),
             should_retry: false,
@@ -38,7 +39,7 @@ impl PushResult {
 
     pub fn failure(error: &str) -> Self {
         Self {
-            success: false,
+            is_success: false,
             error: Some(error.to_string()),
             provider_response: None,
             should_retry: false,
@@ -47,7 +48,7 @@ impl PushResult {
 
     pub fn retryable_failure(error: &str) -> Self {
         Self {
-            success: false,
+            is_success: false,
             error: Some(error.to_string()),
             provider_response: None,
             should_retry: true,

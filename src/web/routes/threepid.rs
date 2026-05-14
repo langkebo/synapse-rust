@@ -43,7 +43,8 @@ pub struct SubmitTokenRequest {
 
 #[derive(Debug, Serialize)]
 pub struct SubmitTokenResponse {
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
 }
 
 pub async fn request_token(
@@ -138,5 +139,5 @@ pub async fn submit_token(
         session.session_id
     );
 
-    Ok(Json(SubmitTokenResponse { success: true }))
+    Ok(Json(SubmitTokenResponse { is_success: true }))
 }

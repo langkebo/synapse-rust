@@ -20,7 +20,8 @@ pub struct Claims {
     pub sub: String,
     pub user_id: String,
     pub jti: String,
-    pub admin: bool,
+    #[serde(rename = "admin")]
+    pub is_admin: bool,
     pub exp: i64,
     pub iat: i64,
     pub device_id: Option<String>,
@@ -654,14 +655,24 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        match token_data {
-            Some(t) => {
-                // Reuse-detection: a refresh token already marked revoked being
-                // presented again is a strong signal of token theft (legitimate
-                // client got a new token; attacker is replaying the stolen old
-                // one — or vice versa). Revoke EVERY refresh token for this
-                // user so the real client is forced to re-authenticate, then
-                // bail. RFC 6819 §5.2.2.3.
+        let (token_data, token_hash) = match token_data {
+            Some(t) => (t, token_hash),
+            None => {
+                let legacy_hash = Self::hash_token_legacy(refresh_token);
+                let legacy_data = self
+                    .refresh_token_storage
+                    .get_token(&legacy_hash)
+                    .await
+                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+                match legacy_data {
+                    Some(t) => (t, legacy_hash),
+                    None => {
+                        return Err(ApiError::unauthorized("Invalid refresh token".to_string()));
+                    }
+                }
+            }
+        };
+        let t = token_data;
                 if t.is_revoked {
                     if let Err(e) = self
                         .refresh_token_storage
@@ -707,10 +718,6 @@ impl AuthService {
                             ));
                         }
 
-                        // Atomically claim the refresh token BEFORE issuing
-                        // anything new. Two concurrent requests with the same
-                        // token will see exactly one CAS succeed; the loser
-                        // gets `false` and exits without leaking new tokens.
                         let claimed = self
                             .refresh_token_storage
                             .revoke_token_cas(&token_hash, "Rotated")
@@ -719,8 +726,6 @@ impl AuthService {
                                 ApiError::internal(format!("Failed to claim refresh token: {}", e))
                             })?;
                         if !claimed {
-                            // Lost the race: another concurrent request already
-                            // rotated this token. Treat as reuse for safety.
                             ::tracing::warn!(
                                 target: "security_audit",
                                 event = "refresh_token_concurrent_use",
@@ -750,9 +755,6 @@ impl AuthService {
                     }
                     _ => Err(ApiError::unauthorized("User not found".to_string())),
                 }
-            }
-            _ => Err(ApiError::unauthorized("Invalid refresh token".to_string())),
-        }
     }
 
     pub async fn validate_token(
@@ -935,7 +937,7 @@ impl AuthService {
                 }
                 let is_admin = u.is_admin;
                 let mut final_claims = claims.clone();
-                final_claims.admin = is_admin;
+                final_claims.is_admin = is_admin;
 
                 self.cache.set_user_active(&claims.sub, true, 60).await;
                 self.cache
@@ -1229,7 +1231,7 @@ impl AuthService {
             sub: user_id.to_string(),
             user_id: user_id.to_string(),
             jti,
-            admin,
+            is_admin: admin,
             exp: (now + Duration::seconds(self.token_expiry)).timestamp(),
             iat: now.timestamp(),
             device_id: Some(device_id.to_string()),
@@ -1286,6 +1288,10 @@ impl AuthService {
 
     fn hash_token(token: &str) -> String {
         crate::common::crypto::hash_token(token)
+    }
+
+    fn hash_token_legacy(token: &str) -> String {
+        crate::common::crypto::hash_token_legacy(token)
     }
 
     fn decode_token(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
@@ -2151,14 +2157,14 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-uuid".to_string(),
-            admin: false,
+            is_admin: false,
             exp: 1234567890,
             iat: 1234567889,
             device_id: Some("DEVICE123".to_string()),
         };
         assert_eq!(claims.sub, "@test:example.com");
         assert_eq!(claims.user_id, "@test:example.com");
-        assert!(!claims.admin);
+        assert!(!claims.is_admin);
         assert!(claims.exp > claims.iat);
     }
 
@@ -2168,12 +2174,12 @@ mod tests {
             sub: "@admin:example.com".to_string(),
             user_id: "@admin:example.com".to_string(),
             jti: "test-jti-admin".to_string(),
-            admin: true,
+            is_admin: true,
             exp: 1234567890,
             iat: 1234567890,
             device_id: None,
         };
-        assert!(claims.admin);
+        assert!(claims.is_admin);
         assert!(claims.device_id.is_none());
     }
 
@@ -2199,7 +2205,7 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-serialization".to_string(),
-            admin: false,
+            is_admin: false,
             exp: 1234567890,
             iat: 1234567890,
             device_id: Some("DEVICE123".to_string()),
@@ -2208,7 +2214,7 @@ mod tests {
         let deserialized: Claims = serde_json::from_str(&json).unwrap();
         assert_eq!(claims.sub, deserialized.sub);
         assert_eq!(claims.user_id, deserialized.user_id);
-        assert_eq!(claims.admin, deserialized.admin);
+        assert_eq!(claims.is_admin, deserialized.is_admin);
     }
 
     #[test]
@@ -2316,7 +2322,7 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-valid".to_string(),
-            admin: false,
+            is_admin: false,
             exp: now + 3600,
             iat: now,
             device_id: None,
@@ -2327,7 +2333,7 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-expired".to_string(),
-            admin: false,
+            is_admin: false,
             exp: now - 3600,
             iat: now - 7200,
             device_id: None,
@@ -2341,7 +2347,7 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-with-device".to_string(),
-            admin: false,
+            is_admin: false,
             exp: 1234567890,
             iat: 1234567890,
             device_id: Some("DEVICE123".to_string()),
@@ -2352,7 +2358,7 @@ mod tests {
             sub: "@test:example.com".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-no-device".to_string(),
-            admin: false,
+            is_admin: false,
             exp: 1234567890,
             iat: 1234567890,
             device_id: None,
@@ -2368,7 +2374,7 @@ mod tests {
             sub: "@user:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: true,
+            is_admin: true,
             exp: (now + Duration::hours(1)).timestamp(),
             iat: now.timestamp(),
             device_id: Some("DEVICE456".to_string()),
@@ -2387,7 +2393,7 @@ mod tests {
 
         assert_eq!(decoded.sub, claims.sub);
         assert_eq!(decoded.user_id, claims.user_id);
-        assert_eq!(decoded.admin, claims.admin);
+        assert_eq!(decoded.is_admin, claims.is_admin);
         assert_eq!(decoded.device_id, claims.device_id);
     }
 
@@ -2400,7 +2406,7 @@ mod tests {
             sub: "@user:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: false,
+            is_admin: false,
             exp: (now + Duration::hours(1)).timestamp(),
             iat: now.timestamp(),
             device_id: None,
@@ -2429,7 +2435,7 @@ mod tests {
             sub: "@user:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: false,
+            is_admin: false,
             exp: (now - Duration::hours(1)).timestamp(),
             iat: (now - Duration::hours(2)).timestamp(),
             device_id: None,
@@ -2458,7 +2464,7 @@ mod tests {
             sub: "@user:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: false,
+            is_admin: false,
             exp: (now + Duration::hours(1)).timestamp(),
             iat: now.timestamp(),
             device_id: None,
@@ -2516,7 +2522,7 @@ mod tests {
             sub: "@test:server.com".to_string(),
             user_id: "@test:server.com".to_string(),
             jti: "test-jti-roundtrip".to_string(),
-            admin: true,
+            is_admin: true,
             exp: 9999999999,
             iat: 1000000000,
             device_id: Some("MYDEVICE".to_string()),
@@ -2527,7 +2533,7 @@ mod tests {
 
         assert_eq!(original.sub, parsed.sub);
         assert_eq!(original.user_id, parsed.user_id);
-        assert_eq!(original.admin, parsed.admin);
+        assert_eq!(original.is_admin, parsed.is_admin);
         assert_eq!(original.exp, parsed.exp);
         assert_eq!(original.iat, parsed.iat);
         assert_eq!(original.device_id, parsed.device_id);
@@ -2539,7 +2545,7 @@ mod tests {
             sub: "@user:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             jti: "test-jti-structure".to_string(),
-            admin: false,
+            is_admin: false,
             exp: 1234567890,
             iat: 1234567800,
             device_id: Some("DEV1".to_string()),
@@ -2609,7 +2615,7 @@ mod tests {
             sub: "@user:test.server".to_string(),
             user_id: "@user:test.server".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: false,
+            is_admin: false,
             exp: (now + Duration::hours(1)).timestamp(),
             iat: now.timestamp(),
             device_id: Some("DEVICE1".to_string()),
@@ -2630,7 +2636,7 @@ mod tests {
 
         assert_eq!(decoded.sub, "@user:test.server");
         assert_eq!(decoded.user_id, "@user:test.server");
-        assert!(!decoded.admin);
+        assert!(!decoded.is_admin);
         assert_eq!(decoded.device_id, Some("DEVICE1".to_string()));
     }
 
@@ -2642,7 +2648,7 @@ mod tests {
             sub: "@admin:test.server".to_string(),
             user_id: "@admin:test.server".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: true,
+            is_admin: true,
             exp: (now + Duration::hours(1)).timestamp(),
             iat: now.timestamp(),
             device_id: Some("DEVICE2".to_string()),
@@ -2659,7 +2665,7 @@ mod tests {
                 .unwrap()
                 .claims;
 
-        assert!(decoded.admin);
+        assert!(decoded.is_admin);
     }
 
     #[test]
@@ -2672,7 +2678,7 @@ mod tests {
             sub: "@user:test.server".to_string(),
             user_id: "@user:test.server".to_string(),
             jti: uuid::Uuid::new_v4().to_string(),
-            admin: false,
+            is_admin: false,
             exp: now + token_expiry,
             iat: now,
             device_id: Some("DEVICE".to_string()),

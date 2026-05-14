@@ -123,7 +123,7 @@ pub struct SyncServiceRequest<'a> {
     pub user_id: &'a str,
     pub device_id: Option<&'a str>,
     pub timeout: u64,
-    pub full_state: bool,
+    pub is_full_state: bool,
     pub set_presence: &'a str,
     pub filter_id: Option<&'a str>,
     pub since: Option<&'a str>,
@@ -242,7 +242,8 @@ enum SyncRoomSection {
 pub struct SyncRequest {
     pub since: Option<String>,
     pub filter: Option<String>,
-    pub full_state: bool,
+    #[serde(rename = "full_state")]
+    pub is_full_state: bool,
     pub set_presence: Option<String>,
     pub timeout: u64,
 }
@@ -367,7 +368,7 @@ impl SyncService {
             user_id,
             device_id,
             timeout,
-            full_state,
+            is_full_state: full_state,
             set_presence,
             filter_id,
             since,
@@ -383,7 +384,7 @@ impl SyncService {
             user_id,
             device_id,
             timeout,
-            full_state,
+            is_full_state,
             set_presence,
             filter_id,
             since,
@@ -413,7 +414,7 @@ impl SyncService {
             Self::timeline_limit_from_room_filter(room_filter, self.sync_event_limit());
 
         let since_token = since.and_then(SyncToken::parse);
-        let is_incremental = since_token.is_some() && !full_state;
+        let is_incremental = since_token.is_some() && !is_full_state;
 
         let rooms_started = Instant::now();
         let include_leave = room_filter
@@ -491,12 +492,12 @@ impl SyncService {
         user_id: &str,
         room_id: &str,
         timeout: u64,
-        full_state: bool,
+        is_full_state: bool,
         since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let total_started = Instant::now();
         let since_token = since.and_then(SyncToken::parse);
-        let is_incremental = since_token.is_some() && !full_state;
+        let is_incremental = since_token.is_some() && !is_full_state;
 
         let room_ids = vec![room_id.to_string()];
         let event_fetch_started = Instant::now();

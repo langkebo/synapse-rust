@@ -404,27 +404,31 @@ pub async fn get_device_list_updates(
     let mut left: Vec<String> = Vec::new();
 
     if since.is_none() {
-        for user_id in &users {
-            let devices = state
-                .services
-                .device_storage
-                .get_user_devices(user_id)
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+        let devices_by_user = state
+            .services
+            .device_storage
+            .get_users_devices_batch(&users)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
 
-            if devices.is_empty() {
-                left.push(user_id.clone());
-            } else {
-                for device in devices {
-                    changed.push(json!({
-                        "user_id": user_id,
-                        "device_id": device.device_id,
-                        "device_data": {
-                            "display_name": device.display_name,
-                            "last_seen_ts": device.last_seen_ts,
-                        }
-                    }));
+        for user_id in &users {
+            if let Some(devices) = devices_by_user.get(user_id) {
+                if devices.is_empty() {
+                    left.push(user_id.clone());
+                } else {
+                    for device in devices {
+                        changed.push(json!({
+                            "user_id": user_id,
+                            "device_id": device.device_id,
+                            "device_data": {
+                                "display_name": device.display_name,
+                                "last_seen_ts": device.last_seen_ts,
+                            }
+                        }));
+                    }
                 }
+            } else {
+                left.push(user_id.clone());
             }
         }
 

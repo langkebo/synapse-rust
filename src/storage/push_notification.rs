@@ -88,14 +88,16 @@ pub struct PushNotificationLog {
     pub notification_type: Option<String>,
     pub push_type: String,
     pub sent_at: DateTime<Utc>,
-    pub success: bool,
+    #[serde(rename = "success")]
+    #[sqlx(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
     pub response_time_ms: Option<i32>,
     pub metadata: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterDeviceRequest {
     pub user_id: String,
     pub device_id: String,
@@ -141,7 +143,8 @@ pub struct CreateNotificationLogRequest {
     pub room_id: Option<String>,
     pub notification_type: Option<String>,
     pub push_type: String,
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
     pub response_time_ms: Option<i32>,
@@ -152,13 +155,13 @@ impl CreateNotificationLogRequest {
         user_id: impl Into<String>,
         device_id: impl Into<String>,
         push_type: impl Into<String>,
-        success: bool,
+        is_success: bool,
     ) -> Self {
         Self {
             user_id: user_id.into(),
             device_id: device_id.into(),
             push_type: push_type.into(),
-            success,
+            is_success,
             ..Default::default()
         }
     }
@@ -551,7 +554,7 @@ impl PushNotificationStorage {
         .bind(&request.room_id)
         .bind(&request.notification_type)
         .bind(&request.push_type)
-        .bind(request.success)
+        .bind(request.is_success)
         .bind(&request.error_message)
         .bind(&request.provider_response)
         .bind(request.response_time_ms)
@@ -749,7 +752,7 @@ mod tests {
         assert_eq!(request.user_id, "@alice:example.com");
         assert_eq!(request.device_id, "DEVICE123");
         assert_eq!(request.push_type, "apns");
-        assert!(request.success);
+        assert!(request.is_success);
         assert_eq!(request.event_id, Some("$event456".to_string()));
         assert_eq!(request.room_id, Some("!room456:example.com".to_string()));
         assert_eq!(
@@ -770,7 +773,7 @@ mod tests {
 
         assert_eq!(request.user_id, "@bob:example.com");
         assert_eq!(request.push_type, "fcm");
-        assert!(!request.success);
+        assert!(!request.is_success);
         assert_eq!(request.error_message, Some("Invalid token".to_string()));
         assert_eq!(
             request.provider_response,
@@ -785,7 +788,7 @@ mod tests {
         assert!(request.user_id.is_empty());
         assert!(request.device_id.is_empty());
         assert!(request.push_type.is_empty());
-        assert!(!request.success);
+        assert!(!request.is_success);
         assert!(request.event_id.is_none());
         assert!(request.room_id.is_none());
         assert!(request.notification_type.is_none());
@@ -920,14 +923,14 @@ mod tests {
             notification_type: Some("m.room.message".to_string()),
             push_type: "apns".to_string(),
             sent_at: Utc::now(),
-            success: true,
+            is_success: true,
             error_message: None,
             provider_response: Some("{\"status\": \"ok\"}".to_string()),
             response_time_ms: Some(100),
             metadata: json!({}),
         };
 
-        assert!(log.success);
+        assert!(log.is_success);
         assert!(log.error_message.is_none());
         assert!(log.response_time_ms.is_some());
     }
@@ -943,14 +946,14 @@ mod tests {
             notification_type: None,
             push_type: "fcm".to_string(),
             sent_at: Utc::now(),
-            success: false,
+            is_success: false,
             error_message: Some("InvalidRegistration".to_string()),
             provider_response: Some("{\"error\": \"InvalidRegistration\"}".to_string()),
             response_time_ms: Some(50),
             metadata: json!({}),
         };
 
-        assert!(!log.success);
+        assert!(!log.is_success);
         assert!(log.error_message.is_some());
         assert_eq!(log.push_type, "fcm");
     }

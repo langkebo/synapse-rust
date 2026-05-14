@@ -141,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_prefers_file_config_when_enabled() {
-        let mut services = crate::services::ServiceContainer::new_test();
+        let mut services = crate::services::ServiceContainer::new_test().await;
         services.config.rate_limit.sync.enabled = true;
         services.config.rate_limit.sync.initial.per_second = 3;
         services.config.rate_limit.sync.initial.burst_size = 7;
@@ -172,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_falls_back_to_runtime_config() {
-        let mut services = crate::services::ServiceContainer::new_test();
+        let mut services = crate::services::ServiceContainer::new_test().await;
         services.config.rate_limit.sync.enabled = true;
         services.config.rate_limit.sync.initial.per_second = 5;
         services.config.rate_limit.sync.initial.burst_size = 50;

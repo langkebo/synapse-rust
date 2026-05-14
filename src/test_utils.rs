@@ -230,7 +230,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         format!("strict migration initialization failed for {schema_name}: {error}")
     })?;
 
-    if !report.success {
+    if !report.is_success {
         return Err(format!(
             "strict migration initialization reported errors for {schema_name}: {}",
             report.errors.join(" | ")
@@ -320,7 +320,7 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
     .map_err(|_| "template schema initialization timed out after 120 seconds".to_string())?
     .map_err(|error| format!("template schema initialization failed: {error}"))?;
 
-    if !report.success {
+    if !report.is_success {
         return Err(format!(
             "template schema initialization errors: {}",
             report.errors.join(" | ")

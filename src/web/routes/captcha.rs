@@ -37,7 +37,8 @@ pub struct CaptchaResponse {
 
 #[derive(Debug, Serialize)]
 pub struct VerifyResponse {
-    pub verified: bool,
+    #[serde(rename = "verified")]
+    pub is_verified: bool,
 }
 
 pub async fn send_captcha(
@@ -78,7 +79,7 @@ pub async fn verify_captcha(
         .verify_captcha(request)
         .await?;
 
-    Ok(Json(VerifyResponse { verified }))
+    Ok(Json(VerifyResponse { is_verified: verified }))
 }
 
 pub async fn get_captcha_status(
