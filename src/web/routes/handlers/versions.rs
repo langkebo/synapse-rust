@@ -127,7 +127,7 @@ mod tests {
     use crate::web::AppState;
     use std::sync::Arc;
 
-    fn make_test_state() -> AppState {
+    async fn make_test_state() -> AppState {
         let mut config = Config::default();
         config.experimental.msc3814_enabled = true;
 
@@ -139,14 +139,14 @@ mod tests {
             )
         });
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let services = ServiceContainer::new(&pool, cache.clone(), config, None);
+        let services = ServiceContainer::new(&pool, cache.clone(), config, None).await;
         AppState::new(services, cache)
     }
 
     #[tokio::test]
     async fn test_get_client_versions_includes_msc3814() {
         use axum::response::IntoResponse;
-        let state = make_test_state();
+        let state = make_test_state().await;
         let response = get_client_versions(axum::extract::State(state))
             .await
             .into_response();

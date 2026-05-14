@@ -116,7 +116,8 @@ pub struct CreateLogRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateStatsRequest {
     pub server_name: String,
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub response_time_ms: Option<f64>,
 }
 
@@ -406,13 +407,13 @@ impl FederationBlacklistStorage {
             "#,
         )
         .bind(&request.server_name)
-        .bind(if request.success { 1 } else { 0 })
-        .bind(if request.success { 0 } else { 1 })
+        .bind(if request.is_success { 1 } else { 0 })
+        .bind(if request.is_success { 0 } else { 1 })
         .bind(now)
-        .bind(if request.success { Some(now) } else { None })
-        .bind(if request.success { None } else { Some(now) })
+        .bind(if request.is_success { Some(now) } else { None })
+        .bind(if request.is_success { None } else { Some(now) })
         .bind(request.response_time_ms)
-        .bind(if request.success { 0.0 } else { 1.0 })
+        .bind(if request.is_success { 0.0 } else { 1.0 })
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update access stats: {}", e)))?;

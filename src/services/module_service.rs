@@ -77,7 +77,8 @@ pub struct ThirdPartyRuleContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyRuleOutput {
-    pub allowed: bool,
+    #[serde(rename = "allowed")]
+    pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
 }
@@ -329,7 +330,7 @@ impl ModuleService {
                             event_id: Some(context.event_id.clone()),
                             room_id: Some(context.room_id.clone()),
                             execution_time_ms: execution_time,
-                            success: true,
+                            is_success: true,
                             error_message: None,
                             metadata: Some(serde_json::json!({
                                 "result": output.result.as_str(),
@@ -368,7 +369,7 @@ impl ModuleService {
                             event_id: Some(context.event_id.clone()),
                             room_id: Some(context.room_id.clone()),
                             execution_time_ms: execution_time,
-                            success: false,
+                            is_success: false,
                             error_message: Some(error_msg.clone()),
                             metadata: None,
                         })
@@ -390,7 +391,7 @@ impl ModuleService {
 
         if rules.is_empty() {
             return Ok(ThirdPartyRuleOutput {
-                allowed: true,
+                is_allowed: true,
                 reason: None,
                 modified_content: None,
             });
@@ -419,7 +420,7 @@ impl ModuleService {
                             sender: context.sender.clone(),
                             event_type: context.event_type.clone(),
                             rule_name: rule_name.clone(),
-                            allowed: output.allowed,
+                            is_allowed: output.is_allowed,
                             reason: output.reason.clone(),
                             modified_content: output.modified_content.clone(),
                         })
@@ -433,15 +434,15 @@ impl ModuleService {
                             event_id: Some(context.event_id.clone()),
                             room_id: Some(context.room_id.clone()),
                             execution_time_ms: execution_time,
-                            success: true,
+                            is_success: true,
                             error_message: None,
                             metadata: Some(serde_json::json!({
-                                "allowed": output.allowed,
+                                "allowed": output.is_allowed,
                             })),
                         })
                         .await;
 
-                    if !output.allowed {
+                    if !output.is_allowed {
                         allowed = false;
                         reason = output.reason;
                         break;
@@ -465,7 +466,7 @@ impl ModuleService {
                             event_id: Some(context.event_id.clone()),
                             room_id: Some(context.room_id.clone()),
                             execution_time_ms: execution_time,
-                            success: false,
+                            is_success: false,
                             error_message: Some(error_msg),
                             metadata: None,
                         })
@@ -475,7 +476,7 @@ impl ModuleService {
         }
 
         Ok(ThirdPartyRuleOutput {
-            allowed,
+            is_allowed: allowed,
             reason,
             modified_content: if current_content != context.content {
                 Some(current_content)
@@ -516,7 +517,7 @@ impl ModuleService {
                             event_id: None,
                             room_id: None,
                             execution_time_ms: execution_time,
-                            success: true,
+                            is_success: true,
                             error_message: None,
                             metadata: Some(serde_json::json!({
                                 "valid": output.valid,
@@ -543,7 +544,7 @@ impl ModuleService {
                             event_id: None,
                             room_id: None,
                             execution_time_ms: execution_time,
-                            success: false,
+                            is_success: false,
                             error_message: Some(error_msg),
                             metadata: None,
                         })
@@ -809,7 +810,7 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
         for blocked_type in &self.blocked_event_types {
             if context.event_type == *blocked_type {
                 return Ok(ThirdPartyRuleOutput {
-                    allowed: false,
+                    is_allowed: false,
                     reason: Some(format!("Event type {} is blocked", blocked_type)),
                     modified_content: None,
                 });
@@ -817,7 +818,7 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
         }
 
         Ok(ThirdPartyRuleOutput {
-            allowed: true,
+            is_allowed: true,
             reason: None,
             modified_content: None,
         })

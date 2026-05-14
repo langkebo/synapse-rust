@@ -62,6 +62,19 @@ impl AccessTokenStorage {
         .bind(&token_hash)
         .fetch_optional(&*self.pool)
         .await?;
+        if row.is_some() {
+            return Ok(row);
+        }
+        let legacy_hash = Self::hash_token_legacy(token);
+        let row = sqlx::query_as::<_, AccessToken>(
+            r#"
+            SELECT id, token_hash, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
+            FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE
+            "#,
+        )
+        .bind(&legacy_hash)
+        .fetch_optional(&*self.pool)
+        .await?;
         Ok(row)
     }
 
@@ -80,12 +93,14 @@ impl AccessTokenStorage {
 
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
         sqlx::query(
             r#"
-            UPDATE access_tokens SET is_revoked = TRUE WHERE token_hash = $1
+            UPDATE access_tokens SET is_revoked = TRUE WHERE token_hash IN ($1, $2)
             "#,
         )
         .bind(&token_hash)
+        .bind(&legacy_hash)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -153,12 +168,14 @@ impl AccessTokenStorage {
 
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 AS "exists" FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE LIMIT 1
+            SELECT 1 AS "exists" FROM access_tokens WHERE token_hash IN ($1, $2) AND is_revoked = FALSE LIMIT 1
             "#,
         )
         .bind(&token_hash)
+        .bind(&legacy_hash)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
@@ -166,12 +183,14 @@ impl AccessTokenStorage {
 
     pub async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 FROM access_tokens WHERE token_hash = $1 AND is_revoked = TRUE LIMIT 1
+            SELECT 1 FROM access_tokens WHERE token_hash IN ($1, $2) AND is_revoked = TRUE LIMIT 1
             "#,
         )
         .bind(&token_hash)
+        .bind(&legacy_hash)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
@@ -185,6 +204,9 @@ impl AccessTokenStorage {
     ) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
         self.add_hash_to_blacklist(&token_hash, user_id, reason)
+            .await?;
+        let legacy_hash = Self::hash_token_legacy(token);
+        self.add_hash_to_blacklist(&legacy_hash, user_id, reason)
             .await
     }
 
@@ -211,16 +233,18 @@ impl AccessTokenStorage {
 
     pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
+        let legacy_hash = Self::hash_token_legacy(token);
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT 1 FROM token_blacklist
-            WHERE token_hash = $1
-              AND (expires_at IS NULL OR expires_at = 0 OR expires_at > $2)
+            WHERE token_hash IN ($1, $2)
+              AND (expires_at IS NULL OR expires_at = 0 OR expires_at > $3)
             LIMIT 1
             "#,
         )
         .bind(&token_hash)
+        .bind(&legacy_hash)
         .bind(now)
         .fetch_optional(&*self.pool)
         .await;
@@ -262,6 +286,10 @@ impl AccessTokenStorage {
 
     fn hash_token(token: &str) -> String {
         crate::common::crypto::hash_token(token)
+    }
+
+    fn hash_token_legacy(token: &str) -> String {
+        crate::common::crypto::hash_token_legacy(token)
     }
 }
 

@@ -2002,7 +2002,7 @@ pub async fn get_room_token_sync_admin(
                 "is_dm": entry.is_dm,
                 "is_encrypted": entry.is_encrypted,
                 "is_tombstoned": entry.is_tombstoned,
-                "invited": entry.invited,
+                "invited": entry.is_invited,
                 "name": entry.name,
                 "avatar": entry.avatar,
                 "is_expired": entry.is_expired

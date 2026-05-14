@@ -117,8 +117,10 @@ pub struct SetPusherRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PushRule {
     pub rule_id: String,
-    pub default: bool,
-    pub enabled: bool,
+    #[serde(rename = "default")]
+    pub is_default: bool,
+    #[serde(rename = "enabled")]
+    pub is_enabled: bool,
     pub pattern: Option<String>,
     pub conditions: Option<Vec<PushCondition>>,
     pub actions: Vec<PushAction>,
@@ -777,8 +779,8 @@ mod tests {
     fn test_push_rule_structure() {
         let rule = PushRule {
             rule_id: ".m.rule.contains_user_name".to_string(),
-            default: true,
-            enabled: true,
+            is_default: true,
+            is_enabled: true,
             pattern: Some("alice".to_string()),
             conditions: None,
             actions: vec![PushAction {
@@ -787,8 +789,8 @@ mod tests {
             }],
         };
 
-        assert!(rule.default);
-        assert!(rule.enabled);
+        assert!(rule.is_default);
+        assert!(rule.is_enabled);
         assert!(rule.pattern.is_some());
     }
 

@@ -79,7 +79,8 @@ impl Default for WebhookConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookDeliveryResult {
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub status_code: Option<u16>,
     pub response_body: Option<String>,
     pub attempts: u32,

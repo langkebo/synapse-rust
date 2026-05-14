@@ -268,7 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_registration_service_creation() {
-        let services = ServiceContainer::new_test();
+        let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
             services.user_storage.clone(),
             services.auth_service.clone(),
@@ -302,7 +302,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_registration_service_disabled() {
-        let services = ServiceContainer::new_test();
+        let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
             services.user_storage.clone(),
             services.auth_service.clone(),

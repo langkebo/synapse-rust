@@ -108,7 +108,9 @@ pub struct ThirdPartyRuleResult {
     pub sender: String,
     pub event_type: String,
     pub rule_name: String,
-    pub allowed: bool,
+    #[serde(rename = "allowed")]
+    #[sqlx(rename = "allowed")]
+    pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
     pub checked_ts: i64,
@@ -121,7 +123,8 @@ pub struct CreateThirdPartyRuleRequest {
     pub sender: String,
     pub event_type: String,
     pub rule_name: String,
-    pub allowed: bool,
+    #[serde(rename = "allowed")]
+    pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
 }
@@ -134,7 +137,9 @@ pub struct ModuleExecutionLog {
     pub event_id: Option<String>,
     pub room_id: Option<String>,
     pub execution_time_ms: i64,
-    pub success: bool,
+    #[serde(rename = "success")]
+    #[sqlx(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub executed_ts: i64,
@@ -147,7 +152,8 @@ pub struct CreateExecutionLogRequest {
     pub event_id: Option<String>,
     pub room_id: Option<String>,
     pub execution_time_ms: i64,
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
 }
@@ -519,7 +525,7 @@ impl ModuleStorage {
         tracing::info!(
             event_id = %request.event_id,
             rule = %request.rule_name,
-            allowed = request.allowed,
+            allowed = request.is_allowed,
             "third party rule result"
         );
         Ok(ThirdPartyRuleResult {
@@ -529,7 +535,7 @@ impl ModuleStorage {
             sender: request.sender,
             event_type: request.event_type,
             rule_name: request.rule_name,
-            allowed: request.allowed,
+            is_allowed: request.is_allowed,
             reason: request.reason,
             modified_content: request.modified_content,
             checked_ts: now,
@@ -565,7 +571,7 @@ impl ModuleStorage {
         .bind(&request.event_id)
         .bind(&request.room_id)
         .bind(request.execution_time_ms)
-        .bind(request.success)
+        .bind(request.is_success)
         .bind(&request.error_message)
         .bind(&request.metadata)
         .bind(now)
@@ -974,10 +980,10 @@ mod tests {
             event_id: Some("$event:example.com".to_string()),
             room_id: Some("!room:example.com".to_string()),
             execution_time_ms: 50,
-            success: true,
+            is_success: true,
             error_message: None,
             metadata: None,
         };
-        assert!(request.success);
+        assert!(request.is_success);
     }
 }

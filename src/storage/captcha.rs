@@ -97,7 +97,8 @@ pub struct CreateSendLogRequest {
     pub target: String,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
     pub provider: Option<String>,
     pub provider_response: Option<String>,
@@ -292,7 +293,7 @@ impl CaptchaStorage {
         .bind(sent_ts)
         .bind(&request.ip_address)
         .bind(&request.user_agent)
-        .bind(request.success)
+        .bind(request.is_success)
         .bind(&request.error_message)
         .bind(&request.provider)
         .bind(&request.provider_response)

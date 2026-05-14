@@ -348,6 +348,7 @@ async fn builtin_oidc_login(
             username: username.to_string(),
             password: password.to_string(),
         })
+        .await
         .map_err(|e| ApiError::unauthorized(format!("Authorization failed: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "code": code })))
@@ -494,6 +495,7 @@ async fn oidc_token(
 
         let token_response = builtin_provider
             .token(request)
+            .await
             .map_err(|e| ApiError::internal(format!("Builtin OIDC token failed: {}", e)))?;
 
         return Ok(Json(OidcTokenResponse {
