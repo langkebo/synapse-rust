@@ -1,5 +1,6 @@
 use crate::web::routes::handlers::room::{
-    get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
+    create_private_room, get_room_device, get_room_permissions, get_room_reduced_events,
+    get_room_resolve,
 };
 use crate::web::routes::{
     ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys,
@@ -21,9 +22,13 @@ use crate::web::routes::{
     translate_room_event, unban_user, verify_room_event, AppState,
 };
 use axum::{
+    extract::{Path, State},
     routing::{delete, get, post, put},
-    Router,
+    Json, Router,
 };
+use crate::common::ApiError;
+use crate::web::routes::extractors::auth::AuthenticatedUser;
+use serde::{Deserialize, Serialize};
 
 fn create_room_power_levels_compat_router() -> Router<AppState> {
     Router::new().route(
@@ -222,6 +227,10 @@ fn create_room_v3_router() -> Router<AppState> {
             "/rooms/{room_id}/sticky_events/{event_type}",
             axum::routing::delete(sticky_event::clear_sticky_event),
         )
+        .route(
+            "/rooms/{room_id}/anti_screenshot",
+            get(get_anti_screenshot).put(set_anti_screenshot),
+        )
 }
 
 pub fn create_room_router() -> Router<AppState> {
@@ -229,6 +238,14 @@ pub fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/r0", create_room_r0_router())
         .nest("/_matrix/client/v1", create_room_v1_router())
         .nest("/_matrix/client/v3", create_room_v3_router())
+        .route(
+            "/_matrix/client/v3/rooms/create_private",
+            post(create_private_room),
+        )
+        .route(
+            "/_matrix/client/v1/rooms/create_private",
+            post(create_private_room),
+        )
 }
 
 fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
@@ -371,6 +388,20 @@ pub fn room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
         &["/_matrix/client/v3"],
         &v3_relative,
     ));
+    entries.push(
+        crate::web::routes::route_ledger::RouteEntry::new(
+            Method::POST,
+            "/_matrix/client/v3/rooms/create_private",
+            "room",
+        ),
+    );
+    entries.push(
+        crate::web::routes::route_ledger::RouteEntry::new(
+            Method::POST,
+            "/_matrix/client/v1/rooms/create_private",
+            "room",
+        ),
+    );
     entries
 }
 
@@ -410,4 +441,26 @@ mod tests {
             .iter()
             .all(|route| route.starts_with("/_matrix/client/v3/")));
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct AntiScreenshotPayload {
+    enabled: bool,
+}
+
+async fn get_anti_screenshot(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(_room_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(serde_json::json!({"enabled": false})))
+}
+
+async fn set_anti_screenshot(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(_room_id): Path<String>,
+    Json(payload): Json<AntiScreenshotPayload>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(serde_json::json!({"enabled": payload.enabled})))
 }

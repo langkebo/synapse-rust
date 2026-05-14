@@ -1205,6 +1205,16 @@ pub(crate) async fn invite_user_by_room(
     })))
 }
 
+pub(crate) async fn create_private_room(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(mut body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    body["preset"] = serde_json::Value::String("private_chat".to_string());
+    body["visibility"] = serde_json::Value::String("private".to_string());
+    create_room(State(state), headers, Json(body)).await
+}
+
 pub(crate) async fn create_room(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2387,9 +2397,7 @@ pub(crate) async fn get_room_turn_server(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let voip_service = crate::services::voip_service::VoipService::new(std::sync::Arc::new(
-        state.services.config.voip.clone(),
-    ));
+    let voip_service = &state.services.voip_service;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({

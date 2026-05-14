@@ -148,6 +148,10 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
         .route(
             "/_matrix/client/v3/register/captcha/status",
             get(get_captcha_status),
+        )
+        .route(
+            "/_matrix/client/v3/register/captcha/clean",
+            delete(cleanup_expired),
         );
 
     let admin_routes = axum::Router::new()

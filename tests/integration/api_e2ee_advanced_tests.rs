@@ -71,6 +71,31 @@ async fn test_e2ee_key_backup_lifecycle() {
     assert!(backup_json["version"].is_string());
     assert!(backup_json["algorithm"].is_string());
 
+    // 2.1 列出安全备份，确保列表端点返回可消费的数据结构
+    let list_backups_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/keys/backup/secure")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(list_backups_request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "List backups should return 200 OK"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let list_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list_json[&backup_id]["backup_id"], backup_id);
+    assert_eq!(
+        list_json[&backup_id]["algorithm"],
+        "m.megolm_backup.v1.secure"
+    );
+
     // 3. 查询备份信息
     let get_backup_request = Request::builder()
         .method("GET")

@@ -261,7 +261,7 @@ impl KeyRotationManager {
         }
 
         tokio::fs::write(&path, &key_content).await?;
-        tracing::info!("Exported signing key to file: {}", path);
+        tracing::debug!("Exported signing key to file: {}", path);
         Ok(())
     }
 

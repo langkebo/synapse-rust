@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-05-11T00:00:00Z",
-  "synapse_rust_commit": "0000000000000000000000000000000000000000",
+  "generated_at": "2026-05-13T21:21:43Z",
+  "synapse_rust_commit": "b3c5153fc5fa969a2caa04d8e506b18655b349a6",
   "state_profile": "worker",
   "profile_flags": {
     "oidc_enabled": false,
@@ -9,7 +9,7 @@
     "saml_enabled": false,
     "openclaw_enabled": false
   },
-  "entry_count": 1232,
+  "entry_count": 1245,
   "entries": [
     {
       "method": "GET",
@@ -2538,6 +2538,12 @@
       "path_params": []
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/v1/friends/search",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/v1/friends/suggestions",
       "registered_by": "friend_room",
@@ -3195,6 +3201,12 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/v1/rooms/create_private",
+      "registered_by": "room",
+      "path_params": []
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
       "registered_by": "relations",
@@ -3743,6 +3755,12 @@
       ]
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/v1/widgets",
       "registered_by": "widget",
@@ -4159,6 +4177,12 @@
     },
     {
       "method": "POST",
+      "path": "/_matrix/client/v3/friends/search",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
       "path": "/_matrix/client/v3/invite/{room_id}",
       "registered_by": "room",
       "path_params": [
@@ -4177,6 +4201,12 @@
       "method": "GET",
       "path": "/_matrix/client/v3/joined_rooms",
       "registered_by": "sync",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/keys/backup/secure",
+      "registered_by": "e2ee_routes",
       "path_params": []
     },
     {
@@ -4885,6 +4915,12 @@
     },
     {
       "method": "POST",
+      "path": "/_matrix/client/v3/rooms/create_private",
+      "registered_by": "room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
       "path": "/_matrix/client/v3/rooms/typing",
       "registered_by": "typing",
       "path_params": []
@@ -4939,6 +4975,48 @@
       "registered_by": "room",
       "path_params": [
         "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/burn",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/burn",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/burn/pending",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id",
+        "event_id"
       ]
     },
     {
@@ -6197,6 +6275,18 @@
       "path_params": [
         "protocol"
       ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/user/burn/config",
+      "registered_by": "burn_after_read",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/user/burn/stats",
+      "registered_by": "burn_after_read",
+      "path_params": []
     },
     {
       "method": "GET",

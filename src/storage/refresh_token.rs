@@ -322,6 +322,29 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    pub async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE refresh_tokens SET
+                is_revoked = TRUE,
+                revoked_reason = $3
+            WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(reason)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() as i64)
+    }
+
     /// 吊销某用户在指定设备上的全部 refresh token。
     ///
     /// 单设备登出时调用：仅清掉该设备的令牌族，不影响用户在其他设备的会话。

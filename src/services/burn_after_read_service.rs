@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct BurnSettings {
-    pub enabled: bool,
+    pub is_enabled: bool,
     pub burn_after_ms: i64,
 }
 
@@ -18,7 +18,7 @@ pub struct BurnEvent {
     pub event_id: String,
     pub room_id: String,
     pub user_id: String,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub delete_at: i64,
 }
 
@@ -121,7 +121,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
             .insert(
                 room_id.to_string(),
                 BurnSettings {
-                    enabled,
+                    is_enabled: enabled,
                     burn_after_ms,
                 },
             );
@@ -207,7 +207,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
 
         let rooms_enabled = settings
             .get(user_id)
-            .map(|rs| rs.values().filter(|s| s.enabled).count() as i64)
+            .map(|rs| rs.values().filter(|s| s.is_enabled).count() as i64)
             .unwrap_or(0);
 
         let total_pending: i64 = pending
@@ -240,9 +240,8 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
 
         let burn_event = BurnEvent {
             event_id: event_id.to_string(),
-            room_id: room_id.to_string(),
-            user_id: user_id.to_string(),
-            created_at: now,
+            room_id: room_id.to_string(),            user_id: user_id.to_string(),
+            created_ts: now,
             delete_at: now + burn_after_ms,
         };
 
@@ -297,7 +296,7 @@ mod tests {
             .unwrap();
         assert!(settings.is_some());
         let s = settings.unwrap();
-        assert!(s.enabled);
+        assert!(s.is_enabled);
         assert_eq!(s.burn_after_ms, 60000);
     }
 

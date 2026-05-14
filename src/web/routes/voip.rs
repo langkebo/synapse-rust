@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-use crate::services::VoipService;
 #[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
 #[cfg(feature = "voip-tracking")]
@@ -9,7 +8,6 @@ use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnServerResponse {
@@ -30,7 +28,7 @@ pub async fn get_turn_server(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = VoipService::new(Arc::new(state.services.config.voip));
+    let voip_service = &state.services.voip_service;
 
     if !voip_service.is_enabled() {
         return Ok(Json(TurnServerResponse {
@@ -55,7 +53,7 @@ pub async fn get_turn_server(
 pub async fn get_voip_config(
     State(state): State<AppState>,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
-    let voip_service = VoipService::new(Arc::new(state.services.config.voip));
+    let voip_service = &state.services.voip_service;
 
     if !voip_service.is_enabled() {
         return Ok(Json(VoipConfigResponse {
@@ -94,7 +92,7 @@ pub async fn get_voip_config(
 pub async fn get_turn_credentials_guest(
     State(state): State<AppState>,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = VoipService::new(Arc::new(state.services.config.voip));
+    let voip_service = &state.services.voip_service;
 
     if !voip_service.is_enabled() {
         return Err(ApiError::not_found("VoIP/TURN service is not configured"));

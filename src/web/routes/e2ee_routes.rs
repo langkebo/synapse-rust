@@ -66,7 +66,7 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
         .route("/device_trust", get(get_device_trust_list))
         .route("/device_trust/{device_id}", get(get_device_trust))
         .route("/security/summary", get(get_security_summary))
-        .route("/keys/backup/secure", post(create_secure_backup))
+        .route("/keys/backup/secure", post(create_secure_backup).get(get_secure_backup_list))
         .route(
             "/keys/backup/secure/{backup_id}",
             get(get_secure_backup).delete(delete_secure_backup),
@@ -136,6 +136,7 @@ fn e2ee_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::GET, "/device_trust/{device_id}"),
         (Method::GET, "/security/summary"),
         (Method::POST, "/keys/backup/secure"),
+        (Method::GET, "/keys/backup/secure"),
         (Method::GET, "/keys/backup/secure/{backup_id}"),
         (Method::DELETE, "/keys/backup/secure/{backup_id}"),
         (Method::POST, "/keys/backup/secure/{backup_id}/keys"),
@@ -145,8 +146,8 @@ fn e2ee_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_e2ee_router`
-/// registers. Both sub-routers (compat + v3-only) are aggregated; the
-/// v3-only entries are intentionally narrower to mirror the assembly above.
+/// registers. Verification and key-backup recovery routes are intentionally
+/// excluded here because they are owned by dedicated route modules.
 pub fn e2ee_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     let mut out = crate::web::routes::route_ledger::expand_under_prefixes(
         "e2ee_routes",
@@ -1003,6 +1004,34 @@ async fn get_security_summary(
 // =====================================================
 // E2EE Phase 3: Secure Backup Handlers
 // =====================================================
+
+#[axum::debug_handler]
+async fn get_secure_backup_list(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let backups = state
+        .services
+        .secure_backup_service
+        .list_backups(&auth_user.user_id)
+        .await?;
+
+    let mut response = serde_json::Map::with_capacity(backups.len());
+    for backup in backups {
+        response.insert(
+            backup.backup_id.clone(),
+            serde_json::json!({
+                "backup_id": backup.backup_id,
+                "version": backup.version,
+                "algorithm": backup.algorithm,
+                "auth_data": backup.auth_data,
+                "key_count": backup.key_count
+            }),
+        );
+    }
+
+    Ok(Json(Value::Object(response)))
+}
 
 #[axum::debug_handler]
 async fn create_secure_backup(

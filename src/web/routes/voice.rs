@@ -16,6 +16,7 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
             post(upload_voice_message),
         )
         .route("/_matrix/client/r0/voice/config", get(get_voice_config))
+        .route("/_matrix/client/v1/voice/config", get(get_voice_config))
         .route(
             "/_matrix/client/v3/voice/upload",
             post(upload_voice_message),
@@ -30,6 +31,7 @@ pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
     [
         (Method::POST, "/_matrix/client/r0/voice/upload"),
         (Method::GET, "/_matrix/client/r0/voice/config"),
+        (Method::GET, "/_matrix/client/v1/voice/config"),
         (Method::POST, "/_matrix/client/v3/voice/upload"),
         (Method::GET, "/_matrix/client/v3/voice/config"),
     ]
@@ -41,6 +43,10 @@ pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
 #[axum::debug_handler]
 async fn get_voice_config() -> Result<Json<Value>, ApiError> {
     Ok(Json(serde_json::json!({
+        "enabled": true,
+        "max_duration": 600,
+        "allowed_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
+        "auto_transcribe": false,
         "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
         "max_size_bytes": 52428800,
         "max_duration_ms": 600000,

@@ -18,7 +18,7 @@ test-utils = []
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
 friends = []
-voice-extended = []
+voice-extended = ["server"]
 saml-sso = []
 cas-sso = []
 beacons = []
