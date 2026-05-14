@@ -172,6 +172,9 @@ pub struct AuthorizeRequest {
     pub password: String,
 }
 
+const OIDC_TOKEN_EXPIRY_SECS: u64 = 3600;
+const AUTH_CODE_EXPIRY_SECS: u64 = 600;
+
 impl BuiltinOidcProvider {
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
         let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
@@ -392,7 +395,7 @@ impl BuiltinOidcProvider {
         if session.client_id != *client_id {
             return Err(ApiError::unauthorized("Client ID mismatch".to_string()));
         }
-        if session.created_at.elapsed() > Duration::from_secs(600) {
+        if session.created_at.elapsed() > Duration::from_secs(AUTH_CODE_EXPIRY_SECS) {
             return Err(ApiError::unauthorized("Code expired".to_string()));
         }
 
@@ -436,7 +439,7 @@ impl BuiltinOidcProvider {
         Ok(OidcTokenResponse {
             access_token,
             token_type: "Bearer".to_string(),
-            expires_in: 3600,
+            expires_in: OIDC_TOKEN_EXPIRY_SECS,
             id_token,
             refresh_token: Some(refresh_token),
             scope: Some(session.scope),
@@ -476,7 +479,7 @@ impl BuiltinOidcProvider {
         Ok(OidcTokenResponse {
             access_token,
             token_type: "Bearer".to_string(),
-            expires_in: 3600,
+            expires_in: OIDC_TOKEN_EXPIRY_SECS,
             id_token,
             refresh_token: Some(refresh_token.clone()),
             scope: Some(token_data.scope),
@@ -519,7 +522,8 @@ impl BuiltinOidcProvider {
 
         if let Some(ref phc) = user.password_hash {
             let parsed = PasswordHash::new(phc).map_err(|e| {
-                ApiError::internal(format!("Invalid password_hash for {}: {}", username, e))
+                tracing::error!("Invalid password_hash for {}: {}", username, e);
+                ApiError::internal("Authentication configuration error".to_string())
             })?;
             Argon2::default()
                 .verify_password(password.as_bytes(), &parsed)
@@ -569,7 +573,7 @@ impl BuiltinOidcProvider {
             iss: self.config.issuer.clone(),
             sub: user.id.clone(),
             aud: client_id.to_string(),
-            exp: now + 3600,
+            exp: now + OIDC_TOKEN_EXPIRY_SECS as i64,
             iat: now,
             nonce: nonce.map(String::from),
             at_hash: Some(Self::compute_at_hash(access_token)),
@@ -600,7 +604,7 @@ impl BuiltinOidcProvider {
             iss: self.config.issuer.clone(),
             sub: user.id.clone(),
             aud: vec![self.config.issuer.clone()],
-            exp: now + 3600,
+            exp: now + OIDC_TOKEN_EXPIRY_SECS as i64,
             iat: now,
             jti: Uuid::new_v4().to_string(),
             scope: scope.to_string(),

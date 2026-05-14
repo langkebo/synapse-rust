@@ -120,8 +120,36 @@ struct SsoRedirectQuery {
     redirect_url_compat: Option<String>,
 }
 
+fn is_safe_redirect_url(url: &str) -> bool {
+    if url.starts_with("javascript:") || url.starts_with("data:") {
+        return false;
+    }
+    if url.starts_with('/') && !url.starts_with("//") {
+        return true;
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
+        let host_part = url
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
+        let host = host_part.split('/').next().unwrap_or("");
+        let host = host.split(':').next().unwrap_or("");
+        if host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "0.0.0.0"
+        {
+            return false;
+        }
+        if host.parse::<std::net::IpAddr>().is_ok() {
+            return false;
+        }
+        return true;
+    }
+    false
+}
+
 fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> String {
-    query
+    let url = query
         .redirect_url
         .clone()
         .or_else(|| query.redirect_url_compat.clone())
@@ -130,7 +158,20 @@ fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> Strin
                 "{}/_matrix/client/v3/oidc/callback",
                 state.services.config.server.get_public_baseurl()
             )
-        })
+        });
+
+    if !url.is_empty() && !is_safe_redirect_url(&url) {
+        tracing::warn!(
+            "Blocked unsafe SSO redirect URL: {}",
+            &url[..url.len().min(64)]
+        );
+        return format!(
+            "{}/_matrix/client/v3/oidc/callback",
+            state.services.config.server.get_public_baseurl()
+        );
+    }
+
+    url
 }
 
 async fn sso_redirect(

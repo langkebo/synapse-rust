@@ -348,7 +348,7 @@ impl MetricsCollector {
     }
 
     pub fn to_prometheus_format(&self) -> String {
-        let mut output = String::new();
+        let mut output = String::with_capacity(4096);
 
         let counters = self.counters.lock();
         for counter in counters.values() {

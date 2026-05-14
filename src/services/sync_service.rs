@@ -671,8 +671,9 @@ impl SyncService {
     }
 
     fn aggregate_ephemeral_events(events: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+        let events_len = events.len();
         let mut receipt_content = serde_json::Map::new();
-        let mut typing_events: Vec<serde_json::Value> = Vec::new();
+        let mut typing_events: Vec<serde_json::Value> = Vec::with_capacity(8);
 
         for event in events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -703,7 +704,7 @@ impl SyncService {
             }
         }
 
-        let mut result: Vec<serde_json::Value> = Vec::new();
+        let mut result: Vec<serde_json::Value> = Vec::with_capacity(events_len.min(64));
 
         if !receipt_content.is_empty() {
             result.push(json!({
@@ -1046,10 +1047,7 @@ impl SyncService {
                 };
                 (changed_members, state_ts_result)
             } else {
-                (
-                    HashMap::<String, HashSet<String>>::new(),
-                    state_ts_result,
-                )
+                (HashMap::<String, HashSet<String>>::new(), state_ts_result)
             }
         } else {
             (
@@ -2024,12 +2022,16 @@ impl SyncService {
             self.event_storage
                 .get_state_events_since_stream_batch(room_ids, stream_ord)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get room state events: {}", e))
+                })?
         } else {
             self.event_storage
                 .get_state_events_since_batch(room_ids, since_ts)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to get room state events: {}", e))
+                })?
         };
 
         // Detect "newly visible" rooms in this incremental sync — rooms where

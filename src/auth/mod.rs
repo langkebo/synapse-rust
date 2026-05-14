@@ -15,6 +15,11 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+const TOKEN_CACHE_TTL_SECS: u64 = 3600;
+const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
+const ADMIN_CACHE_TTL_SECS: u64 = 60;
+const DEFAULT_POWER_LEVEL: i64 = 50;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
@@ -431,24 +436,35 @@ impl AuthService {
 
     async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
         let key = format!("auth:failures:{}", user_id);
-        let failures: i64 = self.cache.get(&key).await?.unwrap_or(0) + 1;
+        let failures: i64 = self
+            .cache
+            .get(&key)
+            .await?
+            .unwrap_or(0i64)
+            .saturating_add(1);
 
-        let _ = self
+        if let Err(e) = self
             .cache
             .set(&key, &failures, self.login_lockout_duration_seconds)
-            .await;
+            .await
+        {
+            ::tracing::warn!("Failed to update login failure count in cache: {}", e);
+        }
 
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
             let lockout_key = format!("auth:lockout:{}", user_id);
-            let _ = self
+            if let Err(e) = self
                 .cache
                 .set(
                     &lockout_key,
                     &lockout_until,
                     self.login_lockout_duration_seconds,
                 )
-                .await;
+                .await
+            {
+                ::tracing::warn!("Failed to set login lockout in cache: {}", e);
+            }
 
             ::tracing::warn!(
                 target: "security_audit",
@@ -640,7 +656,7 @@ impl AuthService {
         let logout_marker = format!("user:logout_all:{}", user_id);
         let now = Utc::now().timestamp();
         self.cache
-            .set_raw(&logout_marker, &now.to_string(), 3600)
+            .set_raw(&logout_marker, &now.to_string(), TOKEN_CACHE_TTL_SECS)
             .await;
 
         Ok(())
@@ -673,88 +689,87 @@ impl AuthService {
             }
         };
         let t = token_data;
-                if t.is_revoked {
-                    if let Err(e) = self
-                        .refresh_token_storage
-                        .revoke_all_user_tokens(&t.user_id, "refresh_token_reuse_detected")
-                        .await
-                    {
-                        ::tracing::warn!(
-                            target: "security_audit",
-                            event = "refresh_token_reuse_revoke_failed",
-                            user_id = t.user_id.as_str(),
-                            error = %e,
-                            "Failed to revoke user tokens after reuse detection"
-                        );
-                    }
+        if t.is_revoked {
+            if let Err(e) = self
+                .refresh_token_storage
+                .revoke_all_user_tokens(&t.user_id, "refresh_token_reuse_detected")
+                .await
+            {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "refresh_token_reuse_revoke_failed",
+                    user_id = t.user_id.as_str(),
+                    error = %e,
+                    "Failed to revoke user tokens after reuse detection"
+                );
+            }
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "refresh_token_reuse_detected",
+                user_id = t.user_id.as_str(),
+                "Revoked refresh token replayed; revoking all user refresh tokens"
+            );
+            return Err(ApiError::unauthorized(
+                "Refresh token has been revoked".to_string(),
+            ));
+        }
+
+        if let Some(expires_at) = t.expires_at {
+            if expires_at < Utc::now().timestamp_millis() {
+                return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+            }
+        }
+
+        let user = self
+            .user_storage
+            .get_user_by_id(&t.user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        match user {
+            Some(u) => {
+                if u.is_deactivated {
+                    return Err(ApiError::user_deactivated(
+                        "User account has been deactivated",
+                    ));
+                }
+
+                let claimed = self
+                    .refresh_token_storage
+                    .revoke_token_cas(&token_hash, "Rotated")
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal(format!("Failed to claim refresh token: {}", e))
+                    })?;
+                if !claimed {
                     ::tracing::warn!(
                         target: "security_audit",
-                        event = "refresh_token_reuse_detected",
-                        user_id = t.user_id.as_str(),
-                        "Revoked refresh token replayed; revoking all user refresh tokens"
+                        event = "refresh_token_concurrent_use",
+                        user_id = u.user_id.as_str(),
+                        "Concurrent refresh of the same token rejected"
                     );
                     return Err(ApiError::unauthorized(
                         "Refresh token has been revoked".to_string(),
                     ));
                 }
 
-                if let Some(expires_at) = t.expires_at {
-                    if expires_at < Utc::now().timestamp_millis() {
-                        return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+                let device_id = match t.device_id.clone() {
+                    Some(d) if !d.is_empty() => d,
+                    _ => {
+                        return Err(ApiError::unauthorized(
+                            "Refresh token has no associated device".to_string(),
+                        ));
                     }
-                }
+                };
+                let new_access_token = self
+                    .generate_access_token(&u.user_id, &device_id, u.is_admin)
+                    .await?;
+                let new_refresh_token = self.generate_refresh_token(&u.user_id, &device_id).await?;
 
-                let user = self
-                    .user_storage
-                    .get_user_by_id(&t.user_id)
-                    .await
-                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-                match user {
-                    Some(u) => {
-                        if u.is_deactivated {
-                            return Err(ApiError::user_deactivated(
-                                "User account has been deactivated",
-                            ));
-                        }
-
-                        let claimed = self
-                            .refresh_token_storage
-                            .revoke_token_cas(&token_hash, "Rotated")
-                            .await
-                            .map_err(|e| {
-                                ApiError::internal(format!("Failed to claim refresh token: {}", e))
-                            })?;
-                        if !claimed {
-                            ::tracing::warn!(
-                                target: "security_audit",
-                                event = "refresh_token_concurrent_use",
-                                user_id = u.user_id.as_str(),
-                                "Concurrent refresh of the same token rejected"
-                            );
-                            return Err(ApiError::unauthorized(
-                                "Refresh token has been revoked".to_string(),
-                            ));
-                        }
-
-                        let device_id = match t.device_id.clone() {
-                            Some(d) if !d.is_empty() => d,
-                            _ => {
-                                return Err(ApiError::unauthorized(
-                                    "Refresh token has no associated device".to_string(),
-                                ));
-                            }
-                        };
-                        let new_access_token = self
-                            .generate_access_token(&u.user_id, &device_id, u.is_admin)
-                            .await?;
-                        let new_refresh_token =
-                            self.generate_refresh_token(&u.user_id, &device_id).await?;
-
-                        Ok((new_access_token, new_refresh_token, device_id))
-                    }
-                    _ => Err(ApiError::unauthorized("User not found".to_string())),
-                }
+                Ok((new_access_token, new_refresh_token, device_id))
+            }
+            _ => Err(ApiError::unauthorized("User not found".to_string())),
+        }
     }
 
     pub async fn validate_token(
@@ -785,8 +800,8 @@ impl AuthService {
 
         // Decode token first to get user_id for logout_all check
         let claims = self.decode_token(token).map_err(|e| {
-            ::tracing::debug!(target: "token_validation", "Invalid token: {}", e);
-            ApiError::unauthorized(format!("Invalid token: {}", e))
+            ::tracing::debug!(target: "token_validation", "Token validation failed: {}", e);
+            ApiError::unauthorized("Invalid token".to_string())
         })?;
 
         // Enforce JWT exp BEFORE the cache shortcut. The cache TTL is decoupled
@@ -846,11 +861,19 @@ impl AuthService {
                                     .ok_or_else(|| {
                                         ApiError::unauthorized("User not found".to_string())
                                     })?;
-                                self.cache.set(&admin_cache_key, user.is_admin, 60).await?;
                                 self.cache
-                                    .set(&shadow_key, user.is_shadow_banned, 60)
+                                    .set(&admin_cache_key, user.is_admin, ADMIN_CACHE_TTL_SECS)
                                     .await?;
-                                self.cache.set(&guest_key, user.is_guest, 60).await?;
+                                self.cache
+                                    .set(
+                                        &shadow_key,
+                                        user.is_shadow_banned,
+                                        USER_ACTIVE_CACHE_TTL_SECS,
+                                    )
+                                    .await?;
+                                self.cache
+                                    .set(&guest_key, user.is_guest, USER_ACTIVE_CACHE_TTL_SECS)
+                                    .await?;
                                 (user.is_admin, user.is_shadow_banned, user.is_guest)
                             }
                         };
@@ -882,18 +905,24 @@ impl AuthService {
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
                 self.cache
-                    .set_user_active(&cached_claims.sub, is_active, 60)
+                    .set_user_active(&cached_claims.sub, is_active, USER_ACTIVE_CACHE_TTL_SECS)
                     .await;
-                self.cache.set(&admin_cache_key, u.is_admin, 60).await?;
+                self.cache
+                    .set(&admin_cache_key, u.is_admin, ADMIN_CACHE_TTL_SECS)
+                    .await?;
                 self.cache
                     .set(
                         &format!("user:shadow_banned:{}", cached_claims.sub),
                         u.is_shadow_banned,
-                        60,
+                        USER_ACTIVE_CACHE_TTL_SECS,
                     )
                     .await?;
                 self.cache
-                    .set(&format!("user:guest:{}", cached_claims.sub), u.is_guest, 60)
+                    .set(
+                        &format!("user:guest:{}", cached_claims.sub),
+                        u.is_guest,
+                        USER_ACTIVE_CACHE_TTL_SECS,
+                    )
                     .await?;
 
                 if is_active {
@@ -910,7 +939,7 @@ impl AuthService {
             } else {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
                 self.cache
-                    .set_user_active(&cached_claims.sub, false, 60)
+                    .set_user_active(&cached_claims.sub, false, USER_ACTIVE_CACHE_TTL_SECS)
                     .await;
                 Err(ApiError::unauthorized("User not found".to_string()))
             };
@@ -939,21 +968,33 @@ impl AuthService {
                 let mut final_claims = claims.clone();
                 final_claims.is_admin = is_admin;
 
-                self.cache.set_user_active(&claims.sub, true, 60).await;
                 self.cache
-                    .set(&format!("user:admin:{}", claims.sub), is_admin, 60)
+                    .set_user_active(&claims.sub, true, USER_ACTIVE_CACHE_TTL_SECS)
+                    .await;
+                self.cache
+                    .set(
+                        &format!("user:admin:{}", claims.sub),
+                        is_admin,
+                        ADMIN_CACHE_TTL_SECS,
+                    )
                     .await?;
                 self.cache
                     .set(
                         &format!("user:shadow_banned:{}", claims.sub),
                         u.is_shadow_banned,
-                        60,
+                        USER_ACTIVE_CACHE_TTL_SECS,
                     )
                     .await?;
                 self.cache
-                    .set(&format!("user:guest:{}", claims.sub), u.is_guest, 60)
+                    .set(
+                        &format!("user:guest:{}", claims.sub),
+                        u.is_guest,
+                        USER_ACTIVE_CACHE_TTL_SECS,
+                    )
                     .await?;
-                self.cache.set_token(token, &final_claims, 3600).await;
+                self.cache
+                    .set_token(token, &final_claims, TOKEN_CACHE_TTL_SECS)
+                    .await;
                 Ok((
                     final_claims.user_id,
                     final_claims.device_id.clone(),
@@ -1511,7 +1552,7 @@ impl AuthService {
             return Ok(100);
         }
 
-        Ok(50)
+        Ok(DEFAULT_POWER_LEVEL)
     }
 
     pub async fn get_required_message_event_power_level(
@@ -1735,19 +1776,28 @@ impl AuthService {
                     current
                         .get("state_default")
                         .and_then(|v| v.as_i64())
-                        .unwrap_or(50),
+                        .unwrap_or(DEFAULT_POWER_LEVEL),
                 ),
                 (
                     "ban",
-                    current.get("ban").and_then(|v| v.as_i64()).unwrap_or(50),
+                    current
+                        .get("ban")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(DEFAULT_POWER_LEVEL),
                 ),
                 (
                     "kick",
-                    current.get("kick").and_then(|v| v.as_i64()).unwrap_or(50),
+                    current
+                        .get("kick")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(DEFAULT_POWER_LEVEL),
                 ),
                 (
                     "redact",
-                    current.get("redact").and_then(|v| v.as_i64()).unwrap_or(50),
+                    current
+                        .get("redact")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(DEFAULT_POWER_LEVEL),
                 ),
                 (
                     "invite",
@@ -1759,7 +1809,7 @@ impl AuthService {
                         .get("notifications")
                         .and_then(|v| v.as_object())
                         .and_then(|n| n.get("room").and_then(|r| r.as_i64()))
-                        .unwrap_or(50),
+                        .unwrap_or(DEFAULT_POWER_LEVEL),
                 ),
             ];
 
@@ -1798,7 +1848,7 @@ impl AuthService {
                     .get("state_default")
                     .and_then(|level| level.as_i64())
             })
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if power_level < required_level {
             ::tracing::warn!(
@@ -1848,7 +1898,7 @@ impl AuthService {
             .get_room_power_levels_content(room_id)
             .await?
             .and_then(|content| content.get("kick").and_then(|level| level.as_i64()))
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if actor_power < required_power {
             ::tracing::warn!(
@@ -1922,7 +1972,7 @@ impl AuthService {
             .get_room_power_levels_content(room_id)
             .await?
             .and_then(|content| content.get("ban").and_then(|level| level.as_i64()))
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if actor_power < required_power {
             ::tracing::warn!(
@@ -1997,7 +2047,7 @@ impl AuthService {
             .get_room_power_levels_content(room_id)
             .await?
             .and_then(|content| content.get("ban").and_then(|level| level.as_i64()))
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if actor_power < required_power {
             ::tracing::warn!(
@@ -2115,7 +2165,7 @@ impl AuthService {
             .get_room_power_levels_content(room_id)
             .await?
             .and_then(|content| content.get("redact").and_then(|level| level.as_i64()))
-            .unwrap_or(50);
+            .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if actor_power < required_power {
             ::tracing::warn!(
