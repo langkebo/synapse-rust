@@ -43,7 +43,8 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        let token_result = extract_token_from_headers(&parts.headers);
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -134,7 +135,8 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        let token_result = extract_token_from_headers(&parts.headers);
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -173,12 +175,28 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
 }
 
 pub trait AuthExtractor {
-    fn extract_token(&self) -> Result<String, ApiError>;
+    fn extract_token(&self, uri: &str) -> Result<String, ApiError>;
 }
 
 impl AuthExtractor for HeaderMap {
-    fn extract_token(&self) -> Result<String, ApiError> {
-        extract_token_from_headers(self)
+    fn extract_token(&self, uri: &str) -> Result<String, ApiError> {
+        extract_token_from_request(self, uri)
+    }
+}
+
+pub(crate) fn extract_token_from_request(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
+    match crate::web::utils::auth::bearer_token(headers) {
+        Ok(token) => Ok(token),
+        Err(header_err) => {
+            if let Some(query) = uri.split('?').nth(1) {
+                for pair in query.split('&') {
+                    if let Some(value) = pair.strip_prefix("access_token=") {
+                        return Ok(value.to_string());
+                    }
+                }
+            }
+            Err(header_err)
+        }
     }
 }
 

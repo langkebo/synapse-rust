@@ -298,8 +298,13 @@ pub(crate) async fn change_password_uia(
                 state
                     .services
                     .registration_service
-                    .change_password(authenticated_user_id, Some(password), new_password)
+                    .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
                     .await?;
+
+                // Note: change_password should NOT revoke the current device's token.
+                // The current session should remain valid per Matrix spec.
+                // If the underlying implementation revokes all tokens, we need to
+                // re-cache the current token to keep the session alive.
 
                 Ok(Json(json!({})).into_response())
             } else {
@@ -359,7 +364,7 @@ pub(crate) async fn change_password_uia(
             state
                 .services
                 .registration_service
-                .change_password(&user_id, None, new_password)
+                .change_password(&user_id, None, new_password, None)
                 .await?;
 
             Ok(Json(json!({})).into_response())

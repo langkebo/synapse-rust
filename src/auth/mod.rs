@@ -972,6 +972,7 @@ impl AuthService {
         user_id: &str,
         current_password: Option<&str>,
         new_password: &str,
+        current_device_id: Option<&str>,
     ) -> ApiResult<()> {
         if let Some(pwd) = current_password {
             let user = self
@@ -1009,32 +1010,34 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update password: {}", e)))?;
 
-        // RFC 6819 §5.1.5: 修改密码后所有现存令牌都应失效，
-        // 包括 access token 与 refresh token —
-        // 否则被盗的 refresh token 仍可在新密码生效后继续换发新 access token。
-        self.token_storage
-            .delete_user_tokens(user_id)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
-            })?;
+        if let Some(device_id) = current_device_id {
+            self.token_storage
+                .delete_user_tokens_except_device(user_id, device_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
+                })?;
 
-        if let Err(e) = self
-            .refresh_token_storage
-            .revoke_all_user_tokens(user_id, "password_changed")
-            .await
-        {
-            ::tracing::error!(
-                target: "security_audit",
-                event = "refresh_token_revoke_failed_after_password_change",
-                user_id = user_id,
-                error = %e,
-                "Failed to revoke refresh tokens after password change — investigate immediately"
-            );
-            return Err(ApiError::internal(format!(
-                "Failed to invalidate refresh tokens: {}",
-                e
-            )));
+            self.refresh_token_storage
+                .revoke_all_user_tokens_except_device(user_id, device_id, "password_changed")
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to invalidate refresh tokens: {}", e))
+                })?;
+        } else {
+            self.token_storage
+                .delete_user_tokens(user_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
+                })?;
+
+            self.refresh_token_storage
+                .revoke_all_user_tokens(user_id, "password_changed")
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("Failed to invalidate refresh tokens: {}", e))
+                })?;
         }
 
         ::tracing::info!(
@@ -1286,7 +1289,9 @@ impl AuthService {
     }
 
     fn decode_token(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        let validation = Validation::new(Algorithm::HS256);
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.leeway = 5;
+        validation.set_required_spec_claims(&["exp", "iat", "sub"]);
         jsonwebtoken::decode(
             token,
             &DecodingKey::from_secret(&self.jwt_secret),

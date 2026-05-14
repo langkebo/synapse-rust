@@ -169,9 +169,10 @@ impl RegistrationService {
         user_id: &str,
         current_password: Option<&str>,
         new_password: &str,
+        current_device_id: Option<&str>,
     ) -> ApiResult<()> {
         self.auth_service
-            .change_password(user_id, current_password, new_password)
+            .change_password(user_id, current_password, new_password, current_device_id)
             .await?;
         Ok(())
     }

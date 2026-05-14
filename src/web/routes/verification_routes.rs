@@ -80,9 +80,10 @@ pub fn verification_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 pub struct VerificationStartBody {
     pub transaction_id: Option<String>,
     pub from_device: String,
-    pub to_user: String,
+    pub to_user: Option<String>,
     pub to_device: Option<String>,
     pub method: Option<String>,
+    pub methods: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,8 +100,20 @@ async fn verification_start(
     auth_user: AuthenticatedUser,
     Json(body): Json<VerificationStartBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let to_user = body.to_user;
+    let to_user = match &body.to_user {
+        Some(user) => user.clone(),
+        None => {
+            return Err(ApiError::bad_request(
+                "to_user is required".to_string(),
+            ));
+        }
+    };
     let to_device = body.to_device.unwrap_or_else(|| "".to_string());
+    let method = body
+        .method
+        .as_deref()
+        .or(body.methods.as_ref().and_then(|m| m.first().map(|s| s.as_str())))
+        .unwrap_or("m.sas.v1");
 
     let sas_data = state
         .services
@@ -119,7 +132,7 @@ async fn verification_start(
 
     Ok(Json(json!({
         "transaction_id": sas_data.transaction_id,
-        "method": sas_data.method,
+        "method": method,
         "key_agreement_protocol": sas_data.key_agreement_protocol,
         "hash": sas_data.hash,
         "short_authentication_string": sas_data.short_authentication_string,

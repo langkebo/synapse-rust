@@ -476,6 +476,11 @@ async fn voice_routes_are_declared_when_feature_enabled() {
     ));
     assert!(has_declared_route(
         &ledger,
+        Method::GET,
+        "/_matrix/client/v1/voice/config"
+    ));
+    assert!(has_declared_route(
+        &ledger,
         Method::POST,
         "/_matrix/client/r0/voice/upload"
     ));

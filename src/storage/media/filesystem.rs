@@ -35,6 +35,10 @@ impl FilesystemBackend {
     }
 
     fn get_media_path(&self, media_id: &str) -> PathBuf {
+        if media_id.contains("..") || media_id.contains('/') || media_id.contains('\\') {
+            tracing::warn!("Rejected media_id with path traversal characters: {}", &media_id[..media_id.len().min(32)]);
+            return self.base_path.clone();
+        }
         let mut path = self.base_path.clone();
 
         if self.max_path_depth > 0 {
@@ -49,6 +53,10 @@ impl FilesystemBackend {
     }
 
     fn get_thumbnail_path(&self, media_id: &str, width: u32, height: u32, method: &str) -> PathBuf {
+        if media_id.contains("..") || media_id.contains('/') || media_id.contains('\\') {
+            tracing::warn!("Rejected media_id with path traversal characters: {}", &media_id[..media_id.len().min(32)]);
+            return self.thumbnail_path.clone();
+        }
         let filename = format!("{}_{}x{}_{}.jpg", media_id, width, height, method);
         self.thumbnail_path.join(filename)
     }

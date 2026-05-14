@@ -257,8 +257,9 @@ pub(crate) async fn request_email_verification_with_submit_path(
     let sid = format!("{}", token_id);
 
     let submit_url = format!(
-        "https://{}:{}{}",
-        state.services.config.server.host, state.services.config.server.port, submit_path
+        "{}{}",
+        state.services.config.server.get_public_baseurl(),
+        submit_path
     );
 
     ::tracing::info!(

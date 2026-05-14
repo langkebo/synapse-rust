@@ -12,6 +12,7 @@ use sqlx::Row;
 fn create_push_compat_router() -> Router<AppState> {
     Router::new()
         .route("/pushers", get(get_pushers).post(set_pusher))
+        .route("/pushers/", get(get_pushers).post(set_pusher))
         .route("/pushers/set", post(set_pusher))
         .route("/pushrules", get(get_push_rules))
         .route("/pushrules/{scope}", get(get_push_rules_scope))

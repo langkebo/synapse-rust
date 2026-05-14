@@ -148,6 +148,11 @@ impl SchemaValidator {
     }
 
     #[cfg(feature = "runtime-ddl")]
+    fn is_valid_sql_identifier(s: &str) -> bool {
+        !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
+    }
+
+    #[cfg(feature = "runtime-ddl")]
     pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut repaired = Vec::new();
         let columns_to_add = vec![
@@ -186,6 +191,10 @@ impl SchemaValidator {
             ("idx_notifications_ts", "notifications(ts DESC)"),
         ];
         for (name, def) in indexes {
+            if !Self::is_valid_sql_identifier(name) || !Self::is_valid_sql_identifier(def) {
+                tracing::warn!("Skipping invalid index identifier: {}", name);
+                continue;
+            }
             let exists: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = $1",
             )

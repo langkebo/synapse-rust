@@ -275,11 +275,22 @@ async fn test_v3_friend_search_supports_exact_mode() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, request)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .unwrap();
+    if status != StatusCode::OK {
+        eprintln!(
+            "unexpected search response body: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "unexpected search response: {}",
+        String::from_utf8_lossy(&body)
+    );
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().expect("results array");
     assert!(results

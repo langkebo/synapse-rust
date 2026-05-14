@@ -6,7 +6,6 @@ use super::{
     push_notification, reactions, relations, rendezvous, room_summary, sliding_sync, space, sync,
     tags, telemetry, thirdparty, typing, verification_routes, worker, *,
 };
-use crate::services::VoipService;
 use crate::web::middleware::{
     cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
     shadow_ban_middleware,
@@ -18,7 +17,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
-use std::sync::Arc;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 /// Manifest of every `(method, absolute_path)` tuple the assembled top-level
@@ -504,7 +502,7 @@ async fn get_rtc_transports(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let voip_service = VoipService::new(Arc::new(state.services.config.voip.clone()));
+    let voip_service = &state.services.voip_service;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({ "transports": [] })));

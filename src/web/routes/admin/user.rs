@@ -556,7 +556,7 @@ pub async fn reset_user_password(
     state
         .services
         .registration_service
-        .change_password(&user.user_id, None, &body.new_password)
+        .change_password(&user.user_id, None, &body.new_password, None)
         .await?;
 
     Ok(Json(json!({})))

@@ -509,7 +509,21 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
             get(saml_logout_callback),
         )
         .route("/_matrix/client/r0/saml/metadata", get(get_saml_metadata))
-        .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata));
+        .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata))
+        .route(
+            "/_matrix/client/v3/login/sso/redirect/saml",
+            get(saml_login_redirect),
+        )
+        .route(
+            "/_matrix/client/v3/login/saml/callback",
+            get(saml_callback_get),
+        )
+        .route(
+            "/_matrix/client/v3/login/saml/callback",
+            post(saml_callback_post),
+        )
+        .route("/_matrix/client/v3/saml/metadata", get(get_saml_metadata))
+        .route("/_matrix/client/v3/saml/sp_metadata", get(get_sp_metadata));
 
     let admin_routes = axum::Router::new()
         .route(

@@ -255,23 +255,12 @@ impl RouteModule for WorkerBodyModule {
 
 #[cfg(feature = "saml-sso")]
 impl RouteModule for SamlModule {
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
-        if flags.saml_enabled {
-            saml::saml_route_manifest()
-        } else {
-            Vec::new()
-        }
+    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
+        saml::saml_route_manifest()
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        #[cfg(feature = "saml-sso")]
-        if state.services.saml_service.is_enabled() {
-            router.merge(saml::create_saml_router(state))
-        } else {
-            router
-        }
-        #[cfg(not(feature = "saml-sso"))]
-        router
+        router.merge(saml::create_saml_router(state))
     }
 }
 
@@ -474,6 +463,11 @@ mod tests {
             &entries,
             Method::GET,
             "/_matrix/client/r0/voice/config"
+        ));
+        assert!(contains(
+            &entries,
+            Method::GET,
+            "/_matrix/client/v1/voice/config"
         ));
         assert!(contains(
             &entries,

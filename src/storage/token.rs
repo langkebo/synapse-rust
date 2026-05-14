@@ -133,6 +133,24 @@ impl AccessTokenStorage {
         Ok(())
     }
 
+    pub async fn delete_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE access_tokens SET is_revoked = TRUE
+            WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let result = sqlx::query_scalar::<_, i32>(
