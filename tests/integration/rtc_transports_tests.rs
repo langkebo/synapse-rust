@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool.clone());
+    let mut container = ServiceContainer::new_test_with_pool(pool.clone()).await;
 
     // Configure VoIP
     container.config.voip.turn_uris = vec!["turn:turn.example.org?transport=udp".to_string()];
