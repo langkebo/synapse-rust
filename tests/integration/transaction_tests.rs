@@ -170,7 +170,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let config = create_test_config();
-    let container = ServiceContainer::new(&pool, cache.clone(), config, None);
+    let container = ServiceContainer::new(&pool, cache.clone(), config, None).await;
     let state = AppState::new(container, cache);
     Some(create_router(state))
 }

@@ -24,7 +24,7 @@ async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheM
         .await
         .ok()?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     let state = AppState::new(container, cache.clone());
     Some((create_router(state), pool, cache))
 }
@@ -36,7 +36,7 @@ async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
         .await
         .ok()?;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone());
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     container.config.saml.enabled = true;
     container.config.saml.metadata_url = None;
     container.config.saml.metadata_xml = Some(

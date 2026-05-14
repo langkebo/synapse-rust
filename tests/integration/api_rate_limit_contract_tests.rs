@@ -12,7 +12,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_rate_limit_rule(rule: RateLimitEndpointRule) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.rate_limit.enabled = true;
     container.config.rate_limit.exempt_paths =
         vec!["/".to_string(), "/_matrix/client/versions".to_string()];
@@ -29,7 +29,7 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
     incremental: RateLimitRule,
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.rate_limit.enabled = false;
     container.config.rate_limit.sync.enabled = true;
     container.config.rate_limit.sync.initial = initial;

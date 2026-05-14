@@ -15,7 +15,7 @@ mod cache_integration_tests {
             sub: "test_subject".to_string(),
             user_id: "@test:example.com".to_string(),
             jti: "test-jti-cache-integration".to_string(),
-            admin: false,
+            is_admin: false,
             device_id: Some("DEVICE123".to_string()),
             exp: now + 3600,
             iat: now,

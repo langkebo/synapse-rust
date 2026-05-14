@@ -15,7 +15,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
@@ -26,7 +26,7 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
     incremental: RateLimitRule,
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool.clone());
+    let mut container = ServiceContainer::new_test_with_pool(pool.clone()).await;
     container.config.rate_limit.enabled = false;
     container.config.rate_limit.sync.enabled = true;
     container.config.rate_limit.sync.initial = initial;
@@ -41,12 +41,12 @@ async fn setup_two_test_apps_with_shared_pool(
 ) -> Option<((axum::Router, axum::Router), Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
 
-    let container_a = ServiceContainer::new_test_with_pool(pool.clone());
+    let container_a = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let cache_a = Arc::new(CacheManager::new(Default::default()));
     let state_a = AppState::new(container_a, cache_a);
     let app_a = synapse_rust::web::create_router(state_a);
 
-    let container_b = ServiceContainer::new_test_with_pool(pool.clone());
+    let container_b = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let cache_b = Arc::new(CacheManager::new(Default::default()));
     let state_b = AppState::new(container_b, cache_b);
     let app_b = synapse_rust::web::create_router(state_b);
