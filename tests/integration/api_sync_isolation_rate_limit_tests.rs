@@ -16,7 +16,7 @@ async fn setup_test_app_with_sync_isolation_rate_limit(
     incremental: RateLimitRule,
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.rate_limit.enabled = false;
     container.config.rate_limit.sync.enabled = true;
     container.config.rate_limit.sync.initial = initial;
@@ -41,7 +41,7 @@ async fn setup_test_app_with_broken_sync_rate_limit_backend(
         "redis://127.0.0.1:1",
     ));
 
-    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     container.config.rate_limit.enabled = false;
     container.config.rate_limit.fail_open_on_error = true;
     container.config.rate_limit.sync.enabled = true;

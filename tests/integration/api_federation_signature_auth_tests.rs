@@ -26,7 +26,7 @@ where
     F: FnOnce(&mut ServiceContainer),
 {
     let pool = crate::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.server.name = server_name.to_string();
     container.server_name = server_name.to_string();
     container.config.federation.enabled = true;

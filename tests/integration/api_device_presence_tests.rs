@@ -20,7 +20,7 @@ async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
     let container = synapse_rust::services::ServiceContainer::new_test_with_pool_and_cache(
         pool.clone(),
         cache.clone(),
-    );
+    ).await;
     let state = synapse_rust::web::routes::state::AppState::new(container, cache.clone());
     Some((synapse_rust::web::create_router(state), pool, cache))
 }
