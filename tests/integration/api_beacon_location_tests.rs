@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))

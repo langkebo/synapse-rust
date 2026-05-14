@@ -157,7 +157,7 @@ where
 
     let pool = get_test_pool().await?;
     let cache = std::sync::Arc::new(CacheManager::new(CacheConfig::default()));
-    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone());
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);
     let state = AppState::new(container, cache);
 

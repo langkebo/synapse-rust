@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state);
@@ -121,7 +121,7 @@ async fn test_cleanup_api_unauthorized() {
         eprintln!("Skipping test because test database is unavailable");
         return;
     };
-    let container = ServiceContainer::new_test_with_pool(pool);
+    let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state);

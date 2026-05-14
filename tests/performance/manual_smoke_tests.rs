@@ -35,7 +35,7 @@ async fn setup_test_app() -> Option<axum::Router> {
         }
     };
 
-    let container = ServiceContainer::new_test_with_pool(pool);
+    let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(Default::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))

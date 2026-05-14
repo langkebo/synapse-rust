@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, String, String)> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.worker.enabled = true;
     container.config.worker.replication.http.enabled = true;
     container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
@@ -129,7 +129,7 @@ async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled()
     let Some(pool) = super::get_test_pool().await else {
         return;
     };
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.worker.enabled = true;
     container.config.worker.replication.http.enabled = false;
     container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());

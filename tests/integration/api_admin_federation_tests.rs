@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone());
+    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
     let pool = container.user_storage.pool.clone();
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);

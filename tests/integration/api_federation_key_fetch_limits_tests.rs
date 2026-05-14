@@ -133,7 +133,7 @@ async fn setup_test_app_with_federation_key_fetch_config(
     key_fetch_max_concurrency: usize,
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
-    let mut container = ServiceContainer::new_test_with_pool(pool);
+    let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.federation.key_fetch_timeout_ms = key_fetch_timeout_ms;
     container.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
 

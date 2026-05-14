@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<(axum::Router, AppState)> {
     let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool);
+    let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(CacheConfig::default()));
     let state = AppState::new(container, cache);
     let app = create_router(state.clone());
