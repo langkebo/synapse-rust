@@ -78,7 +78,7 @@ impl CsrfTokenManager {
             .unwrap_or_default();
         let payload = format!("{}:{}", session_id, issued_at);
         let signature = crate::common::crypto::compute_hash(format!("{}{}", payload, self.secret));
-        format!("{}:{}", payload, &signature[..16])
+        format!("{}:{}", payload, signature)
     }
 
     /// Validate a CSRF token
@@ -108,8 +108,7 @@ impl CsrfTokenManager {
             "{}:{}{}",
             parts[0], parts[1], self.secret
         ));
-
-        expected_signature.starts_with(parts[2])
+        crate::common::crypto::secure_compare(&expected_signature, parts[2])
     }
 }
 
@@ -531,9 +530,26 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        let allow_headers_value = request_headers.unwrap_or_else(|| {
+        let allowed_header_set = [
+            "content-type", "authorization", "x-requested-with", "x-request-id",
+            "x-csrf-token", "x-matrix-auth", "accept", "origin",
+            "x-matrix", "unstable-prefix", "accept-language",
+        ];
+
+        let allow_headers_value = if let Some(ref req_headers) = request_headers {
+            let filtered: Vec<&str> = req_headers
+                .split(',')
+                .map(str::trim)
+                .filter(|h| allowed_header_set.contains(&h.to_lowercase().as_str()))
+                .collect();
+            if filtered.is_empty() {
+                "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
+            } else {
+                filtered.join(", ")
+            }
+        } else {
             "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
-        });
+        };
         if let Ok(value) = HeaderValue::from_str(&allow_headers_value) {
             response
                 .headers_mut()
@@ -622,7 +638,7 @@ pub async fn security_headers_middleware(
              style-src 'self' 'unsafe-inline'; \
              img-src 'self' data: blob: mxc:; \
              media-src 'self' mxc:; \
-             connect-src 'self'; \
+             connect-src 'self' wss:; \
              frame-src 'none'; \
              object-src 'none'; \
              base-uri 'self'; \
@@ -651,11 +667,6 @@ pub async fn security_headers_middleware(
         );
     }
 
-    response.headers_mut().insert(
-        "Referrer-Policy",
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-
     response
 }
 
@@ -673,8 +684,18 @@ pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
-pub fn extract_token(headers: &HeaderMap) -> Option<String> {
-    crate::web::utils::auth::bearer_token_opt(headers)
+pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
+    if let Some(token) = crate::web::utils::auth::bearer_token_opt(headers) {
+        return Some(token);
+    }
+    if let Some(query) = uri.split('?').nth(1) {
+        for pair in query.split('&') {
+            if let Some(value) = pair.strip_prefix("access_token=") {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
@@ -813,7 +834,10 @@ pub async fn rate_limit_middleware(
             if let Ok(v) = burst_size.to_string().parse() {
                 response.headers_mut().insert("x-ratelimit-limit", v);
             }
-            if let Ok(v) = retry_after_ms.to_string().parse() {
+            if let Ok(v) = HeaderValue::from_str(&retry_after_ms.to_string()) {
+                response
+                    .headers_mut()
+                    .insert("x-ratelimit-retry-after", v.clone());
                 response.headers_mut().insert("x-ratelimit-after", v);
             }
         }
@@ -829,6 +853,10 @@ pub async fn rate_limit_middleware(
         if let Ok(v) = burst_size.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-limit", v);
         }
+        response.headers_mut().insert(
+            "x-ratelimit-retry-after",
+            HeaderValue::from_static("0"),
+        );
     }
     response
 }
@@ -838,7 +866,8 @@ pub async fn auth_middleware(
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
-    let token = match extract_token(request.headers()) {
+    let uri = request.uri().to_string();
+    let token = match extract_token(request.headers(), &uri) {
         Some(token) => token,
         None => return ApiError::missing_token().into_response(),
     };
@@ -870,7 +899,8 @@ pub async fn shadow_ban_middleware(
         return next.run(request).await;
     }
 
-    let token = match extract_token(request.headers()) {
+    let uri = request.uri().to_string();
+    let token = match extract_token(request.headers(), &uri) {
         Some(token) => token,
         None => return next.run(request).await,
     };
@@ -2418,6 +2448,71 @@ mod tests {
         assert_eq!(sync_response_2.status(), StatusCode::OK);
         assert_eq!(normal_response_1.status(), StatusCode::OK);
         assert_eq!(normal_response_2.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_middleware_sets_retry_after_headers() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test();
+        services.config.rate_limit = RateLimitConfig {
+            enabled: true,
+            default: RateLimitRule {
+                per_second: 1,
+                burst_size: 1,
+            },
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/limited".to_string(),
+                match_type: RateLimitMatchType::Exact,
+                rule: RateLimitRule {
+                    per_second: 1,
+                    burst_size: 1,
+                },
+            }],
+            ..RateLimitConfig::default()
+        };
+
+        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/limited", get(ok_handler))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                rate_limit_middleware,
+            ))
+            .with_state(state);
+
+        let request = || {
+            Request::builder()
+                .method(Method::GET)
+                .uri("/limited")
+                .header("x-forwarded-for", "1.2.3.4")
+                .body(Body::empty())
+                .expect("request should build")
+        };
+
+        let first = app
+            .clone()
+            .oneshot(request())
+            .await
+            .expect("first request should succeed");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(
+            first.headers().get("x-ratelimit-retry-after").unwrap(),
+            "0"
+        );
+
+        let second = app
+            .oneshot(request())
+            .await
+            .expect("second request should return a response");
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(second.headers().get("retry-after").is_some());
+        assert!(second.headers().get("x-ratelimit-retry-after").is_some());
+        assert!(second.headers().get("x-ratelimit-after").is_some());
     }
 
     #[tokio::test]

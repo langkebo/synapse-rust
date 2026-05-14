@@ -157,6 +157,7 @@ pub struct ServiceContainer {
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    pub voip_service: Arc<crate::services::voip_service::VoipService>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider:
         Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
@@ -888,6 +889,11 @@ impl ServiceContainer {
             config.identity.trusted_servers.clone(),
         ));
 
+        // VoIP service (singleton — avoids per-request allocation)
+        let voip_service = Arc::new(
+            crate::services::voip_service::VoipService::new(Arc::new(config.voip.clone())),
+        );
+
         // Event broadcaster (federation)
         let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_member_storage = rooms.member_storage.clone();
@@ -1012,6 +1018,7 @@ impl ServiceContainer {
             #[cfg(feature = "burn-after-read")]
             burn_after_read,
             oidc_service,
+            voip_service,
             builtin_oidc_provider,
             identity_service,
             uia_service: Arc::new(crate::services::uia_service::UiaService::new(

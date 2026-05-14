@@ -103,7 +103,7 @@ pub fn verify_password(
     }
 }
 
-fn secure_compare(a: &str, b: &str) -> bool {
+pub fn secure_compare(a: &str, b: &str) -> bool {
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
     let max_len = a_bytes.len().max(b_bytes.len());

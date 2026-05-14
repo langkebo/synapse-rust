@@ -115,6 +115,32 @@ impl From<CasServiceModel> for ServiceResponse {
     }
 }
 
+async fn cas_sso_redirect(
+    State(state): State<AppState>,
+    Query(params): Query<SsoRedirectQuery>,
+) -> Result<axum::response::Response, ApiError> {
+    if state.services.cas_service.is_configured().await {
+        let redirect_url = if let Some(ref redirect) = params.redirect_after {
+            format!("/login?service={}", urlencoding::encode(redirect))
+        } else {
+            "/login".to_string()
+        };
+        return Ok((
+            StatusCode::FOUND,
+            [(header::LOCATION, redirect_url)],
+        )
+            .into_response());
+    }
+    Err(ApiError::bad_request(
+        "CAS SSO is not configured".to_string(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct SsoRedirectQuery {
+    redirect_after: Option<String>,
+}
+
 pub fn cas_routes(state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/login", get(login_redirect))
@@ -123,6 +149,14 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
         .route("/logout", get(logout))
+        .route(
+            "/_matrix/client/r0/login/sso/redirect/cas",
+            get(cas_sso_redirect),
+        )
+        .route(
+            "/_matrix/client/v3/login/sso/redirect/cas",
+            get(cas_sso_redirect),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             cas_config_check_middleware,

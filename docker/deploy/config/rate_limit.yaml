@@ -15,7 +15,7 @@ exempt_paths:
   - "/_matrix/client/r0/versions"
   - "/_matrix/federation/v1/version"
 exempt_path_prefixes:
-  - "/_matrix/client/"
+  []
 endpoint_aliases: {}
 fail_open_on_error: true
 sync:

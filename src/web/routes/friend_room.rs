@@ -17,7 +17,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/friends", post(send_friend_request))
         .route(
             "/_matrix/client/v3/friends/search",
-            get(search_friend_directory),
+            get(search_friend_directory).post(search_friend_directory),
         )
         .route(
             "/_matrix/client/v3/friends/requests/incoming",
@@ -32,7 +32,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v1/friends", post(send_friend_request))
         .route(
             "/_matrix/client/v1/friends/search",
-            get(search_friend_directory),
+            get(search_friend_directory).post(search_friend_directory),
         )
         .route("/_matrix/client/r0/friendships", get(get_friends))
         .route("/_matrix/client/r0/friendships", post(send_friend_request))
@@ -221,6 +221,14 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/friends/{user_id}/groups",
             get(get_groups_for_user),
         )
+        .route(
+            "/_matrix/client/v1/friends/dm/{user_id}",
+            get(get_friend_dm).post(create_friend_dm),
+        )
+        .route(
+            "/_matrix/client/r0/friends/dm/{user_id}",
+            get(get_friend_dm).post(create_friend_dm),
+        )
         .with_state(state)
 }
 
@@ -232,11 +240,13 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_matrix/client/v3/friends"),
         (Method::POST, "/_matrix/client/v3/friends"),
         (Method::GET, "/_matrix/client/v3/friends/search"),
+        (Method::POST, "/_matrix/client/v3/friends/search"),
         (Method::GET, "/_matrix/client/v3/friends/requests/incoming"),
         (Method::GET, "/_matrix/client/v3/friends/requests/outgoing"),
         (Method::GET, "/_matrix/client/v1/friends"),
         (Method::POST, "/_matrix/client/v1/friends"),
         (Method::GET, "/_matrix/client/v1/friends/search"),
+        (Method::POST, "/_matrix/client/v1/friends/search"),
         (Method::GET, "/_matrix/client/r0/friendships"),
         (Method::POST, "/_matrix/client/r0/friendships"),
         (Method::GET, "/_matrix/client/r0/friends/search"),
@@ -380,11 +390,26 @@ pub struct FriendListQueryParams {
 
 #[derive(Debug, Deserialize)]
 pub struct FriendSearchQuery {
-    pub q: String,
+    #[serde(default, alias = "query")]
+    pub q: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
+}
+
+fn resolve_friend_search_term(query: &FriendSearchQuery, body: Option<&Value>) -> Option<String> {
+    body.and_then(|payload| {
+        payload
+            .get("q")
+            .or_else(|| payload.get("query"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+    })
+    .or_else(|| query.q.as_deref().map(str::trim).map(ToOwned::to_owned))
+    .filter(|s| !s.is_empty())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -444,13 +469,23 @@ async fn search_friend_directory(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Query(query): Query<FriendSearchQuery>,
+    body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
-    let search_term = query.q.trim();
-    if search_term.is_empty() {
+    let body_value = body.as_ref().map(|Json(b)| b);
+    let search_term = resolve_friend_search_term(&query, body_value);
+    let Some(search_term) = search_term else {
         return Err(ApiError::bad_request("Search term cannot be empty"));
-    }
+    };
 
-    let exact_only = matches!(query.mode.as_deref(), Some("exact"));
+    let exact_only = body
+        .as_ref()
+        .and_then(|Json(b)| b.get("mode").and_then(|v| v.as_str()))
+        .map(|m: &str| m == "exact")
+        .unwrap_or_else(|| matches!(query.mode.as_deref(), Some("exact")));
+    let search_limit = body
+        .as_ref()
+        .and_then(|Json(b)| b.get("limit").and_then(|v| v.as_i64()))
+        .unwrap_or_else(|| query.limit.unwrap_or(20) as i64) as usize;
     let rate_limit_key = format!("ratelimit:friend-search:{}", auth_user.user_id);
     let decision = state
         .cache
@@ -463,7 +498,7 @@ async fn search_friend_directory(
     let mut results = state
         .services
         .user_storage
-        .search_directory_users(search_term, query.limit.unwrap_or(20) as i64, exact_only)
+        .search_directory_users(&search_term, search_limit as i64, exact_only)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to search users: {}", e)))?;
 
@@ -495,7 +530,7 @@ async fn search_friend_directory(
         }));
     }
     let count = visible.len();
-    let limit = query.limit.unwrap_or(20);
+    let limit = search_limit;
 
     Ok(Json(json!({
         "results": visible,
@@ -994,4 +1029,81 @@ mod tests {
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, "\"accepted\"");
     }
+
+    #[test]
+    fn test_friend_search_query_supports_query_alias() {
+        let query: FriendSearchQuery = serde_json::from_value(serde_json::json!({
+            "query": "alice",
+            "limit": 5
+        }))
+        .unwrap();
+        assert_eq!(query.q.as_deref(), Some("alice"));
+        assert_eq!(query.limit, Some(5));
+    }
+
+    #[test]
+    fn test_resolve_friend_search_term_prefers_body_query_alias() {
+        let query = FriendSearchQuery {
+            q: Some("from_query".to_string()),
+            mode: None,
+            limit: None,
+        };
+        let body = serde_json::json!({
+            "query": "from_body"
+        });
+
+        assert_eq!(
+            resolve_friend_search_term(&query, Some(&body)),
+            Some("from_body".to_string())
+        );
+    }
+}
+
+async fn get_friend_dm(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+    let room_id: Option<String> = None;
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": user_id,
+    })))
+}
+
+async fn create_friend_dm(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+    let config = crate::services::room::service::CreateRoomConfig {
+        visibility: Some("private".to_string()),
+        room_alias_name: None,
+        name: None,
+        topic: None,
+        invite_list: Some(vec![user_id.clone()]),
+        preset: Some("private_chat".to_string()),
+        encryption: None,
+        history_visibility: None,
+        is_direct: Some(true),
+        room_type: None,
+        initial_state: None,
+        creation_content: None,
+        room_version: None,
+        power_level_content_override: None,
+    };
+    let result = state
+        .services
+        .room_service
+        .create_room(&auth_user.user_id, config)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    let room_id = result.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    Ok(Json(json!({
+        "room_id": room_id,
+        "user_id": user_id,
+    })))
 }

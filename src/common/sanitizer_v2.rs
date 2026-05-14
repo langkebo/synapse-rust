@@ -15,10 +15,13 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
         "span",
         "div",
         "strong",
+        "b",
         "em",
+        "i",
         "u",
         "s",
         "del",
+        "ins",
         "code",
         "pre",
         "blockquote",
@@ -39,6 +42,12 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
         "tr",
         "th",
         "td",
+        "font",
+        "sup",
+        "sub",
+        "hr",
+        "details",
+        "summary",
     ]
     .iter()
     .copied()
@@ -53,6 +62,12 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
     allowed_attrs.insert("alt");
     allowed_attrs.insert("title");
     allowed_attrs.insert("class");
+    allowed_attrs.insert("width");
+    allowed_attrs.insert("height");
+    allowed_attrs.insert("start");
+    allowed_attrs.insert("data-mx-bg-color");
+    allowed_attrs.insert("data-mx-color");
+    allowed_attrs.insert("data-mx-spoiler");
 
     builder.generic_attributes(allowed_attrs);
 

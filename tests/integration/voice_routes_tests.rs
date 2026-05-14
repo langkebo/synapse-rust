@@ -125,33 +125,37 @@ async fn test_voice_config_endpoint() {
         return;
     };
 
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/_matrix/client/r0/voice/config")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    for uri in [
+        "/_matrix/client/r0/voice/config",
+        "/_matrix/client/v1/voice/config",
+        "/_matrix/client/v3/voice/config",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
 
-    let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
 
-    if status != StatusCode::OK {
-        eprintln!("Error response body: {:?}", String::from_utf8_lossy(&body));
+        if status != StatusCode::OK {
+            eprintln!("Error response body for {uri}: {:?}", String::from_utf8_lossy(&body));
+        }
+
+        assert_eq!(status, StatusCode::OK);
+        let json: Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json.get("supported_formats").is_some());
+        assert_eq!(json["max_size_bytes"], 52428800);
+        assert_eq!(json["content_type"], "m.audio");
+        assert_eq!(json["voice_extension"], "org.matrix.msc3245.voice");
+        assert_eq!(json["max_duration"], 600);
+        assert_eq!(json["auto_transcribe"], false);
+        assert!(json["allowed_formats"].is_array());
     }
-
-    assert_eq!(status, StatusCode::OK);
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert!(json.get("supported_formats").is_some());
-    assert_eq!(json["max_size_bytes"], 52428800);
-    assert_eq!(json["content_type"], "m.audio");
-    assert_eq!(json["voice_extension"], "org.matrix.msc3245.voice");
 }
 
 #[tokio::test]

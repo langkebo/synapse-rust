@@ -341,7 +341,13 @@ impl TelemetryAlertService {
             );
         }
 
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = match self.alerts.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                return Ok((health, Vec::new()));
+            }
+        };
         for (key, candidate) in &active_rules {
             match alerts.get_mut(*key) {
                 Some(existing) => {
@@ -390,7 +396,20 @@ impl TelemetryAlertService {
         message: &str,
         metrics: serde_json::Value,
     ) -> TelemetryAlert {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = match self.alerts.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                return Self::build_alert(
+                    alert_key,
+                    rule_name,
+                    severity,
+                    owner,
+                    message.to_string(),
+                    metrics,
+                );
+            }
+        };
         let now = chrono::Utc::now().timestamp_millis();
         let entry = alerts.entry(alert_key.to_string()).or_insert_with(|| {
             Self::build_alert(

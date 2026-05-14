@@ -10,6 +10,7 @@ use sqlx::Row;
 
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
+        .route("/_synapse/admin/v1/server", get(get_admin_info_compat))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route("/_synapse/admin/v1/whoami", get(get_admin_whoami))
         .route(
@@ -71,6 +72,14 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::server"))
     .collect()
+}
+
+#[axum::debug_handler]
+pub async fn get_admin_info_compat(
+    admin: AdminUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ApiError> {
+    get_admin_info(admin, State(state)).await
 }
 
 #[axum::debug_handler]

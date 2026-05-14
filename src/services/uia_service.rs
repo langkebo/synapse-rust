@@ -10,7 +10,7 @@ pub struct UiaSession {
     pub session_id: String,
     pub user_id: String,
     pub completed: Vec<String>,
-    pub created_at: i64,
+    pub created_ts: i64,
     pub flows: Vec<UiaFlow>,
 }
 
@@ -86,7 +86,7 @@ impl UiaService {
             session_id: session_id.clone(),
             user_id: user_id.to_string(),
             completed: Vec::new(),
-            created_at: Utc::now().timestamp_millis(),
+            created_ts: Utc::now().timestamp_millis(),
             flows,
         };
         let key = format!("uia:session:{}", session_id);

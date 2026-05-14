@@ -32,6 +32,24 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
             put(set_global_burn_config),
         )
         .route("/_matrix/client/v1/user/burn/stats", get(get_burn_stats))
+        // v3 paths (frontend compatibility)
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/burn",
+            put(enable_burn).get(get_burn_settings),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/burn/pending",
+            get(get_pending_burns),
+        )
+        .route(
+            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+            post(mark_burn_read).delete(cancel_burn),
+        )
+        .route(
+            "/_matrix/client/v3/user/burn/config",
+            put(set_global_burn_config),
+        )
+        .route("/_matrix/client/v3/user/burn/stats", get(get_burn_stats))
         .with_state(state)
 }
 
@@ -56,6 +74,23 @@ pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger:
         ),
         (Method::PUT, "/_matrix/client/v1/user/burn/config"),
         (Method::GET, "/_matrix/client/v1/user/burn/stats"),
+        // v3 paths
+        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/burn"),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn"),
+        (
+            Method::GET,
+            "/_matrix/client/v3/rooms/{room_id}/burn/pending",
+        ),
+        (
+            Method::POST,
+            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+        ),
+        (Method::PUT, "/_matrix/client/v3/user/burn/config"),
+        (Method::GET, "/_matrix/client/v3/user/burn/stats"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "burn_after_read"))
@@ -109,7 +144,7 @@ pub async fn get_burn_settings(
 
     match settings {
         Some(s) => Ok(Json(json!({
-            "enabled": s.enabled,
+            "enabled": s.is_enabled,
             "burn_after_ms": s.burn_after_ms,
         }))),
         None => Ok(Json(json!({
@@ -134,7 +169,7 @@ pub async fn mark_burn_read(
         .map_err(|e| ApiError::internal(format!("Failed to get settings: {}", e)))?;
 
     let (enabled, burn_after_ms) = match settings {
-        Some(s) => (s.enabled, s.burn_after_ms),
+        Some(s) => (s.is_enabled, s.burn_after_ms),
         None => {
             return Err(ApiError::bad_request(
                 "Burn not enabled for this room".to_string(),
@@ -192,7 +227,7 @@ pub async fn get_pending_burns(
         .map(|p| {
             json!({
                 "event_id": p.event_id,
-                "created_at": p.created_at,
+                "created_at": p.created_ts,
                 "delete_at": p.delete_at,
             })
         })

@@ -109,6 +109,14 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response.headers().get("x-ratelimit-limit").unwrap(),
+        "1"
+    );
+    assert_eq!(
+        response.headers().get("x-ratelimit-retry-after").unwrap(),
+        "1000"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
         .await
@@ -166,6 +174,14 @@ async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response.headers().get("x-ratelimit-limit").unwrap(),
+        "1"
+    );
+    assert_eq!(
+        response.headers().get("x-ratelimit-retry-after").unwrap(),
+        "1000"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
         .await

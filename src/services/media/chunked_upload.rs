@@ -353,6 +353,13 @@ impl ChunkedUploadService {
 
 impl Default for ChunkedUploadService {
     fn default() -> Self {
-        panic!("ChunkedUploadService requires a database pool")
+        Self {
+            pool: Arc::new(sqlx::PgPool::connect_lazy("postgres://invalid").unwrap_or_else(|_| {
+                panic!("ChunkedUploadService requires a properly configured database pool")
+            })),
+            chunk_size_limit: 10 * 1024 * 1024,
+            max_file_size: 100 * 1024 * 1024,
+            upload_expiry_seconds: 3600,
+        }
     }
 }
