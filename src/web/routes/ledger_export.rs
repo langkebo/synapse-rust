@@ -40,6 +40,7 @@ pub struct ProfileFlagsJson {
     pub oidc_enabled: bool,
     pub worker_enabled: bool,
     pub saml_enabled: bool,
+    #[cfg(feature = "openclaw-routes")]
     pub openclaw_enabled: bool,
 }
 
@@ -49,6 +50,7 @@ impl From<&ProfileFlags> for ProfileFlagsJson {
             oidc_enabled: f.oidc_enabled,
             worker_enabled: f.worker_enabled,
             saml_enabled: f.saml_enabled,
+            #[cfg(feature = "openclaw-routes")]
             openclaw_enabled: f.openclaw_enabled,
         }
     }
@@ -70,7 +72,6 @@ pub struct LedgerEntryJson {
 /// so both the binary CLI and consumer tests agree on the set.
 pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
     let saml_enabled = cfg!(feature = "saml-sso");
-    let openclaw_enabled = cfg!(feature = "openclaw-routes");
 
     match name {
         "default" => Some(ProfileFlags::DEFAULT),
@@ -88,14 +89,16 @@ pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
             ..ProfileFlags::DEFAULT
         }),
         "openclaw" => Some(ProfileFlags {
-            openclaw_enabled,
+            #[cfg(feature = "openclaw-routes")]
+            openclaw_enabled: true,
             ..ProfileFlags::DEFAULT
         }),
         "all" => Some(ProfileFlags {
             oidc_enabled: true,
             worker_enabled: true,
             saml_enabled,
-            openclaw_enabled,
+            #[cfg(feature = "openclaw-routes")]
+            openclaw_enabled: true,
         }),
         _ => None,
     }
@@ -276,14 +279,18 @@ mod tests {
     #[test]
     fn profile_flags_respect_compiled_features() {
         let saml = profile_for_name("saml").expect("saml profile should exist");
-        let openclaw = profile_for_name("openclaw").expect("openclaw profile should exist");
         let all = profile_for_name("all").expect("all profile should exist");
 
         assert_eq!(saml.saml_enabled, cfg!(feature = "saml-sso"));
-        assert_eq!(openclaw.openclaw_enabled, cfg!(feature = "openclaw-routes"));
         assert_eq!(all.saml_enabled, cfg!(feature = "saml-sso"));
-        assert_eq!(all.openclaw_enabled, cfg!(feature = "openclaw-routes"));
         assert!(all.oidc_enabled);
         assert!(all.worker_enabled);
+
+        #[cfg(feature = "openclaw-routes")]
+        {
+            let openclaw = profile_for_name("openclaw").expect("openclaw profile should exist");
+            assert!(openclaw.openclaw_enabled);
+            assert!(all.openclaw_enabled);
+        }
     }
 }

@@ -898,15 +898,25 @@ pub struct Config {
     pub identity: IdentityConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExperimentalConfig {
-    /// 是否在顶层路由中挂载 OpenClaw 用户路由
+    #[cfg(feature = "openclaw-routes")]
     #[serde(default)]
     pub openclaw_routes_enabled: bool,
 
-    /// 是否启用 MSC3814 (dehydrated devices)
     #[serde(default)]
     pub msc3814_enabled: bool,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        Self {
+            #[cfg(feature = "openclaw-routes")]
+            openclaw_routes_enabled: false,
+            msc3814_enabled: false,
+        }
+    }
 }
 
 fn default_trusted_identity_servers() -> Vec<String> {

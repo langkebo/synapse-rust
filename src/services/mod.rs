@@ -25,7 +25,6 @@ pub mod e2ee;
 pub mod event_report_service;
 pub mod feature_flag_service;
 pub mod federation_blacklist_service;
-pub mod geo_ip;
 pub mod identity;
 pub mod media;
 pub mod media_quota_service;
@@ -143,3 +142,6 @@ pub mod burn_after_read_service;
 pub mod external_service_integration;
 #[cfg(feature = "external-services")]
 pub use external_service_integration::*;
+
+#[cfg(feature = "geo-ip")]
+pub mod geo_ip;

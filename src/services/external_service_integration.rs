@@ -24,6 +24,7 @@ pub struct ExternalServiceConfig {
 #[serde(rename_all = "snake_case")]
 pub enum ExternalServiceType {
     TrendRadar,
+    #[cfg(feature = "openclaw-routes")]
     OpenClaw,
     GenericWebhook,
     IrcBridge,
@@ -36,6 +37,7 @@ impl std::fmt::Display for ExternalServiceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExternalServiceType::TrendRadar => write!(f, "trendradar"),
+            #[cfg(feature = "openclaw-routes")]
             ExternalServiceType::OpenClaw => write!(f, "openclaw"),
             ExternalServiceType::GenericWebhook => write!(f, "generic_webhook"),
             ExternalServiceType::IrcBridge => write!(f, "irc_bridge"),
@@ -80,6 +82,7 @@ pub struct TrendRadarPayload {
     pub metadata: Option<serde_json::Value>,
 }
 
+#[cfg(feature = "openclaw-routes")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenClawConfig {
     pub agent_id: String,
@@ -88,6 +91,7 @@ pub struct OpenClawConfig {
     pub auto_respond: bool,
 }
 
+#[cfg(feature = "openclaw-routes")]
 impl Default for OpenClawConfig {
     fn default() -> Self {
         Self {
@@ -99,6 +103,7 @@ impl Default for OpenClawConfig {
     }
 }
 
+#[cfg(feature = "openclaw-routes")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenClawPayload {
     pub action: String,
@@ -308,6 +313,7 @@ impl ExternalServiceIntegration {
                     "rooms": []
                 })
             }
+            #[cfg(feature = "openclaw-routes")]
             ExternalServiceType::OpenClaw => {
                 serde_json::json!({
                     "users": [{
@@ -414,6 +420,7 @@ impl ExternalServiceIntegration {
         Ok(())
     }
 
+    #[cfg(feature = "openclaw-routes")]
     #[instrument(skip(self, payload))]
     pub async fn handle_openclaw_webhook(
         &self,
@@ -714,6 +721,7 @@ mod tests {
     #[test]
     fn test_external_service_type_display() {
         assert_eq!(ExternalServiceType::TrendRadar.to_string(), "trendradar");
+        #[cfg(feature = "openclaw-routes")]
         assert_eq!(ExternalServiceType::OpenClaw.to_string(), "openclaw");
         assert_eq!(
             ExternalServiceType::GenericWebhook.to_string(),
@@ -730,6 +738,7 @@ mod tests {
         assert_eq!(config.max_items, 20);
     }
 
+    #[cfg(feature = "openclaw-routes")]
     #[test]
     fn test_openclaw_config_default() {
         let config = OpenClawConfig::default();
