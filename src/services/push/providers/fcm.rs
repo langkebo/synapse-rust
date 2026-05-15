@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_fcm_provider_creation() {
-        let _provider = FcmProvider::with_api_key("test_key".to_string());
+        let provider = FcmProvider::with_api_key("test_key".to_string());
         assert!(provider.is_enabled());
         assert_eq!(provider.name(), "fcm");
     }

@@ -582,11 +582,13 @@ impl AuthService {
                     ApiError::internal(format!("Failed to delete device tokens: {}", e))
                 })?;
 
-            // RFC 6819 §5.1.5: 单设备登出也必须吊销该设备的 refresh token，
-            // 否则被盗 refresh token 仍可在登出后继续换发新 access token。
-            // 仅当解析出 user_id 时才能精准吊销；解析失败时退化为
-            // 仅删除 access token（攻击者再次使用 refresh 时会被
-            // refresh_token() 的 reuse-detection 兜底）。
+            // RFC 6819 §5.1.5: Single-device logout must also revoke the
+            // refresh token for that device; otherwise a stolen refresh
+            // token could still exchange for new access tokens after logout.
+            // Precise revocation is only possible when user_id is resolved;
+            // if parsing fails, we fall back to only deleting the access
+            // token (reuse-detection in refresh_token() serves as a
+            // safety net when the attacker reuses the refresh token).
             if let Some(c) = claims.as_ref() {
                 if let Err(e) = self
                     .refresh_token_storage
@@ -1030,8 +1032,9 @@ impl AuthService {
                 .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
                 .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-            // 当调用方提供 current_password 时，账户必须设置过密码 —
-            // 否则 SSO/OIDC-only 账户可被绕过验证直接设置密码。
+            // When the caller provides current_password, the account must have
+            // a password set — otherwise SSO/OIDC-only accounts could bypass
+            // verification and set a password directly.
             let password_hash = user.password_hash.as_deref().ok_or_else(|| {
                 ApiError::forbidden(
                     "Cannot verify current password: account has no password set".to_string(),
@@ -1109,8 +1112,8 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
 
-        // RFC 6819 §5.1.5: 注销账户必须吊销所有 refresh token，
-        // 否则被盗令牌仍可在停用之后继续换发新 access token。
+        // RFC 6819 §5.1.5: Account deactivation must revoke all refresh tokens;
+        // otherwise stolen tokens could still exchange for new access tokens after deactivation.
         if let Err(e) = self
             .refresh_token_storage
             .revoke_all_user_tokens(user_id, "account_deactivated")
@@ -1147,10 +1150,11 @@ impl AuthService {
         Ok(())
     }
 
-    /// 单设备注销：删除设备行 + 该设备的 access token + 该设备的 refresh token。
+    /// Single-device logout: delete the device row + its access token + its refresh token.
     ///
-    /// `delete_device` / `delete_devices` 路由调用本方法替代直接调用
-    /// `device_storage`，以确保 RFC 6819 §5.1.5 要求的令牌全链路撤销。
+    /// The `delete_device` / `delete_devices` routes call this method instead of
+    /// directly calling `device_storage`, to ensure full token revocation as
+    /// required by RFC 6819 §5.1.5.
     pub async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
         let rows = self
             .device_storage
@@ -1197,8 +1201,9 @@ impl AuthService {
         Ok(rows)
     }
 
-    /// 批量单设备注销：与 `revoke_device` 相同的清理顺序，但只对
-    /// 给定 `user_id` 拥有的设备生效（防止越权删除其他用户设备）。
+    /// Batch single-device logout: same cleanup order as `revoke_device`, but only
+    /// applies to devices owned by the given `user_id` (preventing unauthorized
+    /// deletion of other users' devices).
     pub async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
         if device_ids.is_empty() {
             return Ok(0);
@@ -1867,7 +1872,7 @@ impl AuthService {
     pub async fn verify_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
-        // 默认 admin 需要 100，除非 power_levels 中有特殊定义
+        // Default admin requires level 100, unless power_levels has a custom definition
         let required_level = 100;
 
         if power_level < required_level {

@@ -2,11 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::{TypingService, TypingServiceImpl};
+    use synapse_rust::TypingService;
 
     #[tokio::test]
     async fn test_set_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing
         service
@@ -24,7 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing
         service
@@ -48,7 +48,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_typing_users() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set multiple users typing
         service
@@ -70,7 +70,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_not_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Check user who hasn't typed
         let timeout = service
@@ -82,7 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_different_rooms() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing in different rooms
         service
@@ -110,7 +110,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_expired_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing with very short timeout (would expire)
         service
@@ -131,7 +131,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_timeout() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing with specific timeout
         service

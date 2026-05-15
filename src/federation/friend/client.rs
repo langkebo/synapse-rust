@@ -56,7 +56,7 @@ impl FriendFederationClient {
         path: &str,
         destination: &str,
         content: Option<&Value>,
-    ) -> Result<String, ApiError> {
+    ) -> String {
         let message = canonical_federation_request_bytes(
             method,
             path,
@@ -68,10 +68,10 @@ impl FriendFederationClient {
         let signature = signing_key.sign(&message);
         let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
 
-        Ok(format!(
+        format!(
             "X-Matrix origin={},destination={},key=\"{}\",sig=\"{}\"",
             self.server_name, destination, key_id, sig_b64
-        ))
+        )
     }
 
     async fn sign_request(
@@ -82,14 +82,14 @@ impl FriendFederationClient {
         content: Option<&Value>,
     ) -> Result<String, ApiError> {
         if let Some(signing_key) = self.signing_key.as_ref() {
-            return self.build_auth_header(
+            return Ok(self.build_auth_header(
                 &self.signing_key_id,
                 signing_key,
                 method,
                 path,
                 destination,
                 content,
-            );
+            ));
         }
 
         if let Some(key_rotation_manager) = &self.key_rotation_manager {
@@ -99,14 +99,14 @@ impl FriendFederationClient {
                 })?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
-                    return self.build_auth_header(
+                    return Ok(self.build_auth_header(
                         &current_key.key_id,
                         &signing_key,
                         method,
                         path,
                         destination,
                         content,
-                    );
+                    ));
                 }
             }
         }

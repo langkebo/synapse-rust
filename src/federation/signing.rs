@@ -123,7 +123,7 @@ pub fn sign_json(
 }
 
 pub fn compute_event_content_hash(event: &Value) -> Option<String> {
-    let mut redacted = redact_event_for_hash(event)?;
+    let mut redacted = redact_event_for_hash(event);
     redacted.as_object_mut()?.remove("signatures");
     redacted.as_object_mut()?.remove("unsigned");
     let canonical = canonical_json_string(&redacted);
@@ -228,7 +228,7 @@ fn check_string_depth(value: &Value, depth: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn redact_event_for_hash(event: &Value) -> Option<Value> {
+fn redact_event_for_hash(event: &Value) -> Value {
     let mut event = event.clone();
 
     let allowed_top_level: &[&str] = &[
@@ -292,7 +292,7 @@ fn redact_event_for_hash(event: &Value) -> Option<Value> {
         }
     }
 
-    Some(event)
+    event
 }
 
 pub fn check_event_federate(room_create_event: &Value) -> bool {

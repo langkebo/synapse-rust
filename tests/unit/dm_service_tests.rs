@@ -2,12 +2,12 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::{DMService, DMServiceImpl};
+    use synapse_rust::DMService;
 
     #[test]
     fn test_create_dm_key() {
-        let key1 = DMServiceImpl::create_dm_key("@alice:example.com", "@bob:example.com");
-        let key2 = DMServiceImpl::create_dm_key("@bob:example.com", "@alice:example.com");
+        let key1 = DMService::create_dm_key("@alice:example.com", "@bob:example.com");
+        let key2 = DMService::create_dm_key("@bob:example.com", "@alice:example.com");
 
         // Keys should be the same regardless of order
         assert_eq!(key1, key2);
@@ -15,7 +15,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_room_as_dm() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Mark room as DM
         service
@@ -37,7 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_not_dm_room() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Check non-DM room
         let is_dm = service
@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_dm_partner() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Create DM
         service
@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_dms() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Create DMs
         service
@@ -106,7 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_existing_dm() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Create DM
         let room_id = service
@@ -135,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_dm_users() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         // Create DM
         service

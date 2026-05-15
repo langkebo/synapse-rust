@@ -15,6 +15,7 @@ pub struct Pagination {
     pub dir: Option<String>,
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn default_limit() -> Option<i64> {
     Some(DEFAULT_PAGE_LIMIT)
 }
@@ -51,6 +52,7 @@ pub struct OffsetPagination {
     pub offset: Option<i64>,
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn default_offset_limit() -> Option<i64> {
     Some(DEFAULT_PAGE_LIMIT)
 }

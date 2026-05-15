@@ -22,7 +22,7 @@ use crate::e2ee::verification::VerificationService;
 use crate::federation::FriendFederation;
 use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager};
 #[cfg(feature = "burn-after-read")]
-use crate::services::burn_after_read_service::BurnAfterReadServiceImpl;
+use crate::services::burn_after_read_service::BurnAfterReadService;
 use crate::storage::email_verification::EmailVerificationStorage;
 pub use crate::storage::PresenceStorage;
 use crate::storage::*;
@@ -87,9 +87,9 @@ pub struct ServiceContainer {
     pub friend_federation: Arc<FriendFederation>,
     #[cfg(feature = "voip-tracking")]
     pub call_service: Arc<CallService>,
-    pub directory_service: Arc<crate::services::directory_service::DirectoryServiceImpl>,
-    pub dm_service: Arc<crate::services::dm_service::DMServiceImpl>,
-    pub typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+    pub directory_service: Arc<crate::services::directory_service::DirectoryService>,
+    pub dm_service: Arc<crate::services::dm_service::DMService>,
+    pub typing_service: Arc<crate::services::typing_service::TypingService>,
     pub space_storage: SpaceStorage,
     pub space_service: Arc<crate::services::space_service::SpaceService>,
     pub app_service_storage: ApplicationServiceStorage,
@@ -155,7 +155,7 @@ pub struct ServiceContainer {
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
     pub telemetry_alert_service: Arc<crate::services::telemetry_service::TelemetryAlertService>,
     #[cfg(feature = "burn-after-read")]
-    pub burn_after_read: Arc<BurnAfterReadServiceImpl>,
+    pub burn_after_read: Arc<BurnAfterReadService>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
     pub voip_service: Arc<crate::services::voip_service::VoipService>,
     #[cfg(feature = "builtin-oidc")]
@@ -277,7 +277,7 @@ struct RoomSyncServices {
     room_service: Arc<crate::services::room_service::RoomService>,
     sync_service: Arc<crate::services::sync_service::SyncService>,
     sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
-    typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+    typing_service: Arc<crate::services::typing_service::TypingService>,
     space_storage: SpaceStorage,
     space_service: Arc<crate::services::space_service::SpaceService>,
     relations_service: Arc<crate::services::relations_service::RelationsService>,
@@ -350,7 +350,7 @@ fn assemble_room_and_sync(
         },
     ));
 
-    let typing_service = Arc::new(crate::services::typing_service::TypingServiceImpl::new());
+    let typing_service = Arc::new(crate::services::typing_service::TypingService::new());
 
     let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
     let sliding_sync_service = Arc::new(
@@ -781,8 +781,8 @@ impl ServiceContainer {
 
         // Directory & DM services
         let directory_service =
-            Arc::new(crate::services::directory_service::DirectoryServiceImpl::new());
-        let dm_service = Arc::new(crate::services::dm_service::DMServiceImpl::new());
+            Arc::new(crate::services::directory_service::DirectoryService::new());
+        let dm_service = Arc::new(crate::services::dm_service::DMService::new());
 
         // =========================================================================
         // Feature-gated extensions (L3 — off by default in core-private-chat)
@@ -854,7 +854,7 @@ impl ServiceContainer {
         ));
 
         #[cfg(feature = "burn-after-read")]
-        let burn_after_read = Arc::new(BurnAfterReadServiceImpl::new());
+        let burn_after_read = Arc::new(BurnAfterReadService::new());
 
         // OIDC services (runtime-config-driven, not feature-gated)
         let oidc_service = if config.oidc.is_enabled() {

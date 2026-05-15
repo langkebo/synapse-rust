@@ -12,8 +12,6 @@ pub use manager::ConfigManager;
 // SECTION: Error Types
 // ============================================================================
 
-// The issue is that parking_lot::RwLock doesn't poison on panic unlike std::sync::RwLock
-// parking_lot's lock() methods return &T directly, not Result<_, PoisonError<T>>
 
 use thiserror::Error;
 
@@ -31,36 +29,36 @@ pub enum ConfigError {
 // SECTION: VoIP & Push Notifications
 // ============================================================================
 
-/// VoIP 配置。
+/// VoIP configuration.
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
+/// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
 #[derive(Debug, Clone, Deserialize)]
 pub struct VoipConfig {
-    /// TURN 服务器 URL 列表
+    /// TURN server URL list
     #[serde(default)]
     pub turn_uris: Vec<String>,
 
-    /// TURN 共享密钥（用于生成临时凭证）
+    /// TURN shared secret (for generating temporary credentials)
     pub turn_shared_secret: Option<String>,
 
-    /// TURN 共享密钥文件路径
+    /// TURN shared secret file path
     pub turn_shared_secret_path: Option<String>,
 
-    /// TURN 静态用户名（如果不使用共享密钥）
+    /// TURN static username (if not using shared secret)
     pub turn_username: Option<String>,
 
-    /// TURN 静态密码（如果不使用共享密钥）
+    /// TURN static password (if not using shared secret)
     pub turn_password: Option<String>,
 
-    /// TURN 凭证有效期
+    /// TURN credential lifetime
     #[serde(default = "default_turn_user_lifetime")]
     pub turn_user_lifetime: String,
 
-    /// 是否允许访客使用 TURN 服务器
+    /// Whether to allow guests to use the TURN server
     #[serde(default = "default_turn_allow_guests")]
     pub turn_allow_guests: bool,
 
-    /// STUN 服务器 URL 列表
+    /// STUN server URL list
     #[serde(default)]
     pub stun_uris: Vec<String>,
 }
@@ -121,47 +119,47 @@ fn parse_duration(s: &str) -> Option<i64> {
     num_part.parse::<i64>().ok().map(|n| n * unit)
 }
 
-/// 推送配置。
+/// Push configuration.
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
+/// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
 #[derive(Debug, Clone, Deserialize)]
 pub struct PushConfig {
-    /// 是否启用推送
+    /// Whether to enable push
     #[serde(default)]
     pub enabled: bool,
 
-    /// 按房间分组未读计数
+    /// Group unread counts by room
     #[serde(default = "default_group_unread")]
     pub group_unread_count_by_room: bool,
 
-    /// 是否包含消息内容
+    /// Whether to include message content
     #[serde(default)]
     pub include_content: bool,
 
-    /// 应用 ID
+    /// Application ID
     pub app_id: Option<String>,
 
-    /// APNs 配置
+    /// APNs configuration
     #[serde(default)]
     pub apns: Option<ApnsConfig>,
 
-    /// FCM 配置
+    /// FCM configuration
     #[serde(default)]
     pub fcm: Option<FcmConfig>,
 
-    /// Web Push 配置
+    /// Web Push configuration
     #[serde(default)]
     pub web_push: Option<WebPushConfig>,
 
-    /// 推送网关 URL（用于 HTTP 推送）
+    /// Push gateway URL (for HTTP push)
     #[serde(default)]
     pub push_gateway_url: Option<String>,
 
-    /// 推送重试次数
+    /// Push retry count
     #[serde(default = "default_push_retry_count")]
     pub retry_count: u32,
 
-    /// 推送超时（秒）
+    /// Push timeout (seconds)
     #[serde(default = "default_push_timeout")]
     pub timeout: u64,
 }
@@ -305,7 +303,7 @@ fn parse_size(s: &str) -> Option<usize> {
     num_part.parse::<usize>().ok().map(|n| n * multiplier)
 }
 
-/// URL 预览配置。
+/// URL preview configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UrlPreviewConfig {
     #[serde(default)]
@@ -366,7 +364,7 @@ impl UrlPreviewConfig {
 // SECTION: Authentication (OIDC, SAML)
 // ============================================================================
 
-/// OpenID Connect 配置。
+/// OpenID Connect configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OidcConfig {
     #[serde(default)]
@@ -440,22 +438,22 @@ impl OidcConfig {
     }
 }
 
-/// SAML 2.0 配置。
+/// SAML 2.0 configuration.
 ///
-/// 官方 Synapse 配置文档: https://element-hq.github.io/synapse/latest/openid.html#saml
+/// Official Synapse configuration documentation: https://element-hq.github.io/synapse/latest/openid.html#saml
 #[derive(Debug, Clone, Deserialize)]
 pub struct SamlConfig {
-    /// 是否启用 SAML 认证
+    /// Whether to enable SAML authentication
     #[serde(default)]
     pub enabled: bool,
 
-    /// SAML IdP 元数据 URL
+    /// SAML IdP metadata URL
     pub metadata_url: Option<String>,
 
-    /// SAML IdP 元数据 XML（直接配置）
+    /// SAML IdP metadata XML (direct configuration)
     pub metadata_xml: Option<String>,
 
-    /// SP 实体 ID
+    /// SP entity ID
     #[serde(default = "default_saml_sp_entity_id")]
     pub sp_entity_id: String,
 
@@ -465,86 +463,86 @@ pub struct SamlConfig {
     /// SP SLS (Single Logout Service) URL
     pub sp_sls_url: Option<String>,
 
-    /// SP 私钥（PEM 格式）
+    /// SP private key (PEM format)
     pub sp_private_key: Option<String>,
 
-    /// SP 私钥文件路径
+    /// SP private key file path
     pub sp_private_key_path: Option<String>,
 
-    /// SP 证书（PEM 格式）
+    /// SP certificate (PEM format)
     pub sp_certificate: Option<String>,
 
-    /// SP 证书文件路径
+    /// SP certificate file path
     pub sp_certificate_path: Option<String>,
 
-    /// 属性映射配置
+    /// Attribute mapping configuration
     #[serde(default)]
     pub attribute_mapping: SamlAttributeMapping,
 
-    /// NameID 格式
+    /// NameID format
     #[serde(default = "default_saml_nameid_format")]
     pub nameid_format: String,
 
-    /// 是否允许现有用户登录
+    /// Whether to allow existing users to log in
     #[serde(default = "default_saml_allow_existing_users")]
     pub allow_existing_users: bool,
 
-    /// 是否阻止未知用户
+    /// Whether to block unknown users
     #[serde(default)]
     pub block_unknown_users: bool,
 
-    /// 用户 ID 模板
+    /// User ID template
     #[serde(default = "default_saml_user_id_template")]
     pub user_id_template: String,
 
-    /// 是否使用 NameID 作为用户标识
+    /// Whether to use NameID as user identifier
     #[serde(default)]
     pub use_name_id_for_user_id: bool,
 
-    /// SAML 请求签名
+    /// SAML request signing
     #[serde(default = "default_saml_sign_requests")]
     pub sign_requests: bool,
 
-    /// SAML 响应签名验证
+    /// SAML response signature verification
     #[serde(default = "default_saml_want_response_signed")]
     pub want_response_signed: bool,
 
-    /// SAML 断言签名验证
+    /// SAML assertion signature verification
     #[serde(default = "default_saml_want_assertions_signed")]
     pub want_assertions_signed: bool,
 
-    /// SAML 断言加密验证
+    /// SAML assertion encryption verification
     #[serde(default)]
     pub want_assertions_encrypted: bool,
 
-    /// 认证上下文类
+    /// Authentication context class
     #[serde(default)]
     pub authn_context_class_ref: Option<String>,
 
-    /// 会话有效期（秒）
+    /// Session lifetime (seconds)
     #[serde(default = "default_saml_session_lifetime")]
     pub session_lifetime: u64,
 
-    /// 元数据刷新间隔（秒）
+    /// Metadata refresh interval (seconds)
     #[serde(default = "default_saml_metadata_refresh_interval")]
     pub metadata_refresh_interval: u64,
 
-    /// 允许的 IdP 实体 ID 列表
+    /// Allowed IdP entity ID list
     #[serde(default)]
     pub allowed_idp_entity_ids: Vec<String>,
 
-    /// 超时时间（秒）
+    /// Timeout (seconds)
     #[serde(default = "default_saml_timeout")]
     pub timeout: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SamlAttributeMapping {
-    /// 用户名属性
+    /// Username attribute
     pub uid: Option<String>,
-    /// 显示名称属性
+    /// Display name attribute
     pub displayname: Option<String>,
-    /// 邮箱属性
+    /// Email attribute
     pub email: Option<String>,
 }
 
@@ -648,72 +646,72 @@ impl SamlConfig {
 // SECTION: Retention Policy
 // ============================================================================
 
-/// 消息保留策略配置。
+/// Message retention policy configuration.
 ///
-/// 配置自动删除旧消息的策略。
+/// Configures policies for automatically deleting old messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetentionConfig {
-    /// 是否启用消息保留
+    /// Whether to enable message retention
     #[serde(default)]
     pub enabled: bool,
 
-    /// 默认保留策略
+    /// Default retention policy
     #[serde(default)]
     pub default_policy: Option<RetentionPolicy>,
 
-    /// 最小允许保留期（秒）
+    /// Minimum allowed retention period (seconds)
     #[serde(default)]
     pub allowed_lifetime_min: Option<u64>,
 
-    /// 最大允许保留期（秒）
+    /// Maximum allowed retention period (seconds)
     #[serde(default)]
     pub allowed_lifetime_max: Option<u64>,
 
-    /// 是否清理已删除消息
+    /// Whether to purge deleted messages
     #[serde(default = "default_retention_purge_jobs")]
     pub purge_jobs: Vec<RetentionPurgeJob>,
 
-    /// 是否启用数据生命周期持续清理
+    /// Whether to enable continuous data lifecycle cleanup
     #[serde(default = "default_retention_lifecycle_cleanup_enabled")]
     pub lifecycle_cleanup_enabled: bool,
 
-    /// 数据生命周期清理执行间隔（秒）
+    /// Data lifecycle cleanup execution interval (seconds)
     #[serde(default = "default_retention_lifecycle_interval_secs")]
     pub lifecycle_cleanup_interval_secs: u64,
 
-    /// 生命周期清理批次大小
+    /// Lifecycle cleanup batch size
     #[serde(default = "default_retention_cleanup_batch_size")]
     pub cleanup_batch_size: u32,
 
-    /// 审计事件保留天数
+    /// Audit event retention days
     #[serde(default = "default_retention_audit_retention_days")]
     pub audit_retention_days: u64,
 
-    /// 已完成清理队列记录保留天数
+    /// Completed cleanup queue record retention days
     #[serde(default = "default_retention_queue_retention_days")]
     pub queue_retention_days: u64,
 }
 
-/// 保留策略
+/// Retention policy
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetentionPolicy {
-    /// 最小保留期（秒）
+    /// Minimum retention period (seconds)
     #[serde(default)]
     pub min_lifetime: Option<u64>,
 
-    /// 最大保留期（秒）
+    /// Maximum retention period (seconds)
     #[serde(default)]
     pub max_lifetime: Option<u64>,
 }
 
-/// 保留清理任务
+/// Retention purge job
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetentionPurgeJob {
-    /// 清理间隔（秒）
+    /// Purge interval (seconds)
     #[serde(default = "default_purge_job_interval")]
     pub interval: u64,
 
-    /// 每次清理的最大房间数
+    /// Maximum number of rooms per purge
     #[serde(default = "default_purge_job_batch_size")]
     pub batch_size: u32,
 }
@@ -770,9 +768,9 @@ impl Default for RetentionConfig {
     }
 }
 
-/// 服务器配置结构。
+/// Server configuration structure.
 ///
-/// 内置 OIDC Provider 配置
+/// Built-in OIDC Provider configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct BuiltinOidcConfig {
     #[serde(default)]
@@ -786,8 +784,8 @@ pub struct BuiltinOidcConfig {
     pub allow_client_ids: Vec<String>,
     #[serde(default)]
     pub users: Vec<BuiltinOidcUser>,
-    /// 内置 OIDC Provider 的 RSA 签名密钥持久化路径 (PKCS#8 PEM)。
-    /// 若为空则在进程内生成临时密钥；进程重启后旧 token 失效。
+    /// Persistence path for the built-in OIDC Provider's RSA signing key (PKCS#8 PEM).
+    /// If empty, a temporary key is generated in-process; old tokens become invalid after process restart.
     #[serde(default)]
     pub signing_key_path: Option<std::path::PathBuf>,
 }
@@ -800,10 +798,10 @@ fn default_builtin_oidc_client_id() -> String {
 pub struct BuiltinOidcUser {
     pub id: String,
     pub username: String,
-    /// 明文密码 (仅开发/测试)。生产请使用 password_hash。
+    /// Plaintext password (development/testing only). Use password_hash in production.
     #[serde(default)]
     pub password: Option<String>,
-    /// Argon2 PHC 字符串。优先于 password 使用。
+    /// Argon2 PHC string. Takes priority over password.
     #[serde(default)]
     pub password_hash: Option<String>,
     pub email: String,
@@ -830,67 +828,67 @@ impl BuiltinOidcConfig {
     }
 }
 
-/// Matrix Homeserver 的主配置类，包含所有配置子项。
-/// 通过环境变量或配置文件加载。
+/// Main configuration class for the Matrix Homeserver, containing all configuration sub-items.
+/// Loaded via environment variables or configuration file.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
-    /// 服务器配置
+    /// Server configuration
     pub server: ServerConfig,
-    /// 数据库配置
+    /// Database configuration
     pub database: DatabaseConfig,
-    /// Redis 配置
+    /// Redis configuration
     pub redis: RedisConfig,
-    /// 日志配置
+    /// Logging configuration
     pub logging: LoggingConfig,
-    /// 联邦配置
+    /// Federation configuration
     pub federation: FederationConfig,
-    /// 安全配置
+    /// Security configuration
     pub security: SecurityConfig,
-    /// 搜索配置
+    /// Search configuration
     pub search: SearchConfig,
-    /// 限流配置
+    /// Rate limiting configuration
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
-    /// 管理员注册配置
+    /// Admin registration configuration
     #[serde(default)]
     pub admin_registration: AdminRegistrationConfig,
-    /// 工作节点配置
+    /// Worker node configuration
     #[serde(default)]
     pub worker: WorkerConfig,
-    /// CORS 配置
+    /// CORS configuration
     #[serde(default)]
     pub cors: CorsConfig,
-    /// SMTP邮件配置
+    /// SMTP email configuration
     #[serde(default)]
     pub smtp: SmtpConfig,
-    /// VoIP/TURN 配置
+    /// VoIP/TURN configuration
     #[serde(default)]
     pub voip: VoipConfig,
-    /// 推送通知配置
+    /// Push notification configuration
     #[serde(default)]
     pub push: PushConfig,
-    /// URL 预览配置
+    /// URL preview configuration
     #[serde(default)]
     pub url_preview: UrlPreviewConfig,
-    /// OIDC 单点登录配置（外部 Provider）
+    /// OIDC single sign-on configuration (external Provider)
     #[serde(default)]
     pub oidc: OidcConfig,
-    /// 内置 OIDC Provider 配置
+    /// Built-in OIDC Provider configuration
     #[serde(default)]
     pub builtin_oidc: BuiltinOidcConfig,
-    /// SAML 单点登录配置
+    /// SAML single sign-on configuration
     #[serde(default)]
     pub saml: SamlConfig,
-    /// 消息保留策略配置
+    /// Message retention policy configuration
     #[serde(default)]
     pub retention: RetentionConfig,
-    /// OpenTelemetry 配置
+    /// OpenTelemetry configuration
     #[serde(default)]
     pub telemetry: crate::common::telemetry_config::OpenTelemetryConfig,
-    /// Prometheus 配置
+    /// Prometheus configuration
     #[serde(default)]
     pub prometheus: crate::common::telemetry_config::PrometheusConfig,
-    /// 性能优化配置
+    /// Performance optimization configuration
     #[serde(default)]
     pub performance: PerformanceConfig,
     /// 实验性功能配置

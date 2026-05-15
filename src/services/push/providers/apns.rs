@@ -265,7 +265,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_apns_provider_creation() {
-        let _provider = ApnsProvider::with_topic("com.example.app".to_string());
+        let provider = ApnsProvider::with_topic("com.example.app".to_string());
         assert!(provider.is_enabled());
         assert_eq!(provider.name(), "apns");
     }

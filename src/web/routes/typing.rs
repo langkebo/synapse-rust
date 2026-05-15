@@ -1,7 +1,6 @@
 // Typing Routes - 打字提示路由
 // Typing indicator management
 
-use crate::services::TypingService;
 use crate::web::routes::{ensure_room_member_strict, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
