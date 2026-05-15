@@ -110,6 +110,7 @@ mod tests {
         assert_eq!(cache.len(), 0);
     }
 
+    #[allow(clippy::redundant_clone)]
     #[test]
     fn test_regex_cache_clone() {
         let cache1 = RegexCache::new();

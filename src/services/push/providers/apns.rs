@@ -99,7 +99,7 @@ impl ApnsProvider {
         Self::new(config)
     }
 
-    fn build_payload(&self, payload: &NotificationPayload) -> ApnsPayload {
+    fn build_payload(payload: &NotificationPayload) -> ApnsPayload {
         let badge = payload.counts.as_ref().map(|c| c.unread);
 
         ApnsPayload {
@@ -211,7 +211,7 @@ impl PushProvider for ApnsProvider {
             &token[..20.min(token.len())]
         );
 
-        let apns_payload = self.build_payload(payload);
+        let apns_payload = Self::build_payload(payload);
 
         match self.send_request(token, &apns_payload).await {
             Ok(_) => {
@@ -265,7 +265,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_apns_provider_creation() {
-        let provider = ApnsProvider::with_topic("com.example.app".to_string());
+        let _provider = ApnsProvider::with_topic("com.example.app".to_string());
         assert!(provider.is_enabled());
         assert_eq!(provider.name(), "apns");
     }
@@ -279,7 +279,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_build_payload() {
-        let provider = ApnsProvider::with_topic("com.example.app".to_string());
+        let _provider = ApnsProvider::with_topic("com.example.app".to_string());
         let payload = NotificationPayload {
             title: "Test".to_string(),
             body: "Body".to_string(),
@@ -298,7 +298,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
             }),
         };
 
-        let apns_payload = provider.build_payload(&payload);
+        let apns_payload = ApnsProvider::build_payload(&payload);
         assert_eq!(apns_payload.aps.alert.title, "Test");
         assert_eq!(apns_payload.aps.badge, Some(5));
         assert_eq!(apns_payload.aps.sound, Some("default".to_string()));

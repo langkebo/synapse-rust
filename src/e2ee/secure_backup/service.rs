@@ -35,7 +35,7 @@ impl SecureBackupService {
         let salt = base64::engine::general_purpose::STANDARD.encode(salt_bytes);
 
         // 2. Derive key using Argon2
-        let _key = self.derive_key(passphrase, &salt_bytes, 500000)?;
+        let _key = Self::derive_key(passphrase, &salt_bytes, 500000)?;
 
         // 3. Generate backup ID and version
         let backup_id = uuid::Uuid::new_v4().to_string();
@@ -105,14 +105,14 @@ impl SecureBackupService {
             .decode(&auth_data.salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
 
-        let key = self.derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
+        let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Encrypt and store each session key
         let mut key_count = 0i64;
 
         for session_key in session_keys {
             // Encrypt session key
-            let encrypted = self.encrypt_aes_gcm(&key, session_key.session_key.as_bytes())?;
+            let encrypted = Self::encrypt_aes_gcm(&key, session_key.session_key.as_bytes())?;
             let encrypted_b64 = base64::engine::general_purpose::STANDARD.encode(&encrypted);
 
             // Store encrypted key
@@ -179,7 +179,7 @@ impl SecureBackupService {
             .decode(&auth_data.salt)
             .map_err(|e| ApiError::internal(format!("Invalid salt: {}", e)))?;
 
-        let key = self.derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
+        let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Get all encrypted session keys
         let encrypted_keys: Vec<(String, String)> = sqlx::query_as(
@@ -199,7 +199,7 @@ impl SecureBackupService {
         for (_session_id, encrypted_b64) in encrypted_keys {
             match base64::engine::general_purpose::STANDARD.decode(&encrypted_b64) {
                 Ok(encrypted) => {
-                    if self.decrypt_aes_gcm(&key, &encrypted).is_ok() {
+                    if Self::decrypt_aes_gcm(&key, &encrypted).is_ok() {
                         restored_count += 1;
                     }
                 }
@@ -318,7 +318,6 @@ impl SecureBackupService {
 
     /// Derive encryption key from passphrase using Argon2
     fn derive_key(
-        &self,
         passphrase: &str,
         salt: &[u8],
         _iterations: i64,
@@ -337,7 +336,7 @@ impl SecureBackupService {
     }
 
     /// Encrypt data using AES-256-GCM
-    fn encrypt_aes_gcm(&self, key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
+    fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let cipher = Aes256Gcm::new_from_slice(key)
             .map_err(|e| ApiError::internal(format!("Cipher error: {}", e)))?;
 
@@ -359,7 +358,7 @@ impl SecureBackupService {
     }
 
     /// Decrypt data using AES-256-GCM
-    fn decrypt_aes_gcm(&self, key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
+    fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
         if ciphertext.len() < 12 {
             return Err(ApiError::internal("Ciphertext too short".to_string()));
         }

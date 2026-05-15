@@ -533,8 +533,8 @@ impl FriendRoomService {
             .await
             .map_err(|e| ApiError::database(format!("Failed to load presence snapshots: {}", e)))?;
 
-        let mut items = self.build_friend_entries(raw_friends, &profiles, &presence_map);
-        self.sort_friend_entries(&mut items, &request.sort_by);
+        let mut items = Self::build_friend_entries(raw_friends, &profiles, &presence_map);
+        Self::sort_friend_entries(&mut items, &request.sort_by);
 
         let total = items.len();
         let offset = request.offset.min(total);
@@ -1379,7 +1379,6 @@ impl FriendRoomService {
     }
 
     fn build_friend_entries(
-        &self,
         raw_friends: Vec<serde_json::Value>,
         profiles: &HashMap<String, crate::storage::UserProfile>,
         presence_map: &HashMap<String, crate::storage::presence::PresenceSnapshot>,
@@ -1459,7 +1458,7 @@ impl FriendRoomService {
             .collect()
     }
 
-    fn sort_friend_entries(&self, items: &mut [FriendListEntry], sort_by: &str) {
+    fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
         match sort_by {
             "activity" => items.sort_by(|left, right| {
                 right

@@ -102,7 +102,7 @@ impl FcmProvider {
         Self::new(config)
     }
 
-    fn build_message(&self, token: &str, payload: &NotificationPayload) -> FcmMessage {
+    fn build_message(token: &str, payload: &NotificationPayload) -> FcmMessage {
         FcmMessage {
             to: token.to_string(),
             notification: FcmNotification {
@@ -167,7 +167,7 @@ impl PushProvider for FcmProvider {
             &token[..20.min(token.len())]
         );
 
-        let message = self.build_message(token, payload);
+        let message = Self::build_message(token, payload);
 
         match self.send_request(&message).await {
             Ok(response) => {
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_fcm_provider_creation() {
-        let provider = FcmProvider::with_api_key("test_key".to_string());
+        let _provider = FcmProvider::with_api_key("test_key".to_string());
         assert!(provider.is_enabled());
         assert_eq!(provider.name(), "fcm");
     }
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_build_message() {
-        let provider = FcmProvider::with_api_key("test_key".to_string());
+        let _provider = FcmProvider::with_api_key("test_key".to_string());
         let payload = NotificationPayload {
             title: "Test".to_string(),
             body: "Body".to_string(),
@@ -253,7 +253,7 @@ mod tests {
             counts: None,
         };
 
-        let message = provider.build_message("token123", &payload);
+        let message = FcmProvider::build_message("token123", &payload);
         assert_eq!(message.to, "token123");
         assert_eq!(message.notification.title, "Test");
         assert!(message.data.is_some());

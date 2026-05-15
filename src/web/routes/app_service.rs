@@ -664,7 +664,7 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
             get(get_statistics),
         )
         .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
+            state,
             crate::web::middleware::admin_auth_middleware,
         ));
 

@@ -128,20 +128,20 @@ impl FederationBlacklistService {
                 is_blocked: entry.block_type == "blacklist",
                 is_whitelisted: false,
                 is_quarantined: entry.block_type == "quarantine",
-                reason: entry.reason.clone(),
+                reason: entry.reason,
                 matched_rule: Some("direct_block".to_string()),
             });
         }
 
         let rules = self.storage.get_all_rules().await?;
         for rule in rules {
-            if self.matches_rule(server_name, &rule)? {
+            if Self::matches_rule(server_name, &rule)? {
                 return Ok(CheckResult {
                     is_blocked: rule.action == "block",
                     is_whitelisted: rule.action == "allow",
                     is_quarantined: rule.action == "quarantine",
                     reason: rule.description.clone(),
-                    matched_rule: Some(rule.rule_name.clone()),
+                    matched_rule: Some(rule.rule_name),
                 });
             }
         }
@@ -162,7 +162,6 @@ impl FederationBlacklistService {
     }
 
     fn matches_rule(
-        &self,
         server_name: &str,
         rule: &FederationBlacklistRule,
     ) -> Result<bool, ApiError> {

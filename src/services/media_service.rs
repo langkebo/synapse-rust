@@ -192,7 +192,7 @@ impl MediaService {
         content_type: &str,
         filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let extension = self.get_extension_from_content_type(content_type);
+        let extension = Self::get_extension_from_content_type(content_type);
         let file_name = if let Some(fname) = filename {
             let safe: String = fname
                 .chars()
@@ -387,7 +387,7 @@ impl MediaService {
         let original_content = self.download_media(_server_name, media_id).await?;
 
         let thumbnail =
-            match self.generate_thumbnail(&original_content, width, height, thumbnail_method) {
+            match Self::generate_thumbnail(&original_content, width, height, thumbnail_method) {
                 Ok(t) => t,
                 Err(_) => return Ok(original_content),
             };
@@ -400,7 +400,6 @@ impl MediaService {
     }
 
     fn generate_thumbnail(
-        &self,
         image_data: &[u8],
         target_width: u32,
         target_height: u32,
@@ -449,7 +448,7 @@ impl MediaService {
         let mut generated = Vec::new();
 
         for config in &self.default_thumbnail_configs {
-            let thumbnail = self.generate_thumbnail(
+            let thumbnail = Self::generate_thumbnail(
                 &original_content,
                 config.width,
                 config.height,
@@ -565,7 +564,7 @@ impl MediaService {
         .unwrap_or(None)
     }
 
-    fn get_extension_from_content_type(&self, content_type: &str) -> &str {
+    fn get_extension_from_content_type(content_type: &str) -> &str {
         match content_type {
             "image/jpeg" => "jpg",
             "image/png" => "png",
@@ -810,21 +809,21 @@ mod tests {
     fn test_get_extension_from_content_type() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let _service = MediaService::new(media_path, None, "test.server");
 
-        assert_eq!(service.get_extension_from_content_type("image/jpeg"), "jpg");
-        assert_eq!(service.get_extension_from_content_type("image/png"), "png");
-        assert_eq!(service.get_extension_from_content_type("image/gif"), "gif");
+        assert_eq!(MediaService::get_extension_from_content_type("image/jpeg"), "jpg");
+        assert_eq!(MediaService::get_extension_from_content_type("image/png"), "png");
+        assert_eq!(MediaService::get_extension_from_content_type("image/gif"), "gif");
         assert_eq!(
-            service.get_extension_from_content_type("application/pdf"),
+            MediaService::get_extension_from_content_type("application/pdf"),
             "pdf"
         );
-        assert_eq!(service.get_extension_from_content_type("text/plain"), "txt");
+        assert_eq!(MediaService::get_extension_from_content_type("text/plain"), "txt");
         assert_eq!(
-            service.get_extension_from_content_type("unknown/type"),
+            MediaService::get_extension_from_content_type("unknown/type"),
             "bin"
         );
-        assert_eq!(service.get_extension_from_content_type(""), "bin");
+        assert_eq!(MediaService::get_extension_from_content_type(""), "bin");
     }
 
     #[test]
@@ -933,7 +932,7 @@ mod tests {
     async fn test_async_content_type_validation() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let _service = MediaService::new(media_path, None, "test.server");
 
         let test_cases = vec![
             ("image/jpeg", "jpg"),
@@ -946,7 +945,7 @@ mod tests {
         ];
 
         for (content_type, expected_ext) in test_cases {
-            let ext = service.get_extension_from_content_type(content_type);
+            let ext = MediaService::get_extension_from_content_type(content_type);
             assert_eq!(
                 ext, expected_ext,
                 "Failed for content type: {}",

@@ -1277,7 +1277,7 @@ mod tests {
         let member = create_test_space_member();
 
         let hierarchy = SpaceHierarchy {
-            space: space.clone(),
+            space,
             children: vec![child],
             members: vec![member],
         };

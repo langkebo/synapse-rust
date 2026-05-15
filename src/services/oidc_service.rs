@@ -661,6 +661,7 @@ mod tests {
             userinfo_endpoint: None,
             jwks_uri: None,
             timeout: 10,
+            user_mapping_provider: None,
         }
     }
 

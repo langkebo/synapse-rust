@@ -587,27 +587,21 @@ pub async fn get_user_devices_admin(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let devices = sqlx::query(
-        r#"
-        SELECT device_id, display_name, last_seen_ts, last_seen_ip, user_id
-        FROM devices 
-        WHERE user_id = $1
-        ORDER BY last_seen_ts DESC
-        "#,
-    )
-    .bind(&user.user_id)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let devices = state
+        .services
+        .device_storage
+        .get_user_devices(&user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let device_list: Vec<Value> = devices
         .iter()
-        .map(|row| {
+        .map(|d| {
             json!({
-                "device_id": row.get::<Option<String>, _>("device_id"),
-                "display_name": row.get::<Option<String>, _>("display_name"),
-                "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts"),
-                "last_seen_ip": row.get::<Option<String>, _>("last_seen_ip")
+                "device_id": d.device_id,
+                "display_name": d.display_name,
+                "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip
             })
         })
         .collect();
@@ -711,9 +705,10 @@ pub async fn logout_user_devices(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let device_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
-        .bind(&user.user_id)
-        .fetch_one(&*state.services.device_storage.pool)
+    let device_count: i64 = state
+        .services
+        .device_storage
+        .get_device_count(&user.user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
@@ -827,21 +822,20 @@ pub async fn get_user_v2(
 
     match user {
         Some(u) => {
-            let devices = sqlx::query(
-                "SELECT device_id, display_name, last_seen_ts, user_id FROM devices WHERE user_id = $1"
-            )
-            .bind(&u.user_id)
-            .fetch_all(&*state.services.device_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            let devices = state
+                .services
+                .device_storage
+                .get_user_devices(&u.user_id)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
             let device_list: Vec<Value> = devices
                 .iter()
-                .map(|row| {
+                .map(|d| {
                     json!({
-                        "device_id": row.get::<Option<String>, _>("device_id"),
-                        "display_name": row.get::<Option<String>, _>("display_name"),
-                        "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts")
+                        "device_id": d.device_id,
+                        "display_name": d.display_name,
+                        "last_seen_ts": d.last_seen_ts
                     })
                 })
                 .collect();
@@ -1013,15 +1007,14 @@ pub async fn get_single_user_stats(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let pool = &*state.services.room_storage.pool;
+    let rooms_joined: i64 = state
+        .services
+        .member_storage
+        .get_joined_room_count(&user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to count rooms: {}", e)))?;
 
-    let rooms_joined: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
-    )
-    .bind(&user.user_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to count rooms: {}", e)))?;
+    let pool = &*state.services.room_storage.pool;
 
     let messages_sent: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM room_events WHERE sender = $1 AND type = 'm.room.message'",
@@ -1179,23 +1172,22 @@ pub async fn get_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let devices = sqlx::query(
-        "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1"
-    )
-    .bind(&user.user_id)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let devices = state
+        .services
+        .device_storage
+        .get_user_devices(&user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let sessions: Vec<Value> = devices
         .iter()
-        .map(|row| {
+        .map(|d| {
             json!({
-                "device_id": row.get::<Option<String>, _>("device_id"),
-                "display_name": row.get::<Option<String>, _>("display_name"),
-                "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts"),
-                "last_seen_ip": row.get::<Option<String>, _>("last_seen_ip"),
-                "session_id": row.get::<Option<String>, _>("device_id")
+                "device_id": d.device_id,
+                "display_name": d.display_name,
+                "last_seen_ts": d.last_seen_ts,
+                "last_seen_ip": d.last_seen_ip,
+                "session_id": d.device_id
             })
         })
         .collect();
@@ -1216,12 +1208,12 @@ pub async fn invalidate_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
-            .bind(&canonical_user_id)
-            .fetch_one(&*state.services.device_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let sessions_removed: i64 = state
+        .services
+        .device_storage
+        .get_device_count(&canonical_user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     state
         .services
@@ -1245,19 +1237,19 @@ pub async fn get_account_details(
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
-    let device_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1")
-        .bind(canonical_user_id)
-        .fetch_one(&*state.services.device_storage.pool)
+    let device_count: i64 = state
+        .services
+        .device_storage
+        .get_device_count(canonical_user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let room_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'",
-    )
-    .bind(canonical_user_id)
-    .fetch_one(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let room_count: i64 = state
+        .services
+        .member_storage
+        .get_joined_room_count(canonical_user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     Ok(Json(json!({
         "name": user.username,

@@ -512,15 +512,12 @@ pub async fn get_device_list_updates(
         }
     }
 
-    let existing_users: Vec<String> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT user_id FROM devices WHERE user_id = ANY($1)
-        "#,
-    )
-    .bind(&users)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {}", e)))?;
+    let existing_users: Vec<String> = state
+        .services
+        .device_storage
+        .filter_existing_users(&users)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {}", e)))?;
 
     let existing: HashSet<String> = existing_users.into_iter().collect();
     for user_id in &users {

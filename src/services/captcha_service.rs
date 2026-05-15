@@ -124,7 +124,7 @@ impl CaptchaService {
             }
         }
 
-        let code = self.generate_code(code_length as usize);
+        let code = Self::generate_code(code_length as usize);
 
         let expires_in_seconds = (expiry_minutes as i64) * 60;
 
@@ -202,7 +202,7 @@ impl CaptchaService {
         self.storage.invalidate_captcha(captcha_id).await
     }
 
-    fn generate_code(&self, length: usize) -> String {
+    fn generate_code(length: usize) -> String {
         let mut rng = rand::thread_rng();
         (0..length)
             .map(|_| rng.gen_range(0..10).to_string())
@@ -248,18 +248,17 @@ impl CaptchaService {
                 .ok_or_else(|| ApiError::internal("No default template found"))?
         };
 
-        let content = self.render_template(&template, code, expiry_minutes);
+        let content = Self::render_template(&template, code, expiry_minutes);
 
         match captcha.captcha_type.as_str() {
-            "email" => self.send_email(&captcha.target, template.subject.as_deref(), &content),
-            "sms" => self.send_sms(&captcha.target, &content),
+            "email" => Self::send_email(&captcha.target, template.subject.as_deref(), &content),
+            "sms" => Self::send_sms(&captcha.target, &content),
             "image" => Ok(()),
             _ => Err(ApiError::bad_request("Invalid captcha type")),
         }
     }
 
     fn render_template(
-        &self,
         template: &CaptchaTemplate,
         code: &str,
         expiry_minutes: i32,
@@ -270,13 +269,13 @@ impl CaptchaService {
         content
     }
 
-    fn send_email(&self, to: &str, _subject: Option<&str>, content: &str) -> Result<(), ApiError> {
+    fn send_email(to: &str, _subject: Option<&str>, content: &str) -> Result<(), ApiError> {
         info!("Sending email to {}: {:?}", to, content);
 
         Ok(())
     }
 
-    fn send_sms(&self, to: &str, content: &str) -> Result<(), ApiError> {
+    fn send_sms(to: &str, content: &str) -> Result<(), ApiError> {
         info!("Sending SMS to {}: {:?}", to, content);
 
         Ok(())

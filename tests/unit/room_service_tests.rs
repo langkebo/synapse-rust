@@ -212,7 +212,7 @@ fn test_room_service_creation() {
         };
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-        let room_service = create_room_service(&pool, cache.clone());
+        let room_service = create_room_service(&pool, cache);
 
         assert_eq!(room_service.server_name, "localhost");
     });

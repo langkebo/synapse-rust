@@ -158,7 +158,7 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
     let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/captcha/cleanup", post(cleanup_expired))
         .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
+            state,
             crate::web::middleware::admin_auth_middleware,
         ));
 
