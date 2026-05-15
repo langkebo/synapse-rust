@@ -62,7 +62,7 @@ impl AppState {
 
         Self {
             services,
-            cache: cache.clone(),
+            cache,
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
             federation_key_fetch_priority_semaphore: Arc::new(Semaphore::new(

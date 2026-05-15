@@ -39,8 +39,8 @@ impl SecretStorageService {
         let key_id = format!("{}", uuid::Uuid::new_v4());
 
         match algorithm {
-            "org.matrix.msc2697.v1.curve25519-aes-sha2" => self.create_curve25519_key(&key_id),
-            "aes-hmac-sha2" => self.create_aes_hmac_key(&key_id),
+            "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::create_curve25519_key(&key_id),
+            "aes-hmac-sha2" => Self::create_aes_hmac_key(&key_id),
             _ => Err(ApiError::bad_request(format!(
                 "Unsupported secret storage algorithm: {}",
                 algorithm
@@ -49,7 +49,6 @@ impl SecretStorageService {
     }
 
     fn create_curve25519_key(
-        &self,
         key_id: &str,
     ) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_pair = X25519KeyPair::generate();
@@ -86,7 +85,7 @@ impl SecretStorageService {
         })
     }
 
-    fn create_aes_hmac_key(&self, key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    fn create_aes_hmac_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let mut key_bytes = [0u8; SSSS_KEY_LENGTH];
         rand::thread_rng().fill(&mut key_bytes);
         let key_base64 = BASE64.encode(key_bytes);
@@ -184,9 +183,9 @@ impl SecretStorageService {
     ) -> Result<String, ApiError> {
         match key_data.algorithm.as_str() {
             "org.matrix.msc2697.v1.curve25519-aes-sha2" => {
-                self.encrypt_secret_curve25519(secret, key_data)
+                Self::encrypt_secret_curve25519(secret, key_data)
             }
-            "aes-hmac-sha2" => self.encrypt_secret_aes_hmac(secret, key_data),
+            "aes-hmac-sha2" => Self::encrypt_secret_aes_hmac(secret, key_data),
             _ => Err(ApiError::bad_request(format!(
                 "Unsupported algorithm: {}",
                 key_data.algorithm
@@ -195,7 +194,6 @@ impl SecretStorageService {
     }
 
     fn encrypt_secret_curve25519(
-        &self,
         secret: &str,
         key_data: &SecretStorageKey,
     ) -> Result<String, ApiError> {
@@ -237,7 +235,6 @@ impl SecretStorageService {
     }
 
     fn encrypt_secret_aes_hmac(
-        &self,
         secret: &str,
         key_data: &SecretStorageKey,
     ) -> Result<String, ApiError> {

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use ::tracing::error;
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -185,8 +186,8 @@ impl RoomService {
         }
 
         let room_id = self.generate_room_id();
-        let mut join_rule = self.determine_join_rule(config.preset.as_deref());
-        let is_public = self.is_public_visibility(config.visibility.as_deref());
+        let mut join_rule = Self::determine_join_rule(config.preset.as_deref());
+        let is_public = Self::is_public_visibility(config.visibility.as_deref());
 
         if is_public && join_rule != "public" {
             join_rule = "public";
@@ -216,7 +217,7 @@ impl RoomService {
             )
             .await;
         if let Err(e) = &result {
-            eprintln!("DEBUG: create_room_in_db failed: {}", e);
+            error!("create_room_in_db failed: {}", e);
             let _ = tx.rollback().await;
             return Err(ApiError::internal(format!("Failed to create room: {}", e)));
         }
@@ -260,7 +261,7 @@ impl RoomService {
             )
             .await;
         if let Err(e) = &result {
-            eprintln!("DEBUG: m.room.create event failed: {}", e);
+            error!("m.room.create event failed: {}", e);
             let _ = tx.rollback().await;
             return Err(ApiError::internal(format!(
                 "Failed to create m.room.create event: {}",
@@ -272,7 +273,7 @@ impl RoomService {
             .add_creator_to_room(&room_id, user_id, Some(&mut tx))
             .await;
         if let Err(e) = &result {
-            eprintln!("DEBUG: add_creator_to_room failed: {}", e);
+            error!("add_creator_to_room failed: {}", e);
             let _ = tx.rollback().await;
             return Err(e.clone());
         }
@@ -595,21 +596,21 @@ impl RoomService {
         }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
-        Ok(self.build_room_response(&room_id, room_alias))
+        Ok(Self::build_room_response(&room_id, room_alias))
     }
 
     fn generate_room_id(&self) -> String {
         generate_room_id(&self.server_name)
     }
 
-    fn determine_join_rule(&self, preset: Option<&str>) -> &'static str {
+    fn determine_join_rule(preset: Option<&str>) -> &'static str {
         match preset {
             Some("public_chat") => "public",
             _ => "invite",
         }
     }
 
-    fn is_public_visibility(&self, visibility: Option<&str>) -> bool {
+    fn is_public_visibility(visibility: Option<&str>) -> bool {
         visibility.unwrap_or("private") == "public"
     }
 
@@ -867,7 +868,7 @@ impl RoomService {
         room_alias_name.map(|a| format!("#{}:{}", a, self.server_name))
     }
 
-    fn build_room_response(&self, room_id: &str, room_alias: Option<String>) -> serde_json::Value {
+    fn build_room_response(room_id: &str, room_alias: Option<String>) -> serde_json::Value {
         json!({
             "room_id": room_id,
             "room_alias": room_alias

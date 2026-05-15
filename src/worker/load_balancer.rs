@@ -107,7 +107,7 @@ impl WorkerLoadBalancer {
 
         let candidates: Vec<&WorkerState> = workers
             .values()
-            .filter(|w| self.can_handle_task(&w.info, task_type))
+            .filter(|w| Self::can_handle_task(&w.info, task_type))
             .filter(|w| w.info.status == "running")
             .collect();
 
@@ -118,11 +118,11 @@ impl WorkerLoadBalancer {
 
         let selected = match self.strategy {
             LoadBalanceStrategy::RoundRobin => self.select_round_robin(&candidates).await,
-            LoadBalanceStrategy::LeastConnections => self.select_least_connections(&candidates),
+            LoadBalanceStrategy::LeastConnections => Self::select_least_connections(&candidates),
             LoadBalanceStrategy::WeightedRoundRobin => {
                 self.select_weighted_round_robin(&candidates).await
             }
-            LoadBalanceStrategy::Random => self.select_random(&candidates),
+            LoadBalanceStrategy::Random => Self::select_random(&candidates),
         };
 
         drop(workers);
@@ -137,7 +137,7 @@ impl WorkerLoadBalancer {
         selected
     }
 
-    fn can_handle_task(&self, worker: &WorkerInfo, task_type: &str) -> bool {
+    fn can_handle_task(worker: &WorkerInfo, task_type: &str) -> bool {
         match worker.worker_type.as_str() {
             "master" => true,
             "frontend" => matches!(task_type, "http" | "sync" | "presence"),
@@ -160,7 +160,7 @@ impl WorkerLoadBalancer {
         Some(candidates[*index].info.worker_id.clone())
     }
 
-    fn select_least_connections(&self, candidates: &[&WorkerState]) -> Option<String> {
+    fn select_least_connections(candidates: &[&WorkerState]) -> Option<String> {
         candidates
             .iter()
             .min_by(|a, b| {
@@ -193,7 +193,7 @@ impl WorkerLoadBalancer {
         candidates.first().map(|w| w.info.worker_id.clone())
     }
 
-    fn select_random(&self, candidates: &[&WorkerState]) -> Option<String> {
+    fn select_random(candidates: &[&WorkerState]) -> Option<String> {
         if candidates.is_empty() {
             return None;
         }

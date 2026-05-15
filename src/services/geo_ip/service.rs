@@ -192,7 +192,7 @@ impl GeoIpService {
 
         let mut matching_rules: Vec<&IpAccessRule> = rules
             .iter()
-            .filter(|rule| self.matches_ip_pattern(ip, &rule.ip_pattern))
+            .filter(|rule| Self::matches_ip_pattern(ip, &rule.ip_pattern))
             .collect();
 
         matching_rules.sort_by_key(|r| r.priority);
@@ -234,7 +234,7 @@ impl GeoIpService {
         Ok(true)
     }
 
-    fn matches_ip_pattern(&self, ip: &str, pattern: &str) -> bool {
+    fn matches_ip_pattern(ip: &str, pattern: &str) -> bool {
         if pattern.contains('/') {
             if let Some((network, prefix_len)) = pattern.split_once('/') {
                 if let (Ok(ip1), Ok(ip2)) = (ip.parse::<IpAddr>(), network.parse::<IpAddr>()) {

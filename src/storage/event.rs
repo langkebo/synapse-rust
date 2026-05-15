@@ -1462,7 +1462,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             event_type: "m.room.message".to_string(),
-            content: content.clone(),
+            content,
             state_key: None,
             depth: 0,
             origin_server_ts: 0,

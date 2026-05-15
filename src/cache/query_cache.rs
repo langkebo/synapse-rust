@@ -226,7 +226,7 @@ impl QueryCache {
                 let mut stats = self.stats.write().await;
                 stats.hits += 1;
                 stats.total_entries = cache_len;
-                stats.hit_rate = self.calculate_hit_rate_direct(&stats);
+                stats.hit_rate = Self::calculate_hit_rate_direct(&stats);
                 if track_access {
                     let mut hot_keys = self.hot_keys.write().await;
                     *hot_keys.entry(key.to_string()).or_insert(0) += 1;
@@ -289,7 +289,7 @@ impl QueryCache {
         stats.evictions += to_remove as u64;
     }
 
-    fn calculate_hit_rate_direct(&self, stats: &CacheStats) -> f64 {
+    fn calculate_hit_rate_direct(stats: &CacheStats) -> f64 {
         let total = stats.hits + stats.misses;
         if total == 0 {
             0.0
@@ -303,7 +303,7 @@ impl QueryCache {
         stats.hits += hits;
         stats.misses += misses;
         stats.total_entries = total_entries;
-        stats.hit_rate = self.calculate_hit_rate_direct(&stats);
+        stats.hit_rate = Self::calculate_hit_rate_direct(&stats);
     }
 
     async fn update_total_entries(&self) {

@@ -1,4 +1,5 @@
 use crate::common::{parse_stream_token, ApiError, ContentSanitizer};
+use crate::map_internal;
 use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::services::CreateRoomConfig;
 use crate::storage::event::{EventStorage, RoomEvent};
@@ -86,7 +87,7 @@ async fn get_room_event(
     let event = event_storage
         .get_event(event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -113,7 +114,7 @@ pub(crate) async fn get_single_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -151,7 +152,7 @@ pub(crate) async fn get_event_keys(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -185,7 +186,7 @@ pub(crate) async fn get_room_thread(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if root_event.room_id != room_id {
@@ -203,7 +204,7 @@ pub(crate) async fn get_room_thread(
         .thread_storage
         .get_thread_root_by_event(&room_id, &event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+        .map_err(map_internal!("Failed to get thread root"))?
     {
         let thread_id = thread_root.thread_id.clone().unwrap_or_default();
         if !thread_id.is_empty() {
@@ -212,19 +213,19 @@ pub(crate) async fn get_room_thread(
                 .thread_storage
                 .get_thread_replies(&room_id, &thread_id, Some(50), None)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get thread replies: {}", e)))?;
+                .map_err(map_internal!("Failed to get thread replies"))?;
             reply_count = state
                 .services
                 .thread_storage
                 .get_reply_count(&room_id, &thread_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get reply count: {}", e)))?;
+                .map_err(map_internal!("Failed to get reply count"))?;
             participants_json = state
                 .services
                 .thread_storage
                 .get_thread_participants(&room_id, &thread_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get participants: {}", e)))?;
+                .map_err(map_internal!("Failed to get participants"))?;
 
             replies_json = replies
                 .into_iter()
@@ -290,7 +291,7 @@ pub(crate) async fn get_room_notifications(
     .bind(limit as i64)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     let notifications_list: Vec<Value> = notifications
         .iter()
@@ -336,7 +337,7 @@ pub(crate) async fn get_room_info(
     .bind(user_id)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
+    .map_err(map_internal!("Failed to check room membership"))?;
 
     let membership = match membership {
         Some(row) => row.get::<Option<String>, _>("membership"),
@@ -354,7 +355,7 @@ pub(crate) async fn get_room_info(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let summary = state
@@ -435,7 +436,7 @@ pub(crate) async fn get_room_version(
     .bind(&auth_user.user_id)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to check room membership: {}", e)))?;
+    .map_err(map_internal!("Failed to check room membership"))?;
 
     if membership.is_none() {
         return Err(ApiError::not_found(
@@ -448,7 +449,7 @@ pub(crate) async fn get_room_version(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     Ok(Json(json!({
@@ -474,7 +475,7 @@ pub(crate) async fn get_joined_rooms(
     .bind(user_id)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))?;
+    .map_err(map_internal!("Failed to get joined rooms"))?;
 
     let room_ids: Vec<String> = rooms
         .iter()
@@ -507,7 +508,7 @@ pub(crate) async fn get_my_rooms(
     .bind(user_id)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
+    .map_err(map_internal!("Failed to get rooms"))?;
 
     let mut room_list = Vec::new();
     for row in rooms.iter() {
@@ -544,7 +545,7 @@ pub(crate) async fn get_messages(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -812,7 +813,7 @@ pub(crate) async fn room_initial_sync(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .map_err(map_internal!("Database error"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
@@ -832,7 +833,7 @@ pub(crate) async fn room_initial_sync(
         .event_storage
         .get_state_events(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room state: {}", e)))?
+        .map_err(map_internal!("Failed to get room state"))?
         .into_iter()
         .map(|event| {
             json!({
@@ -900,7 +901,7 @@ pub(crate) async fn get_room_members(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(map_internal!("Database error"))?;
 
     let room = room.ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
@@ -1036,7 +1037,7 @@ pub(crate) async fn get_joined_members(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(map_internal!("Database error"))?;
 
     let room = room.ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
@@ -1053,7 +1054,7 @@ pub(crate) async fn get_joined_members(
         .member_storage
         .get_joined_members(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get joined members: {}", e)))?;
+        .map_err(map_internal!("Failed to get joined members"))?;
 
     let joined: std::collections::HashMap<String, Value> = members
         .into_iter()
@@ -1359,7 +1360,7 @@ pub(crate) async fn get_room_visibility(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1369,7 +1370,7 @@ pub(crate) async fn get_room_visibility(
         .room_service
         .get_room_visibility(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room visibility: {}", e)))?;
+        .map_err(map_internal!("Failed to get room visibility"))?;
 
     Ok(Json(json!({
         "visibility": visibility
@@ -1388,7 +1389,7 @@ pub(crate) async fn set_room_visibility(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1417,7 +1418,7 @@ pub(crate) async fn set_room_visibility(
         .room_service
         .is_room_creator(&room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+        .map_err(map_internal!("Failed to check room creator"))?;
 
     if !is_creator {
         return Err(ApiError::forbidden(
@@ -1472,7 +1473,7 @@ pub(crate) async fn get_room_state(
         .room_service
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?;
+        .map_err(map_internal!("Failed to check room existence"))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
@@ -1485,7 +1486,7 @@ pub(crate) async fn get_room_state(
         .event_storage
         .get_state_events(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+        .map_err(map_internal!("Failed to get state"))?;
     let state_events: Vec<Value> = events
         .iter()
         .map(|e| {
@@ -1516,7 +1517,7 @@ pub(crate) async fn get_state_by_type(
         .room_service
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?;
+        .map_err(map_internal!("Failed to check room existence"))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
@@ -1535,7 +1536,7 @@ pub(crate) async fn get_state_by_type(
         .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+        .map_err(map_internal!("Failed to get state"))?;
 
     let event_with_empty_key = events
         .iter()
@@ -1584,7 +1585,7 @@ pub(crate) async fn get_state_event(
         .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+        .map_err(map_internal!("Failed to get state"))?;
 
     let event = events
         .iter()
@@ -1694,7 +1695,7 @@ pub(crate) async fn send_state_event(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to send state event: {}", e)))?;
+        .map_err(map_internal!("Failed to send state event"))?;
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
@@ -1703,7 +1704,7 @@ pub(crate) async fn send_state_event(
             .beacon_service
             .create_beacon(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to index beacon_info: {}", e)))?;
+            .map_err(map_internal!("Failed to index beacon_info"))?;
     }
 
     Ok(Json(json!({
@@ -1817,7 +1818,7 @@ pub(crate) async fn put_state_event(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+        .map_err(map_internal!("Failed to put state event"))?;
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
@@ -1826,7 +1827,7 @@ pub(crate) async fn put_state_event(
             .beacon_service
             .create_beacon(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to index beacon_info: {}", e)))?;
+            .map_err(map_internal!("Failed to index beacon_info"))?;
     }
 
     Ok(Json(json!({
@@ -1856,7 +1857,7 @@ pub(crate) async fn get_state_event_empty_key(
         .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+        .map_err(map_internal!("Failed to get state"))?;
 
     let event = events
         .iter()
@@ -1880,7 +1881,7 @@ pub(crate) async fn get_power_levels(
         .event_storage
         .get_state_events_by_type(&room_id, "m.room.power_levels")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get power levels: {}", e)))?;
+        .map_err(map_internal!("Failed to get power levels"))?;
 
     let event = events
         .iter()
@@ -1922,7 +1923,7 @@ pub(crate) async fn put_state_event_empty_key(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+        .map_err(map_internal!("Failed to put state event"))?;
 
     Ok(Json(json!({
         "event_id": new_event_id,
@@ -1961,7 +1962,7 @@ pub(crate) async fn put_state_event_no_key(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to put state event: {}", e)))?;
+        .map_err(map_internal!("Failed to put state event"))?;
 
     Ok(Json(json!({
         "event_id": new_event_id,
@@ -2009,7 +2010,7 @@ pub(crate) async fn send_receipt(
             &body,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store receipt: {}", e)))?;
+        .map_err(map_internal!("Failed to store receipt"))?;
 
     let now_ts = chrono::Utc::now().timestamp_millis();
     let mut receipt_entry = body.as_object().cloned().unwrap_or_default();
@@ -2084,7 +2085,7 @@ pub(crate) async fn get_receipts(
         .room_storage
         .get_receipts(&room_id, &receipt_type, &event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get receipts: {}", e)))?;
+        .map_err(map_internal!("Failed to get receipts"))?;
 
     Ok(Json(build_receipts_chunk(receipts)))
 }
@@ -2119,7 +2120,7 @@ pub(crate) async fn set_read_markers(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let is_member = is_joined_room_member_or_creator(
@@ -2218,7 +2219,7 @@ pub async fn write_read_markers_from_body(
             room_storage
                 .update_read_marker_with_type(room_id, user_id, event_id, "m.fully_read")
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to set read marker: {}", e)))?;
+                .map_err(map_internal!("Failed to set read marker"))?;
         }
     }
 
@@ -2238,7 +2239,7 @@ pub(crate) async fn get_room_membership(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2250,7 +2251,7 @@ pub(crate) async fn get_room_membership(
         .member_storage
         .get_member(&room_id, &target_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .map_err(map_internal!("Database error"))?
         .map(|m| m.membership)
         .unwrap_or_else(|| "leave".to_string());
 
@@ -2272,7 +2273,7 @@ pub(crate) async fn set_room_account_data(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2296,7 +2297,7 @@ pub(crate) async fn set_room_account_data(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -2317,7 +2318,7 @@ pub(crate) async fn get_room_account_data(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2332,7 +2333,7 @@ pub(crate) async fn get_room_account_data(
     .bind(&data_type)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     match result {
         Some(row) => Ok(Json(
@@ -2357,7 +2358,7 @@ pub(crate) async fn get_room_turn_server(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2398,7 +2399,7 @@ pub(crate) async fn get_room_sync(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2464,7 +2465,7 @@ pub(crate) async fn get_room_thread_by_id(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2508,7 +2509,7 @@ pub(crate) async fn get_room_capabilities(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2520,7 +2521,7 @@ pub(crate) async fn get_room_capabilities(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let is_encrypted = sqlx::query(
@@ -2534,7 +2535,7 @@ pub(crate) async fn get_room_capabilities(
     .bind(&room_id)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to check room encryption: {}", e)))?
+    .map_err(map_internal!("Failed to check room encryption"))?
     .is_some();
 
     let join_rule = if room.is_public { "public" } else { "invite" };
@@ -2695,7 +2696,7 @@ pub(crate) async fn get_room_keys(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2729,7 +2730,7 @@ pub(crate) async fn get_room_key_count(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2763,7 +2764,7 @@ pub(crate) async fn claim_room_keys(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2810,7 +2811,7 @@ pub(crate) async fn get_room_keys_version(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2835,7 +2836,7 @@ pub(crate) async fn get_room_message_queue(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2854,7 +2855,7 @@ pub(crate) async fn get_room_message_queue(
     .bind(&room_id)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get pending events: {}", e)))?
+    .map_err(map_internal!("Failed to get pending events"))?
     .into_iter()
     .map(|row| {
         use sqlx::Row;
@@ -2912,7 +2913,7 @@ pub(crate) async fn get_room_timeline(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2944,7 +2945,7 @@ pub(crate) async fn get_room_unread_count(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2974,7 +2975,7 @@ pub(crate) async fn get_room_metadata(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -2986,7 +2987,7 @@ pub(crate) async fn get_room_metadata(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let mut response = json!({
@@ -3041,7 +3042,7 @@ pub(crate) async fn get_room_encrypted_events(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3053,7 +3054,7 @@ pub(crate) async fn get_room_encrypted_events(
         .event_storage
         .get_room_events_by_type(&room_id, "m.room.encrypted", 100)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get encrypted events: {}", e)))?;
+        .map_err(map_internal!("Failed to get encrypted events"))?;
 
     let events: Vec<serde_json::Value> = encrypted_events
         .into_iter()
@@ -3087,7 +3088,7 @@ pub(crate) async fn get_room_vault_data(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3102,7 +3103,7 @@ pub(crate) async fn get_room_vault_data(
     .bind("m.room.vault_data")
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     match result {
         Some(row) => Ok(Json(json!({
@@ -3132,7 +3133,7 @@ pub(crate) async fn set_room_vault_data(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3155,7 +3156,7 @@ pub(crate) async fn set_room_vault_data(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -3175,7 +3176,7 @@ pub(crate) async fn get_room_rendered(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3187,7 +3188,7 @@ pub(crate) async fn get_room_rendered(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let events = state
@@ -3195,7 +3196,7 @@ pub(crate) async fn get_room_rendered(
         .event_storage
         .get_room_events(&room_id, 20)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room events: {}", e)))?;
+        .map_err(map_internal!("Failed to get room events"))?;
 
     let lines: Vec<Value> = events
         .iter()
@@ -3239,7 +3240,7 @@ pub(crate) async fn get_room_external_ids(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3251,7 +3252,7 @@ pub(crate) async fn get_room_external_ids(
         .room_storage
         .get_room_aliases(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))?;
+        .map_err(map_internal!("Failed to get room aliases"))?;
 
     let external_ids: Vec<Value> = aliases
         .into_iter()
@@ -3275,7 +3276,7 @@ pub(crate) async fn get_room_event_perspective(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3287,7 +3288,7 @@ pub(crate) async fn get_room_event_perspective(
         .event_storage
         .get_room_events(&room_id, 100)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room events: {}", e)))?;
+        .map_err(map_internal!("Failed to get room events"))?;
 
     let mut senders: HashMap<String, usize> = HashMap::new();
     let mut event_types: HashMap<String, usize> = HashMap::new();
@@ -3319,7 +3320,7 @@ pub(crate) async fn get_room_user_fragments(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3331,7 +3332,7 @@ pub(crate) async fn get_room_user_fragments(
         .event_storage
         .get_room_events(&room_id, 200)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room events: {}", e)))?;
+        .map_err(map_internal!("Failed to get room events"))?;
 
     let fragments: Vec<Value> = events
         .into_iter()
@@ -3365,7 +3366,7 @@ pub(crate) async fn get_room_service_types(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3377,7 +3378,7 @@ pub(crate) async fn get_room_service_types(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let mut service_types = vec!["messaging".to_string()];
@@ -3461,7 +3462,7 @@ pub(crate) async fn get_room_reduced_events(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3473,7 +3474,7 @@ pub(crate) async fn get_room_reduced_events(
         .event_storage
         .get_room_events(&room_id, 100)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room events: {}", e)))?;
+        .map_err(map_internal!("Failed to get room events"))?;
 
     let mut seen_types = HashSet::new();
     let reduced_events: Vec<Value> = events
@@ -3509,7 +3510,7 @@ pub(crate) async fn get_room_device(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3521,7 +3522,7 @@ pub(crate) async fn get_room_device(
         .device_storage
         .get_device(&device_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?
+        .map_err(map_internal!("Failed to get device"))?
         .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
 
     let is_member = state
@@ -3529,7 +3530,7 @@ pub(crate) async fn get_room_device(
         .member_storage
         .is_member(&room_id, &device.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to verify device membership: {}", e)))?;
+        .map_err(map_internal!("Failed to verify device membership"))?;
 
     if !is_member {
         return Err(ApiError::not_found(
@@ -3562,7 +3563,7 @@ pub(crate) async fn forward_room_keys(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3597,7 +3598,7 @@ pub(crate) async fn get_room_event_url(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3609,7 +3610,7 @@ pub(crate) async fn get_room_event_url(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -3660,7 +3661,7 @@ pub(crate) async fn sign_room_event(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3672,7 +3673,7 @@ pub(crate) async fn sign_room_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -3732,7 +3733,7 @@ pub(crate) async fn sign_room_event(
     .bind(created_ts)
     .execute(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save signature: {}", e)))?;
+    .map_err(map_internal!("Failed to save signature"))?;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id,
@@ -3759,7 +3760,7 @@ pub(crate) async fn verify_room_event(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3771,7 +3772,7 @@ pub(crate) async fn verify_room_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -3790,7 +3791,7 @@ pub(crate) async fn verify_room_event(
     .bind(&event_id)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get signatures: {}", e)))?;
+    .map_err(map_internal!("Failed to get signatures"))?;
 
     let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
     let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -3834,7 +3835,7 @@ pub(crate) async fn get_room_invites(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3846,14 +3847,14 @@ pub(crate) async fn get_room_invites(
         .member_storage
         .get_joined_members(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room invites: {}", e)))?;
+        .map_err(map_internal!("Failed to get room invites"))?;
 
     let invited_members: Vec<serde_json::Value> = state
         .services
         .member_storage
         .get_room_members(&room_id, "invite")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room members: {}", e)))?
+        .map_err(map_internal!("Failed to get room members"))?
         .into_iter()
         .map(|m| {
             serde_json::json!({
@@ -3886,7 +3887,7 @@ pub(crate) async fn get_retention_policy(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -3898,7 +3899,7 @@ pub(crate) async fn get_retention_policy(
         .retention_storage
         .get_room_policy(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get retention policy: {}", e)))?;
+        .map_err(map_internal!("Failed to get retention policy"))?;
 
     let server_policy = state
         .services
@@ -3951,7 +3952,7 @@ pub(crate) async fn get_room_spaces(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -4023,7 +4024,7 @@ pub(crate) async fn search_room_messages(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -4085,7 +4086,7 @@ pub(crate) async fn search_room_messages(
     .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(map_internal!("Database error"))?;
 
     let results: Vec<Value> = rows
         .into_iter()
@@ -4132,7 +4133,7 @@ pub(crate) async fn get_membership_events(
         .member_storage
         .get_membership_history(&room_id, limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get membership events: {}", e)))?;
+        .map_err(map_internal!("Failed to get membership events"))?;
 
     let events: Vec<Value> = memberships
         .into_iter()
@@ -4174,7 +4175,7 @@ pub(crate) async fn redact_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if original_event.room_id != room_id {
@@ -4214,7 +4215,7 @@ pub(crate) async fn redact_event(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to redact event: {}", e)))?;
+        .map_err(map_internal!("Failed to redact event"))?;
 
     state
         .services
@@ -4264,7 +4265,7 @@ pub(crate) async fn kick_user(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -4274,7 +4275,7 @@ pub(crate) async fn kick_user(
         .user_storage
         .user_exists(target)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+        .map_err(map_internal!("Failed to check user existence"))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -4297,7 +4298,7 @@ pub(crate) async fn kick_user(
         .member_storage
         .remove_member(&room_id, target)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to kick user: {}", e)))?;
+        .map_err(map_internal!("Failed to kick user"))?;
 
     state
         .services
@@ -4374,7 +4375,7 @@ pub(crate) async fn ban_user(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(map_internal!("Failed to check room existence"))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -4384,7 +4385,7 @@ pub(crate) async fn ban_user(
         .user_storage
         .user_exists(target)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+        .map_err(map_internal!("Failed to check user existence"))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -4407,7 +4408,7 @@ pub(crate) async fn ban_user(
         .member_storage
         .add_member(&room_id, target, "ban", None, None, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
+        .map_err(map_internal!("Failed to ban user"))?;
 
     state
         .services
@@ -4484,7 +4485,7 @@ pub(crate) async fn unban_user(
         .member_storage
         .remove_member(&room_id, target)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to unban user: {}", e)))?;
+        .map_err(map_internal!("Failed to unban user"))?;
 
     let event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
     let content = json!({
@@ -4532,7 +4533,7 @@ pub(crate) async fn get_room_permissions(
         .event_storage
         .get_state_events_by_type(&room_id, "m.room.power_levels")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get power levels: {}", e)))?;
+        .map_err(map_internal!("Failed to get power levels"))?;
 
     let pl_content = power_levels_events
         .iter()
@@ -4545,7 +4546,7 @@ pub(crate) async fn get_room_permissions(
         .event_storage
         .get_state_events_by_type(&room_id, "m.room.join_rules")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get join rules: {}", e)))?;
+        .map_err(map_internal!("Failed to get join rules"))?;
 
     let join_rule = join_rules_events
         .iter()
@@ -4586,7 +4587,7 @@ pub(crate) async fn get_room_resolve(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let aliases = state
@@ -4594,7 +4595,7 @@ pub(crate) async fn get_room_resolve(
         .room_storage
         .get_room_aliases(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))?;
+        .map_err(map_internal!("Failed to get room aliases"))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -4626,7 +4627,7 @@ pub(crate) async fn get_relations(
             .thread_storage
             .get_thread_root_by_event(&room_id, &event_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+            .map_err(map_internal!("Failed to get thread root"))?
         {
             let thread_id = thread_root.thread_id.clone().unwrap_or_default();
             if !thread_id.is_empty() {
@@ -4657,7 +4658,7 @@ pub(crate) async fn get_relations(
             .event_storage
             .get_event(&event_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+            .map_err(map_internal!("Failed to get event"))?;
 
         if let Some(root) = root_event {
             chunk.insert(
@@ -4686,7 +4687,7 @@ pub(crate) async fn get_relations(
             .relations_storage
             .get_relations(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get relations: {}", e)))?;
+            .map_err(map_internal!("Failed to get relations"))?;
 
         for evt in related_events {
             chunk.push(json!({

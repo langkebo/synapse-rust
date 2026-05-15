@@ -25,6 +25,7 @@ mod tests {
             userinfo_endpoint: Some("https://openidconnect.googleapis.com/v1/userinfo".to_string()),
             jwks_uri: Some("https://www.googleapis.com/oauth2/v3/certs".to_string()),
             timeout: 30,
+            user_mapping_provider: None,
         }
     }
 

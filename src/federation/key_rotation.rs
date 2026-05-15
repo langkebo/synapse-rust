@@ -1067,6 +1067,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[allow(clippy::redundant_clone)]
     #[tokio::test]
     async fn test_key_rotation_manager_clone() {
         let pool = std::sync::Arc::new(

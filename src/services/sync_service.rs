@@ -1,5 +1,6 @@
 use crate::common::*;
 use crate::e2ee::device_keys::DeviceKeyStorage;
+use crate::map_internal;
 use crate::services::*;
 use crate::storage::{EventQueryFilter, PresenceStorage, UserRoomMembership};
 use serde::{Deserialize, Serialize};
@@ -546,7 +547,7 @@ impl SyncService {
             _ => serde_json::Map::new(),
         };
 
-        let stream_id = self.next_event_stream_id(&since_token, &room_events, None);
+        let stream_id = Self::next_event_stream_id(&since_token, &room_events, None);
         result.insert(
             "next_batch".to_string(),
             json!(SyncToken {
@@ -825,7 +826,7 @@ impl SyncService {
                     Ok(events)
                 }
             } else {
-                let since_ts = self.event_since_ts(&since_token.map(|t| (*t).clone()));
+                let since_ts = Self::event_since_ts(&since_token.map(|t| (*t).clone()));
                 let events = match event_filter.as_ref() {
                     Some(filter) => {
                         self.event_storage
@@ -951,7 +952,7 @@ impl SyncService {
         self.event_storage
             .has_room_events_since(room_ids, since_ts)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to poll for events: {}", e)))
+            .map_err(map_internal!("Failed to poll for events"))
     }
 
     async fn has_incremental_to_device_updates(
@@ -979,7 +980,7 @@ impl SyncService {
         .bind(since_stream_id)
         .fetch_optional(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to poll for to-device updates: {}", e)))?;
+        .map_err(map_internal!("Failed to poll for to-device updates"))?;
 
         Ok(has_to_device.is_some())
     }
@@ -1024,7 +1025,7 @@ impl SyncService {
             .map(|filter| filter.event_format)
             .unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
-        let since_ts = self.event_since_ts(since_token);
+        let since_ts = Self::event_since_ts(since_token);
         let since_stream_ordering = since_token
             .as_ref()
             .filter(|t| t.stream_id < Self::TIMESTAMP_TOKEN_MIN && t.stream_id > 0)
@@ -1175,7 +1176,7 @@ impl SyncService {
                 .get(room_id)
                 .copied()
                 .unwrap_or((0, 0));
-            let room_sync = self.build_room_sync_value(BuildRoomSyncValueRequest {
+            let room_sync = Self::build_room_sync_value(BuildRoomSyncValueRequest {
                 events,
                 state_list: state_events,
                 ephemeral_events,
@@ -1206,7 +1207,7 @@ impl SyncService {
         }
 
         let stream_id =
-            self.next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
+            Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
         let device_one_time_keys_count = self
             .build_device_one_time_keys_count(user_id, device_id)
             .await?;
@@ -1245,7 +1246,7 @@ impl SyncService {
         let counts = device_key_storage
             .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load one-time key count: {}", e)))?;
+            .map_err(map_internal!("Failed to load one-time key count"))?;
 
         let mut result = serde_json::Map::new();
         for (algo, count) in counts {
@@ -1268,7 +1269,7 @@ impl SyncService {
             is_incremental,
             room_filter,
         } = request;
-        let since_ts = self.event_since_ts(&since_token.cloned());
+        let since_ts = Self::event_since_ts(&since_token.cloned());
         let (
             changed_member_ids,
             state_list,
@@ -1339,7 +1340,7 @@ impl SyncService {
             room_filter.and_then(|f| f.account_data.as_ref()),
         );
 
-        Ok(self.build_room_sync_value(BuildRoomSyncValueRequest {
+        Ok(Self::build_room_sync_value(BuildRoomSyncValueRequest {
             events,
             state_list,
             ephemeral_events,
@@ -1354,7 +1355,7 @@ impl SyncService {
         }))
     }
 
-    fn event_to_json(&self, event: &RoomEvent, event_format: SyncEventFormat) -> Value {
+    fn event_to_json(event: &RoomEvent, event_format: SyncEventFormat) -> Value {
         let now = chrono::Utc::now().timestamp_millis();
         let age = now.saturating_sub(event.origin_server_ts);
 
@@ -1383,7 +1384,7 @@ impl SyncService {
         obj
     }
 
-    fn state_event_to_json(&self, event: &StateEvent, event_format: SyncEventFormat) -> Value {
+    fn state_event_to_json(event: &StateEvent, event_format: SyncEventFormat) -> Value {
         let now = chrono::Utc::now().timestamp_millis();
         let sender = event.user_id.as_deref().unwrap_or(&event.sender);
         let age = now.saturating_sub(event.origin_server_ts);
@@ -1409,7 +1410,7 @@ impl SyncService {
         obj
     }
 
-    fn build_room_sync_value(&self, request: BuildRoomSyncValueRequest<'_>) -> Value {
+    fn build_room_sync_value(request: BuildRoomSyncValueRequest<'_>) -> Value {
         let BuildRoomSyncValueRequest {
             events,
             state_list,
@@ -1424,7 +1425,7 @@ impl SyncService {
         let event_list: Vec<Value> = events
             .iter()
             .map(|event| {
-                Self::filter_event_fields(self.event_to_json(event, event_format), event_fields)
+                Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields)
             })
             .collect();
         let prev_batch = events
@@ -1996,14 +1997,14 @@ impl SyncService {
             .event_storage
             .get_state_events_batch(room_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
+            .map_err(map_internal!("Failed to get room state events"))?;
 
         Ok(state_events
             .into_iter()
             .map(|(room_id, events)| {
                 let values = events
                     .iter()
-                    .map(|event| self.state_event_to_json(event, event_format))
+                    .map(|event| Self::state_event_to_json(event, event_format))
                     .collect();
                 (room_id, values)
             })
@@ -2088,13 +2089,13 @@ impl SyncService {
                 if let Some(full_state) = full_state_for_newly_visible.get(&room_id) {
                     let values = full_state
                         .iter()
-                        .map(|event| self.state_event_to_json(event, event_format))
+                        .map(|event| Self::state_event_to_json(event, event_format))
                         .collect();
                     result.insert(room_id, values);
                 } else {
                     let values = events
                         .iter()
-                        .map(|event| self.state_event_to_json(event, event_format))
+                        .map(|event| Self::state_event_to_json(event, event_format))
                         .collect();
                     result.insert(room_id, values);
                 }
@@ -2106,7 +2107,7 @@ impl SyncService {
             .event_storage
             .get_state_events_by_type_batch(room_ids, "m.room.member")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room state events: {}", e)))?;
+            .map_err(map_internal!("Failed to get room state events"))?;
 
         let mut result = HashMap::new();
         for room_id in room_ids {
@@ -2119,14 +2120,14 @@ impl SyncService {
                     if event.event_type.as_deref() == Some("m.room.member") {
                         continue;
                     }
-                    values.push(self.state_event_to_json(event, event_format));
+                    values.push(Self::state_event_to_json(event, event_format));
                 }
             } else {
                 for event in delta_state_by_room.get(room_id).into_iter().flatten() {
                     if event.event_type.as_deref() == Some("m.room.member") {
                         continue;
                     }
-                    values.push(self.state_event_to_json(event, event_format));
+                    values.push(Self::state_event_to_json(event, event_format));
                 }
             }
 
@@ -2135,7 +2136,7 @@ impl SyncService {
                 .into_iter()
                 .flatten()
             {
-                values.push(self.state_event_to_json(event, event_format));
+                values.push(Self::state_event_to_json(event, event_format));
             }
 
             result.insert(room_id.clone(), values);
@@ -2153,7 +2154,7 @@ impl SyncService {
             .presence_storage
             .get_presence_with_meta(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get presence for sync: {}", e)))?;
+            .map_err(map_internal!("Failed to get presence for sync"))?;
 
         let Some((presence, status_msg, last_active_ts)) = presence else {
             return Ok(Vec::new());
@@ -2197,7 +2198,7 @@ impl SyncService {
             .bind(user_id)
             .fetch_all(&*self.event_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get account data: {}", e)))?;
+            .map_err(map_internal!("Failed to get account data"))?;
 
         let mut events: Vec<serde_json::Value> = rows
             .iter()
@@ -2221,7 +2222,7 @@ impl SyncService {
             .member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load joined rooms: {}", e)))?
+            .map_err(map_internal!("Failed to load joined rooms"))?
             .into_iter()
             .collect();
         if let Some(direct) = events.iter_mut().find(|e| e["type"] == "m.direct") {
@@ -2281,7 +2282,7 @@ impl SyncService {
         let Some(device_id) = device_id else {
             return Ok((Vec::new(), 0));
         };
-        let since_stream_id = self.to_device_since_stream_id(since);
+        let since_stream_id = Self::to_device_since_stream_id(since);
 
         let rows = sqlx::query(
             r#"
@@ -2300,7 +2301,7 @@ impl SyncService {
         .bind(self.sync_to_device_limit())
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get to-device events: {}", e)))?;
+        .map_err(map_internal!("Failed to get to-device events"))?;
 
         let mut max_stream_id = since_stream_id;
         let events: Vec<serde_json::Value> = rows
@@ -2339,7 +2340,7 @@ impl SyncService {
         user_id: &str,
         since: &Option<SyncToken>,
     ) -> ApiResult<(serde_json::Value, i64)> {
-        let since_stream_id = self.device_list_since_stream_id(since);
+        let since_stream_id = Self::device_list_since_stream_id(since);
 
         // Get users whose devices have changed
         let changed_rows = sqlx::query(
@@ -2357,7 +2358,7 @@ impl SyncService {
         .bind(user_id)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device lists: {}", e)))?;
+        .map_err(map_internal!("Failed to get device lists"))?;
 
         let mut max_stream_id = since_stream_id;
         let changed: Vec<String> = changed_rows
@@ -2390,7 +2391,7 @@ impl SyncService {
         .bind(user_id)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get left device lists: {}", e)))?;
+        .map_err(map_internal!("Failed to get left device lists"))?;
 
         let left: Vec<String> = left_rows
             .iter()
@@ -2409,14 +2410,14 @@ impl SyncService {
         ))
     }
 
-    fn to_device_since_stream_id(&self, since: &Option<SyncToken>) -> i64 {
+    fn to_device_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since
             .as_ref()
             .and_then(|token| token.to_device_stream_id)
             .unwrap_or(0)
     }
 
-    fn device_list_since_stream_id(&self, since: &Option<SyncToken>) -> i64 {
+    fn device_list_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since
             .as_ref()
             .and_then(|token| token.device_list_stream_id)
@@ -2446,7 +2447,7 @@ impl SyncService {
         .bind(limit)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {}", e)))?;
+        .map_err(map_internal!("Failed to get ephemeral events"))?;
 
         let events: Vec<serde_json::Value> = rows
             .iter()
@@ -2509,7 +2510,7 @@ impl SyncService {
         .bind(limit)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room ephemeral events: {}", e)))?;
+        .map_err(map_internal!("Failed to get room ephemeral events"))?;
 
         for row in rows {
             use sqlx::Row;
@@ -2546,7 +2547,7 @@ impl SyncService {
         .bind(room_id)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room account data: {}", e)))?;
+        .map_err(map_internal!("Failed to get room account data"))?;
 
         Ok(rows
             .iter()
@@ -2587,7 +2588,7 @@ impl SyncService {
         .bind(room_ids)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room account data: {}", e)))?;
+        .map_err(map_internal!("Failed to get room account data"))?;
 
         for row in rows {
             use sqlx::Row;
@@ -2620,7 +2621,7 @@ impl SyncService {
         .bind(user_id)
         .fetch_optional(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get read marker: {}", e)))?
+        .map_err(map_internal!("Failed to get read marker"))?
         .flatten();
 
         let since_ts = last_read_ts.unwrap_or(0);
@@ -2731,7 +2732,7 @@ impl SyncService {
         .bind(mention_pattern)
         .fetch_all(&*self.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get unread counts: {}", e)))?;
+        .map_err(map_internal!("Failed to get unread counts"))?;
 
         for row in rows {
             use sqlx::Row;
@@ -2818,7 +2819,7 @@ impl SyncService {
             .collect()
     }
 
-    fn event_since_ts(&self, since_token: &Option<SyncToken>) -> i64 {
+    fn event_since_ts(since_token: &Option<SyncToken>) -> i64 {
         match since_token {
             Some(token) if token.stream_id >= Self::TIMESTAMP_TOKEN_MIN => token.stream_id,
             Some(token)
@@ -2832,7 +2833,6 @@ impl SyncService {
     }
 
     fn next_event_stream_id(
-        &self,
         since_token: &Option<SyncToken>,
         room_events: &HashMap<String, Vec<RoomEvent>>,
         state_change_ts_by_room: Option<&HashMap<String, i64>>,
@@ -2880,7 +2880,7 @@ impl SyncService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?
+            .map_err(map_internal!("Failed to check membership"))?
         {
             return Err(ApiError::forbidden(
                 "You are not a member of this room".to_string(),
@@ -2891,11 +2891,11 @@ impl SyncService {
             .event_storage
             .get_room_events(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
+            .map_err(map_internal!("Failed to get messages"))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
-            .map(|e| self.event_to_json(e, SyncEventFormat::Client))
+            .map(|e| Self::event_to_json(e, SyncEventFormat::Client))
             .collect();
 
         let end_token = events
@@ -2919,7 +2919,7 @@ impl SyncService {
             .room_storage
             .get_public_rooms(limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get public rooms: {}", e)))?;
+            .map_err(map_internal!("Failed to get public rooms"))?;
 
         let room_list: Vec<serde_json::Value> = rooms
             .iter()
@@ -2963,7 +2963,7 @@ impl SyncService {
             .member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
+            .map_err(map_internal!("Failed to get rooms"))?;
 
         let since_ts: i64 = from
             .trim_start_matches('s')
@@ -2976,12 +2976,12 @@ impl SyncService {
             .event_storage
             .get_room_events_since_batch(&room_ids, since_ts, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get events: {}", e)))?;
+            .map_err(map_internal!("Failed to get events"))?;
 
         let mut chunk = vec![];
         for room_events in events.values() {
             for event in room_events {
-                chunk.push(self.event_to_json(event, SyncEventFormat::Client));
+                chunk.push(Self::event_to_json(event, SyncEventFormat::Client));
             }
         }
 

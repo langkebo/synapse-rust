@@ -284,7 +284,7 @@ impl SlidingSyncService {
             .and_then(|raw| serde_json::from_str::<SlidingListWindowSnapshot>(&raw).ok());
 
         let ops = if let (Some(_), Some(previous)) = (since_pos, previous_snapshot.as_ref()) {
-            self.build_incremental_ops(previous, current_ranges)
+            Self::build_incremental_ops(previous, current_ranges)
                 .unwrap_or_else(|| Self::build_sync_ops(current_ranges))
         } else {
             Self::build_sync_ops(current_ranges)
@@ -395,7 +395,7 @@ impl SlidingSyncService {
         config: &RoomSubscriptionConfig,
         initial: bool,
     ) -> Result<serde_json::Value, sqlx::Error> {
-        let mut room_json = self.room_to_json(room);
+        let mut room_json = Self::room_to_json(room);
         let required_state_events = self
             .build_required_state_events(&room.room_id, config.required_state.as_ref())
             .await?;
@@ -419,7 +419,7 @@ impl SlidingSyncService {
         Ok(room_json)
     }
 
-    fn room_to_json(&self, room: &SlidingSyncRoom) -> Value {
+    fn room_to_json(room: &SlidingSyncRoom) -> Value {
         json!({
             "room_id": room.room_id,
             "name": room.name,
@@ -1016,7 +1016,6 @@ impl SlidingSyncService {
     }
 
     fn build_incremental_ops(
-        &self,
         previous: &SlidingListWindowSnapshot,
         current: &[SlidingListRangeSnapshot],
     ) -> Option<Vec<Value>> {
@@ -1285,7 +1284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_room_to_json() {
-        let service = create_test_service();
+        let _service = create_test_service();
         let room = SlidingSyncRoom {
             id: 1,
             user_id: "@alice:example.com".to_string(),
@@ -1307,7 +1306,7 @@ mod tests {
             updated_ts: 1234567890000,
         };
 
-        let json = service.room_to_json(&room);
+        let json = SlidingSyncService::room_to_json(&room);
 
         assert_eq!(json["room_id"], "!room:example.com");
         assert_eq!(json["name"], "Test Room");
@@ -1338,7 +1337,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_incremental_ops_uses_insert_and_delete() {
-        let service = create_test_service();
+        let _service = create_test_service();
         let previous = SlidingListWindowSnapshot {
             ranges: vec![SlidingListRangeSnapshot {
                 start: 0,
@@ -1358,7 +1357,7 @@ mod tests {
             ],
         }];
 
-        let ops = service.build_incremental_ops(&previous, &current).unwrap();
+        let ops = SlidingSyncService::build_incremental_ops(&previous, &current).unwrap();
 
         assert!(ops.iter().any(|op| op["op"] == "INSERT"));
         assert!(ops.iter().any(|op| op["op"] == "DELETE"));
