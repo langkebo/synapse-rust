@@ -6,7 +6,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use sqlx::Row;
 
 pub fn create_server_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -243,22 +242,21 @@ pub async fn whois(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let devices = sqlx::query(
-        "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1"
-    )
-    .bind(&user.user_id)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let devices = state
+        .services
+        .device_storage
+        .get_user_devices(&user.user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let connections: Vec<Value> = devices
         .iter()
-        .map(|row| {
+        .map(|d| {
             json!({
-                "device_id": row.get::<Option<String>, _>("device_id"),
-                "display_name": row.get::<Option<String>, _>("display_name"),
-                "last_seen": row.get::<Option<i64>, _>("last_seen_ts"),
-                "ip": row.get::<Option<String>, _>("last_seen_ip")
+                "device_id": d.device_id,
+                "display_name": d.display_name,
+                "last_seen": d.last_seen_ts,
+                "ip": d.last_seen_ip
             })
         })
         .collect();
@@ -283,22 +281,20 @@ pub async fn whois_device(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let device = sqlx::query(
-        "SELECT device_id, display_name, last_seen_ts, last_seen_ip FROM devices WHERE user_id = $1 AND device_id = $2"
-    )
-    .bind(&user.user_id)
-    .bind(&device_id)
-    .fetch_optional(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let device = state
+        .services
+        .device_storage
+        .get_user_device(&user.user_id, &device_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     match device {
-        Some(row) => Ok(Json(json!({
+        Some(d) => Ok(Json(json!({
             "user_id": user.user_id,
-            "device_id": row.get::<Option<String>, _>("device_id"),
-            "display_name": row.get::<Option<String>, _>("display_name"),
-            "last_seen": row.get::<Option<i64>, _>("last_seen_ts"),
-            "ip": row.get::<Option<String>, _>("last_seen_ip")
+            "device_id": d.device_id,
+            "display_name": d.display_name,
+            "last_seen": d.last_seen_ts,
+            "ip": d.last_seen_ip
         }))),
         None => Err(ApiError::not_found("Device not found".to_string())),
     }

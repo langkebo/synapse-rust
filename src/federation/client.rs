@@ -347,7 +347,7 @@ impl FederationClient {
         }
     }
 
-    fn build_url(&self, resolved: &ResolvedServer, path: &str) -> String {
+    fn build_url(resolved: &ResolvedServer, path: &str) -> String {
         if resolved.port == 443 {
             format!("https://{}{}", resolved.host, path)
         } else {
@@ -366,7 +366,7 @@ impl FederationClient {
             .build_auth_header(method, path, destination, body)
             .await?;
         let resolved = self.resolve_server(destination).await?;
-        let url = self.build_url(&resolved, path);
+        let url = Self::build_url(&resolved, path);
 
         let mut last_error = None;
         for attempt in 0..=MAX_RETRIES {
@@ -1011,14 +1011,14 @@ mod tests {
 
     #[test]
     fn test_build_url() {
-        let (_rt, client) = create_test_client();
+        let (_rt, _client) = create_test_client();
         let resolved = ResolvedServer {
             server_name: "example.com".to_string(),
             host: "example.com".to_string(),
             port: 8448,
         };
         assert_eq!(
-            client.build_url(&resolved, "/_matrix/federation/v1/version"),
+            FederationClient::build_url(&resolved, "/_matrix/federation/v1/version"),
             "https://example.com:8448/_matrix/federation/v1/version"
         );
 
@@ -1028,7 +1028,7 @@ mod tests {
             port: 443,
         };
         assert_eq!(
-            client.build_url(&resolved_443, "/_matrix/federation/v1/version"),
+            FederationClient::build_url(&resolved_443, "/_matrix/federation/v1/version"),
             "https://example.com/_matrix/federation/v1/version"
         );
     }

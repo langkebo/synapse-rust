@@ -628,6 +628,53 @@ impl DeviceStorage {
         Ok(result)
     }
 
+    pub async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM devices WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    pub async fn get_user_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Option<Device>, sqlx::Error> {
+        sqlx::query_as::<_, Device>(
+            r#"
+            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
+            FROM devices WHERE user_id = $1 AND device_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn filter_existing_users(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT DISTINCT user_id FROM devices WHERE user_id = ANY($1)
+            "#,
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn update_devices_last_seen_batch(
         &self,
         device_ids: &[String],

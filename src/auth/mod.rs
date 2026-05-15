@@ -38,6 +38,8 @@ pub struct AuthService {
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
     pub refresh_token_storage: RefreshTokenStorage,
+    pub room_storage: RoomStorage,
+    pub member_storage: RoomMemberStorage,
     pub cache: Arc<CacheManager>,
     pub metrics: Arc<MetricsCollector>,
     pub validator: Arc<Validator>,
@@ -82,18 +84,21 @@ impl AuthService {
         server_name: &str,
         access_token_lifetime: i64,
     ) -> Self {
+        let server_name_for_storage = server_name.to_string();
         Self {
             user_storage: UserStorage::new(pool, cache.clone()),
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: RefreshTokenStorage::new(pool),
+            room_storage: RoomStorage::new(pool),
+            member_storage: RoomMemberStorage::new(pool, &server_name_for_storage),
             cache,
             metrics,
             validator: Arc::new(Validator::default()),
             jwt_secret: security.secret.as_bytes().to_vec(),
             token_expiry: access_token_lifetime,
             refresh_token_expiry: security.refresh_token_expiry,
-            server_name: server_name.to_string(),
+            server_name: server_name_for_storage,
             argon2_m_cost: security.argon2_m_cost,
             argon2_t_cost: security.argon2_t_cost,
             argon2_p_cost: security.argon2_p_cost,
@@ -359,7 +364,7 @@ impl AuthService {
 
         // From here on, every "no" path returns the same opaque error.
         if is_locked {
-            self.log_login_failure(username, "account_locked");
+            Self::log_login_failure(username, "account_locked");
             return Err(ApiError::rate_limited(
                 "Account is temporarily locked due to too many failed login attempts. Please try again later.".to_string(),
             ));
@@ -371,7 +376,7 @@ impl AuthService {
                 if let Some(uid) = lock_user_id.as_deref() {
                     self.record_login_failure(uid).await?;
                 }
-                self.log_login_failure(username, "invalid_credentials");
+                Self::log_login_failure(username, "invalid_credentials");
                 return Err(invalid());
             }
         };
@@ -391,7 +396,7 @@ impl AuthService {
 
         let logout_marker = format!("user:logout_all:{}", user.user_id);
         self.cache.delete(&logout_marker).await;
-        self.log_login_success(&user, device_id);
+        Self::log_login_success(&user, device_id);
 
         let device_id = self
             .get_or_create_device_id(device_id, &user, initial_display_name)
@@ -496,7 +501,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
     }
 
-    fn log_login_failure(&self, username: &str, reason: &str) {
+    fn log_login_failure(username: &str, reason: &str) {
         ::tracing::warn!(
             target: "security_audit",
             event = "login_failure",
@@ -505,7 +510,7 @@ impl AuthService {
         );
     }
 
-    fn log_login_success(&self, user: &User, device_id: Option<&str>) {
+    fn log_login_success(user: &User, device_id: Option<&str>) {
         ::tracing::info!(
             target: "security_audit",
             event = "login_success",
@@ -1424,16 +1429,13 @@ impl AuthService {
     }
 
     pub async fn get_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
-        let member: Option<(String,)> = sqlx::query_as(
-            "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let membership = self
+            .member_storage
+            .get_membership_state(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        if member.is_none() {
+        if membership.is_none() {
             return Ok(-1);
         }
 
@@ -1470,12 +1472,11 @@ impl AuthService {
             }
         }
 
-        let room_creator: Option<String> =
-            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.user_storage.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> = self
+            .room_storage
+            .get_room_creator(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == user_id {
@@ -1487,19 +1488,14 @@ impl AuthService {
     }
 
     async fn get_joined_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
-        let member: Option<(String,)> = sqlx::query_as(
-            "SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let membership = self
+            .member_storage
+            .get_membership_state(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-        match member {
-            Some((membership,)) if membership == "join" => {
-                self.get_user_power_level(room_id, user_id).await
-            }
+        match membership {
+            Some(m) if m == "join" => self.get_user_power_level(room_id, user_id).await,
             _ => Ok(-1),
         }
     }
@@ -1931,12 +1927,11 @@ impl AuthService {
             ));
         }
 
-        let room_creator: Option<String> =
-            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.user_storage.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> = self
+            .room_storage
+            .get_room_creator(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -2006,12 +2001,11 @@ impl AuthService {
             ));
         }
 
-        let room_creator: Option<String> =
-            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.user_storage.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> = self
+            .room_storage
+            .get_room_creator(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -2080,12 +2074,11 @@ impl AuthService {
             ));
         }
 
-        let room_creator: Option<String> =
-            sqlx::query_scalar("SELECT creator FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.user_storage.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let room_creator: Option<String> = self
+            .room_storage
+            .get_room_creator(room_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {

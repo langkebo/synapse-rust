@@ -709,13 +709,13 @@ impl CrossSigningService {
 
         let mut is_verified = false;
         if let (Some(mk), Some(ssk)) = (&master_key, &self_signing_key) {
-            let ssk_signature_valid = self.verify_cross_signing_signature(
+            let ssk_signature_valid = Self::verify_cross_signing_signature(
                 &mk.public_key,
                 &mk.signatures,
                 ssk.key_json.as_ref(),
                 "self_signing",
             );
-            let mk_signature_valid = self.verify_cross_signing_signature(
+            let mk_signature_valid = Self::verify_cross_signing_signature(
                 &ssk.public_key,
                 &ssk.signatures,
                 mk.key_json.as_ref(),
@@ -742,7 +742,6 @@ impl CrossSigningService {
     }
 
     fn verify_cross_signing_signature(
-        &self,
         signing_public_key: &str,
         signatures: &serde_json::Value,
         target_key_json: Option<&serde_json::Value>,

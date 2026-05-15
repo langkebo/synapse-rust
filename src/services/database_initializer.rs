@@ -531,7 +531,7 @@ impl DatabaseInitService {
             let checksum = Self::calculate_checksum(&sql);
             let normalized_sql = Self::normalize_migration_sql(&sql);
             let start_time = std::time::Instant::now();
-            let statements = self.split_sql_statements(&normalized_sql);
+            let statements = Self::split_sql_statements(&normalized_sql);
             let mut file_success = true;
             let mut conn = self.pool.acquire().await?;
 
@@ -601,7 +601,7 @@ impl DatabaseInitService {
         ))
     }
 
-    fn split_sql_statements(&self, sql: &str) -> Vec<String> {
+    fn split_sql_statements(sql: &str) -> Vec<String> {
         #[derive(Debug, Clone, Copy, PartialEq)]
         enum State {
             Normal,

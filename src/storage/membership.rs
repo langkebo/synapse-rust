@@ -313,6 +313,35 @@ impl RoomMemberStorage {
         Ok(memberships)
     }
 
+    pub async fn get_membership_state(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
+    pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
+
     pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"

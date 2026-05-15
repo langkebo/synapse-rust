@@ -484,8 +484,8 @@ impl PushNotificationService {
         let mut tweaks = serde_json::json!({});
 
         for rule in rules {
-            if self.matches_rule(&rule, event)? {
-                let actions: Vec<JsonValue> = serde_json::from_value(rule.actions.clone())
+            if Self::matches_rule(&rule, event)? {
+                let actions: Vec<JsonValue> = serde_json::from_value(rule.actions)
                     .map_err(|e| ApiError::internal(format!("Invalid actions: {}", e)))?;
 
                 let mut notify = false;
@@ -523,7 +523,7 @@ impl PushNotificationService {
         })
     }
 
-    fn matches_rule(&self, rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
+    fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
             .map_err(|e| ApiError::internal(format!("Invalid conditions: {}", e)))?;
 
@@ -535,22 +535,22 @@ impl PushNotificationService {
             if let Some(kind) = condition.get("kind").and_then(|k| k.as_str()) {
                 match kind {
                     "event_match" => {
-                        if !self.matches_event_match(&condition, event)? {
+                        if !Self::matches_event_match(&condition, event)? {
                             return Ok(false);
                         }
                     }
                     "contains_display_name" => {
-                        if !self.matches_contains_display_name(event)? {
+                        if !Self::matches_contains_display_name(event)? {
                             return Ok(false);
                         }
                     }
                     "room_member_count" => {
-                        if !self.matches_room_member_count(&condition, event)? {
+                        if !Self::matches_room_member_count(&condition, event)? {
                             return Ok(false);
                         }
                     }
                     "sender_notification_permission" => {
-                        if !self.matches_sender_notification_permission(&condition, event)? {
+                        if !Self::matches_sender_notification_permission(&condition, event)? {
                             return Ok(false);
                         }
                     }
@@ -563,7 +563,6 @@ impl PushNotificationService {
     }
 
     fn matches_event_match(
-        &self,
         condition: &JsonValue,
         event: &JsonValue,
     ) -> Result<bool, ApiError> {
@@ -573,16 +572,15 @@ impl PushNotificationService {
             .and_then(|p| p.as_str())
             .unwrap_or("");
 
-        let value = self.get_event_value(event, key);
+        let value = Self::get_event_value(event, key);
         Ok(value.map(|v| v.contains(pattern)).unwrap_or(false))
     }
 
-    fn matches_contains_display_name(&self, _event: &JsonValue) -> Result<bool, ApiError> {
+    fn matches_contains_display_name(_event: &JsonValue) -> Result<bool, ApiError> {
         Ok(false)
     }
 
     fn matches_room_member_count(
-        &self,
         _condition: &JsonValue,
         _event: &JsonValue,
     ) -> Result<bool, ApiError> {
@@ -590,14 +588,13 @@ impl PushNotificationService {
     }
 
     fn matches_sender_notification_permission(
-        &self,
         _condition: &JsonValue,
         _event: &JsonValue,
     ) -> Result<bool, ApiError> {
         Ok(true)
     }
 
-    fn get_event_value<'a>(&self, event: &'a JsonValue, key: &str) -> Option<&'a str> {
+    fn get_event_value<'a>(event: &'a JsonValue, key: &str) -> Option<&'a str> {
         let parts: Vec<&str> = key.split('.').collect();
         let mut current = event;
 

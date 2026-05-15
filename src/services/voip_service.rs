@@ -66,7 +66,7 @@ impl VoipService {
 
         let (username, password) = if let Some(ref secret) = self.config.turn_shared_secret {
             let username = format!("{}:{}", expiry, user_id);
-            let password = self.generate_turn_password(&username, secret)?;
+            let password = Self::generate_turn_password(&username, secret)?;
             (username, password)
         } else if let (Some(ref username), Some(ref password)) =
             (&self.config.turn_username, &self.config.turn_password)
@@ -86,7 +86,7 @@ impl VoipService {
         })
     }
 
-    fn generate_turn_password(&self, username: &str, secret: &str) -> Result<String, ApiError> {
+    fn generate_turn_password(username: &str, secret: &str) -> Result<String, ApiError> {
         let mut mac = HmacSha1::new_from_slice(secret.as_bytes())
             .map_err(|e| ApiError::internal(format!("HMAC error: {}", e)))?;
         mac.update(username.as_bytes());
@@ -192,13 +192,11 @@ mod tests {
     #[test]
     fn test_turn_password_generation() {
         let config = Arc::new(create_test_config());
-        let service = VoipService::new(config);
+        let _service = VoipService::new(config);
 
-        let password1 = service
-            .generate_turn_password("test_user", "secret")
+        let password1 = VoipService::generate_turn_password("test_user", "secret")
             .unwrap();
-        let password2 = service
-            .generate_turn_password("test_user", "secret")
+        let password2 = VoipService::generate_turn_password("test_user", "secret")
             .unwrap();
 
         assert_eq!(password1, password2);

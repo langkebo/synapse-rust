@@ -446,6 +446,18 @@ impl RoomStorage {
             .collect())
     }
 
+    pub async fn get_room_creator(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT creator FROM rooms WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
