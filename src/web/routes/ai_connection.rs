@@ -1,3 +1,5 @@
+#![cfg(feature = "openclaw-routes")]
+
 use axum::{
     extract::{Path, State},
     routing::{get, post},

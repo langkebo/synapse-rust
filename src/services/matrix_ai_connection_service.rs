@@ -1,3 +1,5 @@
+#![cfg(feature = "openclaw-routes")]
+
 use crate::common::error::ApiError;
 use crate::services::mcp_proxy::McpProxyService;
 use crate::storage::ai_connection::{AiConnection, AiConnectionStorage};

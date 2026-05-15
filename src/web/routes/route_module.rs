@@ -33,17 +33,10 @@ use crate::web::routes::{
 /// boolean read by an existing `manifest_for` impl.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
-    /// Mirrors `oidc::oidc_enabled(&state)` — true when external OIDC, the
-    /// builtin OIDC provider, or SAML is active. Drives `OidcModule` between
-    /// the full OIDC manifest and the smaller fallback manifest.
     pub oidc_enabled: bool,
-    /// Mirrors `state.services.config.worker.enabled`. Gates `WorkerBodyModule`.
     pub worker_enabled: bool,
-    /// Mirrors `state.services.saml_service.is_enabled()`. Only consulted by
-    /// the cargo-feature-gated `SamlModule`.
     pub saml_enabled: bool,
-    /// Mirrors `state.services.config.experimental.openclaw_routes_enabled`.
-    /// Drives both `OpenClawModule` and `AiConnectionModule`.
+    #[cfg(feature = "openclaw-routes")]
     pub openclaw_enabled: bool,
 }
 
@@ -60,6 +53,7 @@ impl ProfileFlags {
             oidc_enabled: oidc::oidc_enabled(state),
             worker_enabled: state.services.config.worker.enabled,
             saml_enabled,
+            #[cfg(feature = "openclaw-routes")]
             openclaw_enabled: state.services.config.experimental.openclaw_routes_enabled,
         }
     }
@@ -71,6 +65,7 @@ impl ProfileFlags {
         oidc_enabled: false,
         worker_enabled: false,
         saml_enabled: false,
+        #[cfg(feature = "openclaw-routes")]
         openclaw_enabled: false,
     };
 }
@@ -210,7 +205,9 @@ impl RouteModule for OidcModule {
             {
                 let fallback = oidc::oidc_fallback_manifest();
                 let has_jwks = entries.iter().any(|e| e.path == "/.well-known/jwks.json");
-                let has_discovery = entries.iter().any(|e| e.path == "/.well-known/openid-configuration");
+                let has_discovery = entries
+                    .iter()
+                    .any(|e| e.path == "/.well-known/openid-configuration");
                 for e in &fallback {
                     if e.path == "/.well-known/jwks.json" && !has_jwks {
                         entries.push(e.clone());
