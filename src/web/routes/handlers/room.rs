@@ -1866,39 +1866,6 @@ pub(crate) async fn get_state_event_empty_key(
     Ok(Json(state_event_content_response(&event.content)))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::state_event_content_response;
-    use serde_json::json;
-
-    #[test]
-    fn test_state_event_content_response_returns_raw_content_for_empty_state_key() {
-        let content = json!({
-            "topic": "raw topic payload"
-        });
-
-        let response = state_event_content_response(&content);
-
-        assert_eq!(response, content);
-        assert!(response.get("event_id").is_none());
-        assert!(response.get("type").is_none());
-    }
-
-    #[test]
-    fn test_state_event_content_response_returns_raw_content_for_keyed_state() {
-        let content = json!({
-            "enabled": true,
-            "label": "alpha"
-        });
-
-        let response = state_event_content_response(&content);
-
-        assert_eq!(response, content);
-        assert!(response.get("state_key").is_none());
-        assert!(response.get("sender").is_none());
-    }
-}
-
 pub(crate) async fn get_power_levels(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -4738,4 +4705,37 @@ pub(crate) async fn get_relations(
         "next_batch": Option::<String>::None,
         "prev_batch": Option::<String>::None,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::state_event_content_response;
+    use serde_json::json;
+
+    #[test]
+    fn test_state_event_content_response_returns_raw_content_for_empty_state_key() {
+        let content = json!({
+            "topic": "raw topic payload"
+        });
+
+        let response = state_event_content_response(&content);
+
+        assert_eq!(response, content);
+        assert!(response.get("event_id").is_none());
+        assert!(response.get("type").is_none());
+    }
+
+    #[test]
+    fn test_state_event_content_response_returns_raw_content_for_keyed_state() {
+        let content = json!({
+            "enabled": true,
+            "label": "alpha"
+        });
+
+        let response = state_event_content_response(&content);
+
+        assert_eq!(response, content);
+        assert!(response.get("state_key").is_none());
+        assert!(response.get("sender").is_none());
+    }
 }
