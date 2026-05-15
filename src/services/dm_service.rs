@@ -12,11 +12,11 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::{DMService, DMServiceImpl};
+//! use synapse_rust::services::{DMService, DMService};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let service = DMServiceImpl::new();
+//!     let service = DMService::new();
 //!     
 //!     // 标记房间为 DM
 //!     service.mark_room_as_dm(
@@ -32,7 +32,6 @@
 //! ```
 
 use crate::common::ApiResult;
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -52,117 +51,20 @@ pub struct DMRoom {
     pub created_ts: i64,
 }
 
-/// 直接消息服务 trait
-///
-/// 定义 DM 房间管理的核心接口。
-/// 所有实现必须线程安全（`Send + Sync`）。
-#[async_trait]
-pub trait DMService: Send + Sync {
-    /// 查找两个用户之间现有的 DM 房间
-    ///
-    /// # 参数
-    ///
-    /// * `user_id` - 第一个用户的 ID
-    /// * `recipient_id` - 第二个用户的 ID
-    ///
-    /// # 返回
-    ///
-    /// 返回现有的 DM 房间 ID，如果不存在则返回 `None`。
-    ///
-    /// # 示例
-    ///
-    /// ```text
-    /// let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await?;
-    /// ```
-    async fn get_existing_dm(&self, user_id: &str, recipient_id: &str)
-        -> ApiResult<Option<String>>;
-
-    /// 获取用户的所有 DM 房间
-    ///
-    /// # 参数
-    ///
-    /// * `user_id` - 用户 ID
-    ///
-    /// # 返回
-    ///
-    /// 返回用户参与的所有 DM 房间列表。
-    async fn get_user_dms(&self, user_id: &str) -> ApiResult<Vec<DMRoom>>;
-
-    /// 将房间标记为 DM 房间
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `creator_id` - 创建者用户 ID
-    /// * `recipients` - 接收者用户 ID 列表
-    ///
-    /// # 错误
-    ///
-    /// 如果存储操作失败，返回错误。
-    async fn mark_room_as_dm(
-        &self,
-        room_id: &str,
-        creator_id: &str,
-        recipients: &[String],
-    ) -> ApiResult<()>;
-
-    /// 检查房间是否为 DM 房间
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 用户 ID（用于权限检查）
-    ///
-    /// # 返回
-    ///
-    /// 如果房间是 DM 房间，返回 `true`。
-    async fn is_dm_room(&self, room_id: &str, user_id: &str) -> ApiResult<bool>;
-
-    /// 获取 DM 房间的对话伙伴
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 当前用户 ID
-    ///
-    /// # 返回
-    ///
-    /// 返回对话伙伴的用户 ID，如果用户不在该 DM 房间中则返回 `None`。
-    async fn get_dm_partner(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>>;
-
-    /// 更新 DM 房间的用户列表
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 执行更新的用户 ID
-    /// * `users` - 新的用户 ID 列表
-    async fn update_dm_users(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        users: &[String],
-    ) -> ApiResult<()>;
-}
-
-/// 直接消息服务实现
-///
-/// 使用内存存储的 DM 服务实现，适用于开发和测试环境。
-/// 生产环境应使用数据库支持的实现。
-pub struct DMServiceImpl {
+pub struct DMService {
     /// DM 房间映射（room_id -> DMRoom）
     dm_rooms: Arc<RwLock<HashMap<String, DMRoom>>>,
     /// 用户 DM 列表映射（user_id -> [room_ids]）
     user_dms: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
-impl DMServiceImpl {
+impl DMService {
     /// 创建新的 DM 服务实例
     ///
     /// # 示例
     ///
     /// ```text
-    /// let service = DMServiceImpl::new();
+    /// let service = DMService::new();
     /// ```
     pub fn new() -> Self {
         Self {
@@ -188,8 +90,8 @@ impl DMServiceImpl {
     /// # 示例
     ///
     /// ```text
-    /// let key1 = DMServiceImpl::create_dm_key("@alice:example.com", "@bob:example.com");
-    /// let key2 = DMServiceImpl::create_dm_key("@bob:example.com", "@alice:example.com");
+    /// let key1 = DMService::create_dm_key("@alice:example.com", "@bob:example.com");
+    /// let key2 = DMService::create_dm_key("@bob:example.com", "@alice:example.com");
     /// assert_eq!(key1, key2);
     /// ```
     pub fn create_dm_key(user_id: &str, recipient_id: &str) -> String {
@@ -226,17 +128,7 @@ impl DMServiceImpl {
         let dms = self.dm_rooms.read().await;
         dms.len()
     }
-}
-
-impl Default for DMServiceImpl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl DMService for DMServiceImpl {
-    async fn get_existing_dm(
+    pub async fn get_existing_dm(
         &self,
         user_id: &str,
         recipient_id: &str,
@@ -254,7 +146,7 @@ impl DMService for DMServiceImpl {
         Ok(None)
     }
 
-    async fn get_user_dms(&self, user_id: &str) -> ApiResult<Vec<DMRoom>> {
+    pub async fn get_user_dms(&self, user_id: &str) -> ApiResult<Vec<DMRoom>> {
         let dms = self.dm_rooms.read().await;
         let user_dms = self.user_dms.read().await;
 
@@ -268,7 +160,7 @@ impl DMService for DMServiceImpl {
         Ok(result)
     }
 
-    async fn mark_room_as_dm(
+    pub async fn mark_room_as_dm(
         &self,
         room_id: &str,
         creator_id: &str,
@@ -302,7 +194,7 @@ impl DMService for DMServiceImpl {
         Ok(())
     }
 
-    async fn is_dm_room(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
+    pub async fn is_dm_room(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let dms = self.dm_rooms.read().await;
         let user_dms = self.user_dms.read().await;
 
@@ -314,7 +206,7 @@ impl DMService for DMServiceImpl {
         Ok(user_rooms.contains(&room_id.to_string()))
     }
 
-    async fn get_dm_partner(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
+    pub async fn get_dm_partner(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
         let dms = self.dm_rooms.read().await;
 
         if let Some(dm) = dms.get(room_id) {
@@ -331,7 +223,7 @@ impl DMService for DMServiceImpl {
         Ok(None)
     }
 
-    async fn update_dm_users(
+    pub async fn update_dm_users(
         &self,
         room_id: &str,
         _user_id: &str,
@@ -377,14 +269,20 @@ impl DMService for DMServiceImpl {
     }
 }
 
+impl Default for DMService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_create_dm_key() {
-        let key1 = DMServiceImpl::create_dm_key("@alice:example.com", "@bob:example.com");
-        let key2 = DMServiceImpl::create_dm_key("@bob:example.com", "@alice:example.com");
+        let key1 = DMService::create_dm_key("@alice:example.com", "@bob:example.com");
+        let key2 = DMService::create_dm_key("@bob:example.com", "@alice:example.com");
 
         assert_eq!(key1, key2);
         assert!(key1.starts_with("@alice:example.com"));
@@ -392,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_room_as_dm() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(
@@ -412,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_not_dm_room() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         let is_dm = service
             .is_dm_room("!room:example.com", "@alice:example.com")
@@ -423,7 +321,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_dm_partner() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(
@@ -449,7 +347,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_dms() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(
@@ -475,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_existing_dm() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         let room_id = service
             .get_existing_dm("@alice:example.com", "@bob:example.com")
@@ -507,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_dm_room() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(
@@ -533,7 +431,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_dm_users() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(
@@ -559,7 +457,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_dm_partner_for_non_member() {
-        let service = DMServiceImpl::new();
+        let service = DMService::new();
 
         service
             .mark_room_as_dm(

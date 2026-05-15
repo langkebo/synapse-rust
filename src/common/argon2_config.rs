@@ -41,6 +41,7 @@ fn default_p_cost() -> u32 {
     1
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn default_output_len() -> Option<usize> {
     Some(32)
 }

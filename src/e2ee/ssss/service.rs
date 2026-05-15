@@ -40,7 +40,7 @@ impl SecretStorageService {
 
         match algorithm {
             "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::create_curve25519_key(&key_id),
-            "aes-hmac-sha2" => Self::create_aes_hmac_key(&key_id),
+            "aes-hmac-sha2" => Ok(Self::create_aes_hmac_key(&key_id)),
             _ => Err(ApiError::bad_request(format!(
                 "Unsupported secret storage algorithm: {}",
                 algorithm
@@ -85,7 +85,7 @@ impl SecretStorageService {
         })
     }
 
-    fn create_aes_hmac_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    fn create_aes_hmac_key(key_id: &str) -> SecretStorageKeyCreationTerm {
         let mut key_bytes = [0u8; SSSS_KEY_LENGTH];
         rand::thread_rng().fill(&mut key_bytes);
         let key_base64 = BASE64.encode(key_bytes);
@@ -97,7 +97,7 @@ impl SecretStorageService {
         let key_data = format!("{}:{}", key_base64, iv_base64);
         let mac = compute_hmac(&key_data, b"secure_storage_key");
 
-        Ok(SecretStorageKeyCreationTerm {
+        SecretStorageKeyCreationTerm {
             key_id: key_id.to_string(),
             algorithm: "aes-hmac-sha2".to_string(),
             key: SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key {
@@ -107,7 +107,7 @@ impl SecretStorageService {
             }),
             iv: Some(iv_base64),
             mac: Some(BASE64.encode(&mac[..8])),
-        })
+        }
     }
 
     pub async fn store_key(

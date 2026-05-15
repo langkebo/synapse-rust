@@ -11,11 +11,11 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::{TypingService, TypingServiceImpl};
+//! use synapse_rust::services::{TypingService, TypingService};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let service = TypingServiceImpl::new();
+//!     let service = TypingService::new();
 //!     
 //!     // 设置用户正在打字
 //!     service.set_typing("!room:example.com", "@alice:example.com", 30000).await.unwrap();
@@ -27,7 +27,6 @@
 //! ```
 
 use crate::common::ApiResult;
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -47,90 +46,18 @@ pub struct TypingUser {
     pub started_ts: i64,
 }
 
-/// 打字提示服务 trait
-///
-/// 定义打字状态管理的核心接口。
-/// 所有实现必须线程安全（`Send + Sync`）。
-#[async_trait]
-pub trait TypingService: Send + Sync {
-    /// 设置用户正在打字
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 用户 ID
-    /// * `timeout_ms` - 打字状态超时时间（毫秒），通常为 15000-30000ms
-    ///
-    /// # 错误
-    ///
-    /// 如果存储操作失败，返回错误。
-    ///
-    /// # 示例
-    ///
-    /// ```text
-    /// service.set_typing("!room:example.com", "@alice:example.com", 30000).await?;
-    /// ```
-    async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()>;
-
-    /// 清除用户的打字状态
-    ///
-    /// 手动清除用户的打字状态，通常在用户停止打字或发送消息后调用。
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 用户 ID
-    async fn clear_typing(&self, room_id: &str, user_id: &str) -> ApiResult<()>;
-
-    /// 获取房间中正在打字的用户列表
-    ///
-    /// 返回房间中所有当前正在打字的用户及其超时时间。
-    /// 自动清理已过期的打字状态。
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    ///
-    /// # 返回
-    ///
-    /// 返回用户 ID 到超时时间的映射。
-    async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>>;
-
-    /// 获取特定用户的打字状态
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `user_id` - 用户 ID
-    ///
-    /// # 返回
-    ///
-    /// 如果用户正在打字，返回剩余超时时间；否则返回 `None`。
-    async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>>;
-
-    /// 清理所有过期的打字状态
-    ///
-    /// 遍历所有打字状态，移除已过期的记录。
-    /// 建议定期调用此方法进行清理。
-    async fn clear_expired_typing(&self) -> ApiResult<()>;
-}
-
-/// 打字提示服务实现
-///
-/// 使用内存存储的打字服务实现，适用于开发和测试环境。
-/// 生产环境应使用数据库或分布式缓存支持的实现。
-pub struct TypingServiceImpl {
+pub struct TypingService {
     /// 打字状态映射（"room_id:user_id" -> TypingUser）
     typing: Arc<RwLock<HashMap<String, TypingUser>>>,
 }
 
-impl TypingServiceImpl {
+impl TypingService {
     /// 创建新的打字服务实例
     ///
     /// # 示例
     ///
     /// ```text
-    /// let service = TypingServiceImpl::new();
+    /// let service = TypingService::new();
     /// ```
     pub fn new() -> Self {
         Self {
@@ -177,17 +104,8 @@ impl TypingServiceImpl {
         typing.retain(|_, v| v.room_id != room_id);
         before - typing.len()
     }
-}
 
-impl Default for TypingServiceImpl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl TypingService for TypingServiceImpl {
-    async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()> {
+    pub async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()> {
         let key = Self::make_key(room_id, user_id);
 
         let typing_user = TypingUser {
@@ -203,7 +121,7 @@ impl TypingService for TypingServiceImpl {
         Ok(())
     }
 
-    async fn clear_typing(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+    pub async fn clear_typing(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let key = Self::make_key(room_id, user_id);
 
         let mut typing = self.typing.write().await;
@@ -212,7 +130,7 @@ impl TypingService for TypingServiceImpl {
         Ok(())
     }
 
-    async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>> {
+    pub async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>> {
         let now = chrono::Utc::now().timestamp_millis();
         let mut typing = self.typing.write().await;
 
@@ -232,7 +150,7 @@ impl TypingService for TypingServiceImpl {
         Ok(result)
     }
 
-    async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
+    pub async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
         let key = Self::make_key(room_id, user_id);
         let typing = self.typing.read().await;
 
@@ -248,7 +166,7 @@ impl TypingService for TypingServiceImpl {
         Ok(None)
     }
 
-    async fn clear_expired_typing(&self) -> ApiResult<()> {
+    pub async fn clear_expired_typing(&self) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
         let mut typing = self.typing.write().await;
 
@@ -261,13 +179,19 @@ impl TypingService for TypingServiceImpl {
     }
 }
 
+impl Default for TypingService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_set_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room:example.com", "@user:example.com", 30000)
@@ -284,7 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room:example.com", "@user:example.com", 30000)
@@ -304,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_typing_users() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room:example.com", "@user1:example.com", 30000)
@@ -324,7 +248,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_not_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         let timeout = service
             .get_user_typing("!room:example.com", "@user:example.com")
@@ -335,7 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_different_rooms() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room1:example.com", "@user:example.com", 30000)
@@ -361,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_expired_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         // Set typing with 0 timeout (immediately expired)
         service
@@ -382,7 +306,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_timeout() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room:example.com", "@user:example.com", 5000)
@@ -398,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_typing_count() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         assert_eq!(service.get_typing_count().await, 0);
 
@@ -416,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_room_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room1:example.com", "@user1:example.com", 30000)
@@ -449,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_overwrite_typing() {
-        let service = TypingServiceImpl::new();
+        let service = TypingService::new();
 
         service
             .set_typing("!room:example.com", "@user:example.com", 30000)

@@ -12,11 +12,11 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::{DirectoryService, DirectoryServiceImpl};
+//! use synapse_rust::services::{DirectoryService, DirectoryService};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let service = DirectoryServiceImpl::new();
+//!     let service = DirectoryService::new();
 //!     
 //!     // 设置房间别名
 //!     service.set_room_alias("!room:example.com", "#myroom:example.com").await.unwrap();
@@ -28,7 +28,6 @@
 //! ```
 
 use crate::common::ApiResult;
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -54,94 +53,7 @@ pub struct DirectoryRoom {
     pub guest_can_join: bool,
 }
 
-/// 目录服务 trait
-///
-/// 定义房间目录和别名管理的核心接口。
-/// 所有实现必须线程安全（`Send + Sync`）。
-#[async_trait]
-pub trait DirectoryService: Send + Sync {
-    /// 通过别名获取房间 ID
-    ///
-    /// # 参数
-    ///
-    /// * `alias` - 房间别名（例如：#myroom:example.com）
-    ///
-    /// # 返回
-    ///
-    /// 返回房间 ID，如果别名不存在则返回 `None`。
-    ///
-    /// # 示例
-    ///
-    /// ```text
-    /// let room_id = service.get_room_id_by_alias("#myroom:example.com").await?;
-    /// ```
-    async fn get_room_id_by_alias(&self, alias: &str) -> ApiResult<Option<String>>;
-
-    /// 设置房间别名
-    ///
-    /// 将别名映射到指定的房间 ID。如果别名已存在，将被覆盖。
-    ///
-    /// # 参数
-    ///
-    /// * `room_id` - 房间 ID
-    /// * `alias` - 要设置的别名
-    ///
-    /// # 错误
-    ///
-    /// 如果存储操作失败，返回错误。
-    async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()>;
-
-    /// 删除房间别名
-    ///
-    /// 从目录中移除指定的别名。如果别名不存在，操作静默成功。
-    ///
-    /// # 参数
-    ///
-    /// * `alias` - 要删除的别名
-    async fn remove_room_alias(&self, alias: &str) -> ApiResult<()>;
-
-    /// 获取公共房间列表
-    ///
-    /// 分页获取公共房间列表。
-    ///
-    /// # 参数
-    ///
-    /// * `limit` - 返回的最大房间数量
-    /// * `since` - 分页令牌（用于获取下一页）
-    ///
-    /// # 返回
-    ///
-    /// 返回公共房间列表。
-    async fn get_public_rooms(
-        &self,
-        limit: i32,
-        since: Option<&str>,
-    ) -> ApiResult<Vec<DirectoryRoom>>;
-
-    /// 搜索公共房间
-    ///
-    /// 根据过滤条件搜索公共房间。搜索范围包括房间名称和主题。
-    ///
-    /// # 参数
-    ///
-    /// * `filter` - 搜索过滤词（可选）
-    /// * `limit` - 返回的最大房间数量
-    ///
-    /// # 返回
-    ///
-    /// 返回匹配的公共房间列表。
-    async fn search_public_rooms(
-        &self,
-        filter: Option<&str>,
-        limit: i32,
-    ) -> ApiResult<Vec<DirectoryRoom>>;
-}
-
-/// 目录服务实现
-///
-/// 使用内存存储的目录服务实现，适用于开发和测试环境。
-/// 生产环境应使用数据库支持的实现。
-pub struct DirectoryServiceImpl {
+pub struct DirectoryService {
     /// 别名到房间 ID 的映射
     aliases: Arc<RwLock<HashMap<String, String>>>,
     /// 房间 ID 到别名列表的映射
@@ -150,13 +62,13 @@ pub struct DirectoryServiceImpl {
     public_rooms: Arc<RwLock<HashMap<String, DirectoryRoom>>>,
 }
 
-impl DirectoryServiceImpl {
+impl DirectoryService {
     /// 创建新的目录服务实例
     ///
     /// # 示例
     ///
     /// ```text
-    /// let service = DirectoryServiceImpl::new();
+    /// let service = DirectoryService::new();
     /// ```
     pub fn new() -> Self {
         Self {
@@ -199,21 +111,12 @@ impl DirectoryServiceImpl {
         let room_aliases = self.room_aliases.read().await;
         room_aliases.get(room_id).cloned().unwrap_or_default()
     }
-}
 
-impl Default for DirectoryServiceImpl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl DirectoryService for DirectoryServiceImpl {
-    async fn get_room_id_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
+    pub async fn get_room_id_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
         Ok(self.aliases.read().await.get(alias).cloned())
     }
 
-    async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()> {
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()> {
         let mut aliases = self.aliases.write().await;
         aliases.insert(alias.to_string(), room_id.to_string());
 
@@ -226,7 +129,7 @@ impl DirectoryService for DirectoryServiceImpl {
         Ok(())
     }
 
-    async fn remove_room_alias(&self, alias: &str) -> ApiResult<()> {
+    pub async fn remove_room_alias(&self, alias: &str) -> ApiResult<()> {
         let mut aliases = self.aliases.write().await;
         if let Some(room_id) = aliases.remove(alias) {
             let mut room_aliases = self.room_aliases.write().await;
@@ -237,7 +140,7 @@ impl DirectoryService for DirectoryServiceImpl {
         Ok(())
     }
 
-    async fn get_public_rooms(
+    pub async fn get_public_rooms(
         &self,
         limit: i32,
         _since: Option<&str>,
@@ -247,7 +150,7 @@ impl DirectoryService for DirectoryServiceImpl {
         Ok(result)
     }
 
-    async fn search_public_rooms(
+    pub async fn search_public_rooms(
         &self,
         filter: Option<&str>,
         limit: i32,
@@ -285,13 +188,19 @@ impl DirectoryService for DirectoryServiceImpl {
     }
 }
 
+impl Default for DirectoryService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_set_and_get_room_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         service
             .set_room_alias("!room:example.com", "#test:example.com")
@@ -307,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_nonexistent_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         let room_id = service
             .get_room_id_by_alias("#nonexistent:example.com")
@@ -318,7 +227,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_room_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         service
             .set_room_alias("!room:example.com", "#test:example.com")
@@ -338,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_public_rooms() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         service
             .add_public_room(DirectoryRoom {
@@ -358,7 +267,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_public_rooms() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         service
             .add_public_room(DirectoryRoom {
@@ -391,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_room_aliases() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         service
             .set_room_alias("!room:example.com", "#alias1:example.com")

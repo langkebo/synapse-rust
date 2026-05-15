@@ -474,7 +474,7 @@ impl RoomStorage {
         self.get_public_rooms_paginated(limit, None, None).await
     }
 
-    /// 支持分页的 public rooms 列表。使用 Keyset 分页 (created_ts, room_id)。
+    /// Paginated public rooms list. Uses Keyset pagination (created_ts, room_id).
     pub async fn get_public_rooms_paginated(
         &self,
         limit: i64,
@@ -546,7 +546,7 @@ impl RoomStorage {
             .collect())
     }
 
-    /// 返回公开房间总数，用于 `total_room_count_estimate` 字段。
+    /// Returns the total number of public rooms, for the `total_room_count_estimate` field.
     pub async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
         let count: (i64,) = sqlx::query_as(
             r#"
@@ -1389,11 +1389,11 @@ impl RoomStorage {
         Ok(rows.into_iter().collect())
     }
 
-    /// 清理异常数据（孤儿数据、空房间等）
+    /// Clean up abnormal data (orphan data, empty rooms, etc.)
     ///
-    /// # 参数
+    /// # Arguments
     ///
-    /// * `min_age_ms` - 房间最小存活时间（毫秒），小于此时间的空房间不会被清理。默认 24h。
+    /// * `min_age_ms` - Minimum room lifetime (milliseconds); empty rooms younger than this will not be cleaned up. Default 24h.
     pub async fn cleanup_abnormal_data(
         &self,
         min_age_ms: Option<i64>,
@@ -1404,7 +1404,7 @@ impl RoomStorage {
 
         let mut results = serde_json::Map::new();
 
-        // 1. 清理没有成员且存活超过 min_age 的房间
+        // 1. Clean up rooms with no members and older than min_age
         let deleted_empty_rooms = sqlx::query(
             r#"
             DELETE FROM rooms
@@ -1425,7 +1425,7 @@ impl RoomStorage {
             json!(deleted_empty_rooms),
         );
 
-        // 2. 清理孤儿事件 (events 指向不存在的 rooms)
+        // 2. Clean up orphan events (events pointing to non-existent rooms)
         let deleted_orphan_events = sqlx::query(
             r#"
             DELETE FROM events
@@ -1440,7 +1440,7 @@ impl RoomStorage {
             json!(deleted_orphan_events),
         );
 
-        // 3. 清理孤儿成员关系
+        // 3. Clean up orphan memberships
         let deleted_orphan_memberships = sqlx::query(
             r#"
             DELETE FROM room_memberships
@@ -1455,7 +1455,7 @@ impl RoomStorage {
             json!(deleted_orphan_memberships),
         );
 
-        // 4. 清理孤儿状态
+        // 4. Clean up orphan state
         let deleted_orphan_state = sqlx::query(
             r#"
             DELETE FROM room_state_events

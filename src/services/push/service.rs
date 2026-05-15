@@ -535,22 +535,22 @@ impl PushNotificationService {
             if let Some(kind) = condition.get("kind").and_then(|k| k.as_str()) {
                 match kind {
                     "event_match" => {
-                        if !Self::matches_event_match(&condition, event)? {
+                        if !Self::matches_event_match(&condition, event) {
                             return Ok(false);
                         }
                     }
                     "contains_display_name" => {
-                        if !Self::matches_contains_display_name(event)? {
+                        if !Self::matches_contains_display_name(event) {
                             return Ok(false);
                         }
                     }
                     "room_member_count" => {
-                        if !Self::matches_room_member_count(&condition, event)? {
+                        if !Self::matches_room_member_count(&condition, event) {
                             return Ok(false);
                         }
                     }
                     "sender_notification_permission" => {
-                        if !Self::matches_sender_notification_permission(&condition, event)? {
+                        if !Self::matches_sender_notification_permission(&condition, event) {
                             return Ok(false);
                         }
                     }
@@ -565,7 +565,7 @@ impl PushNotificationService {
     fn matches_event_match(
         condition: &JsonValue,
         event: &JsonValue,
-    ) -> Result<bool, ApiError> {
+    ) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
         let pattern = condition
             .get("pattern")
@@ -573,25 +573,25 @@ impl PushNotificationService {
             .unwrap_or("");
 
         let value = Self::get_event_value(event, key);
-        Ok(value.map(|v| v.contains(pattern)).unwrap_or(false))
+        value.map(|v| v.contains(pattern)).unwrap_or(false)
     }
 
-    fn matches_contains_display_name(_event: &JsonValue) -> Result<bool, ApiError> {
-        Ok(false)
+    fn matches_contains_display_name(_event: &JsonValue) -> bool {
+        false
     }
 
     fn matches_room_member_count(
         _condition: &JsonValue,
         _event: &JsonValue,
-    ) -> Result<bool, ApiError> {
-        Ok(true)
+    ) -> bool {
+        true
     }
 
     fn matches_sender_notification_permission(
         _condition: &JsonValue,
         _event: &JsonValue,
-    ) -> Result<bool, ApiError> {
-        Ok(true)
+    ) -> bool {
+        true
     }
 
     fn get_event_value<'a>(event: &'a JsonValue, key: &str) -> Option<&'a str> {
