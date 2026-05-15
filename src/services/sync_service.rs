@@ -310,6 +310,14 @@ pub struct SyncService {
     performance: crate::common::config::PerformanceConfig,
 }
 
+struct StateEventsBatchParams<'a> {
+    since_ts: i64,
+    since_stream_ordering: Option<i64>,
+    is_incremental: bool,
+    lazy_load_members: bool,
+    user_id: &'a str,
+}
+
 impl SyncService {
     const TIMESTAMP_TOKEN_MIN: i64 = 1_000_000_000_000;
 
@@ -1099,11 +1107,13 @@ impl SyncService {
             self.get_state_events_for_sync_batch(
                 &rooms_to_include,
                 event_format,
-                since_ts,
-                since_stream_ordering,
-                is_incremental,
-                lazy_load_members,
-                user_id,
+                StateEventsBatchParams {
+                    since_ts,
+                    since_stream_ordering,
+                    is_incremental,
+                    lazy_load_members,
+                    user_id,
+                },
             ),
             self.get_room_ephemeral_events_batch(&rooms_to_include),
             self.get_room_account_data_events_batch(user_id, &rooms_to_include),
@@ -1284,11 +1294,13 @@ impl SyncService {
                     .get_state_events_for_sync_batch(
                         &[room_id.to_string()],
                         SyncEventFormat::Client,
-                        since_ts,
-                        None,
-                        is_incremental,
-                        lazy_load_members,
-                        user_id,
+                        StateEventsBatchParams {
+                            since_ts,
+                            since_stream_ordering: None,
+                            is_incremental,
+                            lazy_load_members,
+                            user_id,
+                        },
                     )
                     .await?;
                 Ok(state_by_room.get(room_id).cloned().unwrap_or_default())
@@ -2002,23 +2014,19 @@ impl SyncService {
         &self,
         room_ids: &[String],
         event_format: SyncEventFormat,
-        since_ts: i64,
-        since_stream_ordering: Option<i64>,
-        is_incremental: bool,
-        lazy_load_members: bool,
-        user_id: &str,
+        params: StateEventsBatchParams<'_>,
     ) -> ApiResult<HashMap<String, Vec<Value>>> {
         if room_ids.is_empty() {
             return Ok(HashMap::new());
         }
 
-        if !is_incremental {
+        if !params.is_incremental {
             return self
                 .get_room_state_events_batch(room_ids, event_format)
                 .await;
         }
 
-        let delta_state_by_room = if let Some(stream_ord) = since_stream_ordering {
+        let delta_state_by_room = if let Some(stream_ord) = params.since_stream_ordering {
             self.event_storage
                 .get_state_events_since_stream_batch(room_ids, stream_ord)
                 .await
@@ -2027,7 +2035,7 @@ impl SyncService {
                 })?
         } else {
             self.event_storage
-                .get_state_events_since_batch(room_ids, since_ts)
+                .get_state_events_since_batch(room_ids, params.since_ts)
                 .await
                 .map_err(|e| {
                     ApiError::internal(format!("Failed to get room state events: {}", e))
@@ -2045,7 +2053,7 @@ impl SyncService {
             .filter_map(|(room_id, events)| {
                 let user_just_joined = events.iter().any(|e| {
                     e.event_type.as_deref() == Some("m.room.member")
-                        && e.state_key.as_deref() == Some(user_id)
+                        && e.state_key.as_deref() == Some(params.user_id)
                         && matches!(
                             e.content.get("membership").and_then(|v| v.as_str()),
                             Some("join") | Some("invite")
@@ -2074,7 +2082,7 @@ impl SyncService {
                 })?
         };
 
-        if !lazy_load_members {
+        if !params.lazy_load_members {
             let mut result: HashMap<String, Vec<Value>> = HashMap::new();
             for (room_id, events) in delta_state_by_room {
                 if let Some(full_state) = full_state_for_newly_visible.get(&room_id) {
