@@ -1,7 +1,6 @@
 // Burn After Read Service - 阅后即焚服务
 // 管理消息的阅后即焚功能
 
-use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,61 +28,14 @@ pub struct BurnStats {
     pub rooms_enabled: i64,
 }
 
-#[async_trait]
-pub trait BurnAfterReadService: Send + Sync {
-    async fn set_burn_enabled(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        enabled: bool,
-        burn_after_ms: i64,
-    ) -> crate::common::ApiResult<()>;
-    async fn get_burn_settings(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> crate::common::ApiResult<Option<BurnSettings>>;
-    async fn get_pending_burns(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> crate::common::ApiResult<Vec<BurnEvent>>;
-    async fn cancel_burn(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> crate::common::ApiResult<()>;
-    async fn delete_burned_message(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> crate::common::ApiResult<()>;
-    async fn set_user_default(
-        &self,
-        user_id: &str,
-        default_burn_ms: i64,
-    ) -> crate::common::ApiResult<()>;
-    async fn get_user_stats(&self, user_id: &str) -> crate::common::ApiResult<BurnStats>;
-    async fn schedule_burn(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-        burn_after_ms: i64,
-    ) -> crate::common::ApiResult<()>;
-    async fn process_expired_burns(&self) -> crate::common::ApiResult<Vec<BurnEvent>>;
-}
-
-pub struct BurnAfterReadServiceImpl {
+pub struct BurnAfterReadService {
     settings: Arc<RwLock<HashMap<String, HashMap<String, BurnSettings>>>>,
     pending_burns: Arc<RwLock<HashMap<String, Vec<BurnEvent>>>>,
     user_defaults: Arc<RwLock<HashMap<String, i64>>>,
     burned_events: Arc<RwLock<HashMap<String, i64>>>,
 }
 
-impl BurnAfterReadServiceImpl {
+impl BurnAfterReadService {
     pub fn new() -> Self {
         Self {
             settings: Arc::new(RwLock::new(HashMap::new())),
@@ -96,17 +48,8 @@ impl BurnAfterReadServiceImpl {
     fn make_key(user_id: &str, room_id: &str) -> String {
         format!("{}:{}", user_id, room_id)
     }
-}
 
-impl Default for BurnAfterReadServiceImpl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl BurnAfterReadService for BurnAfterReadServiceImpl {
-    async fn set_burn_enabled(
+    pub async fn set_burn_enabled(
         &self,
         user_id: &str,
         room_id: &str,
@@ -129,7 +72,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(())
     }
 
-    async fn get_burn_settings(
+    pub async fn get_burn_settings(
         &self,
         user_id: &str,
         room_id: &str,
@@ -141,7 +84,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
             .and_then(|room_settings| room_settings.get(room_id).cloned()))
     }
 
-    async fn get_pending_burns(
+    pub async fn get_pending_burns(
         &self,
         user_id: &str,
         room_id: &str,
@@ -152,7 +95,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(burns.get(&key).cloned().unwrap_or_default())
     }
 
-    async fn cancel_burn(
+    pub async fn cancel_burn(
         &self,
         user_id: &str,
         room_id: &str,
@@ -168,7 +111,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(())
     }
 
-    async fn delete_burned_message(
+    pub async fn delete_burned_message(
         &self,
         user_id: &str,
         room_id: &str,
@@ -190,7 +133,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(())
     }
 
-    async fn set_user_default(
+    pub async fn set_user_default(
         &self,
         user_id: &str,
         default_burn_ms: i64,
@@ -200,7 +143,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(())
     }
 
-    async fn get_user_stats(&self, user_id: &str) -> crate::common::ApiResult<BurnStats> {
+    pub async fn get_user_stats(&self, user_id: &str) -> crate::common::ApiResult<BurnStats> {
         let settings = self.settings.read().await;
         let pending = self.pending_burns.read().await;
         let burned = self.burned_events.read().await;
@@ -228,7 +171,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         })
     }
 
-    async fn schedule_burn(
+    pub async fn schedule_burn(
         &self,
         user_id: &str,
         room_id: &str,
@@ -240,7 +183,8 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
 
         let burn_event = BurnEvent {
             event_id: event_id.to_string(),
-            room_id: room_id.to_string(),            user_id: user_id.to_string(),
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
             created_ts: now,
             delete_at: now + burn_after_ms,
         };
@@ -251,7 +195,7 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
         Ok(())
     }
 
-    async fn process_expired_burns(&self) -> crate::common::ApiResult<Vec<BurnEvent>> {
+    pub async fn process_expired_burns(&self) -> crate::common::ApiResult<Vec<BurnEvent>> {
         let now = Utc::now().timestamp_millis();
         let mut burns = self.pending_burns.write().await;
         let mut burned = self.burned_events.write().await;
@@ -277,13 +221,19 @@ impl BurnAfterReadService for BurnAfterReadServiceImpl {
     }
 }
 
+impl Default for BurnAfterReadService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_set_and_get_burn_settings() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .set_burn_enabled("@alice:example.com", "!room:example.com", true, 60000)
@@ -302,7 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_schedule_and_get_pending_burns() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
@@ -319,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancel_burn() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
@@ -339,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_burned_message() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
@@ -362,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_stats() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .set_burn_enabled("@alice:example.com", "!room1:example.com", true, 60000)
@@ -388,7 +338,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_expired_burns() {
-        let service = BurnAfterReadServiceImpl::new();
+        let service = BurnAfterReadService::new();
 
         service
             .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 0)

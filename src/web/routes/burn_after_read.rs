@@ -1,7 +1,6 @@
 // Burn After Read Routes - 阅后即焚路由
 // Self-destructing messages with automatic deletion
 
-use crate::services::burn_after_read_service::BurnAfterReadService;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::Path,

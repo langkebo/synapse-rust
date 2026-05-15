@@ -1,4 +1,3 @@
-use crate::services::directory_service::DirectoryService;
 use crate::web::routes::{
     ensure_room_member, validate_room_alias, ApiError, AppState, AuthenticatedUser,
 };

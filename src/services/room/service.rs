@@ -649,36 +649,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add room member: {}", e)))?;
 
-        // Note: increment_member_count doesn't support transaction yet, but it's a simple update.
-        // Ideally it should also be transactional.
-        // For now we skip transaction for this or need to update RoomStorage again.
-        // Actually create_room sets member_count to 1 initially.
-        // add_creator_to_room is called right after create_room.
-        // So we don't need to increment it if create_room sets it to 1?
-        // Let's check create_room impl. It sets member_count to 1.
-        // So increment_member_count here would make it 2?
-        // No, create_room sets it to 1. If we add member, it's 1 member.
-        // The original code called increment_member_count after add_member.
-        // If create_room sets it to 1, and increment adds 1, it becomes 2. That seems wrong for 1 creator.
-        // Let's assume create_room initializes to 1 (creator joined), and we add the membership event.
-        // So we might not need to increment if create_room already set it to 1.
-        // However, to keep behavior consistent with previous logic:
-        // Previous logic: create_room (sets 1) -> add_member -> increment (becomes 2??)
-        // Wait, let's check create_room SQL.
-        // VALUES (..., 1, ...) -> member_count is 1.
-        // increment_member_count: member_count = member_count + 1.
-        // So it becomes 2. This seems like a bug in original code or my understanding.
-        // Usually creator is the first member.
-        // Let's assume we don't need to increment if we just created it with count 1.
-
-        // But to be safe and strictly follow previous logic, we should probably not change behavior
-        // unless we are sure.
-        // However, since we can't pass tx to increment_member_count easily without updating it,
-        // and create_room sets it to 1, let's verify if we need to update it.
-        // If I remove increment_member_count, I fix a potential bug where count starts at 2.
-        // If I keep it, I need to make it transactional.
-
-        // Let's leave it out for now as create_room sets it to 1 which is correct for 1 member.
+        // create_room already initializes member_count to 1, so no increment needed here.
         Ok(())
     }
 
@@ -2036,7 +2007,7 @@ impl RoomService {
             None => return Ok(()),
         };
 
-        // 从消息内容中读取自定义延迟时间
+        // Read custom delay time from message content
         let delay_secs = content
             .get("burn_after_read_delay_seconds")
             .and_then(|v| v.as_i64())
@@ -2054,7 +2025,7 @@ impl RoomService {
             delay_secs
         );
 
-        // CRITICAL FIX: Track spawned task to prevent memory leaks
+        // Track spawned task to prevent memory leaks
         let handle = tokio::spawn(async move {
             tokio::time::sleep(secs(delay_secs)).await;
 

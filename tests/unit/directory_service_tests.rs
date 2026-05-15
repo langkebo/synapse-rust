@@ -2,11 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::{DirectoryService, DirectoryServiceImpl};
+    use synapse_rust::DirectoryService;
 
     #[tokio::test]
     async fn test_set_and_get_room_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         // Set room alias
         service
@@ -24,7 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_nonexistent_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         let room_id = service
             .get_room_id_by_alias("#nonexistent:example.com")
@@ -35,7 +35,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_room_alias() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         // Set alias
         service
@@ -59,7 +59,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_public_rooms() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         // Get public rooms
         let rooms = service.get_public_rooms(10, None).await.unwrap();
@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_public_rooms() {
-        let service = DirectoryServiceImpl::new();
+        let service = DirectoryService::new();
 
         // Search public rooms with filter
         let rooms = service.search_public_rooms(Some("test"), 10).await.unwrap();

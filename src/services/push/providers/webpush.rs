@@ -87,18 +87,18 @@ impl WebPushProvider {
         &self,
         payload: &[u8],
         _subscription: &WebPushSubscription,
-    ) -> Result<EncryptedPayload, String> {
+    ) -> EncryptedPayload {
         let salt: [u8; 16] = rand::random();
         let server_public_key = self.config.vapid_public_key.as_bytes().to_vec();
 
         let mut content = Vec::new();
         content.extend_from_slice(payload);
 
-        Ok(EncryptedPayload {
+        EncryptedPayload {
             content,
             server_public_key,
             salt: salt.to_vec(),
-        })
+        }
     }
 
     fn generate_vapid_jwt(&self, endpoint: &str) -> Result<String, String> {
@@ -218,13 +218,7 @@ impl PushProvider for WebPushProvider {
         }))
         .unwrap_or_else(|_| "{}".to_string());
 
-        let encrypted = match self.encrypt_payload(payload_json.as_bytes(), &subscription) {
-            Ok(e) => e,
-            Err(e) => {
-                error!("Failed to encrypt WebPush payload: {}", e);
-                return PushResult::failure(&e);
-            }
-        };
+        let encrypted = self.encrypt_payload(payload_json.as_bytes(), &subscription);
 
         match self.send_to_endpoint(&subscription, &encrypted).await {
             Ok(_) => {

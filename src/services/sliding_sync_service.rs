@@ -1,7 +1,6 @@
 use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::e2ee::device_keys::DeviceKeyStorage;
-use crate::services::TypingService;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::presence::PresenceStorage;
 use crate::storage::sliding_sync::{
@@ -19,7 +18,7 @@ pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
     event_storage: EventStorage,
-    typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+    typing_service: Arc<crate::services::typing_service::TypingService>,
     presence_storage: PresenceStorage,
     member_storage: RoomMemberStorage,
 }
@@ -47,7 +46,7 @@ impl SlidingSyncService {
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
         event_storage: EventStorage,
-        typing_service: Arc<crate::services::typing_service::TypingServiceImpl>,
+        typing_service: Arc<crate::services::typing_service::TypingService>,
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
     ) -> Self {
@@ -1381,7 +1380,7 @@ mod tests {
                 ),
                 "localhost".to_string(),
             ),
-            typing_service: Arc::new(crate::services::typing_service::TypingServiceImpl::new()),
+            typing_service: Arc::new(crate::services::typing_service::TypingService::new()),
             presence_storage: PresenceStorage::new(
                 Arc::new(
                     sqlx::postgres::PgPoolOptions::new()
