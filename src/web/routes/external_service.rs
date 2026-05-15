@@ -71,6 +71,7 @@ impl From<crate::storage::application_service::ApplicationService> for ExternalS
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
     match s.to_lowercase().as_str() {
         "trendradar" => Ok(ExternalServiceType::TrendRadar),
+        #[cfg(feature = "openclaw-routes")]
         "openclaw" => Ok(ExternalServiceType::OpenClaw),
         "generic_webhook" | "webhook" => Ok(ExternalServiceType::GenericWebhook),
         "irc_bridge" | "irc" => Ok(ExternalServiceType::IrcBridge),
@@ -274,6 +275,7 @@ pub async fn handle_trendradar_webhook(
     })))
 }
 
+#[cfg(feature = "openclaw-routes")]
 pub async fn handle_openclaw_webhook(
     State(state): State<AppState>,
     Path(service_id): Path<String>,
@@ -368,13 +370,14 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             post(handle_trendradar_webhook),
         )
         .route(
-            "/_synapse/external/openclaw/{service_id}/webhook",
-            post(handle_openclaw_webhook),
-        )
-        .route(
             "/_synapse/external/webhook/{service_id}",
             post(handle_generic_webhook),
         );
+    #[cfg(feature = "openclaw-routes")]
+    let public_routes = public_routes.route(
+        "/_synapse/external/openclaw/{service_id}/webhook",
+        post(handle_openclaw_webhook),
+    );
 
     public_routes.merge(admin_routes).with_state(state)
 }
@@ -383,7 +386,7 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
 
-    [
+    let mut entries: Vec<RouteEntry> = [
         (Method::GET, "/_synapse/admin/v1/external_services"),
         (Method::POST, "/_synapse/admin/v1/external_services"),
         (
@@ -404,15 +407,20 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
             Method::POST,
             "/_synapse/external/trendradar/{service_id}/webhook",
         ),
-        (
-            Method::POST,
-            "/_synapse/external/openclaw/{service_id}/webhook",
-        ),
         (Method::POST, "/_synapse/external/webhook/{service_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "external_service"))
-    .collect()
+    .collect();
+
+    #[cfg(feature = "openclaw-routes")]
+    entries.push(RouteEntry::new(
+        Method::POST,
+        "/_synapse/external/openclaw/{service_id}/webhook",
+        "external_service",
+    ));
+
+    entries
 }
 
 #[cfg(test)]
@@ -425,6 +433,7 @@ mod tests {
             parse_service_type("trendradar"),
             Ok(ExternalServiceType::TrendRadar)
         ));
+        #[cfg(feature = "openclaw-routes")]
         assert!(matches!(
             parse_service_type("openclaw"),
             Ok(ExternalServiceType::OpenClaw)
