@@ -19,8 +19,7 @@ impl KeyRequestStatusFilter {
             "cancelled" | "canceled" | "cancellation" => Ok(Self::Cancelled),
             "all" => Ok(Self::All),
             other => Err(ApiError::bad_request(format!(
-                "Unsupported room key request status: {}",
-                other
+                "Unsupported room key request status: {other}"
             ))),
         }
     }
@@ -124,7 +123,7 @@ impl KeyRequestService {
             .megolm_service
             .get_room_sessions(&request.room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {e}")))?;
 
         let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
             Some(s) => s,

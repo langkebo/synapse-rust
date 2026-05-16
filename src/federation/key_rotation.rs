@@ -23,7 +23,7 @@ const KEY_GRACE_PERIOD_MINUTES: i64 = 5;
 fn new_key_id() -> String {
     let ts = Utc::now().timestamp_millis();
     let rand: u32 = rand::random();
-    format!("ed25519:{:x}_{:08x}", ts, rand)
+    format!("ed25519:{ts:x}_{rand:08x}")
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -273,7 +273,7 @@ impl KeyRotationManager {
         let expires_at =
             (Utc::now() + Duration::days(KEY_ROTATION_INTERVAL_DAYS)).timestamp_millis();
 
-        let public_key = self.derive_public_key(secret_key).await?;
+        let public_key = self.derive_public_key(secret_key)?;
 
         let signing_key = SigningKey {
             server_name: self.server_name.clone(),
@@ -351,7 +351,7 @@ impl KeyRotationManager {
         drop(current);
 
         let key_id = requested_key_id.unwrap_or_else(new_key_id);
-        let (key_id, secret_key) = self.generate_new_key_pair(&key_id).await;
+        let (key_id, secret_key) = self.generate_new_key_pair(&key_id);
 
         self.initialize(&secret_key, &key_id).await?;
 
@@ -362,14 +362,14 @@ impl KeyRotationManager {
         Ok(())
     }
 
-    async fn generate_new_key_pair(&self, key_id: &str) -> (String, String) {
+    fn generate_new_key_pair(&self, key_id: &str) -> (String, String) {
         let secret_key =
             base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
 
         (key_id.to_string(), secret_key)
     }
 
-    async fn derive_public_key(&self, secret_key: &str) -> Result<String, ApiError> {
+    fn derive_public_key(&self, secret_key: &str) -> Result<String, ApiError> {
         let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(secret_key)
             .map_err(|_| ApiError::internal("Invalid secret key format"))?
@@ -397,7 +397,6 @@ impl KeyRotationManager {
             if current.key_id == key_id {
                 if let Ok(()) = self
                     .verify_signature(&current.public_key, signature, content)
-                    .await
                 {
                     return Ok(true);
                 }
@@ -405,10 +404,9 @@ impl KeyRotationManager {
         }
 
         if let Some(historical) = self.historical_keys.read().await.get(key_id) {
-            if self.is_within_grace_period(historical).await {
+            if self.is_within_grace_period(historical) {
                 if let Ok(()) = self
                     .verify_signature(&historical.public_key, signature, content)
-                    .await
                 {
                     return Ok(true);
                 }
@@ -418,14 +416,14 @@ impl KeyRotationManager {
         self.verify_from_database(key_id, signature, content).await
     }
 
-    async fn is_within_grace_period(&self, key: &SigningKey) -> bool {
+    fn is_within_grace_period(&self, key: &SigningKey) -> bool {
         let now = Utc::now().timestamp_millis();
         let grace_end =
             key.expires_at + Duration::minutes(KEY_GRACE_PERIOD_MINUTES).num_milliseconds();
         now <= grace_end
     }
 
-    async fn verify_signature(
+    fn verify_signature(
         &self,
         public_key: &str,
         signature: &str,
@@ -485,10 +483,9 @@ impl KeyRotationManager {
                 }
 
                 let public_key: String = record.get("public_key");
-                return self
+                self
                     .verify_signature(&public_key, signature, content)
-                    .await
-                    .map(|_| true);
+                    .map(|_| true)
             }
             None => Ok(false),
         }
@@ -497,7 +494,7 @@ impl KeyRotationManager {
     pub async fn cache_historical_key(&self, origin: &str, key_id: &str, public_key: String) {
         let expires_at = (Utc::now() + Duration::hours(24)).timestamp_millis();
 
-        let cache_key = format!("federation:historical_key:{}:{}", origin, key_id);
+        let cache_key = format!("federation:historical_key:{origin}:{key_id}");
 
         let mut cache = self.memory_cache.write().await;
         cache.insert(cache_key, (public_key, expires_at));
@@ -540,7 +537,7 @@ impl KeyRotationManager {
             &secret_key,
             &mut response,
         )
-        .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {e}")))?;
 
         Ok(response)
     }
@@ -637,8 +634,7 @@ mod tests {
             Ok(pool) => Arc::new(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping key rotation database tests because test database is unavailable: {}",
-                    error
+                    "Skipping key rotation database tests because test database is unavailable: {error}"
                 );
                 return None;
             }
@@ -697,7 +693,7 @@ mod tests {
             ts_valid_until_ms: 0,
         };
 
-        assert!(manager.is_within_grace_period(&expired_key).await);
+        assert!(manager.is_within_grace_period(&expired_key));
     }
 
     #[test]
@@ -1052,7 +1048,7 @@ mod tests {
         let pool = create_test_pool().await;
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        let result = manager.derive_public_key("not-valid-base64!!!").await;
+        let result = manager.derive_public_key("not-valid-base64!!!");
         assert!(result.is_err());
     }
 
@@ -1063,7 +1059,7 @@ mod tests {
 
         // 16 bytes instead of 32
         let short_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(b"short_key");
-        let result = manager.derive_public_key(&short_key).await;
+        let result = manager.derive_public_key(&short_key);
         assert!(result.is_err());
     }
 

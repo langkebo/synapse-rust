@@ -52,7 +52,7 @@ pub(crate) async fn join_room_by_id_or_alias(
             .room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
-            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
         let alias = format!(
@@ -64,7 +64,7 @@ pub(crate) async fn join_room_by_id_or_alias(
             .room_service
             .get_room_by_alias(&alias)
             .await
-            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
 
@@ -141,7 +141,7 @@ pub(crate) async fn knock_room(
             .room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
-            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
         let alias = format!(
@@ -153,7 +153,7 @@ pub(crate) async fn knock_room(
             .room_service
             .get_room_by_alias(&alias)
             .await
-            .map_err(|e| ApiError::not_found(format!("Room alias not found: {}", e)))?
+            .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
 

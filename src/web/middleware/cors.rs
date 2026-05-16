@@ -107,7 +107,7 @@ pub fn log_cors_security_report(report: &CorsSecurityReport) {
             } else {
                 origin.clone()
             };
-            println!("║    - {:<58}║", truncated);
+            println!("║    - {truncated:<58}║");
         }
     }
 
@@ -172,9 +172,8 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
     if !is_local {
         return Err(format!(
             "Development mode should only bind to local addresses. \
-             Current bind address '{}' is not local. \
-             For development, use '127.0.0.1' or 'localhost'.",
-            host
+             Current bind address '{host}' is not local. \
+             For development, use '127.0.0.1' or 'localhost'."
         ));
     }
 
@@ -361,8 +360,7 @@ mod tests {
             let validation = validate_cors_config_for_production();
             assert!(
                 validation.is_err(),
-                "Validation should fail with wildcard origin in production: {:?}",
-                validation
+                "Validation should fail with wildcard origin in production: {validation:?}"
             );
         })
         .join()

@@ -782,7 +782,7 @@ pub(crate) async fn sign_room_event(
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let default_key_id = format!("ed25519:{}", device_id);
+    let default_key_id = format!("ed25519:{device_id}");
     let key_id = body
         .get("key_id")
         .and_then(|v| v.as_str())
@@ -1049,7 +1049,7 @@ pub(crate) async fn redact_event(
                 error = %e,
                 "Redaction event created but content redaction failed"
             );
-            ApiError::internal(format!("Failed to redact event content: {}", e))
+            ApiError::internal(format!("Failed to redact event content: {e}"))
         })?;
 
     Ok(Json(json!({
@@ -1089,7 +1089,7 @@ pub(crate) async fn get_relations(
                     .get_thread_replies(&room_id, &thread_id, Some(100), None)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to get thread replies: {}", e))
+                        ApiError::internal(format!("Failed to get thread replies: {e}"))
                     })?;
 
                 for reply in replies {

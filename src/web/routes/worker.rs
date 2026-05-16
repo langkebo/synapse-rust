@@ -745,7 +745,7 @@ mod tests {
             ApiError::BadRequest(message) => {
                 assert!(message.contains("unknown"));
             }
-            other => panic!("expected bad request error, got {:?}", other),
+            other => panic!("expected bad request error, got {other:?}"),
         }
     }
 

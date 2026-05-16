@@ -28,8 +28,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
-                "Skipping federation service tests because test database is unavailable: {}",
-                error
+                "Skipping federation service tests because test database is unavailable: {error}"
             );
             return None;
         }
@@ -87,14 +86,14 @@ fn test_key_rotation_initialization() {
         cleanup_test_database(&pool).await;
 
         let id = unique_id();
-        let server_name = format!("test{}.example.com", id);
+        let server_name = format!("test{id}.example.com");
         let manager = KeyRotationManager::new(&pool, &server_name);
 
         let valid_key = generate_valid_test_key();
-        let key_id = format!("ed25519:test_{}", id);
+        let key_id = format!("ed25519:test_{id}");
         let result = manager.initialize(&valid_key, &key_id).await;
         if result.is_err() {
-            eprintln!("Key rotation init error: {:?}", result);
+            eprintln!("Key rotation init error: {result:?}");
         }
         assert!(result.is_ok());
 
@@ -116,14 +115,14 @@ fn test_should_rotate_keys() {
         cleanup_test_database(&pool).await;
 
         let id = unique_id();
-        let server_name = format!("test{}.example.com", id);
+        let server_name = format!("test{id}.example.com");
         let manager = KeyRotationManager::new(&pool, &server_name);
 
         let should_rotate_before = manager.should_rotate_keys().await;
         assert!(should_rotate_before, "Should rotate when no keys exist");
 
         let valid_key = generate_valid_test_key();
-        let key_id = format!("ed25519:test_{}", id);
+        let key_id = format!("ed25519:test_{id}");
         manager
             .initialize(&valid_key, &key_id)
             .await
@@ -144,8 +143,7 @@ fn test_should_rotate_keys() {
 
         assert!(
             days_until_expiry >= 6,
-            "Key should have at least 6 days until expiry, got {} days",
-            days_until_expiry
+            "Key should have at least 6 days until expiry, got {days_until_expiry} days"
         );
     });
 }
@@ -160,7 +158,7 @@ fn test_load_or_create_key_recovers_missing_signing_key_table() {
         };
 
         let id = unique_id();
-        let server_name = format!("test{}.example.com", id);
+        let server_name = format!("test{id}.example.com");
         let manager = KeyRotationManager::new(&pool, &server_name);
 
         // 先尝试初始化（如果不存在表会自动创建）
@@ -177,7 +175,7 @@ fn test_load_or_create_key_recovers_missing_signing_key_table() {
         .await
         .expect("Failed to count federation signing keys");
 
-        assert!(count >= 1, "Expected at least 1 key, found {}", count);
+        assert!(count >= 1, "Expected at least 1 key, found {count}");
     });
 }
 

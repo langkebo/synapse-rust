@@ -18,7 +18,7 @@ impl S3Backend {
 
     fn object_key(&self, media_id: &str) -> String {
         if let Some(ref prefix) = self.config.prefix {
-            format!("{}/{}", prefix, media_id)
+            format!("{prefix}/{media_id}")
         } else {
             media_id.to_string()
         }
@@ -26,7 +26,7 @@ impl S3Backend {
 
     fn thumbnail_key(&self, media_id: &str, width: u32, height: u32, method: &str) -> String {
         let base = self.object_key(media_id);
-        format!("thumbnails/{}_{}x{}_{}.jpg", base, width, height, method)
+        format!("thumbnails/{base}_{width}x{height}_{method}.jpg")
     }
 }
 

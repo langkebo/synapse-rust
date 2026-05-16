@@ -29,15 +29,15 @@ mod concurrency_integration_tests {
     async fn test_concurrency_controller_try_acquire() {
         let controller = ConcurrencyController::new(1, "test".to_string());
 
-        let permit = controller.try_acquire().await;
+        let permit = controller.try_acquire();
         assert!(permit.is_some());
 
-        let permit2 = controller.try_acquire().await;
+        let permit2 = controller.try_acquire();
         assert!(permit2.is_none());
 
         drop(permit);
 
-        let permit3 = controller.try_acquire().await;
+        let permit3 = controller.try_acquire();
         assert!(permit3.is_some());
     }
 
@@ -83,7 +83,7 @@ mod concurrency_integration_tests {
         assert!(permit2.is_some());
 
         // Use try_acquire here to avoid hanging
-        let permit3 = limiter.try_acquire("test").await;
+        let permit3 = limiter.try_acquire("test");
         assert!(permit3.is_none());
 
         drop(permit1);
@@ -94,7 +94,7 @@ mod concurrency_integration_tests {
     #[tokio::test]
     async fn test_concurrency_permit_drop_logging() {
         let controller = ConcurrencyController::new(1, "test_controller".to_string());
-        let _permit = controller.try_acquire().await.unwrap();
+        let _permit = controller.try_acquire().unwrap();
         assert_eq!(controller.available_permits(), 0);
     }
 }

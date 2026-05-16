@@ -99,7 +99,7 @@ impl IdentityStorage {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to get pending 3PID validations: {}", e))
+            ApiError::internal(format!("Failed to get pending 3PID validations: {e}"))
         })?;
 
         Ok(rows

@@ -19,8 +19,7 @@ mod room_summary_storage_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping room summary storage tests because test database is unavailable: {}",
-                    error
+                    "Skipping room summary storage tests because test database is unavailable: {error}"
                 );
                 None
             }

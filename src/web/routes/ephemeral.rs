@@ -56,7 +56,7 @@ pub async fn get_ephemeral_events(
     .bind(params.limit)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {e}")))?;
 
     let mut events: Vec<Value> = Vec::new();
 
@@ -69,7 +69,7 @@ pub async fn get_ephemeral_events(
         let origin_server_ts: i64 = row.get("created_ts");
         // room_ephemeral 没有原生 event_id；按 Matrix 约定合成 `$ephemeral_{stream_id}`，
         // 保证客户端可以按 id 做幂等去重。
-        let event_id = format!("$ephemeral_{}", stream_id);
+        let event_id = format!("$ephemeral_{stream_id}");
 
         let event = json!({
             "type": event_type,

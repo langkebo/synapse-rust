@@ -81,7 +81,7 @@ impl HealthCheck for DatabaseHealthCheck {
             },
             Err(e) => CheckResult {
                 status: "unhealthy".to_string(),
-                message: format!("Database connection failed: {}", e),
+                message: format!("Database connection failed: {e}"),
                 duration_ms: start.elapsed().as_millis() as u64,
             },
         }
@@ -135,13 +135,13 @@ impl HealthCheck for CacheHealthCheck {
                 },
                 Err(e) => CheckResult {
                     status: "unhealthy".to_string(),
-                    message: format!("Cache read failed: {}", e),
+                    message: format!("Cache read failed: {e}"),
                     duration_ms: start.elapsed().as_millis() as u64,
                 },
             },
             Err(e) => CheckResult {
                 status: "unhealthy".to_string(),
-                message: format!("Cache write failed: {}", e),
+                message: format!("Cache write failed: {e}"),
                 duration_ms: start.elapsed().as_millis() as u64,
             },
         }

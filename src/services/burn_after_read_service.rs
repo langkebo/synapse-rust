@@ -65,7 +65,7 @@ impl BurnAfterReadService {
         self.storage
             .set_settings(user_id, room_id, enabled, burn_after_ms)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set burn settings: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set burn settings: {e}")))?;
 
         Ok(())
     }
@@ -79,7 +79,7 @@ impl BurnAfterReadService {
             .storage
             .get_settings(user_id, room_id)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get burn settings: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get burn settings: {e}")))?;
 
         Ok(row.map(|r| BurnSettings {
             is_enabled: r.is_enabled,
@@ -96,7 +96,7 @@ impl BurnAfterReadService {
             .storage
             .get_pending_burns(user_id, room_id)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get pending burns: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get pending burns: {e}")))?;
 
         Ok(rows
             .into_iter()
@@ -120,7 +120,7 @@ impl BurnAfterReadService {
         self.storage
             .cancel_burn(user_id, room_id, event_id)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to cancel burn: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to cancel burn: {e}")))?;
 
         Ok(())
     }
@@ -169,7 +169,7 @@ impl BurnAfterReadService {
         self.storage
             .log_burned_event(user_id, room_id, event_id, now)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to log burned event: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to log burned event: {e}")))?;
 
         Ok(())
     }
@@ -182,7 +182,7 @@ impl BurnAfterReadService {
         self.storage
             .set_user_default(user_id, default_burn_ms)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set user default: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set user default: {e}")))?;
 
         Ok(())
     }
@@ -192,7 +192,7 @@ impl BurnAfterReadService {
             .storage
             .get_user_stats(user_id)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get user stats: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get user stats: {e}")))?;
 
         Ok(BurnStats {
             total_burned: row.total_burned,
@@ -214,7 +214,7 @@ impl BurnAfterReadService {
         self.storage
             .schedule_burn(user_id, room_id, event_id, delete_at)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to schedule burn: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to schedule burn: {e}")))?;
 
         Ok(())
     }
@@ -226,7 +226,7 @@ impl BurnAfterReadService {
             .storage
             .get_expired_burns(now)
             .await
-            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get expired burns: {}", e)))?;
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get expired burns: {e}")))?;
 
         let mut expired = Vec::new();
 

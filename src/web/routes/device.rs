@@ -92,7 +92,6 @@ async fn require_password_uia(
                         .services
                         .uia_service
                         .verify_token_stage(auth_val, &auth_user.user_id)
-                        .await
                     {
                         let session = state
                             .services
@@ -127,7 +126,7 @@ async fn require_password_uia(
                         Json(state.services.uia_service.build_uia_response(
                             &session,
                             "M_INVALID_PARAM",
-                            &format!("Unsupported auth type: {}", auth_type),
+                            &format!("Unsupported auth type: {auth_type}"),
                         )),
                     )
                         .into_response());
@@ -245,7 +244,7 @@ pub async fn get_devices(
         .device_storage
         .get_user_devices(&auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get devices: {e}")))?;
 
     let device_list: Vec<Value> = devices
         .into_iter()
@@ -274,7 +273,7 @@ pub async fn get_device(
         .device_storage
         .get_device(&device_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get device: {e}")))?;
 
     match device {
         Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
@@ -304,7 +303,7 @@ pub async fn update_device(
             .device_storage
             .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update device: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to update device: {e}")))
             .and_then(|rows_affected| {
                 if rows_affected == 0 {
                     Err(ApiError::not_found("Device not found".to_string()))
@@ -319,7 +318,7 @@ pub async fn update_device(
         .device_storage
         .get_device(&device_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get updated device: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get updated device: {e}")))?
         .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
 
     broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
@@ -409,7 +408,7 @@ pub async fn get_device_list_updates(
             .device_storage
             .get_users_devices_batch(&users)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get devices: {e}")))?;
 
         for user_id in &users {
             if let Some(devices) = devices_by_user.get(user_id) {
@@ -448,7 +447,7 @@ pub async fn get_device_list_updates(
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {e}")))?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
@@ -467,7 +466,7 @@ pub async fn get_device_list_updates(
     .bind(&users)
     .fetch_all(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {e}")))?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -498,7 +497,7 @@ pub async fn get_device_list_updates(
         .bind(&device_id)
         .fetch_optional(&*state.services.device_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device data: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get device data: {e}")))?;
 
         if let Some((display_name, last_seen_ts)) = row {
             changed.push(json!({
@@ -517,7 +516,7 @@ pub async fn get_device_list_updates(
         .device_storage
         .filter_existing_users(&users)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {e}")))?;
 
     let existing: HashSet<String> = existing_users.into_iter().collect();
     for user_id in &users {

@@ -164,45 +164,45 @@ pub enum PresenceState {
 impl fmt::Display for ReplicationCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReplicationCommand::Ping { timestamp } => write!(f, "PING {}", timestamp),
+            ReplicationCommand::Ping { timestamp } => write!(f, "PING {timestamp}"),
             ReplicationCommand::Pong {
                 timestamp,
                 server_name,
             } => {
-                write!(f, "PONG {} {}", timestamp, server_name)
+                write!(f, "PONG {timestamp} {server_name}")
             }
-            ReplicationCommand::Name { name } => write!(f, "NAME {}", name),
+            ReplicationCommand::Name { name } => write!(f, "NAME {name}"),
             ReplicationCommand::Replicate {
                 stream_name, token, ..
             } => {
-                write!(f, "REPLICATE {} {}", stream_name, token)
+                write!(f, "REPLICATE {stream_name} {token}")
             }
             ReplicationCommand::Rdata {
                 stream_name, token, ..
             } => {
-                write!(f, "RDATA {} {}", stream_name, token)
+                write!(f, "RDATA {stream_name} {token}")
             }
             ReplicationCommand::Position {
                 stream_name,
                 position,
             } => {
-                write!(f, "POSITION {} {}", stream_name, position)
+                write!(f, "POSITION {stream_name} {position}")
             }
-            ReplicationCommand::Error { message } => write!(f, "ERROR {}", message),
+            ReplicationCommand::Error { message } => write!(f, "ERROR {message}"),
             ReplicationCommand::Sync {
                 stream_name,
                 position,
             } => {
-                write!(f, "SYNC {} {}", stream_name, position)
+                write!(f, "SYNC {stream_name} {position}")
             }
             ReplicationCommand::UserSync { user_id, state } => {
-                write!(f, "USER_SYNC {} {:?}", user_id, state)
+                write!(f, "USER_SYNC {user_id} {state:?}")
             }
             ReplicationCommand::FederationAck { origin } => {
-                write!(f, "FEDERATION_ACK {}", origin)
+                write!(f, "FEDERATION_ACK {origin}")
             }
             ReplicationCommand::RemovePushers { app_id, push_key } => {
-                write!(f, "REMOVE_PUSHERS {} {}", app_id, push_key)
+                write!(f, "REMOVE_PUSHERS {app_id} {push_key}")
             }
         }
     }
@@ -329,8 +329,7 @@ impl ReplicationCommand {
                     "Offline" => UserSyncState::Offline,
                     _ => {
                         return Err(ReplicationError::ParseError(format!(
-                            "Unknown state: {}",
-                            state_str
+                            "Unknown state: {state_str}"
                         )))
                     }
                 };
@@ -359,7 +358,7 @@ impl ReplicationCommand {
     }
 
     pub fn to_line(&self) -> String {
-        format!("{}\n", self)
+        format!("{self}\n")
     }
 }
 

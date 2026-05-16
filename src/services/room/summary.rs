@@ -33,7 +33,7 @@ impl RoomSummaryService {
             .storage
             .get_summary(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room summary: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room summary: {e}")))?;
 
         if let Some(summary) = summary {
             let heroes = self.get_heroes(room_id).await?;
@@ -52,7 +52,7 @@ impl RoomSummaryService {
             .storage
             .get_summaries_for_user(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user room summaries: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get user room summaries: {e}")))?;
 
         let mut responses = Vec::new();
         for summary in summaries {
@@ -68,7 +68,7 @@ impl RoomSummaryService {
             .storage
             .get_heroes(room_id, 5)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get heroes: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get heroes: {e}")))?;
 
         Ok(members.into_iter().map(RoomSummaryHero::from).collect())
     }
@@ -86,25 +86,25 @@ impl RoomSummaryService {
             .storage
             .get_summary(&room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room summary: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room summary: {e}")))?
             .is_some()
         {
             self.storage
                 .update_summary(&room_id, Self::create_request_to_update_request(&request))
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to update room summary: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to update room summary: {e}")))?;
         } else {
             self.storage
                 .create_summary(request)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to create room summary: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to create room summary: {e}")))?;
         }
 
         self.synchronize_room_snapshot(&room_id).await?;
 
         self.get_summary(&room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get summary after sync: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get summary after sync: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
@@ -130,7 +130,7 @@ impl RoomSummaryService {
             .event_storage
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get current state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get current state: {e}")))?;
 
         info!("Syncing {} state events for room {}", states.len(), room_id);
 
@@ -151,14 +151,14 @@ impl RoomSummaryService {
                 .get_room_members(room_id, "join")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room join members: {}", e))
+                    ApiError::internal(format!("Failed to get room join members: {e}"))
                 })?;
 
             let invite_members = member_storage
                 .get_room_members(room_id, "invite")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room invite members: {}", e))
+                    ApiError::internal(format!("Failed to get room invite members: {e}"))
                 })?;
 
             let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
@@ -202,7 +202,7 @@ impl RoomSummaryService {
             .storage
             .update_summary(room_id, request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update room summary: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update room summary: {e}")))?;
 
         let heroes = self.get_heroes(room_id).await?;
         Ok(summary.to_response(heroes))
@@ -215,7 +215,7 @@ impl RoomSummaryService {
         self.storage
             .delete_summary(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete room summary: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete room summary: {e}")))?;
 
         Ok(())
     }
@@ -234,7 +234,7 @@ impl RoomSummaryService {
             .storage
             .add_member(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to add member: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to add member: {e}")))?;
 
         Ok(member)
     }
@@ -250,7 +250,7 @@ impl RoomSummaryService {
             .storage
             .update_member(room_id, user_id, request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update member: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update member: {e}")))?;
 
         Ok(member)
     }
@@ -262,7 +262,7 @@ impl RoomSummaryService {
         self.storage
             .remove_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove member: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to remove member: {e}")))?;
 
         Ok(())
     }
@@ -273,7 +273,7 @@ impl RoomSummaryService {
             .storage
             .get_members(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get members: {e}")))?;
 
         Ok(members)
     }
@@ -291,7 +291,7 @@ impl RoomSummaryService {
             .storage
             .set_state(room_id, event_type, state_key, event_id, content)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update state: {e}")))?;
 
         self.update_summary_from_state(room_id, Some(event_type), state_key, &state.content)
             .await?;
@@ -368,7 +368,7 @@ impl RoomSummaryService {
                     .set_canonical_alias(room_id, canonical_alias)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to update canonical alias: {}", e))
+                        ApiError::internal(format!("Failed to update canonical alias: {e}"))
                     })?;
                 return Ok(());
             }
@@ -414,7 +414,7 @@ impl RoomSummaryService {
             .storage
             .get_state(room_id, event_type, state_key)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
 
         Ok(state)
     }
@@ -425,7 +425,7 @@ impl RoomSummaryService {
             .storage
             .get_all_state(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get all state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get all state: {e}")))?;
 
         Ok(states)
     }
@@ -436,7 +436,7 @@ impl RoomSummaryService {
             .storage
             .get_stats(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get stats: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get stats: {e}")))?;
 
         Ok(stats)
     }
@@ -447,7 +447,7 @@ impl RoomSummaryService {
             .event_storage
             .get_room_events(room_id, i64::MAX)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get events: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get events: {e}")))?;
 
         let total_events = events.len() as i64;
         let total_state_events = events.iter().filter(|e| e.state_key.is_some()).count() as i64;
@@ -483,7 +483,7 @@ impl RoomSummaryService {
                 0,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update stats: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update stats: {e}")))?;
 
         Ok(stats)
     }
@@ -505,7 +505,7 @@ impl RoomSummaryService {
         self.storage
             .queue_update(room_id, event_id, event_type, state_key, priority)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to queue update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to queue update: {e}")))?;
 
         Ok(())
     }
@@ -516,7 +516,7 @@ impl RoomSummaryService {
             .storage
             .get_pending_updates(limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get pending updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get pending updates: {e}")))?;
 
         let mut processed = 0;
         for update in updates {
@@ -547,7 +547,7 @@ impl RoomSummaryService {
             .event_storage
             .get_event(&update.event_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?
             .ok_or_else(|| ApiError::not_found("Event not found"))?;
 
         if event.state_key.is_some() {
@@ -574,7 +574,7 @@ impl RoomSummaryService {
             self.storage
                 .update_summary(&update.room_id, request)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to update summary: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to update summary: {e}")))?;
         }
 
         Ok(())
@@ -585,7 +585,7 @@ impl RoomSummaryService {
         self.storage
             .increment_unread_notifications(room_id, highlight)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to increment unread: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to increment unread: {e}")))?;
 
         Ok(())
     }
@@ -595,7 +595,7 @@ impl RoomSummaryService {
         self.storage
             .clear_unread_notifications(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to clear unread: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to clear unread: {e}")))?;
 
         Ok(())
     }
@@ -606,17 +606,17 @@ impl RoomSummaryService {
             .storage
             .get_hero_candidates(room_id, 5)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get heroes: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get heroes: {e}")))?;
 
         let hero_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
 
         self.storage
             .set_hero_members(room_id, &hero_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update hero flags: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update hero flags: {e}")))?;
 
         let hero_users = serde_json::to_value(&hero_ids)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize heroes: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to serialize heroes: {e}")))?;
 
         let request = UpdateRoomSummaryRequest {
             hero_users: Some(hero_users),
@@ -626,7 +626,7 @@ impl RoomSummaryService {
         self.storage
             .update_summary(room_id, request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update heroes: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update heroes: {e}")))?;
 
         Ok(hero_ids)
     }
@@ -636,7 +636,7 @@ impl RoomSummaryService {
 
         let existing =
             self.storage.get_summary(room_id).await.map_err(|e| {
-                ApiError::internal(format!("Failed to check existing summary: {}", e))
+                ApiError::internal(format!("Failed to check existing summary: {e}"))
             })?;
 
         if existing.is_none() {
@@ -678,7 +678,7 @@ impl RoomSummaryService {
             .storage
             .get_summaries_by_ids(room_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {e}")))?;
 
         let mut responses = Vec::with_capacity(summaries.len());
         for summary in summaries {

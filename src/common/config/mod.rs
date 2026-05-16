@@ -626,8 +626,7 @@ impl SamlConfig {
     pub fn get_sp_acs_url(&self, server_name: &str) -> String {
         self.sp_acs_url.clone().unwrap_or_else(|| {
             format!(
-                "https://{}/_matrix/client/r0/login/sso/redirect/saml",
-                server_name
+                "https://{server_name}/_matrix/client/r0/login/sso/redirect/saml"
             )
         })
     }
@@ -635,8 +634,7 @@ impl SamlConfig {
     pub fn get_sp_sls_url(&self, server_name: &str) -> Option<String> {
         self.sp_sls_url.clone().or_else(|| {
             Some(format!(
-                "https://{}/_matrix/client/r0/logout/saml",
-                server_name
+                "https://{server_name}/_matrix/client/r0/logout/saml"
             ))
         })
     }
@@ -2047,7 +2045,7 @@ pub struct ReplicationHttpConfig {
 }
 
 impl Config {
-    pub async fn load() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
             .unwrap_or_else(|_| "./homeserver.yaml".to_string());
 
@@ -2076,11 +2074,11 @@ impl Config {
 
         config_values
             .resolve_env_variables()
-            .map_err(|e| format!("Failed to resolve environment variables: {}", e))?;
+            .map_err(|e| format!("Failed to resolve environment variables: {e}"))?;
 
         config_values
             .validate()
-            .map_err(|e| format!("Configuration validation failed: {}", e))?;
+            .map_err(|e| format!("Configuration validation failed: {e}"))?;
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
@@ -2406,6 +2404,7 @@ impl Config {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn resolve_env_in_string(value: &str) -> Result<String, String> {
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"\$\{([^}]+)\}").expect("static regex is valid"));
@@ -2454,8 +2453,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
                 Ok(v) => v,
                 Err(_) => {
                     return Err(format!(
-                        "Environment variable {} is required: {}",
-                        var_name, error_msg
+                        "Environment variable {var_name} is required: {error_msg}"
                     ));
                 }
             };

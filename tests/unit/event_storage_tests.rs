@@ -26,8 +26,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
-                "Skipping event storage tests because test database is unavailable: {}",
-                error
+                "Skipping event storage tests because test database is unavailable: {error}"
             );
             return None;
         }
@@ -139,8 +138,8 @@ fn test_get_room_events_batch_multiple_rooms() {
 
         for i in 1..=3 {
             let params = CreateEventParams {
-                event_id: format!("$event{}:localhost", i),
-                room_id: format!("!room{}:localhost", i),
+                event_id: format!("$event{i}:localhost"),
+                room_id: format!("!room{i}:localhost"),
                 user_id: "@alice:localhost".to_string(),
                 event_type: "m.room.message".to_string(),
                 content: serde_json::json!({"body": format!("Message {}", i)}),
@@ -186,7 +185,7 @@ fn test_get_room_events_since_batch() {
 
         for i in 1..=5 {
             let params = CreateEventParams {
-                event_id: format!("$event_batch{}:localhost", i),
+                event_id: format!("$event_batch{i}:localhost"),
                 room_id: room_id.clone(),
                 user_id: "@alice:localhost".to_string(),
                 event_type: "m.room.message".to_string(),
@@ -231,7 +230,7 @@ fn test_get_room_events_batch_limit_per_room() {
 
         for i in 1..=10 {
             let params = CreateEventParams {
-                event_id: format!("$event_limit{}:localhost", i),
+                event_id: format!("$event_limit{i}:localhost"),
                 room_id: room_id.clone(),
                 user_id: "@alice:localhost".to_string(),
                 event_type: "m.room.message".to_string(),

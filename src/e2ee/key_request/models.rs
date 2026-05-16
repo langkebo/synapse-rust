@@ -41,7 +41,7 @@ impl std::str::FromStr for KeyRequestAction {
             "cancellation" => Ok(KeyRequestAction::Cancellation),
             "requested" => Ok(KeyRequestAction::Requested),
             "cancelled" => Ok(KeyRequestAction::Cancelled),
-            _ => Err(format!("Unknown action: {}", s)),
+            _ => Err(format!("Unknown action: {s}")),
         }
     }
 }

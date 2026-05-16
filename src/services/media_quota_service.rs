@@ -30,8 +30,7 @@ impl MediaQuotaService {
                 return Ok(QuotaCheckResult {
                     is_allowed: false,
                     reason: Some(format!(
-                        "File size {} exceeds maximum allowed size {}",
-                        file_size, max_file_size
+                        "File size {file_size} exceeds maximum allowed size {max_file_size}"
                     )),
                     current_usage: 0,
                     quota_limit: max_file_size,

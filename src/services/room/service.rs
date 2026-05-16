@@ -204,7 +204,7 @@ impl RoomService {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to start transaction: {e}")))?;
 
         let result = self
             .create_room_in_db(
@@ -219,7 +219,7 @@ impl RoomService {
         if let Err(e) = &result {
             error!("create_room_in_db failed: {}", e);
             let _ = tx.rollback().await;
-            return Err(ApiError::internal(format!("Failed to create room: {}", e)));
+            return Err(ApiError::internal(format!("Failed to create room: {e}")));
         }
 
         // Create m.room.create event. Honor the client's `room_version` /
@@ -264,8 +264,7 @@ impl RoomService {
             error!("m.room.create event failed: {}", e);
             let _ = tx.rollback().await;
             return Err(ApiError::internal(format!(
-                "Failed to create m.room.create event: {}",
-                e
+                "Failed to create m.room.create event: {e}"
             )));
         }
 
@@ -303,7 +302,7 @@ impl RoomService {
             let _ = tx.rollback().await;
             return Err(result
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.member event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.member event: {e}"))
                 })
                 .unwrap_err());
         }
@@ -359,7 +358,7 @@ impl RoomService {
             let _ = tx.rollback().await;
             return Err(result
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.power_levels event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.power_levels event: {e}"))
                 })
                 .unwrap_err());
         }
@@ -384,7 +383,7 @@ impl RoomService {
             let _ = tx.rollback().await;
             return Err(result
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.join_rules event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.join_rules event: {e}"))
                 })
                 .unwrap_err());
         }
@@ -418,8 +417,7 @@ impl RoomService {
             return Err(result
                 .map_err(|e| {
                     ApiError::internal(format!(
-                        "Failed to create m.room.history_visibility event: {}",
-                        e
+                        "Failed to create m.room.history_visibility event: {e}"
                     ))
                 })
                 .unwrap_err());
@@ -446,7 +444,7 @@ impl RoomService {
             let _ = tx.rollback().await;
             return Err(result
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.guest_access event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.guest_access event: {e}"))
                 })
                 .unwrap_err());
         }
@@ -464,7 +462,7 @@ impl RoomService {
         if result.is_err() {
             let _ = tx.rollback().await;
             return Err(result
-                .map_err(|e| ApiError::internal(format!("Failed to set room metadata: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed to set room metadata: {e}")))
                 .unwrap_err());
         }
 
@@ -480,7 +478,7 @@ impl RoomService {
         if result.is_err() {
             let _ = tx.rollback().await;
             return Err(result
-                .map_err(|e| ApiError::internal(format!("Failed to process invites: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed to process invites: {e}")))
                 .unwrap_err());
         }
 
@@ -520,8 +518,7 @@ impl RoomService {
                 if let Err(e) = result {
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal(format!(
-                        "Failed to apply initial_state event {}: {}",
-                        event_type, e
+                        "Failed to apply initial_state event {event_type}: {e}"
                     )));
                 }
             }
@@ -551,14 +548,14 @@ impl RoomService {
             if result.is_err() {
                 let _ = tx.rollback().await;
                 return Err(result
-                    .map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {}", e)))
+                    .map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {e}")))
                     .unwrap_err());
             }
         }
 
         tx.commit()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {e}")))?;
 
         // Auto-create room summary
         let summary_request = crate::storage::room_summary::CreateRoomSummaryRequest {
@@ -635,7 +632,7 @@ impl RoomService {
 
         result
             .map(|_| ())
-            .map_err(|e| ApiError::internal(format!("Failed to create room: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to create room: {e}")))
     }
 
     async fn add_creator_to_room(
@@ -647,7 +644,7 @@ impl RoomService {
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to add room member: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to add room member: {e}")))?;
 
         // create_room already initializes member_count to 1, so no increment needed here.
         Ok(())
@@ -669,14 +666,14 @@ impl RoomService {
                     .update_room_name_in_tx(tx, room_id, room_name)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to update room name: {}", e))
+                        ApiError::internal(format!("Failed to update room name: {e}"))
                     })?;
             } else {
                 self.room_storage
                     .update_room_name(room_id, room_name)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to update room name: {}", e))
+                        ApiError::internal(format!("Failed to update room name: {e}"))
                     })?;
             }
             // Also persist m.room.name as a state event so /sync delivers it.
@@ -695,7 +692,7 @@ impl RoomService {
                 )
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.name event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.name event: {e}"))
                 })?;
         }
 
@@ -705,14 +702,14 @@ impl RoomService {
                     .update_room_topic_in_tx(tx, room_id, room_topic)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to update room topic: {}", e))
+                        ApiError::internal(format!("Failed to update room topic: {e}"))
                     })?;
             } else {
                 self.room_storage
                     .update_room_topic(room_id, room_topic)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to update room topic: {}", e))
+                        ApiError::internal(format!("Failed to update room topic: {e}"))
                     })?;
             }
             self.event_storage
@@ -730,7 +727,7 @@ impl RoomService {
                 )
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.topic event: {}", e))
+                    ApiError::internal(format!("Failed to create m.room.topic event: {e}"))
                 })?;
         }
 
@@ -751,7 +748,7 @@ impl RoomService {
                 .filter_existing_users(invites)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to check users existence: {}", e))
+                    ApiError::internal(format!("Failed to check users existence: {e}"))
                 })?;
 
             // We need to handle tx carefully.
@@ -769,7 +766,7 @@ impl RoomService {
                     self.member_storage
                         .add_member(room_id, invitee, "invite", None, None, Some(&mut **t))
                         .await
-                        .map_err(|e| ApiError::internal(format!("Failed to invite user: {}", e)))?;
+                        .map_err(|e| ApiError::internal(format!("Failed to invite user: {e}")))?;
                     self.event_storage
                         .create_event(
                             CreateEventParams {
@@ -789,8 +786,7 @@ impl RoomService {
                         .await
                         .map_err(|e| {
                             ApiError::internal(format!(
-                                "Failed to record m.room.member invite event: {}",
-                                e
+                                "Failed to record m.room.member invite event: {e}"
                             ))
                         })?;
                     offset += 1;
@@ -804,7 +800,7 @@ impl RoomService {
                     self.member_storage
                         .add_member(room_id, invitee, "invite", None, None, None)
                         .await
-                        .map_err(|e| ApiError::internal(format!("Failed to invite user: {}", e)))?;
+                        .map_err(|e| ApiError::internal(format!("Failed to invite user: {e}")))?;
                     self.event_storage
                         .create_event(
                             CreateEventParams {
@@ -824,8 +820,7 @@ impl RoomService {
                         .await
                         .map_err(|e| {
                             ApiError::internal(format!(
-                                "Failed to record m.room.member invite event: {}",
-                                e
+                                "Failed to record m.room.member invite event: {e}"
                             ))
                         })?;
                     offset += 1;
@@ -857,7 +852,7 @@ impl RoomService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?
         {
             return Err(ApiError::forbidden(
                 "You are not a member of this room".to_string(),
@@ -1026,7 +1021,7 @@ impl RoomService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to send message: {e}")))?;
 
         if let Some(relates_to) = content
             .get("m.relates_to")
@@ -1079,7 +1074,7 @@ impl RoomService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -1088,7 +1083,7 @@ impl RoomService {
             .user_storage
             .user_exists(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -1097,7 +1092,7 @@ impl RoomService {
             .event_storage
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {e}")))?
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
@@ -1114,7 +1109,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to load room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let join_rule = effective_join_rule
@@ -1131,7 +1126,7 @@ impl RoomService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?;
 
         if let Some(member) = existing_member.as_ref() {
             if member.membership == "join" {
@@ -1156,12 +1151,12 @@ impl RoomService {
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to join room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to join room: {e}")))?;
 
         self.room_storage
             .increment_member_count(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update member count: {e}")))?;
 
         // Persist the m.room.member state event so /sync delivers the membership
         // change and the client knows it has actually joined.
@@ -1183,7 +1178,7 @@ impl RoomService {
             )
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to record m.room.member join event: {}", e))
+                ApiError::internal(format!("Failed to record m.room.member join event: {e}"))
             })?;
 
         Ok(())
@@ -1193,12 +1188,12 @@ impl RoomService {
         self.member_storage
             .remove_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to leave room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to leave room: {e}")))?;
 
         self.room_storage
             .decrement_member_count(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update member count: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update member count: {e}")))?;
 
         // Persist the m.room.member leave event for /sync.
         self.event_storage
@@ -1216,7 +1211,7 @@ impl RoomService {
             )
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to record m.room.member leave event: {}", e))
+                ApiError::internal(format!("Failed to record m.room.member leave event: {e}"))
             })?;
 
         Ok(())
@@ -1227,7 +1222,7 @@ impl RoomService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?;
 
         match membership {
             Some(member) => match member.membership.as_str() {
@@ -1246,7 +1241,7 @@ impl RoomService {
                     self.member_storage
                         .forget_member(room_id, user_id)
                         .await
-                        .map_err(|e| ApiError::internal(format!("Failed to forget room: {}", e)))?;
+                        .map_err(|e| ApiError::internal(format!("Failed to forget room: {e}")))?;
                 }
                 _ => {
                     return Err(ApiError::bad_request(format!(
@@ -1274,7 +1269,7 @@ impl RoomService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -1283,7 +1278,7 @@ impl RoomService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?
         {
             return Err(ApiError::forbidden(
                 "You are not a member of this room".to_string(),
@@ -1294,7 +1289,7 @@ impl RoomService {
             .member_storage
             .get_room_members_with_profiles(room_id, "join")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get members: {e}")))?;
 
         let chunk: Vec<serde_json::Value> = members_with_profiles
             .iter()
@@ -1333,7 +1328,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?;
 
         match room {
             Some(r) => Ok(json!({
@@ -1358,7 +1353,7 @@ impl RoomService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?
         {
             return Err(ApiError::forbidden(
                 "You are not a member of this room".to_string(),
@@ -1369,7 +1364,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?;
 
         match room {
             Some(r) => Ok(json!({
@@ -1390,13 +1385,13 @@ impl RoomService {
             .member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get rooms: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get rooms: {e}")))?;
 
         let rooms_data = self
             .room_storage
             .get_rooms_batch(&room_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to fetch rooms batch: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to fetch rooms batch: {e}")))?;
 
         let rooms: Vec<serde_json::Value> = rooms_data
             .into_iter()
@@ -1426,13 +1421,13 @@ impl RoomService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?;
         if !is_member {
             let room = self
                 .room_storage
                 .get_room(room_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?;
             let is_public = room.as_ref().map(|r| r.is_public).unwrap_or(false);
             if !is_public {
                 return Err(ApiError::forbidden(
@@ -1450,7 +1445,7 @@ impl RoomService {
                 .event_storage
                 .get_max_origin_server_ts_for_room(room_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room stream: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get room stream: {e}")))?;
             generate_stream_token_from_ts(Some(max_ts))
         };
 
@@ -1464,7 +1459,7 @@ impl RoomService {
             .event_storage
             .get_room_events_paginated(room_id, from_ts, limit, normalized_direction)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get messages: {e}")))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -1501,7 +1496,7 @@ impl RoomService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -1510,7 +1505,7 @@ impl RoomService {
             .user_storage
             .user_exists(invitee_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -1522,7 +1517,7 @@ impl RoomService {
         self.member_storage
             .add_member(room_id, invitee_id, "invite", None, Some(inviter_id), None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create invite event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create invite event: {e}")))?;
 
         // Persist the m.room.member invite state event so the invitee's /sync
         // delivers the invite under `rooms.invite`. Without this row in
@@ -1550,8 +1545,7 @@ impl RoomService {
             .await
             .map_err(|e| {
                 ApiError::internal(format!(
-                    "Failed to record m.room.member invite event: {}",
-                    e
+                    "Failed to record m.room.member invite event: {e}"
                 ))
             })?;
 
@@ -1568,7 +1562,7 @@ impl RoomService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -1577,7 +1571,7 @@ impl RoomService {
             .event_storage
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {e}")))?
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
@@ -1594,7 +1588,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to load room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let join_rule = effective_join_rule
@@ -1611,7 +1605,7 @@ impl RoomService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?;
 
         if let Some(member) = existing_member.as_ref() {
             match member.membership.as_str() {
@@ -1642,7 +1636,7 @@ impl RoomService {
         self.member_storage
             .add_member(room_id, user_id, "knock", None, reason, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create knock event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create knock event: {e}")))?;
         Ok(())
     }
 
@@ -1657,7 +1651,7 @@ impl RoomService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -1666,7 +1660,7 @@ impl RoomService {
             .user_storage
             .user_exists(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -1678,7 +1672,7 @@ impl RoomService {
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to ban user: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to ban user: {e}")))?;
         Ok(())
     }
 
@@ -1687,7 +1681,7 @@ impl RoomService {
             .event_storage
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get state events: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get state events: {e}")))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -1710,7 +1704,7 @@ impl RoomService {
             .room_storage
             .get_public_rooms(limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get public rooms: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get public rooms: {e}")))?;
 
         let room_list: Vec<serde_json::Value> = rooms
             .iter()
@@ -1737,14 +1731,14 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let requester = self
             .user_storage
             .get_user_by_id(requester_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?
             .ok_or_else(|| ApiError::unauthorized("Requester not found"))?;
 
         let is_creator = room.creator_user_id.as_deref() == Some(requester_id);
@@ -1759,20 +1753,20 @@ impl RoomService {
         self.room_storage
             .delete_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete room: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to delete room: {e}")))
     }
 
     pub async fn get_joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
         self.member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {e}")))
     }
 
     pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
         let exists =
             self.room_storage.room_exists(room_id).await.map_err(|e| {
-                ApiError::database(format!("Failed to check room existence: {}", e))
+                ApiError::database(format!("Failed to check room existence: {e}"))
             })?;
         Ok(exists)
     }
@@ -1782,7 +1776,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?;
 
         match room {
             Some(r) => Ok(r.creator_user_id.as_deref() == Some(user_id)),
@@ -1794,7 +1788,7 @@ impl RoomService {
         self.room_storage
             .get_room_aliases(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to get room aliases: {e}")))
     }
 
     pub async fn set_room_alias(
@@ -1807,7 +1801,7 @@ impl RoomService {
         self.room_storage
             .set_room_alias(room_id, alias, created_by)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to set room alias: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to set room alias: {e}")))
     }
 
     pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
@@ -1815,28 +1809,28 @@ impl RoomService {
         self.room_storage
             .get_room_by_alias(alias)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room by alias: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to get room by alias: {e}")))
     }
 
     pub async fn remove_room_alias(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_alias(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove room alias: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to remove room alias: {e}")))
     }
 
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_alias_by_name(alias)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove room alias by name: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to remove room alias by name: {e}")))
     }
 
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
         self.room_storage
             .set_room_directory(room_id, is_public)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to set room directory: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to set room directory: {e}")))
     }
 
     pub async fn get_room_visibility(&self, room_id: &str) -> ApiResult<String> {
@@ -1844,7 +1838,7 @@ impl RoomService {
             .room_storage
             .is_room_in_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room visibility: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room visibility: {e}")))?;
         Ok(if is_public {
             "public".to_string()
         } else {
@@ -1856,7 +1850,7 @@ impl RoomService {
         self.room_storage
             .remove_room_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove room from directory: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to remove room from directory: {e}")))
     }
 
     pub async fn upgrade_room(
@@ -1869,7 +1863,7 @@ impl RoomService {
             .room_storage
             .get_room(old_room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get old room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get old room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let new_room_id = generate_room_id(&self.server_name);
@@ -1903,7 +1897,7 @@ impl RoomService {
         self.room_storage
             .set_room_version(old_room_id, new_version)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update room version: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update room version: {e}")))?;
 
         Ok(new_room_id)
     }
@@ -1913,7 +1907,7 @@ impl RoomService {
             .event_storage
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get state events: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get state events: {e}")))?;
 
         for event in state_events {
             if event.event_type.as_deref() == Some("m.room.tombstone") {
@@ -1939,7 +1933,7 @@ impl RoomService {
             .room_storage
             .get_room(target_room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get target room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get target room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
         if target_room.creator_user_id.as_deref() != Some(user_id) {
@@ -1951,7 +1945,7 @@ impl RoomService {
         self.room_storage
             .copy_room_state(source_room_id, target_room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to copy room state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to copy room state: {e}")))?;
 
         Ok(())
     }
@@ -1961,14 +1955,14 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let members = self
             .member_storage
             .get_room_members(room_id, "join")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get members: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get members: {e}")))?;
 
         let is_member = members
             .iter()
@@ -2016,7 +2010,7 @@ impl RoomService {
 
         let rid = room_id.to_string();
         let eid = event_id.to_string();
-        let task_id = format!("burn_after_read:{}:{}:{}", rid, eid, delay_secs);
+        let task_id = format!("burn_after_read:{rid}:{eid}:{delay_secs}");
 
         ::tracing::info!(
             "Scheduling burn-after-read for event {} in room {} with delay {}s",
@@ -2066,7 +2060,7 @@ impl RoomService {
             .event_storage
             .create_event(params, tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create event: {e}")))?;
 
         if should_update_summary
             && event_type == "m.room.canonical_alias"
@@ -2111,7 +2105,7 @@ impl RoomService {
             .member_storage
             .add_member(room_id, user_id, membership, display_name, join_reason, tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to add member: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to add member: {e}")))?;
 
         if should_update_summary {
             let request = crate::storage::room_summary::CreateSummaryMemberRequest {

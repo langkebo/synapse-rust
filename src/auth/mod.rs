@@ -193,8 +193,7 @@ impl AuthService {
         }
         if let Err(e) = self.validator.validate_password(password) {
             return Err(ApiError::bad_request(format!(
-                "Password does not meet policy requirements: {}",
-                e
+                "Password does not meet policy requirements: {e}"
             )));
         }
 
@@ -202,7 +201,7 @@ impl AuthService {
             .user_storage
             .get_user_by_username(username)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if existing_user.is_some() {
             return Err(ApiError::user_in_use("Username already taken"));
@@ -215,7 +214,7 @@ impl AuthService {
         let password_str = password.to_string();
         let password_hash = tokio::task::spawn_blocking(move || auth.hash_password(&password_str))
             .await
-            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))??;
+            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {e}")))??;
 
         // Use a transaction to ensure user and device are created atomically
         let mut tx = self
@@ -223,7 +222,7 @@ impl AuthService {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to start transaction: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to start transaction: {e}")))?;
 
         let user = match self
             .user_storage
@@ -233,7 +232,7 @@ impl AuthService {
             Ok(u) => u,
             Err(e) => {
                 let _ = tx.rollback().await;
-                return Err(ApiError::internal(format!("Failed to create user: {}", e)));
+                return Err(ApiError::internal(format!("Failed to create user: {e}")));
             }
         };
 
@@ -251,16 +250,12 @@ impl AuthService {
             .await
         {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal(format!(
-                "Failed to create device: {}",
-                e
-            )));
+            return Err(ApiError::internal(format!("Failed to create device: {e}")));
         }
 
         if let Err(e) = tx.commit().await {
             return Err(ApiError::internal(format!(
-                "Failed to commit transaction: {}",
-                e
+                "Failed to commit transaction: {e}"
             )));
         }
 
@@ -335,7 +330,7 @@ impl AuthService {
             .user_storage
             .get_user_by_identifier(username)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         let invalid = || ApiError::forbidden("Invalid credentials".to_string());
 
@@ -416,6 +411,7 @@ impl AuthService {
     /// Used to keep `login` constant-time when the requested username does
     /// not exist or has no password set. Generated once at startup and held
     /// by `OnceLock`; the hash itself is non-secret.
+    #[allow(clippy::expect_used)]
     fn dummy_password_hash() -> &'static str {
         use std::sync::OnceLock;
         static DUMMY: OnceLock<String> = OnceLock::new();
@@ -427,7 +423,7 @@ impl AuthService {
     }
 
     async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
-        let key = format!("auth:lockout:{}", user_id);
+        let key = format!("auth:lockout:{user_id}");
         let lockout_until: Option<i64> = self.cache.get(&key).await?;
 
         if let Some(timestamp) = lockout_until {
@@ -440,7 +436,7 @@ impl AuthService {
     }
 
     async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
-        let key = format!("auth:failures:{}", user_id);
+        let key = format!("auth:failures:{user_id}");
         let failures: i64 = self
             .cache
             .get(&key)
@@ -458,7 +454,7 @@ impl AuthService {
 
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
-            let lockout_key = format!("auth:lockout:{}", user_id);
+            let lockout_key = format!("auth:lockout:{user_id}");
             if let Err(e) = self
                 .cache
                 .set(
@@ -485,7 +481,7 @@ impl AuthService {
     }
 
     async fn clear_login_failures(&self, user_id: &str) -> ApiResult<()> {
-        let key = format!("auth:failures:{}", user_id);
+        let key = format!("auth:failures:{user_id}");
         let _ = self.cache.delete(&key).await;
         Ok(())
     }
@@ -497,8 +493,8 @@ impl AuthService {
 
         tokio::task::spawn_blocking(move || auth.verify_password(&password_str, &password_hash_str))
             .await
-            .map_err(|e| ApiError::internal(format!("Verification task panicked: {}", e)))?
-            .map_err(|e| ApiError::internal(format!("Password verification failed: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Verification task panicked: {e}")))?
+            .map_err(|e| ApiError::internal(format!("Password verification failed: {e}")))
     }
 
     fn log_login_failure(username: &str, reason: &str) {
@@ -534,7 +530,7 @@ impl AuthService {
             .device_storage
             .get_device(&device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
         {
             if existing_device.user_id != user.user_id {
                 return Err(ApiError::forbidden(
@@ -545,7 +541,7 @@ impl AuthService {
             self.device_storage
                 .create_device(&device_id, &user.user_id, initial_display_name)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to create device: {e}")))?;
         }
 
         Ok(device_id)
@@ -567,20 +563,18 @@ impl AuthService {
         self.token_storage
             .add_to_blacklist(access_token, user_id, Some("User logout"))
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to add token to blacklist: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to add token to blacklist: {e}")))?;
 
         self.token_storage
             .delete_token(access_token)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete token: {e}")))?;
 
         if let Some(d_id) = device_id {
             self.token_storage
                 .delete_device_tokens(d_id)
                 .await
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to delete device tokens: {}", e))
-                })?;
+                .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {e}")))?;
 
             // RFC 6819 §5.1.5: Single-device logout must also revoke the
             // refresh token for that device; otherwise a stolen refresh
@@ -604,8 +598,7 @@ impl AuthService {
                         "Failed to revoke device refresh tokens during logout"
                     );
                     return Err(ApiError::internal(format!(
-                        "Failed to invalidate refresh tokens: {}",
-                        e
+                        "Failed to invalidate refresh tokens: {e}"
                     )));
                 }
             }
@@ -628,7 +621,7 @@ impl AuthService {
             .token_storage
             .get_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get user tokens: {e}")))?;
 
         // Add all tokens to blacklist
         for token in &tokens {
@@ -645,22 +638,22 @@ impl AuthService {
         self.token_storage
             .delete_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {e}")))?;
 
         self.refresh_token_storage
             .revoke_all_user_tokens(user_id, "Logout all devices")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to revoke refresh tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to revoke refresh tokens: {e}")))?;
 
         // Delete user devices
         self.device_storage
             .delete_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {e}")))?;
 
         // Mark user as fully logged out - this will invalidate all cached JWT tokens
         // issued before this time by setting a special flag that validate_token will check
-        let logout_marker = format!("user:logout_all:{}", user_id);
+        let logout_marker = format!("user:logout_all:{user_id}");
         let now = Utc::now().timestamp();
         self.cache
             .set_raw(&logout_marker, &now.to_string(), TOKEN_CACHE_TTL_SECS)
@@ -676,7 +669,7 @@ impl AuthService {
             .refresh_token_storage
             .get_token(&token_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         let (token_data, token_hash) = match token_data {
             Some(t) => (t, token_hash),
@@ -686,7 +679,7 @@ impl AuthService {
                     .refresh_token_storage
                     .get_token(&legacy_hash)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+                    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
                 match legacy_data {
                     Some(t) => (t, legacy_hash),
                     None => {
@@ -731,7 +724,7 @@ impl AuthService {
             .user_storage
             .get_user_by_id(&t.user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         match user {
             Some(u) => {
@@ -746,7 +739,7 @@ impl AuthService {
                     .revoke_token_cas(&token_hash, "Rotated")
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to claim refresh token: {}", e))
+                        ApiError::internal(format!("Failed to claim refresh token: {e}"))
                     })?;
                 if !claimed {
                     ::tracing::warn!(
@@ -789,7 +782,7 @@ impl AuthService {
             .token_storage
             .is_in_blacklist(token)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check token blacklist: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check token blacklist: {e}")))?
         {
             ::tracing::debug!(target: "token_validation", "Token found in blacklist");
             return Err(ApiError::unauthorized("Token has been revoked".to_string()));
@@ -799,7 +792,7 @@ impl AuthService {
             .token_storage
             .is_token_revoked(token)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check token status: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check token status: {e}")))?
         {
             ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
             return Err(ApiError::unauthorized("Token has been revoked".to_string()));
@@ -863,7 +856,7 @@ impl AuthService {
                                     .get_user_by_id(&cached_claims.sub)
                                     .await
                                     .map_err(|e| {
-                                        ApiError::internal(format!("Database error: {}", e))
+                                        ApiError::internal(format!("Database error: {e}"))
                                     })?
                                     .ok_or_else(|| {
                                         ApiError::unauthorized("User not found".to_string())
@@ -905,7 +898,7 @@ impl AuthService {
                 .user_storage
                 .get_user_by_id(&cached_claims.sub)
                 .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
             return if let Some(u) = user {
                 let is_active = !u.is_deactivated;
@@ -962,7 +955,7 @@ impl AuthService {
             .user_storage
             .get_user_by_id(&claims.sub)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         match user {
             Some(u) => {
@@ -1029,7 +1022,7 @@ impl AuthService {
                 .user_storage
                 .get_user_by_id(user_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
                 .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
             // When the caller provides current_password, the account must have
@@ -1050,8 +1043,7 @@ impl AuthService {
 
         if let Err(e) = self.validator.validate_password(new_password) {
             return Err(ApiError::bad_request(format!(
-                "Password does not meet policy requirements: {}",
-                e
+                "Password does not meet policy requirements: {e}"
             )));
         }
 
@@ -1059,35 +1051,35 @@ impl AuthService {
         self.user_storage
             .update_password(user_id, &password_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update password: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update password: {e}")))?;
 
         if let Some(device_id) = current_device_id {
             self.token_storage
                 .delete_user_tokens_except_device(user_id, device_id)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
+                    ApiError::internal(format!("Failed to invalidate access tokens: {e}"))
                 })?;
 
             self.refresh_token_storage
                 .revoke_all_user_tokens_except_device(user_id, device_id, "password_changed")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate refresh tokens: {}", e))
+                    ApiError::internal(format!("Failed to invalidate refresh tokens: {e}"))
                 })?;
         } else {
             self.token_storage
                 .delete_user_tokens(user_id)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate access tokens: {}", e))
+                    ApiError::internal(format!("Failed to invalidate access tokens: {e}"))
                 })?;
 
             self.refresh_token_storage
                 .revoke_all_user_tokens(user_id, "password_changed")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate refresh tokens: {}", e))
+                    ApiError::internal(format!("Failed to invalidate refresh tokens: {e}"))
                 })?;
         }
 
@@ -1105,12 +1097,12 @@ impl AuthService {
         self.user_storage
             .deactivate_user(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to deactivate user: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to deactivate user: {e}")))?;
 
         self.token_storage
             .delete_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {e}")))?;
 
         // RFC 6819 §5.1.5: Account deactivation must revoke all refresh tokens;
         // otherwise stolen tokens could still exchange for new access tokens after deactivation.
@@ -1127,18 +1119,17 @@ impl AuthService {
                 "Failed to revoke refresh tokens during account deactivation"
             );
             return Err(ApiError::internal(format!(
-                "Failed to invalidate refresh tokens: {}",
-                e
+                "Failed to invalidate refresh tokens: {e}"
             )));
         }
 
         self.device_storage
             .delete_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {e}")))?;
 
-        self.cache.delete(&format!("user:active:{}", user_id)).await;
-        self.cache.delete(&format!("user:admin:{}", user_id)).await;
+        self.cache.delete(&format!("user:active:{user_id}")).await;
+        self.cache.delete(&format!("user:admin:{user_id}")).await;
 
         ::tracing::info!(
             target: "security_audit",
@@ -1160,7 +1151,7 @@ impl AuthService {
             .device_storage
             .delete_user_device(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete device: {e}")))?;
 
         if rows == 0 {
             return Ok(0);
@@ -1169,7 +1160,7 @@ impl AuthService {
         self.token_storage
             .delete_device_tokens(device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {e}")))?;
 
         if let Err(e) = self
             .refresh_token_storage
@@ -1185,8 +1176,7 @@ impl AuthService {
                 "Failed to revoke device refresh tokens after device delete"
             );
             return Err(ApiError::internal(format!(
-                "Failed to invalidate refresh tokens: {}",
-                e
+                "Failed to invalidate refresh tokens: {e}"
             )));
         }
 
@@ -1213,7 +1203,7 @@ impl AuthService {
             .device_storage
             .delete_user_devices_batch(user_id, device_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {e}")))?;
 
         if rows == 0 {
             return Ok(0);
@@ -1234,8 +1224,7 @@ impl AuthService {
                     "Failed to delete access tokens after batch device delete"
                 );
                 return Err(ApiError::internal(format!(
-                    "Failed to delete device tokens: {}",
-                    e
+                    "Failed to delete device tokens: {e}"
                 )));
             }
 
@@ -1253,8 +1242,7 @@ impl AuthService {
                     "Failed to revoke device refresh tokens after batch delete"
                 );
                 return Err(ApiError::internal(format!(
-                    "Failed to invalidate refresh tokens: {}",
-                    e
+                    "Failed to invalidate refresh tokens: {e}"
                 )));
             }
         }
@@ -1296,14 +1284,14 @@ impl AuthService {
             &claims,
             &EncodingKey::from_secret(&self.jwt_secret),
         )
-        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {e}")))?;
 
         let expires_at = (now + Duration::seconds(self.token_expiry)).timestamp_millis();
 
         self.token_storage
             .create_token(&token, user_id, Some(device_id), Some(expires_at))
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to store token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to store token: {e}")))?;
 
         Ok(token)
     }
@@ -1332,7 +1320,7 @@ impl AuthService {
         self.refresh_token_storage
             .create_token(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to store refresh token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to store refresh token: {e}")))?;
 
         Ok(token)
     }
@@ -1373,7 +1361,7 @@ impl AuthService {
 
         tokio::task::spawn_blocking(move || auth.hash_password(&password_str))
             .await
-            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {e}")))?
     }
 
     fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
@@ -1393,13 +1381,13 @@ impl AuthService {
             migrate_password_hash(&password_str, m_cost, t_cost, p_cost)
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Migration task panicked: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Migration task panicked: {e}")))?
         .map_err(ApiError::internal)?;
 
         self.user_storage
             .update_password(user_id, &new_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update password hash: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update password hash: {e}")))?;
 
         let duration = start.elapsed().as_secs_f64();
 
@@ -1438,7 +1426,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if membership.is_none() {
             return Ok(-1);
@@ -1458,7 +1446,7 @@ impl AuthService {
         .bind(room_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if let Some(content) = power_levels_content {
             if let Some(level) = content
@@ -1481,7 +1469,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if let Some(creator) = room_creator {
             if creator == user_id {
@@ -1497,7 +1485,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         match membership {
             Some(m) if m == "join" => self.get_user_power_level(room_id, user_id).await,
@@ -1523,7 +1511,7 @@ impl AuthService {
         .bind(room_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))
     }
 
     pub async fn get_required_state_event_power_level(
@@ -1820,14 +1808,12 @@ impl AuthService {
                     if new_level != *current_level {
                         if *current_level > actor_level {
                             return Err(ApiError::forbidden(format!(
-                                "Cannot change {} level: current level {} is above your own {}",
-                                key, current_level, actor_level
+                                "Cannot change {key} level: current level {current_level} is above your own {actor_level}"
                             )));
                         }
                         if new_level > actor_level {
                             return Err(ApiError::forbidden(format!(
-                                "Cannot set {} level above your own: {} > {}",
-                                key, new_level, actor_level
+                                "Cannot set {key} level above your own: {new_level} > {actor_level}"
                             )));
                         }
                     }
@@ -1936,7 +1922,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -2010,7 +1996,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -2083,7 +2069,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {

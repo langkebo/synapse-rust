@@ -92,7 +92,7 @@ impl OlmService {
                 &account_data.serialized_account,
                 get_pickle_key(),
             )
-            .map_err(|e| ApiError::internal(format!("Failed to decode account pickle: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to decode account pickle: {e}")))?;
             let account = Account::from_pickle(pickle);
 
             {
@@ -242,7 +242,7 @@ impl OlmService {
 
     pub fn parse_identity_key(key_base64: &str) -> Result<vodozemac::Curve25519PublicKey, String> {
         vodozemac::Curve25519PublicKey::from_base64(key_base64)
-            .map_err(|e| format!("Invalid identity key: {}", e))
+            .map_err(|e| format!("Invalid identity key: {e}"))
     }
 
     pub async fn create_outbound_session(
@@ -256,10 +256,10 @@ impl OlmService {
             .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         let identity_key = vodozemac::Curve25519PublicKey::from_base64(their_identity_key)
-            .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {e}")))?;
 
         let one_time_key = vodozemac::Curve25519PublicKey::from_base64(their_one_time_key)
-            .map_err(|e| ApiError::bad_request(format!("Invalid one-time key: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid one-time key: {e}")))?;
 
         let mut account = self.account.write().await;
 
@@ -283,7 +283,7 @@ impl OlmService {
             .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         let identity_key = vodozemac::Curve25519PublicKey::from_base64(their_identity_key)
-            .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {e}")))?;
 
         let mut account = self.account.write().await;
 

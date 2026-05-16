@@ -25,7 +25,7 @@ pub(super) async fn send_transaction(
     super::validate_federation_origin(&auth.origin, Some(origin))?;
 
     {
-        let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
+        let dedup_key = format!("federation_txn:{origin}:{txn_id}");
         let already_processed: Option<bool> =
             state.services.cache.get(&dedup_key).await.unwrap_or(None);
         if already_processed.unwrap_or(false) {
@@ -341,7 +341,7 @@ pub(super) async fn send_transaction(
     );
 
     {
-        let dedup_key = format!("federation_txn:{}:{}", origin, txn_id);
+        let dedup_key = format!("federation_txn:{origin}:{txn_id}");
         if let Err(e) = state.services.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
             ::tracing::warn!("Failed to set transaction dedup cache: {}", e);
         }
@@ -389,7 +389,7 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Missing sender on PDU".to_string())?;
     let sender_server =
-        super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {}", sender))?;
+        super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;
 
     let signatures = pdu
         .get("signatures")
@@ -398,9 +398,9 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
     let server_sigs = signatures
         .get(sender_server)
         .and_then(|v| v.as_object())
-        .ok_or_else(|| format!("PDU has no signatures from sender server {}", sender_server))?;
+        .ok_or_else(|| format!("PDU has no signatures from sender server {sender_server}"))?;
     if server_sigs.is_empty() {
-        return Err(format!("PDU signatures.{} is empty", sender_server));
+        return Err(format!("PDU signatures.{sender_server} is empty"));
     }
 
     let mut signing_payload = pdu.clone();

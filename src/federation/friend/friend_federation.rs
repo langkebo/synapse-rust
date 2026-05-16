@@ -38,7 +38,7 @@ impl FriendFederation {
             .to_string();
 
         // 3. 验证 requester_id 是否属于 origin
-        if !requester_id.ends_with(&format!(":{}", origin)) {
+        if !requester_id.ends_with(&format!(":{origin}")) {
             return Err(ApiError::forbidden(
                 "Requester ID does not match origin".to_string(),
             ));
@@ -89,7 +89,7 @@ mod tests {
         let origin = "remote.com";
         let requester_id = "@bob:remote.com";
 
-        assert!(requester_id.ends_with(&format!(":{}", origin)));
+        assert!(requester_id.ends_with(&format!(":{origin}")));
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         let origin = "remote.com";
         let requester_id = "@bob:other.com";
 
-        assert!(!requester_id.ends_with(&format!(":{}", origin)));
+        assert!(!requester_id.ends_with(&format!(":{origin}")));
     }
 
     #[test]
@@ -172,7 +172,7 @@ mod tests {
         let origin = "localhost";
         let requester_id = "@user:localhost";
 
-        assert!(requester_id.ends_with(&format!(":{}", origin)));
+        assert!(requester_id.ends_with(&format!(":{origin}")));
     }
 
     #[test]
@@ -189,6 +189,6 @@ mod tests {
         let requester_id = "@bob:example.com";
 
         // Should not match because of port
-        assert!(!requester_id.ends_with(&format!(":{}", origin)));
+        assert!(!requester_id.ends_with(&format!(":{origin}")));
     }
 }

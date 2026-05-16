@@ -855,12 +855,12 @@ impl CacheManager {
     }
 
     pub async fn is_user_active(&self, user_id: &str) -> Option<bool> {
-        let key = format!("user:active:{}", user_id);
+        let key = format!("user:active:{user_id}");
         self.get::<bool>(&key).await.ok().flatten()
     }
 
     pub async fn set_user_active(&self, user_id: &str, active: bool, ttl: u64) {
-        let key = format!("user:active:{}", user_id);
+        let key = format!("user:active:{user_id}");
         if let Err(e) = self.set(&key, active, ttl).await {
             ::tracing::error!(target: "cache", "Failed to set user active status: {}", e);
         }
@@ -989,7 +989,7 @@ impl CacheManager {
                 return redis
                     .hincrby(key, field, delta)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Redis error: {}", e)));
+                    .map_err(|e| ApiError::internal(format!("Redis error: {e}")));
             }
         }
         Ok(0) // Local cache doesn't support HINCRBY yet, just return 0 or implement later
@@ -1001,7 +1001,7 @@ impl CacheManager {
                 return redis
                     .hgetall(key)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Redis error: {}", e)));
+                    .map_err(|e| ApiError::internal(format!("Redis error: {e}")));
             }
         }
         Ok(HashMap::new())

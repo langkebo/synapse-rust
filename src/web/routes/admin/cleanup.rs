@@ -40,7 +40,7 @@ pub async fn cleanup_all(
         .room_storage
         .cleanup_abnormal_data(min_age_ms)
         .await
-        .map_err(|e| ApiError::internal(format!("Room cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Room cleanup failed: {e}")))?;
     results.insert("rooms".to_string(), room_results);
 
     // 2. Cleanup tokens
@@ -51,7 +51,7 @@ pub async fn cleanup_all(
         .token_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal(format!("Access token cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Access token cleanup failed: {e}")))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
     let refresh_tokens = state
@@ -73,7 +73,7 @@ pub async fn cleanup_all(
         .qr_login_storage
         .cleanup_expired()
         .await
-        .map_err(|e| ApiError::internal(format!("QR login cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("QR login cleanup failed: {e}")))?;
     token_results.insert("qr_transactions_deleted".to_string(), json!(qr_txns));
 
     let email_tokens = state
@@ -81,7 +81,7 @@ pub async fn cleanup_all(
         .email_verification_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal(format!("Email token cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Email token cleanup failed: {e}")))?;
     token_results.insert("email_tokens_deleted".to_string(), json!(email_tokens));
 
     results.insert("tokens".to_string(), Value::Object(token_results));
@@ -101,7 +101,7 @@ pub async fn cleanup_rooms(
         .room_storage
         .cleanup_abnormal_data(min_age_ms)
         .await
-        .map_err(|e| ApiError::internal(format!("Room cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Room cleanup failed: {e}")))?;
     Ok(Json(results))
 }
 
@@ -117,7 +117,7 @@ pub async fn cleanup_tokens(
         .token_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal(format!("Access token cleanup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Access token cleanup failed: {e}")))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
     let refresh_tokens = state

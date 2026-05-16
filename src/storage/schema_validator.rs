@@ -98,7 +98,7 @@ impl SchemaValidator {
 
         for (table, column) in REQUIRED_COLUMNS {
             if !self.validate_column_exists(table, column).await? {
-                missing_columns.push(format!("{}.{}", table, column));
+                missing_columns.push(format!("{table}.{column}"));
             }
         }
 
@@ -142,7 +142,7 @@ impl SchemaValidator {
         let mut missing = Vec::new();
         for (table, column) in requirements {
             if !self.validate_column_exists(table, column).await? {
-                missing.push(format!("{}.{}", table, column));
+                missing.push(format!("{table}.{column}"));
             }
         }
         Ok(missing)

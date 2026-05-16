@@ -70,7 +70,7 @@ pub async fn get_pinned_events(
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let pinned_list: Vec<String> = pinned
         .as_deref()
@@ -117,7 +117,7 @@ pub async fn pin_event(
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut pinned_list: Vec<String> = existing_pinned
         .as_deref()
@@ -143,7 +143,7 @@ pub async fn pin_event(
     .bind(&auth_user.user_id)
     .execute(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(serde_json::json!({
         "pinned_event": body.event_id
@@ -184,7 +184,7 @@ pub async fn unpin_event(
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut pinned_list: Vec<String> = existing_pinned
         .as_deref()
@@ -208,7 +208,7 @@ pub async fn unpin_event(
     .bind(&auth_user.user_id)
     .execute(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(serde_json::json!({
         "unpinned_event": event_id

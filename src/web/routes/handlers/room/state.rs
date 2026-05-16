@@ -26,7 +26,7 @@ pub(crate) async fn get_room_state(
         .map_err(map_internal!("Failed to check room existence"))?;
 
     if !room_exists {
-        return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
@@ -70,7 +70,7 @@ pub(crate) async fn get_state_by_type(
         .map_err(map_internal!("Failed to check room existence"))?;
 
     if !room_exists {
-        return Err(ApiError::not_found(format!("Room '{}' not found", room_id)));
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
@@ -78,7 +78,7 @@ pub(crate) async fn get_state_by_type(
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
     } else {
-        format!("m.room.{}", event_type)
+        format!("m.room.{event_type}")
     };
 
     let events = state
@@ -127,7 +127,7 @@ pub(crate) async fn get_state_event(
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
     } else {
-        format!("m.room.{}", event_type)
+        format!("m.room.{event_type}")
     };
 
     let events = state
@@ -399,7 +399,7 @@ pub(crate) async fn get_state_event_empty_key(
     let final_event_type = if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.clone()
     } else {
-        format!("m.room.{}", event_type)
+        format!("m.room.{event_type}")
     };
 
     let events = state

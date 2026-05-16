@@ -174,8 +174,7 @@ pub async fn list_alerts(
         .list_alerts(TelemetryAlertFilters {
             status: query.status,
             severity: query.severity,
-        })
-        .await?;
+        })?;
 
     Ok(Json(TelemetryAlertsResponse { alerts }))
 }
@@ -189,8 +188,7 @@ pub async fn acknowledge_alert(
     let alert = state
         .services
         .telemetry_alert_service
-        .acknowledge_alert(&alert_id, &admin_user.user_id)
-        .await?;
+        .acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     state
         .services

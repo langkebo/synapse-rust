@@ -20,7 +20,7 @@ pub(super) async fn get_room_auth(
         .event_storage
         .get_state_events(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {e}")))?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -72,7 +72,7 @@ pub(super) async fn get_missing_events(
         .event_storage
         .get_room_events(&room_id, limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get missing events: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get missing events: {e}")))?;
 
     let events_json: Vec<Value> = events
         .into_iter()
@@ -106,7 +106,7 @@ pub(super) async fn get_event_auth(
         .event_storage
         .get_state_events_at_or_before(&room_id, event.origin_server_ts)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {e}")))?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -137,7 +137,7 @@ pub(super) async fn get_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?;
 
     match event {
         Some(e) => {
@@ -163,7 +163,7 @@ pub(super) async fn get_room_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?;
 
     match event {
         Some(e) => {
@@ -246,7 +246,7 @@ pub(super) async fn room_directory_query(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if let Some(room) = room {
         if !room.is_public {
@@ -372,7 +372,7 @@ pub(super) async fn get_public_rooms(
         .room_storage
         .get_public_rooms(limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut room_list = Vec::new();
     for room in rooms {
@@ -408,7 +408,7 @@ pub(super) async fn post_public_rooms(
         .room_storage
         .get_public_rooms(limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut room_list = Vec::new();
     for room in rooms {
@@ -458,8 +458,7 @@ pub(super) async fn query_directory(
         .await?;
     let room_id = room_id.ok_or_else(|| {
         ApiError::not_found(format!(
-            "Room alias not found: {}. Create the alias before querying the federation directory.",
-            room_alias
+            "Room alias not found: {room_alias}. Create the alias before querying the federation directory."
         ))
     })?;
     let room = state
@@ -467,7 +466,7 @@ pub(super) async fn query_directory(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     if !room.is_public {
@@ -590,7 +589,7 @@ pub(super) async fn get_room_hierarchy(
         .await?;
 
     let response = serde_json::to_value(hierarchy).map_err(|e| {
-        ApiError::internal(format!("Failed to serialize hierarchy response: {}", e))
+        ApiError::internal(format!("Failed to serialize hierarchy response: {e}"))
     })?;
 
     Ok(Json(response))
@@ -635,7 +634,7 @@ pub(super) async fn backfill(
             .event_storage
             .get_room_events_paginated(&room_id, None, 1, "b")
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
         if let Some(latest) = recent_events.first() {
             backfill_before_ts = latest.origin_server_ts;
         } else {
@@ -648,7 +647,7 @@ pub(super) async fn backfill(
         .event_storage
         .get_room_events_paginated(&room_id, Some(backfill_before_ts), limit, "b")
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
     sort_room_events_stably(&mut events);
 
     let mut auth_events = state
@@ -656,7 +655,7 @@ pub(super) async fn backfill(
         .event_storage
         .get_state_events_at_or_before(&room_id, backfill_before_ts)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth chain: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get auth chain: {e}")))?;
     let (_, auth_chain) =
         build_federation_state_payload(&state.services.server_name, &mut auth_events);
 
@@ -800,7 +799,7 @@ async fn get_room_event_in_room(
         .event_storage
         .get_event(event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -825,14 +824,14 @@ async fn load_federation_state_events(
                 .event_storage
                 .get_state_events_at_or_before(room_id, event.origin_server_ts)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))
         }
         None => state
             .services
             .event_storage
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e))),
+            .map_err(|e| ApiError::internal(format!("Failed to get state: {e}"))),
     }
 }
 

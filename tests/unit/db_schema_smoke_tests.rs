@@ -32,8 +32,7 @@ mod db_schema_smoke_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping db schema smoke tests because test database is unavailable: {}",
-                    error
+                    "Skipping db schema smoke tests because test database is unavailable: {error}"
                 );
                 None
             }
@@ -49,8 +48,7 @@ mod db_schema_smoke_suite {
         assert!(
             regclass.as_deref() == Some(table_name)
                 || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
-            "Expected table '{table_name}' to exist, got: {:?}",
-            regclass
+            "Expected table '{table_name}' to exist, got: {regclass:?}"
         );
     }
 
@@ -63,8 +61,7 @@ mod db_schema_smoke_suite {
         assert!(
             regclass.as_deref() == Some(view_name)
                 || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
-            "Expected view '{view_name}' to exist, got: {:?}",
-            regclass
+            "Expected view '{view_name}' to exist, got: {regclass:?}"
         );
     }
 

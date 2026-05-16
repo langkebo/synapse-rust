@@ -95,7 +95,7 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
         .user_storage
         .get_user_by_identifier(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -115,7 +115,7 @@ pub async fn shadow_ban_user(
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -125,7 +125,7 @@ pub async fn shadow_ban_user(
         .services
         .auth_service
         .cache
-        .delete(&format!("user:shadow_banned:{}", user_id))
+        .delete(&format!("user:shadow_banned:{user_id}"))
         .await;
 
     record_audit_event(
@@ -153,7 +153,7 @@ pub async fn unshadow_ban_user(
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -163,7 +163,7 @@ pub async fn unshadow_ban_user(
         .services
         .auth_service
         .cache
-        .delete(&format!("user:shadow_banned:{}", user_id))
+        .delete(&format!("user:shadow_banned:{user_id}"))
         .await;
 
     record_audit_event(
@@ -193,7 +193,7 @@ pub async fn get_user_rate_limit(
             .bind(&user_id)
             .fetch_optional(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match limit {
         Some(row) => Ok(Json(json!({
@@ -228,7 +228,7 @@ pub async fn set_user_rate_limit(
     .bind(burst_count)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     record_audit_event(
         &state,
@@ -263,7 +263,7 @@ pub async fn delete_user_rate_limit(
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     record_audit_event(
         &state,

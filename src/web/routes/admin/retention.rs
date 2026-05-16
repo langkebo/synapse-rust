@@ -75,7 +75,7 @@ pub async fn get_retention_policy(
     )
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match policy {
         Some(row) => Ok(Json(json!({
@@ -105,7 +105,7 @@ pub async fn set_retention_policy(
     .bind(body.expire_on_clients.unwrap_or(false))
     .execute(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(json!({
         "max_lifetime": body.max_lifetime,
@@ -125,7 +125,7 @@ pub async fn get_room_retention_policy(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -137,7 +137,7 @@ pub async fn get_room_retention_policy(
     .bind(&room_id)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match policy {
         Some(row) => Ok(Json(json!({
@@ -167,7 +167,7 @@ pub async fn set_room_retention_policy(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -181,7 +181,7 @@ pub async fn set_room_retention_policy(
     .bind(body.expire_on_clients.unwrap_or(false))
     .execute(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -204,7 +204,7 @@ pub async fn run_retention(
                 .room_storage
                 .room_exists(&room_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
             {
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
@@ -245,13 +245,13 @@ pub async fn get_retention_status(
     let rooms_with_policy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_retention_policies")
         .fetch_one(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let server_policy_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
             .fetch_one(&*state.services.room_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let last_run = state
         .services

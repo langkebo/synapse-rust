@@ -27,7 +27,7 @@ impl AdminAuditService {
             .await
             .map_err(|error| {
                 error!(target: "security_audit", event_id = %event_id, "failed to persist audit event: {}", error);
-                ApiError::internal(format!("Failed to persist audit event: {}", error))
+                ApiError::internal(format!("Failed to persist audit event: {error}"))
             })
     }
 
@@ -36,7 +36,7 @@ impl AdminAuditService {
         self.storage
             .get_event(event_id)
             .await
-            .map_err(|error| ApiError::internal(format!("Failed to load audit event: {}", error)))
+            .map_err(|error| ApiError::internal(format!("Failed to load audit event: {error}")))
     }
 
     #[instrument(skip(self))]
@@ -47,7 +47,7 @@ impl AdminAuditService {
         self.storage
             .list_events(&filters)
             .await
-            .map_err(|error| ApiError::internal(format!("Failed to list audit events: {}", error)))
+            .map_err(|error| ApiError::internal(format!("Failed to list audit events: {error}")))
     }
 }
 

@@ -95,7 +95,7 @@ impl FriendFederationClient {
         if let Some(key_rotation_manager) = &self.key_rotation_manager {
             if let Some(current_key) =
                 key_rotation_manager.get_current_key().await.map_err(|e| {
-                    ApiError::internal(format!("Failed to load federation signing key: {}", e))
+                    ApiError::internal(format!("Failed to load federation signing key: {e}"))
                 })?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
@@ -132,10 +132,10 @@ impl FriendFederationClient {
         content: &Value,
     ) -> ApiResult<()> {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
-        let url = format!("https://{}{}", destination, path);
+        let url = format!("https://{destination}{path}");
 
         let body_str = serde_json::to_string(content)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize body: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to serialize body: {e}")))?;
 
         let auth_header = self
             .sign_request("PUT", &path, destination, Some(content))
@@ -150,7 +150,7 @@ impl FriendFederationClient {
             .body(body_str)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Federation request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Federation request failed: {e}")))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -167,8 +167,8 @@ impl FriendFederationClient {
         destination: &str,
         user_id: &str,
     ) -> ApiResult<Vec<String>> {
-        let path = format!("/_matrix/federation/v1/user/friends/{}", user_id);
-        let url = format!("https://{}{}", destination, path);
+        let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
+        let url = format!("https://{destination}{path}");
 
         let auth_header = self.sign_request("GET", &path, destination, None).await?;
 
@@ -179,7 +179,7 @@ impl FriendFederationClient {
             .header("Authorization", auth_header)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Federation request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Federation request failed: {e}")))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);
@@ -195,7 +195,7 @@ impl FriendFederationClient {
         let body: Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
 
         let friends = body
             .get("friends")
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_federation_path_format() {
         let user_id = "@alice:example.com";
-        let path = format!("/_matrix/federation/v1/user/friends/{}", user_id);
+        let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
 
         assert!(path.starts_with("/_matrix/federation/"));
         assert!(path.contains(user_id));
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn test_invite_path_format() {
         let event_id = uuid::Uuid::new_v4();
-        let path = format!("/_matrix/federation/v1/send/{}", event_id);
+        let path = format!("/_matrix/federation/v1/send/{event_id}");
 
         assert!(path.starts_with("/_matrix/federation/v1/send/"));
     }

@@ -231,8 +231,7 @@ impl StreamWriterManager {
                         stream_name, configured_writer, writer_instance
                     );
                     return Err(ApiError::forbidden(format!(
-                        "Instance {} is not configured to write to stream {}",
-                        writer_instance, stream_name
+                        "Instance {writer_instance} is not configured to write to stream {stream_name}"
                     )));
                 }
                 Ok(())

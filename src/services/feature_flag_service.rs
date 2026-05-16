@@ -69,7 +69,7 @@ impl FeatureFlagService {
             .update_flag(flag_key, &request, updated_ts)
             .await
             .map_err(map_storage_error)?
-            .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {}", flag_key)))?;
+            .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {flag_key}")))?;
 
         self.audit_service
             .create_event(crate::storage::CreateAuditEventRequest {
@@ -97,7 +97,7 @@ impl FeatureFlagService {
             .get_flag(flag_key)
             .await
             .map_err(map_storage_error)?
-            .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {}", flag_key)))
+            .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {flag_key}")))
     }
 
     pub async fn list_flags(
@@ -253,6 +253,6 @@ fn map_storage_error(error: sqlx::Error) -> ApiError {
         sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
             ApiError::conflict("FLAG_CONFLICT: feature flag already exists")
         }
-        other => ApiError::internal(format!("feature flag storage failed: {}", other)),
+        other => ApiError::internal(format!("feature flag storage failed: {other}")),
     }
 }

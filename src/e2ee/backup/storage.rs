@@ -506,7 +506,7 @@ mod tests {
     #[test]
     fn test_backup_key_insert_params_debug() {
         let params = create_test_backup_key_insert_params();
-        let debug_str = format!("{:?}", params);
+        let debug_str = format!("{params:?}");
 
         assert!(debug_str.contains("BackupKeyInsertParams"));
         assert!(debug_str.contains("@test:example.com"));

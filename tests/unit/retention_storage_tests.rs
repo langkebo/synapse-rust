@@ -19,8 +19,7 @@ mod retention_storage_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping retention storage tests because test database is unavailable: {}",
-                    error
+                    "Skipping retention storage tests because test database is unavailable: {error}"
                 );
                 None
             }

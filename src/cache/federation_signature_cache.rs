@@ -153,14 +153,14 @@ impl FederationSignatureCache {
     }
 
     pub fn invalidate_signatures_for_origin(&self, origin: &str) {
-        let prefix = format!("federation:signature_cache:{}:", origin);
+        let prefix = format!("federation:signature_cache:{origin}:");
         let _ = self
             .signature_cache
             .invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
     }
 
     pub fn invalidate_signatures_for_key(&self, origin: &str, key_id: &str) {
-        let prefix = format!("federation:signature_cache:{}:{}:", origin, key_id);
+        let prefix = format!("federation:signature_cache:{origin}:{key_id}:");
         let _ = self
             .signature_cache
             .invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
@@ -191,12 +191,12 @@ impl FederationSignatureCache {
     }
 
     pub fn is_key_invalidated(&self, origin: &str, key_id: &str) -> bool {
-        let cache_key = format!("federation:verify_key:{}:{}", origin, key_id);
+        let cache_key = format!("federation:verify_key:{origin}:{key_id}");
         self.invalidated_keys.read().contains(&cache_key)
     }
 
     pub fn clear_invalidated_key(&self, origin: &str, key_id: &str) {
-        let cache_key = format!("federation:verify_key:{}:{}", origin, key_id);
+        let cache_key = format!("federation:verify_key:{origin}:{key_id}");
         self.invalidated_keys.write().remove(&cache_key);
     }
 

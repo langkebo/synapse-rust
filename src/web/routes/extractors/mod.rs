@@ -29,8 +29,7 @@ impl UserId {
             Ok(Self(raw.to_string()))
         } else {
             Err(ApiError::bad_request(format!(
-                "Invalid user ID format: {}",
-                raw
+                "Invalid user ID format: {raw}"
             )))
         }
     }

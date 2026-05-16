@@ -693,7 +693,7 @@ pub async fn batch_get_room_summaries(
         .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {e}")))?;
 
     let filtered = if body.is_suggested_only {
         responses
@@ -952,7 +952,7 @@ mod tests {
             ApiError::BadRequest(message) => {
                 assert!(message.contains("Path room_id does not match body room_id"));
             }
-            other => panic!("expected bad request error, got {:?}", other),
+            other => panic!("expected bad request error, got {other:?}"),
         }
     }
 

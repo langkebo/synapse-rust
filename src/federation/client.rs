@@ -165,7 +165,7 @@ pub enum FederationClientError {
 
 impl From<FederationClientError> for ApiError {
     fn from(e: FederationClientError) -> Self {
-        ApiError::internal(format!("Federation error: {}", e))
+        ApiError::internal(format!("Federation error: {e}"))
     }
 }
 
@@ -191,7 +191,10 @@ impl FederationClient {
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
-            .expect("Failed to build HTTP client");
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to build HTTP client, using default: {}", e);
+                Client::new()
+            });
 
         Self {
             http_client,
@@ -229,7 +232,7 @@ impl FederationClient {
 
         let secret_bytes_vec = STANDARD_NO_PAD
             .decode(&secret_key)
-            .map_err(|e| FederationClientError::Authentication(format!("Invalid key: {}", e)))?;
+            .map_err(|e| FederationClientError::Authentication(format!("Invalid key: {e}")))?;
         let secret_bytes: [u8; 32] = secret_bytes_vec
             .try_into()
             .map_err(|_| FederationClientError::Authentication("Key must be 32 bytes".into()))?;
@@ -316,7 +319,7 @@ impl FederationClient {
     }
 
     async fn resolve_via_well_known(&self, server_name: &str) -> Option<ResolvedServer> {
-        let url = format!("https://{}/.well-known/matrix/server", server_name);
+        let url = format!("https://{server_name}/.well-known/matrix/server");
         let client = Client::builder()
             .timeout(Duration::from_secs(WELL_KNOWN_TIMEOUT_SECS))
             .build()
@@ -384,8 +387,7 @@ impl FederationClient {
                 "POST" => self.http_client.post(&url),
                 _ => {
                     return Err(FederationClientError::Connection(format!(
-                        "Unsupported method: {}",
-                        method
+                        "Unsupported method: {method}"
                     )))
                 }
             };
@@ -486,8 +488,8 @@ impl FederationClient {
         key_id: Option<&str>,
     ) -> Result<ServerKeys, FederationClientError> {
         let path = match key_id {
-            Some(kid) => format!("/_matrix/key/v2/query/{}/{}", server_name, kid),
-            None => format!("/_matrix/key/v2/query/{}", server_name),
+            Some(kid) => format!("/_matrix/key/v2/query/{server_name}/{kid}"),
+            None => format!("/_matrix/key/v2/query/{server_name}"),
         };
         let response = self
             .send_signed_request("GET", &path, destination, None)
@@ -828,7 +830,7 @@ impl FederationClient {
         let mut path = "/_matrix/federation/v1/publicRooms".to_string();
         let mut params = Vec::new();
         if let Some(l) = limit {
-            params.push(format!("limit={}", l));
+            params.push(format!("limit={l}"));
         }
         if let Some(s) = since {
             params.push(format!("since={}", urlencoding::encode(s)));

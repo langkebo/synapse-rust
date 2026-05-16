@@ -40,7 +40,7 @@ pub(crate) async fn authorize_admin_request(
         .user_storage
         .get_user_by_id(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load admin user: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to load admin user: {e}")))?
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
@@ -103,8 +103,7 @@ pub(crate) async fn authorize_admin_request(
 
     if !rbac_allowed {
         return Err(ApiError::forbidden(format!(
-            "Admin role '{}' is not allowed to access this resource",
-            role
+            "Admin role '{role}' is not allowed to access this resource"
         )));
     }
 
@@ -155,7 +154,7 @@ pub(crate) async fn enforce_admin_login_mfa(
         .user_storage
         .get_user_by_identifier(username)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load user for admin MFA: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to load user for admin MFA: {e}")))?
     else {
         return Ok(());
     };

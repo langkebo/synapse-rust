@@ -37,7 +37,7 @@ impl VerificationStorage {
         .bind(request.updated_ts)
         .execute(self.pool.as_ref())
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create verification request: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create verification request: {e}")))?;
 
         Ok(())
     }
@@ -56,7 +56,7 @@ impl VerificationStorage {
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get verification request: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get verification request: {e}")))?;
 
         if let Some((
             transaction_id,
@@ -101,7 +101,7 @@ impl VerificationStorage {
         .bind(transaction_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update verification state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update verification state: {e}")))?;
 
         Ok(())
     }
@@ -129,7 +129,7 @@ impl VerificationStorage {
         .bind(&sas.mac)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store SAS state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to store SAS state: {e}")))?;
 
         Ok(())
     }
@@ -153,7 +153,7 @@ impl VerificationStorage {
         .bind(&qr.scanned_data)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store QR state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to store QR state: {e}")))?;
 
         Ok(())
     }
@@ -173,7 +173,7 @@ impl VerificationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get pending verifications: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get pending verifications: {e}")))?;
 
         Ok(rows
             .into_iter()
@@ -214,7 +214,7 @@ impl VerificationStorage {
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAS state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get SAS state: {e}")))?;
 
         if let Some((
             tx_id,
@@ -252,7 +252,7 @@ impl VerificationStorage {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to delete verification request: {}", e))
+                ApiError::internal(format!("Failed to delete verification request: {e}"))
             })?;
 
         Ok(())

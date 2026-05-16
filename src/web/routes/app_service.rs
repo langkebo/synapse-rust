@@ -780,7 +780,7 @@ mod tests {
             ApiError::BadRequest(message) => {
                 assert!(message.contains("Missing sender or sender_localpart"));
             }
-            other => panic!("expected bad request error, got {:?}", other),
+            other => panic!("expected bad request error, got {other:?}"),
         }
     }
 

@@ -119,15 +119,14 @@ impl DatabaseInitService {
             }
             Err(e) => {
                 report.is_success = false;
-                report.errors.push(format!("连接测试失败: {}", e));
+                report.errors.push(format!("连接测试失败: {e}"));
                 return Ok(report);
             }
         }
 
         let Some(mode) = self.resolved_mode() else {
             let message = format!(
-                "运行时数据库初始化默认已禁用；请使用 docker/db_migrate.sh 与 db-migration-gate.yml 作为迁移主链，如需兼容启用请设置 {}=true",
-                RUNTIME_DB_INIT_ENV
+                "运行时数据库初始化默认已禁用；请使用 docker/db_migrate.sh 与 db-migration-gate.yml 作为迁移主链，如需兼容启用请设置 {RUNTIME_DB_INIT_ENV}=true"
             );
             info!("{}", message);
             report.steps.push(message);
@@ -144,7 +143,7 @@ impl DatabaseInitService {
             Err(e) => {
                 error!("数据库迁移失败: {}", e);
                 report.is_success = false;
-                report.errors.push(format!("数据库迁移失败: {}", e));
+                report.errors.push(format!("数据库迁移失败: {e}"));
                 return Ok(report);
             }
         }
@@ -174,7 +173,7 @@ impl DatabaseInitService {
             Ok(status) => report.schema_status = Some(status),
             Err(e) => {
                 report.is_success = false;
-                report.errors.push(format!("Schema验证失败: {}", e));
+                report.errors.push(format!("Schema验证失败: {e}"));
             }
         };
 
@@ -188,7 +187,7 @@ impl DatabaseInitService {
                     }
                 }
             }
-            Err(e) => report.errors.push(format!("索引验证失败: {}", e)),
+            Err(e) => report.errors.push(format!("索引验证失败: {e}")),
         }
 
         #[cfg(feature = "runtime-ddl")]
@@ -596,8 +595,7 @@ impl DatabaseInitService {
             success_count, skip_count, error_count
         );
         Ok(format!(
-            "数据库迁移执行完成 (成功: {}, 跳过: {}, 错误: {})",
-            success_count, skip_count, error_count
+            "数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"
         ))
     }
 
@@ -1808,14 +1806,14 @@ impl InitializationReport {
         if !self.steps.is_empty() {
             summary.push_str(&format!("\n  已完成步骤 ({})", self.steps.len()));
             for step in &self.steps {
-                summary.push_str(&format!("\n    ✓ {}", step));
+                summary.push_str(&format!("\n    ✓ {step}"));
             }
         }
 
         if !self.errors.is_empty() {
             summary.push_str(&format!("\n  错误 ({})", self.errors.len()));
             for error in &self.errors {
-                summary.push_str(&format!("\n    ✗ {}", error));
+                summary.push_str(&format!("\n    ✗ {error}"));
             }
         }
 
@@ -1841,7 +1839,7 @@ impl InitializationReport {
         if !self.repairs_performed.is_empty() {
             summary.push_str(&format!("\n  已修复 ({})", self.repairs_performed.len()));
             for repair in &self.repairs_performed {
-                summary.push_str(&format!("\n    + {}", repair));
+                summary.push_str(&format!("\n    + {repair}"));
             }
         }
 

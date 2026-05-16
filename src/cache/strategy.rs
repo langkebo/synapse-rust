@@ -4,39 +4,39 @@ pub struct CacheKeyBuilder;
 
 impl CacheKeyBuilder {
     pub fn user_profile(user_id: &str) -> String {
-        format!("user:{}:profile", user_id)
+        format!("user:{user_id}:profile")
     }
 
     pub fn user_presence(user_id: &str) -> String {
-        format!("user:{}:presence", user_id)
+        format!("user:{user_id}:presence")
     }
 
     pub fn user_devices(user_id: &str) -> String {
-        format!("user:{}:devices", user_id)
+        format!("user:{user_id}:devices")
     }
 
     pub fn room_info(room_id: &str) -> String {
-        format!("room:{}:info", room_id)
+        format!("room:{room_id}:info")
     }
 
     pub fn room_members(room_id: &str) -> String {
-        format!("room:{}:members", room_id)
+        format!("room:{room_id}:members")
     }
 
     pub fn room_state(room_id: &str) -> String {
-        format!("room:{}:state", room_id)
+        format!("room:{room_id}:state")
     }
 
     pub fn room_events(room_id: &str) -> String {
-        format!("room:{}:events", room_id)
+        format!("room:{room_id}:events")
     }
 
     pub fn room_messages(room_id: &str) -> String {
-        format!("room:{}:messages", room_id)
+        format!("room:{room_id}:messages")
     }
 
     pub fn token(token: &str) -> String {
-        format!("token:{}", token)
+        format!("token:{token}")
     }
 
     pub fn public_rooms() -> String {
@@ -44,36 +44,36 @@ impl CacheKeyBuilder {
     }
 
     pub fn user_rooms(user_id: &str) -> String {
-        format!("user:{}:rooms", user_id)
+        format!("user:{user_id}:rooms")
     }
 
     pub fn rate_limit(user_id: &str, endpoint: &str) -> String {
-        format!("ratelimit:{}:{}", user_id, endpoint)
+        format!("ratelimit:{user_id}:{endpoint}")
     }
 
     pub fn ip_rate_limit(ip: &str, endpoint: &str) -> String {
-        format!("ratelimit:ip:{}:{}", ip, endpoint)
+        format!("ratelimit:ip:{ip}:{endpoint}")
     }
 
     pub fn user_not_found(user_id: &str) -> String {
-        format!("user:{}:not_found", user_id)
+        format!("user:{user_id}:not_found")
     }
 
     pub fn room_not_found(room_id: &str) -> String {
-        format!("room:{}:not_found", room_id)
+        format!("room:{room_id}:not_found")
     }
 
     // Negative cache keys - cache "not found" results to prevent repeated lookups
     pub fn user_not_found_v2(user_id: &str) -> String {
-        format!("user:{}:nf:v2", user_id)
+        format!("user:{user_id}:nf:v2")
     }
 
     pub fn room_not_found_v2(room_id: &str) -> String {
-        format!("room:{}:nf:v2", room_id)
+        format!("room:{room_id}:nf:v2")
     }
 
     pub fn event_not_found(event_id: &str) -> String {
-        format!("event:{}:not_found", event_id)
+        format!("event:{event_id}:not_found")
     }
 
     // Batch keys for multi-fetch operations

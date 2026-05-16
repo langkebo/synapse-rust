@@ -43,13 +43,13 @@ pub fn sign_federation_request(
 ) -> Result<String, String> {
     let secret_bytes_vec = STANDARD_NO_PAD
         .decode(secret_key)
-        .map_err(|e| format!("Invalid base64 secret key: {}", e))?;
+        .map_err(|e| format!("Invalid base64 secret key: {e}"))?;
     let secret_bytes: [u8; 32] = secret_bytes_vec
         .try_into()
         .map_err(|_| "Secret key must be 32 bytes".to_string())?;
     let signing_key = DalekSigningKey::from_bytes(&secret_bytes);
 
-    let mut signing_string = format!("{}\n{}\n{}\n{}\n", method, path, origin, destination);
+    let mut signing_string = format!("{method}\n{path}\n{origin}\n{destination}\n");
 
     if let Some(body_content) = body {
         signing_string.push_str(body_content);
@@ -76,14 +76,14 @@ pub fn verify_federation_signature(
 ) -> Result<bool, String> {
     let pub_key_bytes_vec = STANDARD_NO_PAD
         .decode(public_key)
-        .map_err(|e| format!("Invalid base64 public key: {}", e))?;
+        .map_err(|e| format!("Invalid base64 public key: {e}"))?;
     let pub_key_bytes: [u8; 32] = pub_key_bytes_vec
         .try_into()
         .map_err(|_| "Public key must be 32 bytes".to_string())?;
     let verifying_key = VerifyingKey::from_bytes(&pub_key_bytes)
-        .map_err(|e| format!("Invalid verifying key: {}", e))?;
+        .map_err(|e| format!("Invalid verifying key: {e}"))?;
 
-    let mut signing_string = format!("{}\n{}\n{}\n{}\n", method, path, origin, destination);
+    let mut signing_string = format!("{method}\n{path}\n{origin}\n{destination}\n");
 
     if let Some(body_content) = body {
         signing_string.push_str(body_content);
@@ -92,14 +92,14 @@ pub fn verify_federation_signature(
     let sig_b64 = extract_signature_from_header(signature_header)?;
     let signature_bytes = STANDARD_NO_PAD
         .decode(&sig_b64)
-        .map_err(|e| format!("Invalid base64 signature: {}", e))?;
+        .map_err(|e| format!("Invalid base64 signature: {e}"))?;
 
     let dalek_signature = ed25519_dalek::Signature::from_slice(&signature_bytes)
-        .map_err(|e| format!("Invalid signature format: {}", e))?;
+        .map_err(|e| format!("Invalid signature format: {e}"))?;
 
     verifying_key
         .verify(signing_string.as_bytes(), &dalek_signature)
-        .map_err(|e| format!("Signature verification failed: {}", e))?;
+        .map_err(|e| format!("Signature verification failed: {e}"))?;
 
     Ok(true)
 }

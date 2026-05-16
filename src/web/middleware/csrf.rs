@@ -29,9 +29,9 @@ impl CsrfTokenManager {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_secs())
             .unwrap_or_default();
-        let payload = format!("{}:{}", session_id, issued_at);
+        let payload = format!("{session_id}:{issued_at}");
         let signature = crate::common::crypto::compute_hash(format!("{}{}", payload, self.secret));
-        format!("{}:{}", payload, signature)
+        format!("{payload}:{signature}")
     }
 
     pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
@@ -159,7 +159,7 @@ mod tests {
             .expect("system clock should be after unix epoch")
             .as_secs()
             .saturating_sub(10);
-        let payload = format!("session-123:{}", old_timestamp);
+        let payload = format!("session-123:{old_timestamp}");
         let signature =
             crate::common::crypto::compute_hash(format!("{}{}", payload, manager.secret));
         let token = format!("{}:{}", payload, &signature[..16]);

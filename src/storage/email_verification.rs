@@ -264,8 +264,7 @@ mod tests {
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!(
-                    "Skipping email verification delete-token test because test database is unavailable: {}",
-                    error
+                    "Skipping email verification delete-token test because test database is unavailable: {error}"
                 );
                 return;
             }

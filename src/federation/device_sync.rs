@@ -63,7 +63,7 @@ impl DeviceSyncManager {
     }
 
     async fn get_cached_devices(&self, origin: &str, user_id: &str) -> Option<Vec<DeviceInfo>> {
-        let cache_key = format!("remote_devices:{}:{}", origin, user_id);
+        let cache_key = format!("remote_devices:{origin}:{user_id}");
 
         if let Some(cache) = &self.cache_manager {
             if let Ok(Some(devices_json)) = cache.get::<String>(&cache_key).await {
@@ -90,7 +90,7 @@ impl DeviceSyncManager {
     }
 
     async fn cache_devices(&self, origin: &str, user_id: &str, devices: &[DeviceInfo]) {
-        let cache_key = format!("remote_devices:{}:{}", origin, user_id);
+        let cache_key = format!("remote_devices:{origin}:{user_id}");
         let expiry = std::time::SystemTime::UNIX_EPOCH
             .elapsed()
             .map(|d| d.as_millis())
@@ -137,8 +137,7 @@ impl DeviceSyncManager {
         }
 
         Err(ApiError::not_found(format!(
-            "Failed to fetch devices for user {} from {}",
-            user_id, origin
+            "Failed to fetch devices for user {user_id} from {origin}"
         )))
     }
 
@@ -148,7 +147,7 @@ impl DeviceSyncManager {
             .get(url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("HTTP request failed: {e}")))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);
@@ -164,7 +163,7 @@ impl DeviceSyncManager {
         let body: Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
 
         let devices_json = body
             .get("devices")
@@ -286,7 +285,7 @@ impl DeviceSyncManager {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to fetch devices: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to fetch devices: {e}")))?;
 
         Ok(devices
             .into_iter()
@@ -303,7 +302,7 @@ impl DeviceSyncManager {
             .collect())
     }
 
-    pub async fn verify_device_keys_signature(
+    pub fn verify_device_keys_signature(
         &self,
         origin: &str,
         device: &DeviceInfo,
@@ -351,7 +350,7 @@ impl DeviceSyncManager {
         .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup expired devices: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to cleanup expired devices: {e}")))?;
 
         let deleted_count = result.rows_affected();
         if deleted_count > 0 {
@@ -404,9 +403,9 @@ impl DeviceSyncManager {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to revoke device: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to revoke device: {e}")))?;
 
-        let cache_pattern = format!("remote_devices:*:{}", user_id);
+        let cache_pattern = format!("remote_devices:*:{user_id}");
         let mut local = self.local_cache.write().await;
         local.retain(|key, _| !key.starts_with(&cache_pattern));
 
@@ -418,7 +417,7 @@ impl DeviceSyncManager {
     }
 
     pub async fn invalidate_user_devices_cache(&self, user_id: &str) {
-        let cache_pattern = format!("remote_devices:*:{}", user_id);
+        let cache_pattern = format!("remote_devices:*:{user_id}");
         let mut local = self.local_cache.write().await;
         local.retain(|key, _| !key.starts_with(&cache_pattern));
 
@@ -741,9 +740,7 @@ mod tests {
             verified: false,
         };
 
-        let result = manager
-            .verify_device_keys_signature("example.com", &device)
-            .await;
+        let result = manager.verify_device_keys_signature("example.com", &device);
         assert!(result.unwrap());
     }
 
@@ -767,9 +764,7 @@ mod tests {
             verified: false,
         };
 
-        let result = manager
-            .verify_device_keys_signature("example.com", &device)
-            .await;
+        let result = manager.verify_device_keys_signature("example.com", &device);
         assert!(!result.unwrap());
     }
 
@@ -799,9 +794,7 @@ mod tests {
             verified: false,
         };
 
-        let result = manager
-            .verify_device_keys_signature("example.com", &device)
-            .await;
+        let result = manager.verify_device_keys_signature("example.com", &device);
         assert!(!result.unwrap());
     }
 
@@ -827,9 +820,7 @@ mod tests {
             verified: false,
         };
 
-        let result = manager
-            .verify_device_keys_signature("example.com", &device)
-            .await;
+        let result = manager.verify_device_keys_signature("example.com", &device);
         assert!(!result.unwrap());
     }
 

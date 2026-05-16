@@ -31,6 +31,7 @@ pub struct ReplayProtectionCache {
 }
 
 impl ReplayProtectionCache {
+    #[allow(clippy::expect_used)]
     pub fn new(config: ReplayProtectionConfig) -> Self {
         let cache = LruCache::new(
             std::num::NonZeroUsize::new(config.cache_size).expect("cache_size should be non-zero"),
@@ -143,9 +144,8 @@ impl SecurityValidator {
         let entropy = Self::calculate_entropy(secret);
         if entropy < 3.0 {
             return Err(format!(
-                "JWT secret has low entropy ({:.2} bits/char). \
-                 Use a cryptographically secure random secret.",
-                entropy
+                "JWT secret has low entropy ({entropy:.2} bits/char). \
+                 Use a cryptographically secure random secret."
             ));
         }
 
@@ -161,8 +161,7 @@ impl SecurityValidator {
 
         if diff > tolerance_ms {
             return Err(format!(
-                "Signature timestamp out of tolerance: {}ms (tolerance: {}ms)",
-                diff, tolerance_ms
+                "Signature timestamp out of tolerance: {diff}ms (tolerance: {tolerance_ms}ms)"
             ));
         }
 
@@ -252,19 +251,19 @@ pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
 }
 
 pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
     let host = parsed
         .host_str()
-        .ok_or_else(|| format!("URL has no host: {}", url))?;
+        .ok_or_else(|| format!("URL has no host: {url}"))?;
 
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_ip_in_blacklist(&ip, blacklist) {
-            return Err(format!("IP {} is in blacklist", ip));
+            return Err(format!("IP {ip} is in blacklist"));
         }
     } else if let Ok(addrs) = dns_lookup::lookup_host(host) {
         for addr in addrs {
             if is_ip_in_blacklist(&addr, blacklist) {
-                return Err(format!("Host {} resolves to blacklisted IP {}", host, addr));
+                return Err(format!("Host {host} resolves to blacklisted IP {addr}"));
             }
         }
     }

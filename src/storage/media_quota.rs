@@ -128,7 +128,7 @@ impl MediaQuotaStorage {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get default quota config: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get default quota config: {e}")))?;
 
         Ok(config)
     }
@@ -140,7 +140,7 @@ impl MediaQuotaStorage {
         .bind(config_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get quota config: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get quota config: {e}")))?;
 
         Ok(config)
     }
@@ -187,7 +187,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create quota config: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create quota config: {e}")))?;
 
         Ok(config)
     }
@@ -198,7 +198,7 @@ impl MediaQuotaStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list quota configs: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to list quota configs: {e}")))?;
 
         Ok(configs)
     }
@@ -209,7 +209,7 @@ impl MediaQuotaStorage {
                 .bind(config_id)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to delete quota config: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to delete quota config: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -221,7 +221,7 @@ impl MediaQuotaStorage {
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user quota: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get user quota: {e}")))?;
 
         Ok(quota)
     }
@@ -250,7 +250,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create user quota: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create user quota: {e}")))?;
 
         Ok(quota)
     }
@@ -286,7 +286,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to set user quota: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to set user quota: {e}")))?;
 
         Ok(quota)
     }
@@ -308,7 +308,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to log media usage: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to log media usage: {e}")))?;
 
         let delta = if request.operation == "upload" {
             request.file_size_bytes
@@ -341,7 +341,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update user quota usage: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update user quota usage: {e}")))?;
 
         sqlx::query(
             r#"
@@ -419,7 +419,7 @@ impl MediaQuotaStorage {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get server quota: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get server quota: {e}")))?;
 
         Ok(quota)
     }
@@ -453,7 +453,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update server quota: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update server quota: {e}")))?;
 
         Ok(quota)
     }
@@ -487,7 +487,7 @@ impl MediaQuotaStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create quota alert: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create quota alert: {e}")))?;
 
         Ok(alert)
     }
@@ -513,7 +513,7 @@ impl MediaQuotaStorage {
             .await
         };
 
-        alerts.map_err(|e| ApiError::internal(format!("Failed to get user alerts: {}", e)))
+        alerts.map_err(|e| ApiError::internal(format!("Failed to get user alerts: {e}")))
     }
 
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
@@ -521,7 +521,7 @@ impl MediaQuotaStorage {
             .bind(alert_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to mark alert read: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to mark alert read: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -538,7 +538,7 @@ impl MediaQuotaStorage {
         .bind(seven_days_ago)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to aggregate usage stats: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to aggregate usage stats: {e}")))?;
 
         Ok(serde_json::json!({
             "current_storage_bytes": quota.current_storage_bytes,

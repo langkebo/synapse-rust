@@ -266,8 +266,7 @@ impl TcpReplicationClient {
                 Ok(latency)
             }
             Ok(Ok(cmd)) => Err(ReplicationError::IoError(format!(
-                "Expected Pong, got {:?}",
-                cmd
+                "Expected Pong, got {cmd:?}"
             ))),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(ReplicationError::IoError("Ping timeout".to_string())),

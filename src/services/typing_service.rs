@@ -76,7 +76,7 @@ impl TypingService {
     ///
     /// 返回格式为 "room_id:user_id" 的键。
     fn make_key(room_id: &str, user_id: &str) -> String {
-        format!("{}:{}", room_id, user_id)
+        format!("{room_id}:{user_id}")
     }
 
     /// 获取所有打字状态数量

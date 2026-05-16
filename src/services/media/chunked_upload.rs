@@ -100,7 +100,7 @@ impl ChunkedUploadService {
         .bind(expires_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to start upload: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to start upload: {e}")))?;
 
         info!(
             "Started chunked upload: {} for user: {}",
@@ -167,7 +167,7 @@ impl ChunkedUploadService {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store chunk: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to store chunk: {e}")))?;
 
         sqlx::query(
             r#"
@@ -184,7 +184,7 @@ impl ChunkedUploadService {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update progress: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update progress: {e}")))?;
 
         let progress = self.get_progress(&upload_id).await?;
 
@@ -208,7 +208,7 @@ impl ChunkedUploadService {
             .bind(upload_id)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get progress: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get progress: {e}")))?
             .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
@@ -236,7 +236,7 @@ impl ChunkedUploadService {
         .bind(upload_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chunks: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get chunks: {e}")))?;
 
         let mut combined_data = Vec::new();
         for row in chunks {
@@ -253,7 +253,7 @@ impl ChunkedUploadService {
         }
 
         let media_id = Uuid::new_v4().to_string();
-        let content_uri = format!("mxc://localhost/{}", media_id);
+        let content_uri = format!("mxc://localhost/{media_id}");
         let size = combined_data.len() as i64;
 
         sqlx::query(
@@ -313,7 +313,7 @@ impl ChunkedUploadService {
                 .fetch_all(&*self.pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to find expired uploads: {}", e))
+                    ApiError::internal(format!("Failed to find expired uploads: {e}"))
                 })?;
 
         let mut cleaned = 0u64;
@@ -347,7 +347,7 @@ impl ChunkedUploadService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list uploads: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to list uploads: {e}")))
     }
 }
 

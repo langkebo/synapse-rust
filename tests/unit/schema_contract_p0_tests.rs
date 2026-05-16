@@ -16,8 +16,7 @@ mod schema_contract_p0_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping schema contract tests because test database is unavailable: {}",
-                    error
+                    "Skipping schema contract tests because test database is unavailable: {error}"
                 );
                 None
             }
@@ -101,8 +100,7 @@ mod schema_contract_p0_suite {
         assert!(
             regclass.as_deref() == Some(table_name)
                 || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
-            "Expected table '{table_name}' to exist, got: {:?}",
-            regclass
+            "Expected table '{table_name}' to exist, got: {regclass:?}"
         );
     }
 
