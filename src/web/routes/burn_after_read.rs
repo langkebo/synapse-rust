@@ -10,7 +10,6 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::{json, Value};
-use tracing::warn;
 
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -182,28 +181,18 @@ pub async fn mark_burn_read(
         ));
     }
 
-    // Schedule message deletion
-    let state_clone = state.clone();
-    let room_id_clone = room_id.clone();
-    let event_id_clone = event_id.clone();
-    let user_id = auth_user.user_id.clone();
+    let delete_at = Utc::now().timestamp_millis() + burn_after_ms;
 
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(burn_after_ms as u64)).await;
-
-        if let Err(e) = state_clone
-            .services
-            .burn_after_read
-            .delete_burned_message(&user_id, &room_id_clone, &event_id_clone)
-            .await
-        {
-            warn!("Failed to delete burned message: {}", e);
-        }
-    });
+    state
+        .services
+        .burn_after_read
+        .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to schedule burn: {}", e)))?;
 
     Ok(Json(json!({
         "success": true,
-        "will_delete_at": Utc::now().timestamp_millis() + burn_after_ms,
+        "will_delete_at": delete_at,
     })))
 }
 

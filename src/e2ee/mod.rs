@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod device_keys;
 pub mod device_trust;
 pub mod key_request;
+pub mod key_rotation;
 pub mod megolm;
 pub mod olm;
 pub mod secure_backup;
@@ -31,6 +32,8 @@ pub use secure_backup::service::SecureBackupService;
 // Explicit exports to avoid ambiguous glob re-exports
 pub use cross_signing::models::CrossSigningKey;
 pub use cross_signing::models::CrossSigningKeys;
+pub use cross_signing::models::DeviceKeyVerificationResult;
+pub use cross_signing::models::VerifiedDevicesMap;
 pub use cross_signing::service::CrossSigningService;
 pub use cross_signing::storage::CrossSigningStorage;
 pub use crypto::aes::*;

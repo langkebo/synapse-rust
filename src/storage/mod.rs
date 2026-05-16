@@ -87,6 +87,9 @@ pub mod server_notification;
 #[cfg(feature = "privacy-ext")]
 pub mod privacy;
 
+#[cfg(feature = "burn-after-read")]
+pub mod burn_after_read;
+
 // L0 — Captcha is used by registration flow — keep unconditional
 pub mod captcha;
 
