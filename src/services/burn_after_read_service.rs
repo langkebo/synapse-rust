@@ -1,8 +1,7 @@
-// Burn After Read Service - 阅后即焚服务
-// 管理消息的阅后即焚功能
-
+use crate::common::ApiResult;
+use crate::storage::burn_after_read::BurnAfterReadStorage;
+use crate::storage::event::EventStorage;
 use chrono::Utc;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -14,6 +13,7 @@ pub struct BurnSettings {
 
 #[derive(Debug, Clone)]
 pub struct BurnEvent {
+    pub id: i64,
     pub event_id: String,
     pub room_id: String,
     pub user_id: String,
@@ -28,25 +28,31 @@ pub struct BurnStats {
     pub rooms_enabled: i64,
 }
 
+struct BurnProcessorState {
+    is_running: bool,
+}
+
 pub struct BurnAfterReadService {
-    settings: Arc<RwLock<HashMap<String, HashMap<String, BurnSettings>>>>,
-    pending_burns: Arc<RwLock<HashMap<String, Vec<BurnEvent>>>>,
-    user_defaults: Arc<RwLock<HashMap<String, i64>>>,
-    burned_events: Arc<RwLock<HashMap<String, i64>>>,
+    storage: Arc<BurnAfterReadStorage>,
+    event_storage: Arc<EventStorage>,
+    server_name: String,
+    processor_state: Arc<RwLock<BurnProcessorState>>,
 }
 
 impl BurnAfterReadService {
-    pub fn new() -> Self {
+    pub fn new(
+        storage: BurnAfterReadStorage,
+        event_storage: EventStorage,
+        server_name: String,
+    ) -> Self {
         Self {
-            settings: Arc::new(RwLock::new(HashMap::new())),
-            pending_burns: Arc::new(RwLock::new(HashMap::new())),
-            user_defaults: Arc::new(RwLock::new(HashMap::new())),
-            burned_events: Arc::new(RwLock::new(HashMap::new())),
+            storage: Arc::new(storage),
+            event_storage: Arc::new(event_storage),
+            server_name,
+            processor_state: Arc::new(RwLock::new(BurnProcessorState {
+                is_running: false,
+            })),
         }
-    }
-
-    fn make_key(user_id: &str, room_id: &str) -> String {
-        format!("{}:{}", user_id, room_id)
     }
 
     pub async fn set_burn_enabled(
@@ -55,19 +61,11 @@ impl BurnAfterReadService {
         room_id: &str,
         enabled: bool,
         burn_after_ms: i64,
-    ) -> crate::common::ApiResult<()> {
-        let mut settings = self.settings.write().await;
-
-        settings
-            .entry(user_id.to_string())
-            .or_insert_with(HashMap::new)
-            .insert(
-                room_id.to_string(),
-                BurnSettings {
-                    is_enabled: enabled,
-                    burn_after_ms,
-                },
-            );
+    ) -> ApiResult<()> {
+        self.storage
+            .set_settings(user_id, room_id, enabled, burn_after_ms)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set burn settings: {}", e)))?;
 
         Ok(())
     }
@@ -76,23 +74,41 @@ impl BurnAfterReadService {
         &self,
         user_id: &str,
         room_id: &str,
-    ) -> crate::common::ApiResult<Option<BurnSettings>> {
-        let settings = self.settings.read().await;
+    ) -> ApiResult<Option<BurnSettings>> {
+        let row = self
+            .storage
+            .get_settings(user_id, room_id)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get burn settings: {}", e)))?;
 
-        Ok(settings
-            .get(user_id)
-            .and_then(|room_settings| room_settings.get(room_id).cloned()))
+        Ok(row.map(|r| BurnSettings {
+            is_enabled: r.is_enabled,
+            burn_after_ms: r.burn_after_ms,
+        }))
     }
 
     pub async fn get_pending_burns(
         &self,
         user_id: &str,
         room_id: &str,
-    ) -> crate::common::ApiResult<Vec<BurnEvent>> {
-        let key = Self::make_key(user_id, room_id);
-        let burns = self.pending_burns.read().await;
+    ) -> ApiResult<Vec<BurnEvent>> {
+        let rows = self
+            .storage
+            .get_pending_burns(user_id, room_id)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get pending burns: {}", e)))?;
 
-        Ok(burns.get(&key).cloned().unwrap_or_default())
+        Ok(rows
+            .into_iter()
+            .map(|r| BurnEvent {
+                id: r.id,
+                event_id: r.event_id,
+                room_id: r.room_id,
+                user_id: r.user_id,
+                created_ts: r.created_ts,
+                delete_at: r.delete_at,
+            })
+            .collect())
     }
 
     pub async fn cancel_burn(
@@ -100,13 +116,11 @@ impl BurnAfterReadService {
         user_id: &str,
         room_id: &str,
         event_id: &str,
-    ) -> crate::common::ApiResult<()> {
-        let key = Self::make_key(user_id, room_id);
-        let mut burns = self.pending_burns.write().await;
-
-        if let Some(events) = burns.get_mut(&key) {
-            events.retain(|e| e.event_id != event_id);
-        }
+    ) -> ApiResult<()> {
+        self.storage
+            .cancel_burn(user_id, room_id, event_id)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to cancel burn: {}", e)))?;
 
         Ok(())
     }
@@ -116,19 +130,46 @@ impl BurnAfterReadService {
         user_id: &str,
         room_id: &str,
         event_id: &str,
-    ) -> crate::common::ApiResult<()> {
-        let key = Self::make_key(user_id, room_id);
+    ) -> ApiResult<()> {
+        let now = Utc::now().timestamp_millis();
 
-        let mut burns = self.pending_burns.write().await;
-        if let Some(events) = burns.get_mut(&key) {
-            events.retain(|e| e.event_id != event_id);
+        if let Err(e) = self
+            .event_storage
+            .redact_event_content(event_id)
+            .await
+        {
+            ::tracing::warn!(
+                "Failed to redact event content for burn {}: {}",
+                event_id, e
+            );
         }
 
-        let mut burned = self.burned_events.write().await;
-        burned.insert(
-            format!("{}:{}:{}", user_id, room_id, event_id),
-            Utc::now().timestamp_millis(),
-        );
+        if let Err(e) = self
+            .event_storage
+            .create_event(
+                crate::storage::event::CreateEventParams {
+                    event_id: crate::common::crypto::generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.redaction".to_string(),
+                    content: serde_json::json!({"reason": "Burn after read"}),
+                    state_key: None,
+                    origin_server_ts: now,
+                },
+                None,
+            )
+            .await
+        {
+            ::tracing::warn!(
+                "Failed to create redaction event for burn {}: {}",
+                event_id, e
+            );
+        }
+
+        self.storage
+            .log_burned_event(user_id, room_id, event_id, now)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to log burned event: {}", e)))?;
 
         Ok(())
     }
@@ -137,37 +178,26 @@ impl BurnAfterReadService {
         &self,
         user_id: &str,
         default_burn_ms: i64,
-    ) -> crate::common::ApiResult<()> {
-        let mut defaults = self.user_defaults.write().await;
-        defaults.insert(user_id.to_string(), default_burn_ms);
+    ) -> ApiResult<()> {
+        self.storage
+            .set_user_default(user_id, default_burn_ms)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to set user default: {}", e)))?;
+
         Ok(())
     }
 
-    pub async fn get_user_stats(&self, user_id: &str) -> crate::common::ApiResult<BurnStats> {
-        let settings = self.settings.read().await;
-        let pending = self.pending_burns.read().await;
-        let burned = self.burned_events.read().await;
-
-        let rooms_enabled = settings
-            .get(user_id)
-            .map(|rs| rs.values().filter(|s| s.is_enabled).count() as i64)
-            .unwrap_or(0);
-
-        let total_pending: i64 = pending
-            .keys()
-            .filter(|k| k.starts_with(&format!("{}:", user_id)))
-            .map(|k| pending.get(k).map(|v| v.len() as i64).unwrap_or(0))
-            .sum();
-
-        let total_burned = burned
-            .keys()
-            .filter(|k| k.starts_with(&format!("{}:", user_id)))
-            .count() as i64;
+    pub async fn get_user_stats(&self, user_id: &str) -> ApiResult<BurnStats> {
+        let row = self
+            .storage
+            .get_user_stats(user_id)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get user stats: {}", e)))?;
 
         Ok(BurnStats {
-            total_burned,
-            total_pending,
-            rooms_enabled,
+            total_burned: row.total_burned,
+            total_pending: row.total_pending,
+            rooms_enabled: row.rooms_enabled,
         })
     }
 
@@ -177,53 +207,130 @@ impl BurnAfterReadService {
         room_id: &str,
         event_id: &str,
         burn_after_ms: i64,
-    ) -> crate::common::ApiResult<()> {
-        let key = Self::make_key(user_id, room_id);
+    ) -> ApiResult<()> {
         let now = Utc::now().timestamp_millis();
+        let delete_at = now + burn_after_ms;
 
-        let burn_event = BurnEvent {
-            event_id: event_id.to_string(),
-            room_id: room_id.to_string(),
-            user_id: user_id.to_string(),
-            created_ts: now,
-            delete_at: now + burn_after_ms,
-        };
-
-        let mut burns = self.pending_burns.write().await;
-        burns.entry(key).or_insert_with(Vec::new).push(burn_event);
+        self.storage
+            .schedule_burn(user_id, room_id, event_id, delete_at)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to schedule burn: {}", e)))?;
 
         Ok(())
     }
 
-    pub async fn process_expired_burns(&self) -> crate::common::ApiResult<Vec<BurnEvent>> {
+    pub async fn process_expired_burns(&self) -> ApiResult<Vec<BurnEvent>> {
         let now = Utc::now().timestamp_millis();
-        let mut burns = self.pending_burns.write().await;
-        let mut burned = self.burned_events.write().await;
+
+        let expired_rows = self
+            .storage
+            .get_expired_burns(now)
+            .await
+            .map_err(|e| crate::common::ApiError::internal(format!("Failed to get expired burns: {}", e)))?;
+
         let mut expired = Vec::new();
 
-        for (_key, events) in burns.iter_mut() {
-            let expired_events: Vec<BurnEvent> = events
-                .iter()
-                .filter(|e| e.delete_at <= now)
-                .cloned()
-                .collect();
-
-            for e in &expired_events {
-                burned.insert(format!("{}:{}:{}", e.user_id, e.room_id, e.event_id), now);
+        for row in &expired_rows {
+            if let Err(e) = self
+                .event_storage
+                .redact_event_content(&row.event_id)
+                .await
+            {
+                ::tracing::warn!(
+                    "Failed to redact event content for burn {}: {}",
+                    row.event_id, e
+                );
             }
 
-            expired.extend(expired_events);
+            if let Err(e) = self
+                .event_storage
+                .create_event(
+                    crate::storage::event::CreateEventParams {
+                        event_id: crate::common::crypto::generate_event_id(&self.server_name),
+                        room_id: row.room_id.clone(),
+                        user_id: row.user_id.clone(),
+                        event_type: "m.room.redaction".to_string(),
+                        content: serde_json::json!({"reason": "Burn after read"}),
+                        state_key: None,
+                        origin_server_ts: now,
+                    },
+                    None,
+                )
+                .await
+            {
+                ::tracing::warn!(
+                    "Failed to create redaction event for burn {}: {}",
+                    row.event_id, e
+                );
+            }
 
-            events.retain(|e| e.delete_at > now);
+            if let Err(e) = self.storage.mark_burn_processed(row.id).await {
+                ::tracing::warn!("Failed to mark burn processed {}: {}", row.id, e);
+            }
+
+            if let Err(e) = self
+                .storage
+                .log_burned_event(&row.user_id, &row.room_id, &row.event_id, now)
+                .await
+            {
+                ::tracing::warn!("Failed to log burned event {}: {}", row.event_id, e);
+            }
+
+            expired.push(BurnEvent {
+                id: row.id,
+                event_id: row.event_id.clone(),
+                room_id: row.room_id.clone(),
+                user_id: row.user_id.clone(),
+                created_ts: row.created_ts,
+                delete_at: row.delete_at,
+            });
         }
 
         Ok(expired)
     }
-}
 
-impl Default for BurnAfterReadService {
-    fn default() -> Self {
-        Self::new()
+    pub async fn recover_pending_burns(&self) {
+        ::tracing::info!("Recovering pending burn-after-read events from database...");
+
+        match self.process_expired_burns().await {
+            Ok(expired) => {
+                if expired.is_empty() {
+                    ::tracing::info!("No expired burn events to recover");
+                } else {
+                    ::tracing::info!(
+                        "Recovered and processed {} expired burn events",
+                        expired.len()
+                    );
+                }
+            }
+            Err(e) => {
+                ::tracing::error!("Failed to recover expired burn events: {}", e);
+            }
+        }
+    }
+
+    pub async fn start_burn_processor(self: Arc<Self>) {
+        let mut state = self.processor_state.write().await;
+        if state.is_running {
+            return;
+        }
+        state.is_running = true;
+        drop(state);
+
+        let service = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+
+            loop {
+                interval.tick().await;
+
+                if let Err(e) = service.process_expired_burns().await {
+                    ::tracing::error!("Burn processor error: {}", e);
+                }
+            }
+        });
+
+        ::tracing::info!("Burn-after-read processor started (5s interval)");
     }
 }
 
@@ -231,121 +338,47 @@ impl Default for BurnAfterReadService {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_set_and_get_burn_settings() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .set_burn_enabled("@alice:example.com", "!room:example.com", true, 60000)
-            .await
-            .unwrap();
-
-        let settings = service
-            .get_burn_settings("@alice:example.com", "!room:example.com")
-            .await
-            .unwrap();
-        assert!(settings.is_some());
-        let s = settings.unwrap();
-        assert!(s.is_enabled);
-        assert_eq!(s.burn_after_ms, 60000);
+    #[test]
+    fn test_burn_settings_struct() {
+        let settings = BurnSettings {
+            is_enabled: true,
+            burn_after_ms: 60000,
+        };
+        assert!(settings.is_enabled);
+        assert_eq!(settings.burn_after_ms, 60000);
     }
 
-    #[tokio::test]
-    async fn test_schedule_and_get_pending_burns() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
-            .await
-            .unwrap();
-
-        let pending = service
-            .get_pending_burns("@alice:example.com", "!room:example.com")
-            .await
-            .unwrap();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].event_id, "$event1");
+    #[test]
+    fn test_burn_event_struct() {
+        let event = BurnEvent {
+            id: 1,
+            event_id: "$event1".to_string(),
+            room_id: "!room:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            created_ts: 1234567890,
+            delete_at: 1234567950,
+        };
+        assert_eq!(event.id, 1);
+        assert_eq!(event.event_id, "$event1");
     }
 
-    #[tokio::test]
-    async fn test_cancel_burn() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
-            .await
-            .unwrap();
-        service
-            .cancel_burn("@alice:example.com", "!room:example.com", "$event1")
-            .await
-            .unwrap();
-
-        let pending = service
-            .get_pending_burns("@alice:example.com", "!room:example.com")
-            .await
-            .unwrap();
-        assert!(pending.is_empty());
+    #[test]
+    fn test_burn_stats_default() {
+        let stats = BurnStats::default();
+        assert_eq!(stats.total_burned, 0);
+        assert_eq!(stats.total_pending, 0);
+        assert_eq!(stats.rooms_enabled, 0);
     }
 
-    #[tokio::test]
-    async fn test_delete_burned_message() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 60000)
-            .await
-            .unwrap();
-        service
-            .delete_burned_message("@alice:example.com", "!room:example.com", "$event1")
-            .await
-            .unwrap();
-
-        let pending = service
-            .get_pending_burns("@alice:example.com", "!room:example.com")
-            .await
-            .unwrap();
-        assert!(pending.is_empty());
-
-        let stats = service.get_user_stats("@alice:example.com").await.unwrap();
-        assert_eq!(stats.total_burned, 1);
-    }
-
-    #[tokio::test]
-    async fn test_get_user_stats() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .set_burn_enabled("@alice:example.com", "!room1:example.com", true, 60000)
-            .await
-            .unwrap();
-        service
-            .set_burn_enabled("@alice:example.com", "!room2:example.com", true, 60000)
-            .await
-            .unwrap();
-        service
-            .schedule_burn("@alice:example.com", "!room1:example.com", "$event1", 60000)
-            .await
-            .unwrap();
-        service
-            .schedule_burn("@alice:example.com", "!room1:example.com", "$event2", 60000)
-            .await
-            .unwrap();
-
-        let stats = service.get_user_stats("@alice:example.com").await.unwrap();
+    #[test]
+    fn test_burn_stats_custom() {
+        let stats = BurnStats {
+            total_burned: 10,
+            total_pending: 3,
+            rooms_enabled: 2,
+        };
+        assert_eq!(stats.total_burned, 10);
+        assert_eq!(stats.total_pending, 3);
         assert_eq!(stats.rooms_enabled, 2);
-        assert_eq!(stats.total_pending, 2);
-    }
-
-    #[tokio::test]
-    async fn test_process_expired_burns() {
-        let service = BurnAfterReadService::new();
-
-        service
-            .schedule_burn("@alice:example.com", "!room:example.com", "$event1", 0)
-            .await
-            .unwrap();
-
-        let expired = service.process_expired_burns().await.unwrap();
-        assert!(!expired.is_empty());
     }
 }

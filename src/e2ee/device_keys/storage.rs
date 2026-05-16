@@ -372,6 +372,22 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
+    pub async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(DISTINCT device_id)
+            FROM device_keys
+            WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(count)
+    }
+
     pub async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r#"

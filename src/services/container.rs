@@ -854,7 +854,14 @@ impl ServiceContainer {
         ));
 
         #[cfg(feature = "burn-after-read")]
-        let burn_after_read = Arc::new(BurnAfterReadService::new());
+        let burn_after_read = {
+            let burn_storage = crate::storage::burn_after_read::BurnAfterReadStorage::new(pool);
+            Arc::new(BurnAfterReadService::new(
+                burn_storage,
+                rooms.event_storage.clone(),
+                config.server.name.clone(),
+            ))
+        };
 
         // OIDC services (runtime-config-driven, not feature-gated)
         let oidc_service = if config.oidc.is_enabled() {
@@ -899,7 +906,7 @@ impl ServiceContainer {
         let broadcaster_member_storage = rooms.member_storage.clone();
         let broadcaster_origin = config.server.get_server_name().to_string();
 
-        Self {
+        let container = Self {
             user_storage,
             threepid_storage,
             device_storage: DeviceStorage::new(pool),
@@ -1035,7 +1042,15 @@ impl ServiceContainer {
                 broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
                 Arc::new(broadcaster)
             },
+        };
+
+        #[cfg(feature = "burn-after-read")]
+        {
+            container.burn_after_read.recover_pending_burns().await;
+            container.burn_after_read.clone().start_burn_processor().await;
         }
+
+        container
     }
 
     pub async fn new_test() -> Self {
