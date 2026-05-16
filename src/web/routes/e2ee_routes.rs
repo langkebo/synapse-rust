@@ -66,7 +66,10 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
         .route("/device_trust", get(get_device_trust_list))
         .route("/device_trust/{device_id}", get(get_device_trust))
         .route("/security/summary", get(get_security_summary))
-        .route("/keys/backup/secure", post(create_secure_backup).get(get_secure_backup_list))
+        .route(
+            "/keys/backup/secure",
+            post(create_secure_backup).get(get_secure_backup_list),
+        )
         .route(
             "/keys/backup/secure/{backup_id}",
             get(get_secure_backup).delete(delete_secure_backup),
@@ -300,12 +303,43 @@ async fn query_keys(
         .query_keys(request)
         .await?;
 
+    let mut verified_devices = serde_json::Map::new();
+    if let Some(device_keys_obj) = response.device_keys.as_object() {
+        for user_id in device_keys_obj.keys() {
+            if let Ok(vd_map) = state
+                .services
+                .cross_signing_service
+                .get_verified_devices(user_id)
+                .await
+            {
+                let devices: Vec<serde_json::Value> = vd_map
+                    .verified_devices
+                    .into_iter()
+                    .filter(|d| d.is_verified)
+                    .map(|d| {
+                        serde_json::json!({
+                            "device_id": d.device_id,
+                            "verified_by_master": d.verified_by_master,
+                            "verified_by_self_signing": d.verified_by_self_signing,
+                            "verification_method": d.verification_method,
+                            "verified_at": d.verified_at
+                        })
+                    })
+                    .collect();
+                if !devices.is_empty() {
+                    verified_devices.insert(user_id.clone(), serde_json::json!(devices));
+                }
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "device_keys": response.device_keys,
         "master_keys": response.master_keys,
         "self_signing_keys": response.self_signing_keys,
         "user_signing_keys": response.user_signing_keys,
-        "failures": response.failures
+        "failures": response.failures,
+        "verified_devices": serde_json::Value::Object(verified_devices)
     })))
 }
 
@@ -330,15 +364,61 @@ async fn claim_keys(
         one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
     }
 
+    let requested_device_count: usize = request
+        .one_time_keys
+        .as_object()
+        .map(|map| {
+            map.values()
+                .map(|v| v.as_object().map(|o| o.len()).unwrap_or(0))
+                .sum()
+        })
+        .unwrap_or(0);
+
+    if requested_device_count == 0 {
+        return Ok(Json(serde_json::json!({
+            "one_time_keys": {},
+            "failures": {
+                "M_EMPTY_REQUEST": "No devices requested for key claiming"
+            }
+        })));
+    }
+
     let response = state
         .services
         .device_keys_service
         .claim_keys(request)
         .await?;
 
+    let claimed_device_count: usize = response
+        .one_time_keys
+        .as_object()
+        .map(|map| {
+            map.values()
+                .map(|v| v.as_object().map(|o| o.len()).unwrap_or(0))
+                .sum()
+        })
+        .unwrap_or(0);
+
+    let mut failures = if let serde_json::Value::Object(failures_map) = response.failures {
+        failures_map
+    } else {
+        serde_json::Map::new()
+    };
+
+    if claimed_device_count < requested_device_count {
+        let failed_count = requested_device_count - claimed_device_count;
+        failures.insert(
+            "M_KEY_CLAIM_FAILED".to_string(),
+            serde_json::json!({
+                "failed_devices": failed_count,
+                "message": format!("Key claiming failed for {} device(s). The devices may not have uploaded one-time keys.", failed_count)
+            }),
+        );
+    }
+
     Ok(Json(serde_json::json!({
         "one_time_keys": response.one_time_keys,
-        "failures": response.failures
+        "failures": serde_json::Value::Object(failures)
     })))
 }
 
@@ -612,6 +692,26 @@ async fn send_to_device(
     let messages = body.get("messages").ok_or_else(|| {
         crate::error::ApiError::bad_request("Missing 'messages' field".to_string())
     })?;
+
+    if event_type == "m.room_key" || event_type == "m.forwarded_room_key" {
+        if let Some(msg_obj) = messages.as_object() {
+            for (_user_id, user_devices) in msg_obj {
+                if let Some(devices) = user_devices.as_object() {
+                    for (_device_id, device_msg) in devices {
+                        if let Some(session_key) = device_msg.get("session_key").or_else(|| {
+                            device_msg.get("content").and_then(|c| c.get("session_key"))
+                        }) {
+                            if session_key.as_str().is_none_or(|s| s.is_empty()) {
+                                return Err(ApiError::bad_request(
+                                    "Session key is empty in room key event. Session creation may have failed.".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     state
         .services

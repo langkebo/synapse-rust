@@ -1212,6 +1212,12 @@ impl SyncService {
             .build_device_one_time_keys_count(user_id, device_id)
             .await?;
 
+        let key_rotation_needed = self.build_key_rotation_needed(user_id).await?;
+
+        let device_list_changes = self
+            .build_device_list_changes(user_id, &device_lists)
+            .await?;
+
         Ok(json!({
             "next_batch": SyncToken {
                 stream_id,
@@ -1229,7 +1235,9 @@ impl SyncService {
             "account_data": { "events": account_data_events },
             "to_device": { "events": to_device_events },
             "device_lists": device_lists,
-            "device_one_time_keys_count": device_one_time_keys_count
+            "device_one_time_keys_count": device_one_time_keys_count,
+            "key_rotation_needed": key_rotation_needed,
+            "device_list_changes": device_list_changes
         }))
     }
 
@@ -1254,6 +1262,76 @@ impl SyncService {
         }
 
         Ok(Value::Object(result))
+    }
+
+    async fn build_key_rotation_needed(&self, user_id: &str) -> ApiResult<Value> {
+        let rotation_storage =
+            crate::e2ee::key_rotation::KeyRotationStorage::new(self.event_storage.pool.clone());
+
+        let rooms = rotation_storage
+            .get_rooms_needing_key_rotation(user_id)
+            .await
+            .map_err(map_internal!("Failed to get rooms needing key rotation"))?;
+
+        Ok(json!({
+            "rooms": rooms
+        }))
+    }
+
+    async fn build_device_list_changes(
+        &self,
+        _user_id: &str,
+        device_lists: &Value,
+    ) -> ApiResult<Value> {
+        let changed_users: Vec<String> = device_lists
+            .get("changed")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let left_users: Vec<String> = device_lists
+            .get("left")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut user_device_counts = serde_json::Map::new();
+        let device_key_storage = DeviceKeyStorage::new(&self.device_storage.pool);
+
+        for uid in &changed_users {
+            if let Ok(count) = device_key_storage.get_device_count(uid).await {
+                user_device_counts.insert(
+                    uid.clone(),
+                    json!({
+                        "device_count": count,
+                        "change_type": "changed"
+                    }),
+                );
+            }
+        }
+
+        for uid in &left_users {
+            user_device_counts.insert(
+                uid.clone(),
+                json!({
+                    "change_type": "left"
+                }),
+            );
+        }
+
+        Ok(json!({
+            "users": serde_json::Value::Object(user_device_counts),
+            "changed_count": changed_users.len(),
+            "left_count": left_users.len()
+        }))
     }
 
     async fn build_room_sync(

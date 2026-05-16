@@ -205,6 +205,39 @@ pub struct Room {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomEncryptionStatus {
+    pub is_encrypted: bool,
+    pub algorithm: Option<String>,
+    pub rotation_period_ms: Option<i64>,
+    pub rotation_period_msgs: Option<i64>,
+}
+
+impl RoomEncryptionStatus {
+    pub fn from_room(room: &Room) -> Self {
+        Self {
+            is_encrypted: room.encryption.is_some(),
+            algorithm: room.encryption.clone(),
+            rotation_period_ms: None,
+            rotation_period_msgs: None,
+        }
+    }
+
+    pub fn from_encryption_event(
+        is_encrypted: bool,
+        algorithm: Option<String>,
+        rotation_period_ms: Option<i64>,
+        rotation_period_msgs: Option<i64>,
+    ) -> Self {
+        Self {
+            is_encrypted,
+            algorithm,
+            rotation_period_ms,
+            rotation_period_msgs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Receipt {
     pub user_id: String,
     pub event_id: String,

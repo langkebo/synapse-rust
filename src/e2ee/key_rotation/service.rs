@@ -4,11 +4,12 @@
 use crate::e2ee::megolm::{MegolmService, MegolmSession};
 use crate::e2ee::olm::OlmService;
 use crate::error::ApiError;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct KeyRotationService {
+    #[allow(dead_code)]
     olm_service: Arc<OlmService>,
     megolm_service: Arc<MegolmService>,
     storage: Arc<KeyRotationStorage>,
@@ -172,6 +173,70 @@ impl KeyRotationService {
         let needs_rotation = self.storage.check_needs_rotation(user_id, room_id).await?;
         Ok(needs_rotation)
     }
+
+    pub async fn notify_member_left_encrypted_room(
+        &self,
+        room_id: &str,
+        leaving_user_id: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        let remaining_members = self.storage.get_encrypted_room_members(room_id).await?;
+
+        let remaining: Vec<String> = remaining_members
+            .into_iter()
+            .filter(|uid| uid != leaving_user_id)
+            .collect();
+
+        self.storage
+            .mark_key_rotation_needed(room_id, leaving_user_id)
+            .await?;
+
+        tracing::info!(
+            "Marked key rotation needed for room {} after user {} left ({} remaining members)",
+            room_id,
+            leaving_user_id,
+            remaining.len()
+        );
+
+        Ok(remaining)
+    }
+
+    pub async fn forward_keys_for_new_member(
+        &self,
+        room_id: &str,
+        new_user_id: &str,
+    ) -> Result<(), ApiError> {
+        let sessions = self.megolm_service.get_room_sessions(room_id).await?;
+
+        for session in &sessions {
+            self.megolm_service
+                .share_session(&session.session_id, &[new_user_id.to_string()])
+                .await?;
+
+            self.storage
+                .record_key_share(room_id, &session.session_id, "new_member")
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to record key share for new member: {}", e);
+                    ApiError::internal(format!("Failed to record key share: {}", e))
+                })?;
+        }
+
+        tracing::info!(
+            "Forwarded {} session keys to new member {} in room {}",
+            sessions.len(),
+            new_user_id,
+            room_id
+        );
+
+        Ok(())
+    }
+
+    pub async fn get_rooms_needing_key_rotation(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        self.storage.get_rooms_needing_key_rotation(user_id).await
+    }
 }
 
 pub struct KeyRotationStorage {
@@ -321,5 +386,88 @@ impl KeyRotationStorage {
             pending_rotations: row.get("pending_rotations"),
             last_rotation: row.get("last_rotation"),
         })
+    }
+
+    pub async fn get_encrypted_room_members(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT rm.user_id
+            FROM room_memberships rm
+            INNER JOIN room_events re ON rm.room_id = re.room_id
+            WHERE rm.room_id = $1
+              AND rm.membership = 'join'
+              AND re.event_type = 'm.room.encryption'
+            "#,
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn mark_key_rotation_needed(
+        &self,
+        room_id: &str,
+        leaving_user_id: &str,
+    ) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
+            VALUES ($1, 'member_left', $2, $3)
+            ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(leaving_user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_rooms_needing_key_rotation(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<String>, ApiError> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT DISTINCT krp.room_id
+            FROM key_rotation_pending krp
+            INNER JOIN room_memberships rm ON krp.room_id = rm.room_id
+            WHERE rm.user_id = $1
+              AND rm.membership = 'join'
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn clear_key_rotation_needed(
+        &self,
+        room_id: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r#"
+            DELETE FROM key_rotation_pending WHERE room_id = $1
+            "#,
+        )
+        .bind(room_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+        Ok(())
     }
 }

@@ -128,6 +128,23 @@ pub struct UserVerificationStatus {
     pub verified_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceKeyVerificationResult {
+    pub user_id: String,
+    pub device_id: String,
+    pub is_verified: bool,
+    pub verified_by_master: bool,
+    pub verified_by_self_signing: bool,
+    pub verification_method: Option<String>,
+    pub verified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedDevicesMap {
+    pub user_id: String,
+    pub verified_devices: Vec<DeviceKeyVerificationResult>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
