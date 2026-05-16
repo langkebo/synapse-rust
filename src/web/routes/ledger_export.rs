@@ -168,12 +168,20 @@ pub fn render(artifact: &LedgerArtifact) -> String {
     let buf = Vec::with_capacity(4096);
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"  ");
     let mut ser = serde_json::Serializer::with_formatter(buf, formatter);
-    artifact
-        .serialize(&mut ser)
-        .expect("serialization of LedgerArtifact cannot fail");
-    let mut s = String::from_utf8(ser.into_inner()).expect("pretty JSON is UTF-8");
-    s.push('\n');
-    s
+    match artifact.serialize(&mut ser) {
+        Ok(()) => {
+            let mut s = String::from_utf8(ser.into_inner()).unwrap_or_else(|e| {
+                tracing::error!("LedgerArtifact produced non-UTF-8 JSON: {}", e);
+                String::from("{}\n")
+            });
+            s.push('\n');
+            s
+        }
+        Err(e) => {
+            tracing::error!("Failed to serialize LedgerArtifact: {}", e);
+            "{}\n".to_string()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -265,7 +273,7 @@ mod tests {
         for e in &artifact.entries {
             let cur = (e.path.as_str(), e.method.as_str(), e.registered_by.as_str());
             if let Some(p) = prev {
-                assert!(p <= cur, "sort violated: {:?} before {:?}", p, cur);
+                assert!(p <= cur, "sort violated: {p:?} before {cur:?}");
             }
             prev = Some(cur);
         }

@@ -327,8 +327,7 @@ mod tests {
 
         if !trusted_servers.is_empty() && !trusted_servers.iter().any(|s| s == id_server) {
             return Err(format!(
-                "id_server '{}' is not in the trusted servers list",
-                id_server
+                "id_server '{id_server}' is not in the trusted servers list"
             ));
         }
 

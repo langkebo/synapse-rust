@@ -221,7 +221,7 @@ pub(crate) async fn get_room_hierarchy_msc2946(
                 .room_storage
                 .get_room(&room_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get room: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?
                 .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
             let state_events = state
@@ -229,7 +229,7 @@ pub(crate) async fn get_room_hierarchy_msc2946(
                 .event_storage
                 .get_state_events(&room_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
 
             let create_event = state_events
                 .iter()

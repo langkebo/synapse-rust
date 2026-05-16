@@ -120,7 +120,7 @@ impl ThreadService {
 
         let thread_root = self.storage.create_thread_root(params).await.map_err(|e| {
             warn!(error = %e, "Failed to create thread root");
-            ApiError::internal(format!("Failed to create thread: {}", e))
+            ApiError::internal(format!("Failed to create thread: {e}"))
         })?;
 
         self.storage
@@ -135,7 +135,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to create thread relation");
-                ApiError::internal(format!("Failed to create thread relation: {}", e))
+                ApiError::internal(format!("Failed to create thread relation: {e}"))
             })?;
 
         debug!(thread_id = %thread_id, "Thread created successfully");
@@ -159,7 +159,7 @@ impl ThreadService {
             .storage
             .get_thread_root(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {e}")))?
             .ok_or_else(|| ApiError::not_found("Thread not found"))?;
 
         if thread_root.is_fetched {
@@ -185,7 +185,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to create thread reply");
-                ApiError::internal(format!("Failed to create reply: {}", e))
+                ApiError::internal(format!("Failed to create reply: {e}"))
             })?;
 
         self.storage
@@ -200,7 +200,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to create reply relation");
-                ApiError::internal(format!("Failed to create reply relation: {}", e))
+                ApiError::internal(format!("Failed to create reply relation: {e}"))
             })?;
 
         debug!(event_id = %reply.event_id, "Reply added successfully");
@@ -222,7 +222,7 @@ impl ThreadService {
             .storage
             .get_thread_root(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {e}")))?
             .ok_or_else(|| ApiError::not_found("Thread not found"))?;
 
         let replies = if request.include_replies {
@@ -234,7 +234,7 @@ impl ThreadService {
                     None,
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get replies: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get replies: {e}")))?
         } else {
             vec![]
         };
@@ -243,32 +243,32 @@ impl ThreadService {
             .storage
             .get_reply_count(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get reply count: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get reply count: {e}")))?;
 
         let participants = self
             .storage
             .get_thread_participants(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get participants: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get participants: {e}")))?;
 
         let summary = self
             .storage
             .get_thread_summary(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get summary: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get summary: {e}")))?;
 
         let (user_receipt, user_subscription) = if let Some(uid) = user_id {
             let receipt = self
                 .storage
                 .get_read_receipt(&request.room_id, &request.thread_id, uid)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get receipt: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get receipt: {e}")))?;
 
             let subscription = self
                 .storage
                 .get_thread_subscription(&request.room_id, &request.thread_id, uid)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get subscription: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get subscription: {e}")))?;
 
             (receipt, subscription)
         } else {
@@ -307,7 +307,7 @@ impl ThreadService {
             .storage
             .list_thread_roots(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to list threads: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to list threads: {e}")))?;
 
         let mut summaries = Vec::new();
         for root in &roots {
@@ -315,7 +315,7 @@ impl ThreadService {
                 .storage
                 .get_thread_summary(&root.room_id, root.thread_id.as_deref().unwrap_or_default())
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get summary: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get summary: {e}")))?
             {
                 summaries.push(summary);
             } else {
@@ -359,7 +359,7 @@ impl ThreadService {
             .storage
             .list_all_thread_roots(limit, from)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to list global threads: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to list global threads: {e}")))?;
 
         let mut summaries = Vec::new();
         for root in &roots {
@@ -368,7 +368,7 @@ impl ThreadService {
                 .storage
                 .get_thread_summary(&root.room_id, &thread_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get thread summary: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get thread summary: {e}")))?
             {
                 summaries.push(summary);
             } else {
@@ -411,7 +411,7 @@ impl ThreadService {
             .storage
             .get_thread_root(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get thread root: {e}")))?
             .ok_or_else(|| ApiError::not_found("Thread not found"))?;
 
         if thread_root.is_fetched {
@@ -433,7 +433,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to subscribe to thread");
-                ApiError::internal(format!("Failed to subscribe: {}", e))
+                ApiError::internal(format!("Failed to subscribe: {e}"))
             })
     }
 
@@ -448,7 +448,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to unsubscribe from thread");
-                ApiError::internal(format!("Failed to unsubscribe: {}", e))
+                ApiError::internal(format!("Failed to unsubscribe: {e}"))
             })
     }
 
@@ -463,7 +463,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to mute thread");
-                ApiError::internal(format!("Failed to mute thread: {}", e))
+                ApiError::internal(format!("Failed to mute thread: {e}"))
             })
     }
 
@@ -479,7 +479,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to mark thread as read");
-                ApiError::internal(format!("Failed to mark as read: {}", e))
+                ApiError::internal(format!("Failed to mark as read: {e}"))
             })
     }
 
@@ -494,7 +494,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to get unread threads");
-                ApiError::internal(format!("Failed to get unread threads: {}", e))
+                ApiError::internal(format!("Failed to get unread threads: {e}"))
             })?;
 
         let total_unread = threads.len() as i32;
@@ -516,7 +516,7 @@ impl ThreadService {
             .storage
             .get_user_thread_subscriptions(user_id, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {e}")))?;
 
         let mut threads = Vec::new();
         for subscription in &subscriptions {
@@ -525,7 +525,7 @@ impl ThreadService {
                 .get_thread_summary(&subscription.room_id, &subscription.thread_id)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get subscribed thread: {}", e))
+                    ApiError::internal(format!("Failed to get subscribed thread: {e}"))
                 })?
             {
                 threads.push(summary);
@@ -544,7 +544,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to delete thread");
-                ApiError::internal(format!("Failed to delete thread: {}", e))
+                ApiError::internal(format!("Failed to delete thread: {e}"))
             })
     }
 
@@ -558,7 +558,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to get thread statistics");
-                ApiError::internal(format!("Failed to get statistics: {}", e))
+                ApiError::internal(format!("Failed to get statistics: {e}"))
             })
     }
 
@@ -573,7 +573,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to search threads");
-                ApiError::internal(format!("Failed to search threads: {}", e))
+                ApiError::internal(format!("Failed to search threads: {e}"))
             })
     }
 
@@ -583,7 +583,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to freeze thread");
-                ApiError::internal(format!("Failed to freeze thread: {}", e))
+                ApiError::internal(format!("Failed to freeze thread: {e}"))
             })
     }
 
@@ -593,7 +593,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to unfreeze thread");
-                ApiError::internal(format!("Failed to unfreeze thread: {}", e))
+                ApiError::internal(format!("Failed to unfreeze thread: {e}"))
             })
     }
 
@@ -603,7 +603,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to redact reply");
-                ApiError::internal(format!("Failed to redact reply: {}", e))
+                ApiError::internal(format!("Failed to redact reply: {e}"))
             })
     }
 
@@ -613,7 +613,7 @@ impl ThreadService {
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to edit reply");
-                ApiError::internal(format!("Failed to edit reply: {}", e))
+                ApiError::internal(format!("Failed to edit reply: {e}"))
             })
     }
 }

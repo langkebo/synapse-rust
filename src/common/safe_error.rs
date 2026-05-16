@@ -155,24 +155,28 @@ impl<T, E> Safeunwrap<T> for Result<T, E>
 where
     E: fmt::Display,
 {
+    #[allow(clippy::expect_used)]
     fn safe_unwrap(self, context: &str) -> T {
         self.unwrap_or_else(|e| {
             panic!("{}: {}", context, e)
         })
     }
 
+    #[allow(clippy::expect_used)]
     fn safe_expect(self, context: &str) -> T {
         self.expect(context)
     }
 }
 
 impl<T> Safeunwrap<T> for Option<T> {
+    #[allow(clippy::expect_used)]
     fn safe_unwrap(self, context: &str) -> T {
         self.unwrap_or_else(|| {
             panic!("{}: Expected Some(_) but got None", context)
         })
     }
 
+    #[allow(clippy::expect_used)]
     fn safe_expect(self, context: &str) -> T {
         self.expect(context)
     }

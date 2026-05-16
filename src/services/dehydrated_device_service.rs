@@ -15,7 +15,7 @@ impl DehydratedDeviceService {
     pub async fn get_device(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
         let record =
             self.storage.get_by_user(user_id).await.map_err(|e| {
-                ApiError::internal(format!("Failed to load dehydrated device: {}", e))
+                ApiError::internal(format!("Failed to load dehydrated device: {e}"))
             })?;
 
         Ok(record.map(Self::record_to_response))
@@ -23,7 +23,7 @@ impl DehydratedDeviceService {
 
     pub async fn get_status(&self, user_id: &str) -> Result<Value, ApiError> {
         let record = self.storage.get_by_user(user_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to load dehydrated device status: {}", e))
+            ApiError::internal(format!("Failed to load dehydrated device status: {e}"))
         })?;
 
         if let Some(record) = record {
@@ -77,7 +77,7 @@ impl DehydratedDeviceService {
                 expires_at,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to store dehydrated device: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to store dehydrated device: {e}")))?;
 
         Ok(device_id)
     }
@@ -93,7 +93,7 @@ impl DehydratedDeviceService {
 
     pub async fn delete_device(&self, user_id: &str) -> Result<bool, ApiError> {
         let rows = self.storage.delete_by_user(user_id).await.map_err(|e| {
-            ApiError::internal(format!("Failed to delete dehydrated device: {}", e))
+            ApiError::internal(format!("Failed to delete dehydrated device: {e}"))
         })?;
         Ok(rows > 0)
     }
@@ -101,8 +101,7 @@ impl DehydratedDeviceService {
     pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_by_user(user_id).await.map_err(|e| {
             ApiError::internal(format!(
-                "Failed to delete all dehydrated devices for user: {}",
-                e
+                "Failed to delete all dehydrated devices for user: {e}"
             ))
         })?;
         Ok(())
@@ -112,7 +111,7 @@ impl DehydratedDeviceService {
     /// to-device messages). Returns the number of devices removed.
     pub async fn sweep_expired(&self) -> Result<u64, ApiError> {
         self.storage.sweep_expired().await.map_err(|e| {
-            ApiError::internal(format!("Failed to sweep expired dehydrated devices: {}", e))
+            ApiError::internal(format!("Failed to sweep expired dehydrated devices: {e}"))
         })
     }
 
@@ -133,7 +132,7 @@ impl DehydratedDeviceService {
             .storage
             .get_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load dehydrated device: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to load dehydrated device: {e}")))?
             .ok_or_else(|| ApiError::not_found("No dehydrated device for this user"))?;
 
         if record.device_id != device_id {
@@ -158,8 +157,7 @@ impl DehydratedDeviceService {
             .await
             .map_err(|e| {
                 ApiError::internal(format!(
-                    "Failed to fetch to-device events for dehydrated device: {}",
-                    e
+                    "Failed to fetch to-device events for dehydrated device: {e}"
                 ))
             })?;
 

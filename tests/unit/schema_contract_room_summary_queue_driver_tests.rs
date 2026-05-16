@@ -13,8 +13,7 @@ mod schema_contract_room_summary_queue_driver_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping room summary queue driver tests because test database is unavailable: {}",
-                    error
+                    "Skipping room summary queue driver tests because test database is unavailable: {error}"
                 );
                 None
             }

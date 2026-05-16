@@ -81,6 +81,7 @@ impl PasswordHashPool {
         &self.semaphore
     }
 
+    #[allow(clippy::expect_used)]
     pub fn with_metrics(
         config: PasswordHashPoolConfig,
         argon2_config: Argon2Config,
@@ -88,7 +89,15 @@ impl PasswordHashPool {
     ) -> Self {
         let params = argon2_config
             .to_argon2_params()
-            .expect("Invalid Argon2 config");
+            .unwrap_or_else(|e| {
+                tracing::error!("Invalid Argon2 config, using OWASP defaults: {}", e);
+                argon2::Params::new(
+                    19 * 1024,
+                    2,
+                    1,
+                    Some(32),
+                ).expect("OWASP default Argon2 params are valid")
+            });
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
         Self {
@@ -379,7 +388,7 @@ mod tests {
 
         for i in 0..4 {
             let pool_clone = pool.clone();
-            let password = format!("password_{}", i);
+            let password = format!("password_{i}");
             handles.push(tokio::spawn(async move {
                 pool_clone.hash_password(&password).await
             }));

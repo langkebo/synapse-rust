@@ -998,7 +998,7 @@ impl SyncService {
         .fetch_optional(&*self.event_storage.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to poll for device-list updates: {}", e))
+            ApiError::internal(format!("Failed to poll for device-list updates: {e}"))
         })?;
 
         Ok(has_device_lists.is_some())
@@ -1544,7 +1544,7 @@ impl SyncService {
 
         if filter_id.trim_start().starts_with('{') {
             let inline_filter: Value = serde_json::from_str(filter_id)
-                .map_err(|e| ApiError::bad_request(format!("Invalid sync filter JSON: {}", e)))?;
+                .map_err(|e| ApiError::bad_request(format!("Invalid sync filter JSON: {e}")))?;
             return Ok(Some(Self::sync_response_filter_from_filter_json(
                 &inline_filter,
             )));
@@ -2110,14 +2110,14 @@ impl SyncService {
                 .get_state_events_since_stream_batch(room_ids, stream_ord)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room state events: {}", e))
+                    ApiError::internal(format!("Failed to get room state events: {e}"))
                 })?
         } else {
             self.event_storage
                 .get_state_events_since_batch(room_ids, params.since_ts)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room state events: {}", e))
+                    ApiError::internal(format!("Failed to get room state events: {e}"))
                 })?
         };
 
@@ -2155,8 +2155,7 @@ impl SyncService {
                 .await
                 .map_err(|e| {
                     ApiError::internal(format!(
-                        "Failed to get full state for newly visible rooms: {}",
-                        e
+                        "Failed to get full state for newly visible rooms: {e}"
                     ))
                 })?
         };
@@ -2740,7 +2739,7 @@ impl SyncService {
         .bind(room_id)
         .bind(user_id)
         .bind(since_ts)
-        .bind(format!("%{}%", user_id))
+        .bind(format!("%{user_id}%"))
         .fetch_one(&*self.event_storage.pool)
         .await
         .unwrap_or(0);
@@ -2762,7 +2761,7 @@ impl SyncService {
             return Ok(result);
         }
 
-        let mention_pattern = format!("%{}%", user_id);
+        let mention_pattern = format!("%{user_id}%");
         let rows = sqlx::query(
             r#"
             WITH target_rooms AS (

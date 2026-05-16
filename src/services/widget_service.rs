@@ -312,7 +312,7 @@ impl WidgetService {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        let count = self.storage.cleanup_expired_sessions().await.map_err(|e| {
+        let count = self.storage.cleanup_expired_sessions().map_err(|e| {
             ApiError::internal(format!("Failed to cleanup expired sessions: {}", e))
         })?;
 

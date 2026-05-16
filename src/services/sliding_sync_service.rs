@@ -82,7 +82,7 @@ impl SlidingSyncService {
                 .storage
                 .validate_pos(user_id, device_id, conn_id, pos_str)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to validate pos: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to validate pos: {e}")))?
             {
                 return Err(ApiError::bad_request("Invalid position token"));
             }
@@ -113,7 +113,7 @@ impl SlidingSyncService {
                     &ranges,
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to save list: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to save list: {e}")))?;
         }
 
         if let Some(unsubs) = &request.unsubscribe_rooms {
@@ -122,7 +122,7 @@ impl SlidingSyncService {
                     .delete_room(user_id, device_id, room_id, conn_id)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to unsubscribe room: {}", e))
+                        ApiError::internal(format!("Failed to unsubscribe room: {e}"))
                     })?;
             }
         }
@@ -147,12 +147,12 @@ impl SlidingSyncService {
                 request.pos.as_deref(),
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build lists response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to build lists response: {e}")))?;
 
         let rooms_response = self
             .build_rooms_response(user_id, device_id, conn_id, &request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build rooms response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to build rooms response: {e}")))?;
 
         let extensions_response = self
             .build_extensions_response(
@@ -165,14 +165,14 @@ impl SlidingSyncService {
             )
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to build extensions response: {}", e))
+                ApiError::internal(format!("Failed to build extensions response: {e}"))
             })?;
 
         let new_token = self
             .storage
             .create_or_update_token(user_id, device_id, conn_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update token: {e}")))?;
 
         Ok(SlidingSyncResponse {
             pos: new_token.pos.to_string(),
@@ -674,7 +674,7 @@ impl SlidingSyncService {
                 bump_stamp,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update room state: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update room state: {e}")))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
             .await;
@@ -693,7 +693,7 @@ impl SlidingSyncService {
         self.storage
             .bump_room(user_id, device_id, room_id, conn_id, bump_stamp)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bump room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to bump room: {e}")))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
             .await;
@@ -720,7 +720,7 @@ impl SlidingSyncService {
                 notification_count,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update notifications: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update notifications: {e}")))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
             .await;
@@ -738,7 +738,7 @@ impl SlidingSyncService {
         self.storage
             .delete_room(user_id, device_id, room_id, conn_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove room: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to remove room: {e}")))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
             .await;
@@ -751,7 +751,7 @@ impl SlidingSyncService {
             .storage
             .cleanup_expired_tokens()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {e}")))?;
 
         Ok(count)
     }
@@ -766,13 +766,13 @@ impl SlidingSyncService {
             .storage
             .list_room_token_sync(room_id, limit, from.as_ref())
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to list room token sync: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to list room token sync: {e}")))?;
 
         let total = self
             .storage
             .count_room_token_sync(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to count room token sync: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to count room token sync: {e}")))?;
 
         Ok((entries, total))
     }
@@ -786,11 +786,10 @@ impl SlidingSyncService {
     ) {
         let cache_key = if let Some(cid) = conn_id {
             format!(
-                "sliding_sync:room:{}:{}:{}:{}",
-                user_id, device_id, cid, room_id
+                "sliding_sync:room:{user_id}:{device_id}:{cid}:{room_id}"
             )
         } else {
-            format!("sliding_sync:room:{}:{}::{}", user_id, device_id, room_id)
+            format!("sliding_sync:room:{user_id}:{device_id}::{room_id}")
         };
         let _ = self.cache.delete(&cache_key).await;
     }
@@ -1098,10 +1097,9 @@ impl SlidingSyncService {
     ) -> String {
         match conn_id {
             Some(conn_id) => format!(
-                "sliding_sync:list:{}:{}:{}:{}",
-                user_id, device_id, conn_id, list_key
+                "sliding_sync:list:{user_id}:{device_id}:{conn_id}:{list_key}"
             ),
-            None => format!("sliding_sync:list:{}:{}::{}", user_id, device_id, list_key),
+            None => format!("sliding_sync:list:{user_id}:{device_id}::{list_key}"),
         }
     }
 
@@ -1111,8 +1109,8 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
     ) -> String {
         match conn_id {
-            Some(conn_id) => format!("sliding_sync:e2ee:{}:{}:{}", user_id, device_id, conn_id),
-            None => format!("sliding_sync:e2ee:{}:{}:", user_id, device_id),
+            Some(conn_id) => format!("sliding_sync:e2ee:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:e2ee:{user_id}:{device_id}:"),
         }
     }
 

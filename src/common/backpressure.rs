@@ -108,7 +108,7 @@ impl TokenBucket {
     fn refill(&self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64;
         
         let last = self.last_refill.load(Ordering::Relaxed);

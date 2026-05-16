@@ -84,7 +84,7 @@ async fn sliding_sync(
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
             .await
-            .map_err(|e| ApiError::internal(format!("Sliding sync rate limit failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Sliding sync rate limit failed: {e}")))?;
         if !decision.allowed {
             let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));

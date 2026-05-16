@@ -38,7 +38,7 @@ pub fn hash_password_with_params(
     p_cost: u32,
 ) -> Result<String, String> {
     let config = Argon2Config::new(m_cost, t_cost, p_cost)
-        .map_err(|e| format!("Invalid Argon2 parameters: {}", e))?;
+        .map_err(|e| format!("Invalid Argon2 parameters: {e}"))?;
     hash_password_with_config(password, &config)
 }
 
@@ -75,7 +75,7 @@ pub fn verify_password(
     let hash = parts[parts.len() - 1];
 
     if algo != "sha256" || version != "v=1" {
-        return Err(format!("Unsupported hash algorithm: {}", algo));
+        return Err(format!("Unsupported hash algorithm: {algo}"));
     }
 
     if parts.len() >= 7 {
@@ -211,10 +211,11 @@ pub fn verify_token_hash(token: &str, stored_hash: &str) -> bool {
     secure_compare(&hash_token_legacy(token), stored_hash)
 }
 
+#[allow(clippy::expect_used)]
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
     let key = key.as_ref();
     let data = data.as_ref();
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can take key of any size");
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC-SHA256 accepts keys of any size");
     mac.update(data);
     mac.finalize().into_bytes().to_vec()
 }
@@ -307,7 +308,7 @@ mod tests {
         hasher.update(salt);
         let result = hasher.finalize();
         let encoded = URL_SAFE_NO_PAD.encode(result);
-        let hash = format!("sha256$v=1$m=32,p=1${}${}", salt, encoded);
+        let hash = format!("sha256$v=1$m=32,p=1${salt}${encoded}");
         assert!(verify_password_legacy(password, &hash));
         assert!(!verify_password_legacy("wrong_password", &hash));
     }
@@ -361,7 +362,7 @@ mod tests {
         hasher.update(salt);
         let result = hasher.finalize();
         let encoded = URL_SAFE_NO_PAD.encode(result);
-        let legacy_hash = format!("sha256$v=1$m=32,p=1${}${}", salt, encoded);
+        let legacy_hash = format!("sha256$v=1$m=32,p=1${salt}${encoded}");
 
         assert!(is_legacy_hash(&legacy_hash));
         assert!(verify_password_legacy(password, &legacy_hash));

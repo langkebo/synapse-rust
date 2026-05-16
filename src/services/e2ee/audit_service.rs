@@ -78,7 +78,7 @@ impl E2eeAuditService {
         .bind(event.timestamp)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to log key operation: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to log key operation: {e}")))?;
 
         debug!(
             "Logged E2EE operation: {} for user: {}",
@@ -99,7 +99,7 @@ impl E2eeAuditService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get key history: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to get key history: {e}")))
     }
 
     pub async fn get_operations_by_type(
@@ -119,7 +119,7 @@ impl E2eeAuditService {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get operations: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to get operations: {e}")))
     }
 
     pub async fn get_user_device_history(
@@ -139,7 +139,7 @@ impl E2eeAuditService {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device history: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to get device history: {e}")))
     }
 
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
@@ -150,7 +150,7 @@ impl E2eeAuditService {
             .bind(cutoff_ts)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {e}")))?;
 
         let deleted = result.rows_affected();
         if deleted > 0 {
@@ -283,7 +283,7 @@ impl CrossSigningVerificationService {
         .bind(method)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark device verified: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to mark device verified: {e}")))?;
 
         self.audit
             .log_key_operation(KeyEvent {
@@ -328,7 +328,7 @@ impl CrossSigningVerificationService {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark device unverified: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to mark device unverified: {e}")))?;
 
         self.audit
             .log_key_operation(KeyEvent {
@@ -363,7 +363,7 @@ impl CrossSigningVerificationService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get devices: {e}")))?;
 
         Ok(rows
             .iter()
@@ -389,7 +389,7 @@ impl CrossSigningVerificationService {
         .bind(&device.device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check signature: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check signature: {e}")))?;
 
         Ok(result.flatten().unwrap_or(false))
     }
@@ -405,7 +405,7 @@ impl CrossSigningVerificationService {
         .bind(&device.device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check cross signing: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check cross signing: {e}")))?;
 
         Ok(result.flatten().unwrap_or(false))
     }

@@ -449,7 +449,7 @@ async fn get_friends(
         )
         .await?;
     let items = serde_json::to_value(&page.items)
-        .map_err(|e| ApiError::internal(format!("Failed to serialize friend list: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to serialize friend list: {e}")))?;
 
     Ok(Json(json!({
         "friends": items,
@@ -500,7 +500,7 @@ async fn search_friend_directory(
         .user_storage
         .search_directory_users(&search_term, search_limit as i64, exact_only)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to search users: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to search users: {e}")))?;
 
     let mut visible = Vec::new();
     for result in results.drain(..) {
@@ -731,7 +731,7 @@ async fn get_friend_info(
         .friend_room_service
         .get_friend_info(&auth_user.user_id, &friend_id)
         .await?
-        .ok_or_else(|| ApiError::not_found(format!("Friend {} not found", friend_id)))?;
+        .ok_or_else(|| ApiError::not_found(format!("Friend {friend_id} not found")))?;
 
     Ok(Json(info))
 }

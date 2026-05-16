@@ -450,7 +450,7 @@ async fn oidc_userinfo(
         .registration_service
         .get_profile(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {e}")))?;
 
     let name = profile
         .get("displayname")
@@ -461,7 +461,7 @@ async fn oidc_userinfo(
         if s.starts_with("mxc://") {
             s.to_string()
         } else {
-            format!("mxc://{}", s)
+            format!("mxc://{s}")
         }
     });
 
@@ -519,7 +519,7 @@ async fn oidc_token(
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
     // Validate input
     body.validate()
-        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
 
     // 优先使用内置 OIDC Provider
     #[cfg(feature = "builtin-oidc")]
@@ -578,13 +578,13 @@ async fn oidc_token(
             let token_response = oidc_service
                 .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
                 .await
-                .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Token exchange failed: {e}")))?;
 
             // 获取用户信息
             let user_info = oidc_service
                 .get_user_info(&token_response.access_token)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get user info: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get user info: {e}")))?;
 
             // 映射到 Matrix 用户
             let oidc_user = oidc_service.map_user(&user_info);
@@ -599,7 +599,7 @@ async fn oidc_token(
                 .server_name
                 .clone()
                 .unwrap_or_else(|| "localhost".to_string());
-            let matrix_user_id = format!("@{}:{}", localpart, server_name);
+            let matrix_user_id = format!("@{localpart}:{server_name}");
             let displayname = oidc_user.displayname.clone().unwrap_or(localpart.clone());
             let now_ts = current_unix_ts() as i64;
 
@@ -613,7 +613,7 @@ async fn oidc_token(
             .bind(&subject)
             .fetch_optional(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to query OIDC user mapping: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to query OIDC user mapping: {e}")))?;
 
             let matrix_user_id = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
@@ -628,7 +628,7 @@ async fn oidc_token(
                 .execute(pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to update OIDC user mapping: {}", e))
+                    ApiError::internal(format!("Failed to update OIDC user mapping: {e}"))
                 })?;
                 existing
             } else {
@@ -662,7 +662,7 @@ async fn oidc_token(
                     .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
                     .map_err(|e| {
-                        ApiError::internal(format!("Failed to register OIDC user: {}", e))
+                        ApiError::internal(format!("Failed to register OIDC user: {e}"))
                     })?;
 
                 sqlx::query(
@@ -677,7 +677,7 @@ async fn oidc_token(
                 .execute(pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to insert OIDC user mapping: {}", e))
+                    ApiError::internal(format!("Failed to insert OIDC user mapping: {e}"))
                 })?;
                 matrix_user_id
             };
@@ -700,7 +700,7 @@ async fn oidc_token(
                 .device_storage
                 .create_device(&device_id, &matrix_user_id, Some("OIDC Device"))
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to create device: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to create device: {e}")))?;
 
             // 生成 Matrix Access Token
             let is_admin = state
@@ -708,7 +708,7 @@ async fn oidc_token(
                 .user_storage
                 .get_user_by_username(&localpart)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?
                 .map(|u| u.is_admin)
                 .unwrap_or(false);
 
@@ -745,7 +745,7 @@ async fn oidc_token(
             let token_response = oidc_service
                 .refresh_token(&refresh_token)
                 .await
-                .map_err(|e| ApiError::internal(format!("Token refresh failed: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Token refresh failed: {e}")))?;
 
             tracing::info!("OIDC token refresh successful");
 
@@ -760,8 +760,7 @@ async fn oidc_token(
             }))
         }
         _ => Err(ApiError::bad_request(format!(
-            "Unsupported grant_type: {}. Supported: authorization_code, refresh_token",
-            grant_type
+            "Unsupported grant_type: {grant_type}. Supported: authorization_code, refresh_token"
         ))),
     }
 }
@@ -843,7 +842,7 @@ async fn oidc_authorize(
             Some("S256"),
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to generate authorization URL: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to generate authorization URL: {e}")))?;
 
     tracing::info!(
         "OIDC authorization redirect_uri: {}, using PKCE",
@@ -904,7 +903,7 @@ async fn oidc_logout(
             .device_storage
             .delete_device(&device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete device: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete device: {e}")))?;
     }
 
     // 如果提供了 refresh_token，则尝试撤销
@@ -987,13 +986,13 @@ pub async fn openid_discovery(
 
     Ok(Json(OpenIdDiscovery {
         issuer: issuer.clone(),
-        authorization_endpoint: format!("{}/_matrix/client/v3/oidc/authorize", issuer),
-        token_endpoint: format!("{}/_matrix/client/v3/oidc/token", issuer),
-        userinfo_endpoint: format!("{}/_matrix/client/v3/oidc/userinfo", issuer),
-        jwks_uri: format!("{}/.well-known/jwks.json", issuer),
+        authorization_endpoint: format!("{issuer}/_matrix/client/v3/oidc/authorize"),
+        token_endpoint: format!("{issuer}/_matrix/client/v3/oidc/token"),
+        userinfo_endpoint: format!("{issuer}/_matrix/client/v3/oidc/userinfo"),
+        jwks_uri: format!("{issuer}/.well-known/jwks.json"),
         registration_endpoint: None,
-        revocation_endpoint: Some(format!("{}/_matrix/client/v3/oidc/revoke", issuer)),
-        end_session_endpoint: Some(format!("{}/_matrix/client/v3/oidc/logout", issuer)),
+        revocation_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/revoke")),
+        end_session_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/logout")),
         scopes_supported: vec![
             "openid".to_string(),
             "profile".to_string(),
@@ -1090,13 +1089,13 @@ async fn oidc_callback(
             Some(auth_session.code_verifier.as_str()),
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Token exchange failed: {e}")))?;
 
     // 获取用户信息
     let user_info = oidc_service
         .get_user_info(&token_response.access_token)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user info: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get user info: {e}")))?;
 
     // 映射到 Matrix 用户
     let oidc_user = oidc_service.map_user(&user_info);
@@ -1118,7 +1117,7 @@ async fn oidc_callback(
         .user_storage
         .get_user_by_username(&oidc_user.localpart)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let (user, access_token, refresh_token, device_id) = if let Some(existing) = existing_user {
         // User exists, generate tokens for them using a simple token generation
@@ -1129,13 +1128,13 @@ async fn oidc_callback(
             .auth_service
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to generate access token: {e}")))?;
         let refresh_token = state
             .services
             .auth_service
             .generate_refresh_token(&user_id, &device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to generate refresh token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to generate refresh token: {e}")))?;
         (existing, access_token, refresh_token, device_id)
     } else {
         // Create new user - use a random password since authentication is done by OIDC provider
@@ -1164,7 +1163,7 @@ async fn oidc_callback(
                         .user_storage
                         .get_user_by_username(&oidc_user.localpart)
                         .await
-                        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+                        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
                         .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
 
                     let device_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
@@ -1174,7 +1173,7 @@ async fn oidc_callback(
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
                         .map_err(|e| {
-                            ApiError::internal(format!("Failed to generate access token: {}", e))
+                            ApiError::internal(format!("Failed to generate access token: {e}"))
                         })?;
                     let refresh_token = state
                         .services
@@ -1182,7 +1181,7 @@ async fn oidc_callback(
                         .generate_refresh_token(&user_id, &device_id)
                         .await
                         .map_err(|e| {
-                            ApiError::internal(format!("Failed to generate refresh token: {}", e))
+                            ApiError::internal(format!("Failed to generate refresh token: {e}"))
                         })?;
                     (existing, access_token, refresh_token, device_id)
                 } else {

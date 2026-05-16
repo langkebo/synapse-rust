@@ -250,7 +250,7 @@ impl PushNotificationStorage {
         .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to register device: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to register device: {e}")))?;
 
         info!(
             "Registered push device: {} for user: {}",
@@ -267,7 +267,7 @@ impl PushNotificationStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to unregister device: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to unregister device: {e}")))?;
 
         info!(
             "Unregistered push device: {} for user: {}",
@@ -283,7 +283,7 @@ impl PushNotificationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user devices: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get user devices: {e}")))?;
 
         Ok(rows)
     }
@@ -300,7 +300,7 @@ impl PushNotificationStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get device: {e}")))?;
 
         Ok(row)
     }
@@ -320,7 +320,7 @@ impl PushNotificationStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update device last used: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update device last used: {e}")))?;
 
         Ok(())
     }
@@ -345,7 +345,7 @@ impl PushNotificationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to record device error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to record device error: {e}")))?;
 
         Ok(())
     }
@@ -382,7 +382,7 @@ impl PushNotificationStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create push rule: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create push rule: {e}")))?;
 
         info!(
             "Created push rule: {} for user: {}",
@@ -402,7 +402,7 @@ impl PushNotificationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get push rules: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get push rules: {e}")))?;
 
         Ok(rows)
     }
@@ -423,7 +423,7 @@ impl PushNotificationStorage {
         .bind(rule_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete push rule: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete push rule: {e}")))?;
 
         Ok(())
     }
@@ -454,7 +454,7 @@ impl PushNotificationStorage {
         .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to queue notification: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to queue notification: {e}")))?;
 
         Ok(row)
     }
@@ -478,7 +478,7 @@ impl PushNotificationStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get pending notifications: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get pending notifications: {e}")))?;
 
         Ok(rows)
     }
@@ -493,7 +493,7 @@ impl PushNotificationStorage {
         .bind(id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark notification sent: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to mark notification sent: {e}")))?;
 
         Ok(())
     }
@@ -519,7 +519,7 @@ impl PushNotificationStorage {
             .bind(id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to mark notification for retry: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to mark notification for retry: {e}")))?;
         } else {
             sqlx::query(
                 "UPDATE push_notification_queue SET status = 'failed', error_message = $1 WHERE id = $2"
@@ -528,7 +528,7 @@ impl PushNotificationStorage {
             .bind(id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to mark notification failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to mark notification failed: {e}")))?;
         }
 
         Ok(())
@@ -560,7 +560,7 @@ impl PushNotificationStorage {
         .bind(request.response_time_ms)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create notification log: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create notification log: {e}")))?;
 
         Ok(row)
     }
@@ -571,7 +571,7 @@ impl PushNotificationStorage {
                 .bind(config_key)
                 .fetch_optional(&*self.pool)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to get config: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to get config: {e}")))?;
 
         Ok(row.map(|r| r.0))
     }
@@ -605,7 +605,7 @@ impl PushNotificationStorage {
             .bind(cutoff)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup logs: {e}")))?;
 
         info!(
             "Cleaned up {} old notification logs",

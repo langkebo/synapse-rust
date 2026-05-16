@@ -99,7 +99,7 @@ mod tests {
 
         match error {
             ApiError::NotFound(message) => assert!(message.contains("missing")),
-            other => panic!("expected not found error, got {:?}", other),
+            other => panic!("expected not found error, got {other:?}"),
         }
     }
 

@@ -27,7 +27,7 @@ impl ConcurrencyController {
         })
     }
 
-    pub async fn try_acquire(&self) -> Option<ConcurrencyPermit> {
+    pub fn try_acquire(&self) -> Option<ConcurrencyPermit> {
         self.semaphore
             .clone()
             .try_acquire_owned()
@@ -91,9 +91,9 @@ impl ConcurrencyLimiter {
         }
     }
 
-    pub async fn try_acquire(&self, name: &str) -> Option<ConcurrencyPermit> {
+    pub fn try_acquire(&self, name: &str) -> Option<ConcurrencyPermit> {
         if let Some(controller) = self.get_controller(name) {
-            controller.try_acquire().await
+            controller.try_acquire()
         } else {
             None
         }
@@ -117,7 +117,7 @@ macro_rules! with_concurrency_limit {
 #[macro_export]
 macro_rules! try_with_concurrency_limit {
     ($controller:expr, $block:block) => {{
-        if let Some(_permit) = $controller.try_acquire().await {
+        if let Some(_permit) = $controller.try_acquire() {
             Some($block)
         } else {
             None
@@ -146,10 +146,10 @@ mod tests {
     async fn test_concurrency_controller_try_acquire() {
         let controller = ConcurrencyController::new(1, "test".to_string());
 
-        let permit = controller.try_acquire().await;
+        let permit = controller.try_acquire();
         assert!(permit.is_some());
 
-        let permit = controller.try_acquire().await;
+        let permit = controller.try_acquire();
         assert!(permit.is_none());
     }
 

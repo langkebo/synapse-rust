@@ -202,8 +202,7 @@ impl CrossSigningService {
         let key_user_id = key.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
         if !key_user_id.is_empty() && key_user_id != user_id {
             return Err(ApiError::bad_request(format!(
-                "user_id in key JSON ({}) does not match authenticated user ({})",
-                key_user_id, user_id
+                "user_id in key JSON ({key_user_id}) does not match authenticated user ({user_id})"
             )));
         }
 
@@ -254,7 +253,7 @@ impl CrossSigningService {
                         .get_device_key(user_id, device_id, "ed25519")
                         .await
                     {
-                        let signing_key_id = format!("ed25519:{}", device_id);
+                        let signing_key_id = format!("ed25519:{device_id}");
                         if !Self::verify_key_signature(
                             user_id,
                             key,
@@ -279,8 +278,7 @@ impl CrossSigningService {
                 {
                     if !Self::verify_cross_key_signature(user_id, key, &master_key) {
                         return Err(ApiError::bad_request(format!(
-                            "Invalid signature on {} key: not signed by master key",
-                            key_type
+                            "Invalid signature on {key_type} key: not signed by master key"
                         )));
                     }
                 } else {
@@ -406,7 +404,7 @@ impl CrossSigningService {
                             };
                             if let Err(e) = self.storage.save_device_signature(&device_sig).await {
                                 fail.insert(
-                                    format!("{}:{}", target_user_id, target_key_id),
+                                    format!("{target_user_id}:{target_key_id}"),
                                     serde_json::json!({
                                         "error": e.to_string(),
                                         "signing_key_id": signing_key_id,

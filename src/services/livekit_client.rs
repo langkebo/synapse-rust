@@ -301,7 +301,7 @@ impl LivekitClient {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::expect_used)]
     pub fn create_access_token(
         &self,
         room_name: &str,
@@ -365,6 +365,7 @@ impl LivekitClient {
         Ok(format!("{}.{}", message, signature_b64))
     }
 
+    #[allow(clippy::expect_used)]
     fn create_auth_header(&self) -> String {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         use hmac::{Hmac, Mac};

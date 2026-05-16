@@ -17,8 +17,7 @@ pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Val
             .await
             .map_err(|e| {
                 ApiError::internal(format!(
-                    "Failed to initialize federation signing key: {}",
-                    e
+                    "Failed to initialize federation signing key: {e}"
                 ))
             })?;
     }
@@ -53,7 +52,7 @@ pub(super) async fn keys_claim(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {e}")))?;
 
     if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
         let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
@@ -100,7 +99,7 @@ pub(super) async fn keys_query(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {e}")))?;
 
     if let Some(device_keys) = request.device_keys.as_object_mut() {
         let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
@@ -201,14 +200,14 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
         .key_rotation_manager
         .get_current_key()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load federation signing key: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to load federation signing key: {e}")))?
     {
         return state
             .services
             .key_rotation_manager
             .get_server_keys_response()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build server key response: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to build server key response: {e}")))
             .or_else(|_| {
                 let key_id_for_sign = current_key.key_id.clone();
                 let secret_key_for_sign = current_key.secret_key.clone();
@@ -294,15 +293,14 @@ async fn fetch_remote_server_keys_response(
     server_name: &str,
     key_id: &str,
 ) -> Result<Value, ApiError> {
-    let backoff_key = format!("federation:key_fetch_backoff:{}:{}", server_name, key_id);
+    let backoff_key = format!("federation:key_fetch_backoff:{server_name}:{key_id}");
     if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
         return Err(ApiError::not_found(format!(
-            "Remote server key '{}' for '{}' not found",
-            key_id, server_name
+            "Remote server key '{key_id}' for '{server_name}' not found"
         )));
     }
 
-    let cache_key = format!("federation:server_keys:{}:{}", server_name, key_id);
+    let cache_key = format!("federation:server_keys:{server_name}:{key_id}");
     if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
@@ -319,19 +317,17 @@ async fn fetch_remote_server_keys_response(
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
         .map_err(|e| {
-            ApiError::internal(format!("Failed to build federation HTTP client: {}", e))
+            ApiError::internal(format!("Failed to build federation HTTP client: {e}"))
         })?;
 
     let urls = [
-        format!("https://{}/_matrix/key/v2/server", server_name),
-        format!("http://{}/_matrix/key/v2/server", server_name),
+        format!("https://{server_name}/_matrix/key/v2/server"),
+        format!("http://{server_name}/_matrix/key/v2/server"),
         format!(
-            "https://{}/_matrix/key/v2/query/{}/{}",
-            server_name, server_name, key_id
+            "https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"
         ),
         format!(
-            "http://{}/_matrix/key/v2/query/{}/{}",
-            server_name, server_name, key_id
+            "http://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"
         ),
     ];
 
@@ -385,8 +381,7 @@ async fn fetch_remote_server_keys_response(
         ::tracing::debug!("Failed to set federation backoff cache: {}", e);
     }
     Err(ApiError::not_found(format!(
-        "Remote server key '{}' for '{}' not found",
-        key_id, server_name
+        "Remote server key '{key_id}' for '{server_name}' not found"
     )))
 }
 

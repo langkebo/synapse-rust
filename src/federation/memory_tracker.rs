@@ -43,7 +43,7 @@ impl MemoryStats {
         let mut last_time = self
             .last_operation_time
             .write()
-            .expect("RwLock should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         *last_time = Instant::now();
         drop(last_time);
 
@@ -483,7 +483,7 @@ mod memory_tests {
         stats.record_allocation(100);
 
         let snapshot = stats.get_stats();
-        let debug_str = format!("{:?}", snapshot);
+        let debug_str = format!("{snapshot:?}");
 
         assert!(debug_str.contains("MemoryStatsSnapshot"));
     }
@@ -494,7 +494,7 @@ mod memory_tests {
         tracker.record_event_cached(100);
 
         let report = tracker.get_report();
-        let debug_str = format!("{:?}", report);
+        let debug_str = format!("{report:?}");
 
         assert!(debug_str.contains("FederationMemoryReport"));
     }

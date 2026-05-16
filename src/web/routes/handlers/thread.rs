@@ -343,7 +343,7 @@ async fn ensure_thread_management_access(
         .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {e}")))?;
 
     if !is_creator {
         return Err(ApiError::forbidden(
@@ -378,7 +378,7 @@ async fn list_visible_threads(
         .room_storage
         .get_user_rooms(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list user rooms: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to list user rooms: {e}")))?;
 
     let mut threads = Vec::new();
     for room_id in room_ids {
@@ -520,12 +520,11 @@ async fn delete_thread(
         .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!(
-            "Thread '{}' not found",
-            thread_id
+            "Thread '{thread_id}' not found"
         )));
     }
 
@@ -549,12 +548,11 @@ async fn freeze_thread(
         .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!(
-            "Thread '{}' not found",
-            thread_id
+            "Thread '{thread_id}' not found"
         )));
     }
 
@@ -578,12 +576,11 @@ async fn unfreeze_thread(
         .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!(
-            "Thread '{}' not found",
-            thread_id
+            "Thread '{thread_id}' not found"
         )));
     }
 
@@ -638,7 +635,7 @@ async fn get_replies(
     let replies = storage
         .get_thread_replies(&room_id, &thread_id, query.limit, query.from)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get replies: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get replies: {e}")))?;
 
     Ok(Json(replies.into_iter().map(ReplyResponse::from).collect()))
 }

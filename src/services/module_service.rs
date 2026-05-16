@@ -36,7 +36,7 @@ impl FromStr for SpamCheckResultType {
             "allow" => Ok(SpamCheckResultType::Allow),
             "block" => Ok(SpamCheckResultType::Block),
             "shadow_ban" => Ok(SpamCheckResultType::ShadowBan),
-            _ => Err(format!("Invalid spam check result type: {}", s)),
+            _ => Err(format!("Invalid spam check result type: {s}")),
         }
     }
 }
@@ -187,7 +187,7 @@ impl ModuleService {
             .storage
             .register_module(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to register module: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to register module: {e}")))?;
 
         Ok(module)
     }
@@ -198,7 +198,7 @@ impl ModuleService {
             .storage
             .get_module(module_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get module: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get module: {e}")))?;
 
         Ok(module)
     }
@@ -209,7 +209,7 @@ impl ModuleService {
             .storage
             .get_modules_by_type(module_type)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get modules: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get modules: {e}")))?;
 
         Ok(modules)
     }
@@ -224,7 +224,7 @@ impl ModuleService {
             .storage
             .get_all_modules(limit, from)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get modules: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get modules: {e}")))?;
 
         Ok((modules, next_from))
     }
@@ -239,7 +239,7 @@ impl ModuleService {
             .storage
             .update_module_config(module_name, config)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update module config: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update module config: {e}")))?;
 
         Ok(module)
     }
@@ -254,7 +254,7 @@ impl ModuleService {
             .storage
             .enable_module(module_name, enabled)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to enable/disable module: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to enable/disable module: {e}")))?;
 
         Ok(module)
     }
@@ -264,7 +264,7 @@ impl ModuleService {
         self.storage
             .delete_module(module_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete module: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete module: {e}")))?;
 
         Ok(())
     }
@@ -587,7 +587,7 @@ impl ModuleService {
             .storage
             .get_spam_check_result(event_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get spam check result: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get spam check result: {e}")))?;
 
         Ok(result)
     }
@@ -602,7 +602,7 @@ impl ModuleService {
             .storage
             .get_spam_check_results_by_sender(sender, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get spam check results: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get spam check results: {e}")))?;
 
         Ok(results)
     }
@@ -617,7 +617,7 @@ impl ModuleService {
             .get_third_party_rule_results(event_id)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to get third party rule results: {}", e))
+                ApiError::internal(format!("Failed to get third party rule results: {e}"))
             })?;
 
         Ok(results)
@@ -633,7 +633,7 @@ impl ModuleService {
             .storage
             .get_execution_logs(module_name, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get execution logs: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get execution logs: {e}")))?;
 
         Ok(logs)
     }
@@ -657,7 +657,7 @@ impl AccountValidityService {
             .storage
             .create_account_validity(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create account validity: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create account validity: {e}")))?;
 
         Ok(validity)
     }
@@ -668,7 +668,7 @@ impl AccountValidityService {
             .storage
             .get_account_validity(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get account validity: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get account validity: {e}")))?;
 
         Ok(validity)
     }
@@ -696,7 +696,7 @@ impl AccountValidityService {
             .storage
             .renew_account(user_id, token, new_expiration_ts)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to renew account: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to renew account: {e}")))?;
 
         Ok(validity)
     }
@@ -706,7 +706,7 @@ impl AccountValidityService {
         self.storage
             .set_renewal_token(user_id, token)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to set renewal token: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to set renewal token: {e}")))?;
 
         Ok(())
     }
@@ -720,7 +720,7 @@ impl AccountValidityService {
             .storage
             .get_expired_accounts(before_ts)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get expired accounts: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get expired accounts: {e}")))?;
 
         Ok(accounts)
     }
@@ -768,7 +768,7 @@ impl SpamChecker for SimpleSpamChecker {
                 return Ok(SpamCheckOutput {
                     result: SpamCheckResultType::Block,
                     score: 80,
-                    reason: Some(format!("Message contains blocked word: {}", word)),
+                    reason: Some(format!("Message contains blocked word: {word}")),
                     action_taken: Some("blocked".to_string()),
                 });
             }
@@ -811,7 +811,7 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
             if context.event_type == *blocked_type {
                 return Ok(ThirdPartyRuleOutput {
                     is_allowed: false,
-                    reason: Some(format!("Event type {} is blocked", blocked_type)),
+                    reason: Some(format!("Event type {blocked_type} is blocked")),
                     modified_content: None,
                 });
             }

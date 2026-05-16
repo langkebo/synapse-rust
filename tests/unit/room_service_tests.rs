@@ -29,8 +29,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
-                "Skipping room service tests because test database is unavailable: {}",
-                error
+                "Skipping room service tests because test database is unavailable: {error}"
             );
             return None;
         }
@@ -227,8 +226,8 @@ fn test_create_room_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -264,10 +263,10 @@ fn test_join_room_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
-        let bob_id = format!("@bob_{}:localhost", id);
-        let bob_name = format!("bob_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
+        let bob_id = format!("@bob_{id}:localhost");
+        let bob_name = format!("bob_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
@@ -302,8 +301,8 @@ fn test_send_message_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -344,8 +343,8 @@ fn test_get_room_messages_supports_sync_prev_batch_token() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -407,8 +406,8 @@ fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -470,10 +469,10 @@ fn test_invite_user_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
-        let bob_id = format!("@bob_{}:localhost", id);
-        let bob_name = format!("bob_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
+        let bob_id = format!("@bob_{id}:localhost");
+        let bob_name = format!("bob_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
@@ -506,10 +505,10 @@ fn test_ban_user_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
-        let bob_id = format!("@bob_{}:localhost", id);
-        let bob_name = format!("bob_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
+        let bob_id = format!("@bob_{id}:localhost");
+        let bob_name = format!("bob_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
@@ -545,8 +544,8 @@ fn test_upgrade_room_success() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));
@@ -576,8 +575,8 @@ fn test_upgrade_room_not_found() {
             None => return,
         };
         let id = unique_id();
-        let alice_id = format!("@alice_{}:localhost", id);
-        let alice_name = format!("alice_{}", id);
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
         let cache = Arc::new(CacheManager::new(CacheConfig::default()));

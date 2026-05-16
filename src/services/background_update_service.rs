@@ -24,7 +24,7 @@ impl BackgroundUpdateService {
             .storage
             .get_update(&request.job_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check update: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to check update: {e}")))?
             .is_some()
         {
             return Err(ApiError::bad_request("Update job already exists"));
@@ -34,7 +34,7 @@ impl BackgroundUpdateService {
             .storage
             .create_update(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create update: {e}")))?;
 
         info!("Created background update: {}", update.job_name);
 
@@ -47,7 +47,7 @@ impl BackgroundUpdateService {
             .storage
             .get_update(job_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get update: {e}")))?;
 
         Ok(update)
     }
@@ -62,7 +62,7 @@ impl BackgroundUpdateService {
             .storage
             .get_all_updates(limit, from)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get updates: {e}")))?;
 
         Ok(updates)
     }
@@ -73,7 +73,7 @@ impl BackgroundUpdateService {
             .storage
             .get_pending_updates()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get pending updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get pending updates: {e}")))?;
 
         Ok(updates)
     }
@@ -84,7 +84,7 @@ impl BackgroundUpdateService {
             .storage
             .get_running_updates()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get running updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get running updates: {e}")))?;
 
         Ok(updates)
     }
@@ -97,7 +97,7 @@ impl BackgroundUpdateService {
             .storage
             .get_update(job_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get update: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Failed to get update: {e}")))?
             .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         if update.status != "pending" {
@@ -108,7 +108,7 @@ impl BackgroundUpdateService {
             .storage
             .acquire_lock(job_name, &Uuid::new_v4().to_string(), 300000)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to acquire lock: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to acquire lock: {e}")))?;
 
         if !locked {
             return Err(ApiError::bad_request(
@@ -120,7 +120,7 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "running")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to start update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to start update: {e}")))?;
 
         Ok(update)
     }
@@ -136,7 +136,7 @@ impl BackgroundUpdateService {
             .storage
             .update_progress(job_name, items_processed, total_items)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update progress: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update progress: {e}")))?;
 
         let progress_value = update.progress.as_i64().unwrap_or(0);
         if progress_value >= 100
@@ -156,7 +156,7 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "completed")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to complete update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to complete update: {e}")))?;
 
         self.storage.release_lock(job_name).await.ok();
 
@@ -183,7 +183,7 @@ impl BackgroundUpdateService {
             .storage
             .set_error(job_name, error_message)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to fail update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to fail update: {e}")))?;
 
         self.storage.release_lock(job_name).await.ok();
 
@@ -209,7 +209,7 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "cancelled")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cancel update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to cancel update: {e}")))?;
 
         self.storage.release_lock(job_name).await.ok();
 
@@ -221,7 +221,7 @@ impl BackgroundUpdateService {
         self.storage
             .delete_update(job_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete update: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete update: {e}")))?;
 
         info!("Deleted background update: {}", job_name);
 
@@ -236,7 +236,7 @@ impl BackgroundUpdateService {
             .storage
             .retry_failed()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to retry updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to retry updates: {e}")))?;
 
         info!("Retried {} failed updates", count);
 
@@ -251,7 +251,7 @@ impl BackgroundUpdateService {
             .storage
             .cleanup_expired_locks()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup locks: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup locks: {e}")))?;
 
         info!("Cleaned up {} expired locks", count);
 
@@ -268,7 +268,7 @@ impl BackgroundUpdateService {
             .storage
             .get_history(job_name, limit)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get history: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get history: {e}")))?;
 
         Ok(history)
     }
@@ -279,7 +279,7 @@ impl BackgroundUpdateService {
             .storage
             .count_by_status(status)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to count updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to count updates: {e}")))?;
 
         Ok(count)
     }
@@ -290,7 +290,7 @@ impl BackgroundUpdateService {
             .storage
             .count_all()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to count updates: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to count updates: {e}")))?;
 
         Ok(count)
     }
@@ -301,7 +301,7 @@ impl BackgroundUpdateService {
             .storage
             .get_stats(days)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get stats: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get stats: {e}")))?;
 
         Ok(stats)
     }
@@ -312,7 +312,7 @@ impl BackgroundUpdateService {
             .storage
             .is_locked(job_name)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check lock: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check lock: {e}")))?;
 
         Ok(locked)
     }
@@ -328,7 +328,7 @@ impl BackgroundUpdateService {
                         if let Some(dep) = dep_value.as_str() {
                             if let Some(dep_update) =
                                 self.storage.get_update(dep).await.map_err(|e| {
-                                    ApiError::internal(format!("Failed to check dependency: {}", e))
+                                    ApiError::internal(format!("Failed to check dependency: {e}"))
                                 })?
                             {
                                 if dep_update.status != "completed" {
@@ -348,7 +348,7 @@ impl BackgroundUpdateService {
                 .storage
                 .is_locked(&update.job_name)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to check lock: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to check lock: {e}")))?;
 
             if !locked {
                 return Ok(Some(update));

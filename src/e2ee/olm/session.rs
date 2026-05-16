@@ -142,11 +142,11 @@ impl OlmSessionManager {
         message: &str,
     ) -> Result<OlmDecryptedMessage, ApiError> {
         let pre_key_message = vodozemac::olm::PreKeyMessage::from_base64(message)
-            .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {e}")))?;
 
         let result = account
             .create_inbound_session(their_identity_key, &pre_key_message)
-            .map_err(|e| ApiError::internal(format!("Failed to create inbound session: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create inbound session: {e}")))?;
 
         let session_id = result.session.session_id();
 
@@ -179,7 +179,7 @@ impl OlmSessionManager {
 
         let entry = sessions
             .get_mut(session_id)
-            .ok_or_else(|| ApiError::not_found(format!("Session not found: {}", session_id)))?;
+            .ok_or_else(|| ApiError::not_found(format!("Session not found: {session_id}")))?;
 
         let message = entry.session.encrypt(plaintext.as_bytes());
 
@@ -213,11 +213,11 @@ impl OlmSessionManager {
 
         let entry = sessions
             .get_mut(session_id)
-            .ok_or_else(|| ApiError::not_found(format!("Session not found: {}", session_id)))?;
+            .ok_or_else(|| ApiError::not_found(format!("Session not found: {session_id}")))?;
 
         let raw_ciphertext = base64::engine::general_purpose::STANDARD
             .decode(ciphertext)
-            .map_err(|e| ApiError::bad_request(format!("Invalid base64: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid base64: {e}")))?;
 
         let msg_type = match message_type {
             OlmMessageType::PreKey => 0usize,
@@ -225,12 +225,12 @@ impl OlmSessionManager {
         };
 
         let message = vodozemac::olm::OlmMessage::from_parts(msg_type, &raw_ciphertext)
-            .map_err(|e| ApiError::bad_request(format!("Invalid message: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid message: {e}")))?;
 
         let plaintext = entry
             .session
             .decrypt(&message)
-            .map_err(|e| ApiError::internal(format!("Failed to decrypt: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to decrypt: {e}")))?;
 
         entry.dirty = true;
 

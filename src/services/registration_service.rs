@@ -27,7 +27,7 @@ impl RegistrationService {
         // HP-2 FIX: Construct base URL from server_name, but make it configurable
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL")
-            .unwrap_or_else(|_| format!("https://{}", server_name));
+            .unwrap_or_else(|_| format!("https://{server_name}"));
 
         Self {
             user_storage,
@@ -187,7 +187,7 @@ impl RegistrationService {
             .user_storage
             .get_user_by_id(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?;
 
         match user {
             Some(u) => Ok(serde_json::json!({
@@ -204,7 +204,7 @@ impl RegistrationService {
             .user_storage
             .get_user_profiles_batch(user_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get profiles: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get profiles: {e}")))?;
 
         Ok(profiles
             .into_iter()
@@ -226,7 +226,7 @@ impl RegistrationService {
                 if e.to_string().contains("too long") {
                     ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
                 } else {
-                    ApiError::internal(format!("Failed to update displayname: {}", e))
+                    ApiError::internal(format!("Failed to update displayname: {e}"))
                 }
             })?;
         Ok(())
@@ -240,7 +240,7 @@ impl RegistrationService {
                 if e.to_string().contains("too long") {
                     ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
                 } else {
-                    ApiError::internal(format!("Failed to update avatar: {}", e))
+                    ApiError::internal(format!("Failed to update avatar: {e}"))
                 }
             })?;
         Ok(())

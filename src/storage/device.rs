@@ -897,8 +897,7 @@ mod tests {
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!(
-                    "Skipping device lazy-loaded-members test because test database is unavailable: {}",
-                    error
+                    "Skipping device lazy-loaded-members test because test database is unavailable: {error}"
                 );
                 return;
             }

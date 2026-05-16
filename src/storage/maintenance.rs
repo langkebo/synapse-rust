@@ -22,7 +22,7 @@ impl DatabaseMaintenance {
             Ok(stats) => report.vacuum_results = stats,
             Err(e) => {
                 error!("VACUUM ANALYZE 失败: {}", e);
-                report.errors.push(format!("VACUUM ANALYZE: {}", e));
+                report.errors.push(format!("VACUUM ANALYZE: {e}"));
             }
         }
 
@@ -30,7 +30,7 @@ impl DatabaseMaintenance {
             Ok(tables) => report.reindexed_tables = tables,
             Err(e) => {
                 error!("重建索引失败: {}", e);
-                report.errors.push(format!("REINDEX: {}", e));
+                report.errors.push(format!("REINDEX: {e}"));
             }
         }
 
@@ -38,7 +38,7 @@ impl DatabaseMaintenance {
             Ok(stats) => report.table_stats = stats,
             Err(e) => {
                 error!("表统计信息收集失败: {}", e);
-                report.errors.push(format!("表统计: {}", e));
+                report.errors.push(format!("表统计: {e}"));
             }
         }
 
@@ -94,7 +94,7 @@ impl DatabaseMaintenance {
 
             let start = Instant::now();
 
-            match sqlx::query(&format!("VACUUM ANALYZE {}", table))
+            match sqlx::query(&format!("VACUUM ANALYZE {table}"))
                 .execute(&self.pool)
                 .await
             {
@@ -144,7 +144,7 @@ impl DatabaseMaintenance {
             .await
             {
                 Ok(Some(_)) => {
-                    match sqlx::query(&format!("REINDEX INDEX {}", index))
+                    match sqlx::query(&format!("REINDEX INDEX {index}"))
                         .execute(&self.pool)
                         .await
                     {

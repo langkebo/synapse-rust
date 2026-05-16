@@ -42,8 +42,7 @@ impl SecretStorageService {
             "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::create_curve25519_key(&key_id),
             "aes-hmac-sha2" => Ok(Self::create_aes_hmac_key(&key_id)),
             _ => Err(ApiError::bad_request(format!(
-                "Unsupported secret storage algorithm: {}",
-                algorithm
+                "Unsupported secret storage algorithm: {algorithm}"
             ))),
         }
     }
@@ -62,11 +61,11 @@ impl SecretStorageService {
         rand::thread_rng().fill(&mut iv_bytes);
         let iv = BASE64.encode(iv_bytes);
 
-        let key_data = format!("{}:{}", private_key_base64, public_key_base64);
+        let key_data = format!("{private_key_base64}:{public_key_base64}");
 
         let session_key = Aes256GcmKey::generate();
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, key_data.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
 
         let encrypted_key = format!(
             "{}.{}",
@@ -94,7 +93,7 @@ impl SecretStorageService {
         rand::thread_rng().fill(&mut iv_bytes);
         let iv_base64 = BASE64.encode(iv_bytes);
 
-        let key_data = format!("{}:{}", key_base64, iv_base64);
+        let key_data = format!("{key_base64}:{iv_base64}");
         let mac = compute_hmac(&key_data, b"secure_storage_key");
 
         SecretStorageKeyCreationTerm {
@@ -206,10 +205,10 @@ impl SecretStorageService {
 
         let nonce_bytes = BASE64
             .decode(parts[0])
-            .map_err(|e| ApiError::bad_request(format!("Invalid nonce base64: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid nonce base64: {e}")))?;
         let ciphertext_bytes = BASE64
             .decode(parts[1])
-            .map_err(|e| ApiError::bad_request(format!("Invalid ciphertext base64: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid ciphertext base64: {e}")))?;
 
         if nonce_bytes.len() < 12 {
             return Err(ApiError::bad_request("Nonce too short".to_string()));
@@ -229,7 +228,7 @@ impl SecretStorageService {
         let key = Aes256GcmKey::from_bytes(key_arr);
 
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
 
         Ok(BASE64.encode(&encrypted))
     }
@@ -245,7 +244,7 @@ impl SecretStorageService {
 
         let key_bytes = BASE64
             .decode(parts[0])
-            .map_err(|e| ApiError::bad_request(format!("Invalid key base64: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid key base64: {e}")))?;
 
         let mut key_arr = [0u8; 32];
         if key_bytes.len() >= 32 {
@@ -256,7 +255,7 @@ impl SecretStorageService {
 
         let key = Aes256GcmKey::from_bytes(key_arr);
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
 
         Ok(BASE64.encode(&encrypted))
     }

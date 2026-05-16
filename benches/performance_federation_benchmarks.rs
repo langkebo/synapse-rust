@@ -42,7 +42,7 @@ fn benchmark_federation_key_prewarming(c: &mut Criterion) {
     c.bench_function("federation_key_prewarm_10", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let origins: Vec<String> = (0..10).map(|i| format!("server{}.test", i)).collect();
+                let origins: Vec<String> = (0..10).map(|i| format!("server{i}.test")).collect();
                 criterion::black_box((&cache_manager, &origins));
             });
         });
@@ -59,11 +59,11 @@ fn benchmark_state_resolution(c: &mut Criterion) {
         let mut events = HashMap::new();
         for i in 0..10 {
             events.insert(
-                format!("$event_{}", i),
+                format!("$event_{i}"),
                 EventData {
-                    event_id: format!("$event_{}", i),
+                    event_id: format!("$event_{i}"),
                     room_id: "!room:test".to_string(),
-                    event_type: format!("m.room.message{}", i),
+                    event_type: format!("m.room.message{i}"),
                     auth_events: vec![],
                     prev_events: vec![],
                     state_key: Some(json!("user:test")),
@@ -81,9 +81,9 @@ fn benchmark_state_resolution(c: &mut Criterion) {
         let mut events = HashMap::new();
         for i in 0..100 {
             events.insert(
-                format!("$event_{}", i),
+                format!("$event_{i}"),
                 EventData {
-                    event_id: format!("$event_{}", i),
+                    event_id: format!("$event_{i}"),
                     room_id: "!room:test".to_string(),
                     event_type: format!("m.room.message{}", i % 10),
                     auth_events: vec![],

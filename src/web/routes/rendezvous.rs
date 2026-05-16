@@ -79,7 +79,7 @@ async fn create_session(
     let intent_enum = match intent {
         "login.reciprocate" => RendezvousIntent::LoginReciprocate,
         "login.start" => RendezvousIntent::LoginStart,
-        _ => return Err(ApiError::bad_request(format!("Invalid intent: {}", intent))),
+        _ => return Err(ApiError::bad_request(format!("Invalid intent: {intent}"))),
     };
 
     let transport_enum = match transport {
@@ -87,8 +87,7 @@ async fn create_session(
         "http.v2" => RendezvousTransport::HttpV2,
         _ => {
             return Err(ApiError::bad_request(format!(
-                "Invalid transport: {}",
-                transport
+                "Invalid transport: {transport}"
             )))
         }
     };
@@ -105,7 +104,7 @@ async fn create_session(
         .rendezvous_storage
         .create_session(params)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create session: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create session: {e}")))?;
 
     let rendezvous_url = format!(
         "matrix://rendezvous/{}/{}",
@@ -135,7 +134,7 @@ async fn load_rendezvous_session(
         .rendezvous_storage
         .get_session(session_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get session: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get session: {e}")))?
         .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))
 }
 
@@ -154,8 +153,7 @@ async fn ensure_rendezvous_session_access(
         }
 
         return Err(ApiError::unauthorized(format!(
-            "Invalid rendezvous key for {}",
-            action
+            "Invalid rendezvous key for {action}"
         )));
     }
 
@@ -167,14 +165,12 @@ async fn ensure_rendezvous_session_access(
         }
 
         return Err(ApiError::forbidden(format!(
-            "You are not allowed to {} this rendezvous session",
-            action
+            "You are not allowed to {action} this rendezvous session"
         )));
     }
 
     Err(ApiError::unauthorized(format!(
-        "Rendezvous access to {} requires the {} header or the bound user",
-        action, RENDEZVOUS_KEY_HEADER
+        "Rendezvous access to {action} requires the {RENDEZVOUS_KEY_HEADER} header or the bound user"
     )))
 }
 
@@ -217,7 +213,7 @@ async fn update_session(
         .rendezvous_storage
         .update_session_status(&session_id, status)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update session: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update session: {e}")))?;
 
     if status == "connected" {
         let user_id = auth_user
@@ -234,7 +230,7 @@ async fn update_session(
             .rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bind user: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to bind user: {e}")))?;
     }
 
     if status == "completed" {
@@ -251,7 +247,7 @@ async fn update_session(
                 .auth_service
                 .generate_access_token(user_id, &device_id, false)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to generate token: {e}")))?;
 
             return Ok(Json(json!({
                 "session_id": session.session_id,
@@ -284,7 +280,7 @@ async fn delete_session(
         .rendezvous_storage
         .delete_session(&session_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete session: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete session: {e}")))?;
 
     Ok(Json(json!({})))
 }
@@ -316,7 +312,7 @@ async fn send_message(
     msg_storage
         .store_message(&session_id, "outbound", &message)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to send message: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to send message: {e}")))?;
 
     // Generate a message ID based on session and timestamp
     let message_id = format!("{}_{}", session_id, chrono::Utc::now().timestamp_millis());
@@ -342,7 +338,7 @@ async fn get_messages(
     let messages = msg_storage
         .get_messages(&session_id, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get messages: {e}")))?;
 
     let messages_json: Vec<Value> = messages
         .iter()

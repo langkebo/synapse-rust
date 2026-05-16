@@ -34,7 +34,7 @@ impl SignatureService {
                 &base64::engine::general_purpose::STANDARD,
                 signature.to_bytes(),
             ),
-            key_id: format!("ed25519:{}", device_id),
+            key_id: format!("ed25519:{device_id}"),
             created_ts: Utc::now().timestamp(),
         };
 
@@ -43,7 +43,7 @@ impl SignatureService {
         Ok(())
     }
 
-    pub async fn verify_event(
+    pub fn verify_event(
         &self,
         event_id: &str,
         _user_id: &str,
@@ -69,7 +69,7 @@ impl SignatureService {
         Ok(public.verify(message, &sig).is_ok())
     }
 
-    pub async fn sign_key(
+    pub fn sign_key(
         &self,
         key: &str,
         signing_key: &Ed25519KeyPair,
@@ -83,7 +83,7 @@ impl SignatureService {
         ))
     }
 
-    pub async fn verify_key(
+    pub fn verify_key(
         &self,
         key: &str,
         signature: &str,

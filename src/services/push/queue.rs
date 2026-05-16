@@ -306,7 +306,7 @@ mod tests {
         for i in 0..5 {
             let notification = QueuedNotification::new(
                 "@user:example.com",
-                &format!("DEVICE{}", i),
+                &format!("DEVICE{i}"),
                 "fcm",
                 "token",
                 serde_json::json!({}),
@@ -349,7 +349,7 @@ mod tests {
         for i in 0..3 {
             let notification = QueuedNotification::new(
                 "@user:example.com",
-                &format!("DEVICE{}", i),
+                &format!("DEVICE{i}"),
                 "fcm",
                 "token",
                 serde_json::json!({}),
@@ -372,7 +372,7 @@ mod tests {
         for i in 0..5 {
             let notification = QueuedNotification::new(
                 "@user:example.com",
-                &format!("DEVICE{}", i),
+                &format!("DEVICE{i}"),
                 "fcm",
                 "token",
                 serde_json::json!({}),

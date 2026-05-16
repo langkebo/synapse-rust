@@ -15,12 +15,12 @@ where
             Ok(axum::extract::Json(value)) => Ok(MatrixJson(value)),
             Err(rejection) => {
                 let message = match rejection {
-                    JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {}", e),
-                    JsonRejection::JsonSyntaxError(e) => format!("JSON syntax error: {}", e),
+                    JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {e}"),
+                    JsonRejection::JsonSyntaxError(e) => format!("JSON syntax error: {e}"),
                     JsonRejection::MissingJsonContentType(e) => {
-                        format!("Missing Content-Type: application/json: {}", e)
+                        format!("Missing Content-Type: application/json: {e}")
                     }
-                    _ => format!("JSON error: {}", rejection),
+                    _ => format!("JSON error: {rejection}"),
                 };
                 Err(ApiError::bad_request(message))
             }

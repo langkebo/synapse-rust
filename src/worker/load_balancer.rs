@@ -252,7 +252,7 @@ mod tests {
         WorkerInfo {
             id: 0,
             worker_id: id.to_string(),
-            worker_name: format!("{}-name", id),
+            worker_name: format!("{id}-name"),
             worker_type: worker_type.to_string(),
             status: "running".to_string(),
             host: "localhost".to_string(),

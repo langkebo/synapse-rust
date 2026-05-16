@@ -32,7 +32,7 @@ pub(crate) async fn can_view_profile_for_requester(
         .bind(user_id)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if let Some(settings) = privacy_settings {
         if let Ok(visibility) = settings.try_get::<String, _>("profile_visibility") {
@@ -116,7 +116,7 @@ pub(crate) async fn get_displayname(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {e}")))?;
 
     let displayname = profile
         .get("displayname")
@@ -138,7 +138,7 @@ pub(crate) async fn get_avatar_url(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get profile: {e}")))?;
 
     let avatar_url = profile
         .get("avatar_url")
@@ -175,7 +175,7 @@ pub(crate) async fn update_displayname(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
 
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -217,7 +217,7 @@ pub(crate) async fn update_avatar(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
 
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -334,7 +334,7 @@ pub(crate) async fn change_password_uia(
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to claim verification token: {}", e))
+                    ApiError::internal(format!("Failed to claim verification token: {e}"))
                 })?
                 .ok_or_else(|| {
                     ApiError::bad_request(
@@ -545,7 +545,7 @@ pub(crate) async fn deactivate_account(
     state
         .services
         .cache
-        .delete(&format!("user:active:{}", user_id))
+        .delete(&format!("user:active:{user_id}"))
         .await;
 
     state
@@ -576,7 +576,7 @@ pub(crate) async fn get_threepids(
     .bind(user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get threepids: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get threepids: {e}")))?;
 
     let threepids_list: Vec<Value> = threepids
         .iter()
@@ -623,7 +623,7 @@ pub(crate) async fn add_threepid(
         .email_verification_storage
         .claim_used_token(sid_int)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to claim verification token: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to claim verification token: {e}")))?
         .ok_or_else(|| {
             ApiError::bad_request(
                 "Verification session is invalid, expired, or has not been submitted".to_string(),
@@ -699,7 +699,7 @@ pub(crate) async fn add_threepid(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to add threepid: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to add threepid: {e}")))?;
 
     if result.rows_affected() == 0 {
         ::tracing::warn!(
@@ -782,7 +782,7 @@ pub(crate) async fn delete_threepid(
     .bind(&body.address)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to delete threepid: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to delete threepid: {e}")))?;
 
     Ok(Json(json!({})))
 }
@@ -805,7 +805,7 @@ pub(crate) async fn unbind_threepid(
     .bind(&body.address)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to unbind threepid: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to unbind threepid: {e}")))?;
 
     Ok(Json(json!({})))
 }

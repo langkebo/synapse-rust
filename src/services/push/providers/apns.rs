@@ -147,10 +147,10 @@ impl ApnsProvider {
         header.kid = Some(key_id);
 
         let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes())
-            .map_err(|e| format!("Invalid APNS EC private key: {}", e))?;
+            .map_err(|e| format!("Invalid APNS EC private key: {e}"))?;
 
         encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("Failed to sign APNS JWT: {}", e))
+            .map_err(|e| format!("Failed to sign APNS JWT: {e}"))
     }
 
     async fn send_request(&self, token: &str, payload: &ApnsPayload) -> Result<(), String> {
@@ -161,7 +161,7 @@ impl ApnsProvider {
         let response = self
             .client
             .post(&url)
-            .header("authorization", format!("bearer {}", jwt))
+            .header("authorization", format!("bearer {jwt}"))
             .header("apns-topic", &self.config.topic)
             .header("apns-push-type", "alert")
             .header("apns-priority", "10")
@@ -169,7 +169,7 @@ impl ApnsProvider {
             .json(payload)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
 
         let status = response.status();
 
@@ -180,7 +180,7 @@ impl ApnsProvider {
         let body = response
             .text()
             .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+            .map_err(|e| format!("Failed to read response: {e}"))?;
 
         let error_info: serde_json::Value =
             serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({"reason": body}));
@@ -190,7 +190,7 @@ impl ApnsProvider {
             .and_then(|r| r.as_str())
             .unwrap_or("Unknown error");
 
-        Err(format!("APNS error: {} - {}", status, reason))
+        Err(format!("APNS error: {status} - {reason}"))
     }
 }
 

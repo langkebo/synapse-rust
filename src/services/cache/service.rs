@@ -139,7 +139,7 @@ impl CacheService {
         let keys_to_remove: Vec<String> = cache
             .entries
             .keys()
-            .filter(|k| k.starts_with(&format!("{}:", namespace)))
+            .filter(|k| k.starts_with(&format!("{namespace}:")))
             .cloned()
             .collect();
 
@@ -229,7 +229,7 @@ impl CacheService {
 fn pattern_to_regex(pattern: &str) -> Option<regex::Regex> {
     let escaped = pattern.replace('*', ".*").replace('?', ".");
 
-    regex::Regex::new(&format!("^{}$", escaped)).ok()
+    regex::Regex::new(&format!("^{escaped}$")).ok()
 }
 
 impl Default for CacheService {

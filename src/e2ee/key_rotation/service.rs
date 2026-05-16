@@ -71,7 +71,7 @@ impl KeyRotationService {
         }
     }
 
-    pub async fn should_rotate(&self, session: &MegolmSession) -> Result<bool, ApiError> {
+    pub fn should_rotate(&self, session: &MegolmSession) -> Result<bool, ApiError> {
         let age_days = (Utc::now() - session.last_used_ts).num_days();
         if age_days >= self.config.olm_rotation_days {
             return Ok(true);
@@ -144,7 +144,7 @@ impl KeyRotationService {
             .await
             .map_err(|e| {
                 tracing::warn!("Failed to record key share for rotation: {}", e);
-                ApiError::internal(format!("Failed to record key share: {}", e))
+                ApiError::internal(format!("Failed to record key share: {e}"))
             })
     }
 
@@ -159,14 +159,14 @@ impl KeyRotationService {
             .await
             .map_err(|e| {
                 tracing::warn!("Failed to mark session as rotated: {}", e);
-                ApiError::internal(format!("Failed to mark session as rotated: {}", e))
+                ApiError::internal(format!("Failed to mark session as rotated: {e}"))
             })
     }
 
     async fn should_rotate_for_room(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
         let sessions = self.megolm_service.get_room_sessions(room_id).await?;
         for session in &sessions {
-            if self.should_rotate(session).await? {
+            if self.should_rotate(session)? {
                 return Ok(true);
             }
         }
@@ -217,7 +217,7 @@ impl KeyRotationService {
                 .await
                 .map_err(|e| {
                     tracing::warn!("Failed to record key share for new member: {}", e);
-                    ApiError::internal(format!("Failed to record key share: {}", e))
+                    ApiError::internal(format!("Failed to record key share: {e}"))
                 })?;
         }
 
@@ -272,7 +272,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
     }
@@ -292,7 +292,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -315,7 +315,7 @@ impl KeyRotationStorage {
         .bind(share_reason)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
     }
@@ -332,7 +332,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
     }
@@ -348,9 +348,9 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
-        Ok(row.is_none() || !row.unwrap().0)
+        Ok(row.as_ref().is_none_or(|r| !r.0))
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
@@ -359,7 +359,7 @@ impl KeyRotationStorage {
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -377,7 +377,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         use sqlx::Row;
         Ok(RotationStatus {
@@ -405,7 +405,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -428,7 +428,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
     }
@@ -449,7 +449,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -466,7 +466,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
     }

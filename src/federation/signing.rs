@@ -94,7 +94,7 @@ pub fn sign_json(
 
     let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(secret_key_base64)
-        .map_err(|e| format!("Invalid secret key base64: {}", e))?
+        .map_err(|e| format!("Invalid secret key base64: {e}"))?
         .try_into()
         .map_err(|_| "Secret key must be 32 bytes".to_string())?;
 
@@ -148,8 +148,7 @@ pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
 
     if computed != sha256_hash {
         return Err(format!(
-            "Event content hash mismatch: expected {}, computed {}",
-            sha256_hash, computed
+            "Event content hash mismatch: expected {sha256_hash}, computed {computed}"
         ));
     }
 
@@ -158,7 +157,7 @@ pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
 
 pub fn check_pdu_size_limits(event: &Value) -> Result<(), String> {
     let event_json =
-        serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {}", e))?;
+        serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
 
     if event_json.len() > MAX_PDU_SIZE_BYTES {
         return Err(format!(

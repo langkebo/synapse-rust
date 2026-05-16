@@ -42,7 +42,7 @@ pub async fn get_rotation_history(
     .bind(&device_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get history: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get history: {e}")))?;
 
     let history: Vec<Value> = rows
         .iter()
@@ -96,7 +96,7 @@ pub async fn check_needs_rotation(
     .bind(&auth_user.user_id)
     .fetch_one(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed: {e}")))?;
 
     let now = Utc::now().timestamp_millis();
     let interval_ms = state

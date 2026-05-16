@@ -49,13 +49,13 @@ impl ScheduledTasks {
     }
 
     pub async fn start_all(&self) {
-        self.start_health_check_task().await;
+        self.start_health_check_task();
         self.start_performance_check_task().await;
         self.start_integrity_check_task().await;
         self.start_maintenance_task().await;
     }
 
-    async fn start_health_check_task(&self) {
+    fn start_health_check_task(&self) {
         let interval = self.health_check_interval;
         let database = self.database.clone();
         let last_status = self.last_health_status.clone();

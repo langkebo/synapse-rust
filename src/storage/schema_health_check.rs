@@ -362,7 +362,7 @@ async fn check_missing_columns(
         .await?;
 
         if count == 0 {
-            missing.push(format!("{}.{}", table, column));
+            missing.push(format!("{table}.{column}"));
         }
     }
 
@@ -435,7 +435,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     if !result.missing_tables.is_empty() {
         report.push_str("## Missing Tables\n");
         for table in &result.missing_tables {
-            report.push_str(&format!("- {}\n", table));
+            report.push_str(&format!("- {table}\n"));
         }
         report.push('\n');
     }
@@ -443,7 +443,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     if !result.missing_columns.is_empty() {
         report.push_str("## Missing Columns\n");
         for col in &result.missing_columns {
-            report.push_str(&format!("- {}\n", col));
+            report.push_str(&format!("- {col}\n"));
         }
         report.push('\n');
     }
@@ -451,7 +451,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     if !result.missing_indexes.is_empty() {
         report.push_str("## Missing Indexes\n");
         for idx in &result.missing_indexes {
-            report.push_str(&format!("- {}\n", idx));
+            report.push_str(&format!("- {idx}\n"));
         }
         report.push('\n');
     }
@@ -459,7 +459,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     if !result.warnings.is_empty() {
         report.push_str("## Warnings\n");
         for warn in &result.warnings {
-            report.push_str(&format!("- {}\n", warn));
+            report.push_str(&format!("- {warn}\n"));
         }
         report.push('\n');
     }

@@ -14,7 +14,7 @@ mod e2e_user_registration_tests {
         let server_name = "localhost";
 
         println!("Step 1: Register user");
-        let user_id = format!("@{}:{}", username, server_name);
+        let user_id = format!("@{username}:{server_name}");
         assert!(user_id.starts_with('@'));
 
         println!("Step 2: Login with new user");
@@ -42,7 +42,7 @@ mod e2e_user_registration_tests {
         assert!(!access_token.is_empty());
 
         println!("Step 2: Verify session");
-        let user_id = format!("@{}:{}", username, server_name);
+        let user_id = format!("@{username}:{server_name}");
         assert!(user_id.contains(username));
 
         println!("Step 3: Logout");

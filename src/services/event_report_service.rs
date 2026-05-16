@@ -58,7 +58,6 @@ impl EventReportService {
                 None,
                 None,
             )
-            .await
             .ok();
 
         info!("Created event report: {}", report.id);
@@ -188,7 +187,6 @@ impl EventReportService {
                 request.resolution_reason.as_deref(),
                 None,
             )
-            .await
             .ok();
 
         info!(
@@ -253,7 +251,6 @@ impl EventReportService {
         let history = self
             .storage
             .get_report_history(report_id)
-            .await
             .map_err(|e| ApiError::internal(format!("Failed to get history: {}", e)))?;
 
         Ok(history)
@@ -307,7 +304,6 @@ impl EventReportService {
         let stats = self
             .storage
             .get_stats(days)
-            .await
             .map_err(|e| ApiError::internal(format!("Failed to get stats: {}", e)))?;
 
         Ok(stats)
@@ -383,7 +379,6 @@ impl EventReportService {
                 None,
                 None,
             )
-            .await
             .ok();
 
         info!("Escalated event report: {}", id);

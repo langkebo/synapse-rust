@@ -14,20 +14,21 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// 危险的 HTML 标签模式
+#[allow(clippy::expect_used)]
 static DANGEROUS_TAGS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)<(script|iframe|object|embed|form|input|button|meta|link|style)[^>]*>")
         .expect("DANGEROUS_TAGS regex is valid")
 });
 
-/// 危险的事件处理器模式
+#[allow(clippy::expect_used)]
 static DANGEROUS_EVENTS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid"));
 
-/// JavaScript URL 模式
+#[allow(clippy::expect_used)]
 static JAVASCRIPT_URLS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid"));
 
-/// 数据 URL 模式（可能包含恶意内容）
+#[allow(clippy::expect_used)]
 static DATA_URLS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid"));
 

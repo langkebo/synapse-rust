@@ -10,7 +10,7 @@ pub(crate) async fn is_joined_room_member(
         .member_storage
         .is_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))
 }
 
 pub(crate) async fn is_joined_room_member_or_creator(

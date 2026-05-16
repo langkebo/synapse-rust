@@ -132,21 +132,21 @@ impl FcmProvider {
             .json(message)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+            .map_err(|e| format!("Failed to read response: {e}"))?;
 
         if !status.is_success() {
             error!("FCM request failed with status {}: {}", status, body);
-            return Err(format!("FCM returned status {}: {}", status, body));
+            return Err(format!("FCM returned status {status}: {body}"));
         }
 
         serde_json::from_str(&body)
-            .map_err(|e| format!("Failed to parse FCM response: {} - Body: {}", e, body))
+            .map_err(|e| format!("Failed to parse FCM response: {e} - Body: {body}"))
     }
 }
 

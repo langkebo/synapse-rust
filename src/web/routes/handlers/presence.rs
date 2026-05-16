@@ -54,7 +54,7 @@ async fn ensure_presence_access_or_shared_room(
         .member_storage
         .share_common_room(&auth_user.user_id, target_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check shared rooms: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check shared rooms: {e}")))?;
 
     if !shared {
         return Err(ApiError::forbidden("Access denied".to_string()));
@@ -93,7 +93,7 @@ pub(crate) async fn get_presence(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
 
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -104,7 +104,7 @@ pub(crate) async fn get_presence(
         .presence_storage
         .get_presence_with_meta(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get presence: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get presence: {e}")))?;
 
     match presence {
         Some((presence, status_msg, last_active_ts)) => {
@@ -146,8 +146,7 @@ pub(crate) async fn set_presence(
     if let Some(msg) = status_msg {
         if msg.len() > MAX_MESSAGE_LENGTH {
             return Err(ApiError::bad_request(format!(
-                "Status message too long (max {} characters)",
-                MAX_MESSAGE_LENGTH
+                "Status message too long (max {MAX_MESSAGE_LENGTH} characters)"
             )));
         }
     }
@@ -157,7 +156,7 @@ pub(crate) async fn set_presence(
         .presence_storage
         .set_presence(&user_id, presence, status_msg)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to set presence: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to set presence: {e}")))?;
 
     Ok(Json(json!({})))
 }
@@ -215,7 +214,7 @@ pub(crate) async fn presence_list(
         .presence_storage
         .get_subscriptions(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {e}")))?;
     let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
 
     let presence_batch = state
@@ -223,7 +222,7 @@ pub(crate) async fn presence_list(
         .presence_storage
         .get_presence_batch_with_meta(&subscriptions)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {e}")))?;
 
     let mut presences = Vec::new();
 
@@ -267,7 +266,7 @@ pub(crate) async fn get_presence_list_no_path(
         .presence_storage
         .get_subscriptions(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {e}")))?;
     let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
 
     let presence_batch = state
@@ -275,7 +274,7 @@ pub(crate) async fn get_presence_list_no_path(
         .presence_storage
         .get_presence_batch_with_meta(&subscriptions)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {e}")))?;
 
     let mut presences = Vec::new();
 
@@ -320,7 +319,7 @@ pub(crate) async fn get_presence_list(
         .presence_storage
         .get_subscriptions(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get subscriptions: {e}")))?;
     let subscriptions = filter_visible_presence_targets(&state, &user_id, &subscriptions).await;
 
     let presence_batch = state
@@ -328,7 +327,7 @@ pub(crate) async fn get_presence_list(
         .presence_storage
         .get_presence_batch_with_meta(&subscriptions)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get presence batch: {e}")))?;
 
     let mut presences = Vec::new();
 

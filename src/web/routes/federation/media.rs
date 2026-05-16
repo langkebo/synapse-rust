@@ -23,13 +23,12 @@ fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result
     match params.get(key) {
         Some(Value::Number(value)) => value
             .as_i64()
-            .ok_or_else(|| ApiError::bad_request(format!("Invalid '{}' parameter", key))),
+            .ok_or_else(|| ApiError::bad_request(format!("Invalid '{key}' parameter"))),
         Some(Value::String(value)) => value
             .parse::<i64>()
-            .map_err(|_| ApiError::bad_request(format!("Invalid '{}' parameter", key))),
+            .map_err(|_| ApiError::bad_request(format!("Invalid '{key}' parameter"))),
         Some(_) => Err(ApiError::bad_request(format!(
-            "Invalid '{}' parameter",
-            key
+            "Invalid '{key}' parameter"
         ))),
         None => Ok(default),
     }
@@ -77,8 +76,7 @@ pub(super) async fn media_thumbnail(
         || height > MAX_FEDERATION_THUMBNAIL_DIMENSION
     {
         return Err(ApiError::bad_request(format!(
-            "Thumbnail dimensions must be between 1 and {}",
-            MAX_FEDERATION_THUMBNAIL_DIMENSION
+            "Thumbnail dimensions must be between 1 and {MAX_FEDERATION_THUMBNAIL_DIMENSION}"
         )));
     }
 

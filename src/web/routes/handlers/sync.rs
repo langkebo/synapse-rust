@@ -70,8 +70,7 @@ pub(crate) async fn sync(
         let device_id_for_ratelimit = device_id.as_deref().unwrap_or("default");
         let kind = if is_initial { "initial" } else { "incremental" };
         let rate_limit_key = format!(
-            "ratelimit:sync:{}:{}:{}",
-            user_id, device_id_for_ratelimit, kind
+            "ratelimit:sync:{user_id}:{device_id_for_ratelimit}:{kind}"
         );
         let decision = match state
             .cache
@@ -95,8 +94,7 @@ pub(crate) async fn sync(
                     }
                 } else {
                     return Err(ApiError::internal(format!(
-                        "Sync rate limit failed: {}",
-                        error
+                        "Sync rate limit failed: {error}"
                     )));
                 }
             }

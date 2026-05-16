@@ -113,7 +113,7 @@ impl DatabaseMonitor {
         }
     }
 
-    pub async fn get_connection_pool_status(&self) -> Result<ConnectionPoolStatus, sqlx::Error> {
+    pub fn get_connection_pool_status(&self) -> Result<ConnectionPoolStatus, sqlx::Error> {
         let pool_size = self.pool.size();
         let idle_connections = self.pool.num_idle() as u32;
 
@@ -132,7 +132,7 @@ impl DatabaseMonitor {
 
     pub async fn get_full_health_status(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
         let is_healthy = self.check_connection().await?;
-        let pool_status = self.get_connection_pool_status().await?;
+        let pool_status = self.get_connection_pool_status()?;
         let performance = self.get_performance_metrics().await?;
 
         Ok(DatabaseHealthStatus {

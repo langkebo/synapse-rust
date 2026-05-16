@@ -67,14 +67,14 @@ impl MegolmService {
 
         self.storage.create_session(&session).await?;
 
-        let cache_key = format!("megolm_session:{}", session_id);
+        let cache_key = format!("megolm_session:{session_id}");
         let _ = self.cache.set(&cache_key, &session, 600).await;
 
         Ok(session)
     }
 
     pub async fn load_session(&self, session_id: &str) -> Result<MegolmSession, ApiError> {
-        let cache_key = format!("megolm_session:{}", session_id);
+        let cache_key = format!("megolm_session:{session_id}");
         if let Ok(Some(session)) = self.cache.get::<MegolmSession>(&cache_key).await {
             return Ok(session);
         }
@@ -146,7 +146,7 @@ impl MegolmService {
         let encrypted_key = self.encrypt_session_key(&Aes256GcmKey::from_bytes(session_key))?;
 
         for user_id in user_ids {
-            let cache_key = format!("megolm_session_key:{}:{}", user_id, session_id);
+            let cache_key = format!("megolm_session_key:{user_id}:{session_id}");
             let _ = self.cache.set(&cache_key, &encrypted_key, 600).await;
         }
 
@@ -157,14 +157,14 @@ impl MegolmService {
         self.storage
             .get_room_sessions(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {e}")))
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
         self.storage
             .delete_session(session_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete session: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to delete session: {e}")))
     }
 
     fn encrypt_session_key(&self, key: &Aes256GcmKey) -> Result<String, ApiError> {

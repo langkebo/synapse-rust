@@ -243,7 +243,7 @@ impl PushNotificationService {
         let push_token = device.push_token.clone();
 
         let content: NotificationPayload = serde_json::from_value(notification.content.clone())
-            .map_err(|e| ApiError::bad_request(format!("Invalid notification content: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid notification content: {e}")))?;
 
         let provider_payload = ProviderPayload {
             title: content.title.clone(),
@@ -285,7 +285,7 @@ impl PushNotificationService {
                     self.send_webpush_fallback(&push_token, &content).await?
                 }
             }
-            "upstream" => self.send_upstream(&push_token, &content).await?,
+            "upstream" => self.send_upstream(&push_token, &content)?,
             _ => return Err(ApiError::bad_request("Invalid push type")),
         };
 
@@ -431,7 +431,7 @@ impl PushNotificationService {
         ))
     }
 
-    async fn send_upstream(
+    fn send_upstream(
         &self,
         _target: &str,
         payload: &NotificationPayload,
@@ -486,7 +486,7 @@ impl PushNotificationService {
         for rule in rules {
             if Self::matches_rule(&rule, event)? {
                 let actions: Vec<JsonValue> = serde_json::from_value(rule.actions)
-                    .map_err(|e| ApiError::internal(format!("Invalid actions: {}", e)))?;
+                    .map_err(|e| ApiError::internal(format!("Invalid actions: {e}")))?;
 
                 let mut notify = false;
 
@@ -525,7 +525,7 @@ impl PushNotificationService {
 
     fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
-            .map_err(|e| ApiError::internal(format!("Invalid conditions: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Invalid conditions: {e}")))?;
 
         if conditions.is_empty() {
             return Ok(true);

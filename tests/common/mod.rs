@@ -51,16 +51,15 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
 
         match tokio::time::timeout(connect_timeout, connect_future).await {
             Err(_) => errors.push(format!(
-                "{} -> connect timed out after {:?}",
-                database_url, connect_timeout
+                "{database_url} -> connect timed out after {connect_timeout:?}"
             )),
             Ok(Ok(pool)) => match ensure_test_schema(&pool).await {
                 Ok(()) => return Ok(Arc::new(pool)),
                 Err(error) => {
-                    errors.push(format!("{} -> schema init failed: {}", database_url, error))
+                    errors.push(format!("{database_url} -> schema init failed: {error}"))
                 }
             },
-            Ok(Err(e)) => errors.push(format!("{} -> {}", database_url, e)),
+            Ok(Err(e)) => errors.push(format!("{database_url} -> {e}")),
         }
     }
 

@@ -43,7 +43,7 @@ async fn ensure_room_alias_write_allowed(
         .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {e}")))?;
 
     if !is_creator {
         return Err(ApiError::forbidden(
@@ -70,7 +70,7 @@ pub(crate) async fn get_user_directory_profile(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to lookup user: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to lookup user: {e}")))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     Ok(Json(json!({
@@ -207,7 +207,7 @@ pub(crate) async fn report_event(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load event: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load event: {e}")))?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -270,7 +270,7 @@ pub(crate) async fn report_room(
         .map(str::to_string);
 
     let request = crate::storage::event_report::CreateEventReportRequest {
-        event_id: format!("room_report:{}", room_id),
+        event_id: format!("room_report:{room_id}"),
         room_id: room_id.clone(),
         reporter_user_id: auth_user.user_id.clone(),
         reported_user_id: None,
@@ -313,7 +313,7 @@ pub(crate) async fn get_scanner_info(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load event: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load event: {e}")))?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -339,7 +339,7 @@ pub(crate) async fn get_room_aliases(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -378,7 +378,7 @@ pub(crate) async fn set_room_alias(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -450,7 +450,7 @@ pub(crate) async fn set_room_alias_direct(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -518,7 +518,7 @@ pub(crate) async fn get_public_rooms(
                     cursor.map(|(_, room_id)| room_id),
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         },
         async {
             state
@@ -526,7 +526,7 @@ pub(crate) async fn get_public_rooms(
                 .room_storage
                 .count_public_rooms()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         }
     )?;
 
@@ -622,7 +622,7 @@ pub(crate) async fn query_public_rooms(
                     cursor.map(|(_, room_id)| room_id),
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         },
         async {
             state
@@ -630,7 +630,7 @@ pub(crate) async fn query_public_rooms(
                 .room_storage
                 .count_public_rooms()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {}", e)))
+                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         }
     )?;
 

@@ -80,7 +80,7 @@ pub async fn get_all_reports(
         .fetch_all(&*state.services.event_storage.pool)
         .await
     }
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let report_list: Vec<Value> = reports
         .iter()
@@ -117,7 +117,7 @@ pub async fn get_report(
     .bind(report_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match report {
         Some(row) => Ok(Json(json!({
@@ -146,7 +146,7 @@ pub async fn delete_report(
         .bind(report_id)
         .execute(&*state.services.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Report not found".to_string()));
@@ -167,7 +167,7 @@ pub async fn get_room_reports(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -200,7 +200,7 @@ pub async fn get_room_reports(
         .fetch_all(&*state.services.event_storage.pool)
         .await
     }
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let report_list: Vec<Value> = reports
         .iter()
@@ -236,7 +236,7 @@ pub async fn get_room_report(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -249,7 +249,7 @@ pub async fn get_room_report(
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match report {
         Some(row) => Ok(Json(json!({

@@ -102,7 +102,7 @@ impl WebPushProvider {
     }
 
     fn generate_vapid_jwt(&self, endpoint: &str) -> Result<String, String> {
-        let url = url::Url::parse(endpoint).map_err(|e| format!("Invalid endpoint URL: {}", e))?;
+        let url = url::Url::parse(endpoint).map_err(|e| format!("Invalid endpoint URL: {e}"))?;
 
         let origin = format!(
             "{}://{}",
@@ -127,10 +127,10 @@ impl WebPushProvider {
         header.typ = Some("JWT".to_string());
 
         let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes())
-            .map_err(|e| format!("Invalid WebPush VAPID private key: {}", e))?;
+            .map_err(|e| format!("Invalid WebPush VAPID private key: {e}"))?;
 
         encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("Failed to sign VAPID JWT: {}", e))
+            .map_err(|e| format!("Failed to sign VAPID JWT: {e}"))
     }
 
     async fn send_to_endpoint(
@@ -162,7 +162,7 @@ impl WebPushProvider {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+            .map_err(|e| format!("HTTP request failed: {e}"))?;
 
         let status = response.status();
 
@@ -173,13 +173,13 @@ impl WebPushProvider {
         let body = response
             .text()
             .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+            .map_err(|e| format!("Failed to read response: {e}"))?;
 
-        Err(format!("WebPush error: {} - {}", status, body))
+        Err(format!("WebPush error: {status} - {body}"))
     }
 
     pub fn parse_subscription(&self, data: &str) -> Result<WebPushSubscription, String> {
-        serde_json::from_str(data).map_err(|e| format!("Invalid subscription: {}", e))
+        serde_json::from_str(data).map_err(|e| format!("Invalid subscription: {e}"))
     }
 }
 

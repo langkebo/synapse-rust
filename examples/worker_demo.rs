@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client
-        .post(format!("{}/_synapse/worker/v1/register", BASE_URL))
+        .post(format!("{BASE_URL}/_synapse/worker/v1/register"))
         .json(&register_req)
         .send()
         .await?;
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client
-        .post(format!("{}/_synapse/worker/v1/register", BASE_URL))
+        .post(format!("{BASE_URL}/_synapse/worker/v1/register"))
         .json(&register_req)
         .send()
         .await?;
@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 3: List all workers
     println!("\n3. Listing all workers...");
     let response = client
-        .get(format!("{}/_synapse/worker/v1/workers", BASE_URL))
+        .get(format!("{BASE_URL}/_synapse/worker/v1/workers"))
         .send()
         .await?;
 
@@ -147,8 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client
         .post(format!(
-            "{}/_synapse/worker/v1/workers/frontend-001/heartbeat",
-            BASE_URL
+            "{BASE_URL}/_synapse/worker/v1/workers/frontend-001/heartbeat"
         ))
         .json(&heartbeat_req)
         .send()
@@ -169,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client
-        .post(format!("{}/_synapse/worker/v1/tasks", BASE_URL))
+        .post(format!("{BASE_URL}/_synapse/worker/v1/tasks"))
         .json(&task_req)
         .send()
         .await?;
@@ -187,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 6: Get pending tasks
     println!("\n6. Getting pending tasks...");
     let response = client
-        .get(format!("{}/_synapse/worker/v1/tasks", BASE_URL))
+        .get(format!("{BASE_URL}/_synapse/worker/v1/tasks"))
         .send()
         .await?;
 
@@ -204,7 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 7: Select worker for a task type
     println!("\n7. Testing worker selection for 'http' task...");
     let response = client
-        .get(format!("{}/_synapse/worker/v1/select/http", BASE_URL))
+        .get(format!("{BASE_URL}/_synapse/worker/v1/select/http"))
         .send()
         .await?;
 
@@ -232,8 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client
         .post(format!(
-            "{}/_synapse/worker/v1/workers/background-001/commands",
-            BASE_URL
+            "{BASE_URL}/_synapse/worker/v1/workers/background-001/commands"
         ))
         .json(&cmd_req)
         .send()
@@ -252,7 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 9: Get worker statistics
     println!("\n9. Getting worker statistics...");
     let response = client
-        .get(format!("{}/_synapse/worker/v1/statistics", BASE_URL))
+        .get(format!("{BASE_URL}/_synapse/worker/v1/statistics"))
         .send()
         .await?;
 
@@ -266,7 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 10: Get statistics by type
     println!("\n10. Getting worker statistics by type...");
     let response = client
-        .get(format!("{}/_synapse/worker/v1/statistics/types", BASE_URL))
+        .get(format!("{BASE_URL}/_synapse/worker/v1/statistics/types"))
         .send()
         .await?;
 

@@ -84,7 +84,7 @@ impl PerformanceMonitor {
     }
 
     /// Gets current pool statistics.
-    pub async fn get_pool_stats(&self) -> PoolStatistics {
+    pub fn get_pool_stats(&self) -> PoolStatistics {
         let pool_size = self.pool.size();
         let num_idle = self.pool.num_idle() as u32;
 
@@ -148,7 +148,7 @@ impl PerformanceMonitor {
         // Update metrics collector
         if let Some(hist) = self
             .metrics
-            .get_histogram(&format!("db_query_{}_ms", operation))
+            .get_histogram(&format!("db_query_{operation}_ms"))
         {
             hist.observe(duration.as_secs_f64() * 1000.0);
         }
@@ -156,7 +156,7 @@ impl PerformanceMonitor {
         // Increment query counter
         if let Some(counter) = self
             .metrics
-            .get_counter(&format!("db_query_{}_total", operation))
+            .get_counter(&format!("db_query_{operation}_total"))
         {
             counter.inc();
         }
@@ -165,7 +165,7 @@ impl PerformanceMonitor {
         if duration_ms > self.slow_query_threshold_ms {
             if let Some(counter) = self
                 .metrics
-                .get_counter(&format!("db_query_{}_slow_total", operation))
+                .get_counter(&format!("db_query_{operation}_slow_total"))
             {
                 counter.inc();
             }
@@ -220,7 +220,7 @@ impl PerformanceMonitor {
     /// Checks pool health and returns warnings if issues detected.
     pub async fn check_pool_health(&self) -> Vec<String> {
         let mut warnings = Vec::new();
-        let stats = self.get_pool_stats().await;
+        let stats = self.get_pool_stats();
 
         // Check for high utilization
         if stats.utilization_percent > 80.0 {

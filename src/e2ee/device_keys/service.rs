@@ -82,7 +82,7 @@ impl DeviceKeyService {
                     vec!["*".to_string()]
                 };
 
-                let cache_key = format!("device_keys_bulk:{}", user_id);
+                let cache_key = format!("device_keys_bulk:{user_id}");
                 let cached_user_keys: Option<serde_json::Map<String, Value>> = match self
                     .cache
                     .get::<serde_json::Map<String, Value>>(&cache_key)
@@ -212,7 +212,7 @@ impl DeviceKeyService {
             record_target = Some((user_id.clone(), device_id.clone()));
 
             let device_keys_value = serde_json::to_value(device_keys).map_err(|e| {
-                ApiError::internal(format!("Failed to serialize device keys: {}", e))
+                ApiError::internal(format!("Failed to serialize device keys: {e}"))
             })?;
 
             let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
@@ -257,7 +257,7 @@ impl DeviceKeyService {
 
                     self.storage.create_device_key(&key).await?;
 
-                    let cache_key = format!("device_keys:{}:{}", user_id, device_id);
+                    let cache_key = format!("device_keys:{user_id}:{device_id}");
                     let _ = self.cache.set(&cache_key, &key, 300).await;
                 }
             }
@@ -452,10 +452,10 @@ impl DeviceKeyService {
         }
 
         if let Some((user_id, device_id)) = record_target {
-            let cache_key = format!("device_keys_bulk:{}", user_id);
+            let cache_key = format!("device_keys_bulk:{user_id}");
             self.cache.delete(&cache_key).await;
 
-            let single_cache_key = format!("device_keys:{}:{}", user_id, device_id);
+            let single_cache_key = format!("device_keys:{user_id}:{device_id}");
             self.cache.delete(&single_cache_key).await;
 
             self.storage
@@ -521,7 +521,7 @@ impl DeviceKeyService {
                                     "key": key.public_key,
                                     "signatures": key.signatures,
                                 });
-                                let key_id = if key.key_id.starts_with(&format!("{}:", algo_str)) {
+                                let key_id = if key.key_id.starts_with(&format!("{algo_str}:")) {
                                     key.key_id.clone()
                                 } else {
                                     format!("{}:{}", algo_str, key.key_id)
@@ -581,7 +581,7 @@ impl DeviceKeyService {
     pub async fn delete_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.storage.delete_device_keys(user_id, device_id).await?;
 
-        let cache_key = format!("device_keys:{}:{}", user_id, device_id);
+        let cache_key = format!("device_keys:{user_id}:{device_id}");
         self.cache.delete(&cache_key).await;
 
         self.storage
@@ -665,7 +665,7 @@ impl DeviceKeyService {
                     } else {
                         "ed25519"
                     };
-                    let key_name = if key.key_id.starts_with(&format!("{}:", prefix)) {
+                    let key_name = if key.key_id.starts_with(&format!("{prefix}:")) {
                         key.key_id.clone()
                     } else {
                         format!("{}:{}", prefix, key.key_id)

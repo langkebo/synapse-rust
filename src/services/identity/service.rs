@@ -48,7 +48,7 @@ impl IdentityService {
         user_id: &str,
     ) -> ApiResult<()> {
         self.validate_id_server(id_server)?;
-        let url = format!("https://{}/_matrix/identity/v3/3pid/bind", id_server);
+        let url = format!("https://{id_server}/_matrix/identity/v3/3pid/bind");
 
         let body = serde_json::json!({
             "sid": sid,
@@ -63,7 +63,7 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bind 3PID: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to bind 3PID: {e}")))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -72,7 +72,7 @@ impl IdentityService {
             )));
         }
 
-        let three_pid = ThirdPartyId::new(&format!("{}:{}", id_server, sid), "unknown", user_id);
+        let three_pid = ThirdPartyId::new(&format!("{id_server}:{sid}"), "unknown", user_id);
         self.storage.add_three_pid(&three_pid).await?;
 
         Ok(())
@@ -86,7 +86,7 @@ impl IdentityService {
         medium: &str,
     ) -> ApiResult<()> {
         self.validate_id_server(id_server)?;
-        let url = format!("https://{}/_matrix/identity/v3/3pid/unbind", id_server);
+        let url = format!("https://{id_server}/_matrix/identity/v3/3pid/unbind");
 
         let body = serde_json::json!({
             "address": address,
@@ -101,7 +101,7 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to unbind 3PID: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to unbind 3PID: {e}")))?;
 
         if !response.status().is_success() && response.status().as_u16() != 404 {
             return Err(ApiError::internal(format!(
@@ -122,7 +122,7 @@ impl IdentityService {
         user_id: &str,
     ) -> ApiResult<String> {
         self.validate_id_server(id_server)?;
-        let url = format!("https://{}/_matrix/identity/v3/3pid/requestAuth", id_server);
+        let url = format!("https://{id_server}/_matrix/identity/v3/3pid/requestAuth");
 
         let body = serde_json::json!({
             "medium": medium,
@@ -139,7 +139,7 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to request verification: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to request verification: {e}")))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -151,7 +151,7 @@ impl IdentityService {
         let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
 
         let sid = json
             .get("sid")
@@ -170,8 +170,7 @@ impl IdentityService {
     ) -> ApiResult<bool> {
         self.validate_id_server(id_server)?;
         let url = format!(
-            "https://{}/_matrix/identity/v3/3pid/getValidationStatus",
-            id_server
+            "https://{id_server}/_matrix/identity/v3/3pid/getValidationStatus"
         );
 
         let body = serde_json::json!({
@@ -185,7 +184,7 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to check validity: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to check validity: {e}")))?;
 
         if !response.status().is_success() {
             return Ok(false);
@@ -194,7 +193,7 @@ impl IdentityService {
         let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
 
         Ok(json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false))
     }
@@ -234,7 +233,7 @@ impl IdentityService {
         id_access_token: &str,
     ) -> ApiResult<InvitationResponse> {
         self.validate_id_server(id_server)?;
-        let url = format!("https://{}/_matrix/identity/v1/invite", id_server);
+        let url = format!("https://{id_server}/_matrix/identity/v1/invite");
 
         let body = serde_json::json!({
             "room_id": room_id,
@@ -250,7 +249,7 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to invite: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to invite: {e}")))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -261,15 +260,14 @@ impl IdentityService {
                 });
             }
             return Err(ApiError::internal(format!(
-                "Identity server returned error: {}",
-                status
+                "Identity server returned error: {status}"
             )));
         }
 
         let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
 
         let user_id = json
             .get("user_id")
@@ -330,8 +328,7 @@ impl IdentityService {
         if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server)
         {
             return Err(ApiError::bad_request(format!(
-                "id_server '{}' is not in the trusted servers list",
-                id_server
+                "id_server '{id_server}' is not in the trusted servers list"
             )));
         }
 

@@ -461,8 +461,7 @@ fn build_media_headers(
             } else {
                 let encoded = encode_rfc5987(&safe);
                 format!(
-                    "{}; filename=\"{}\"; filename*=UTF-8''{}",
-                    disposition_kind, safe, encoded
+                    "{disposition_kind}; filename=\"{safe}\"; filename*=UTF-8''{encoded}"
                 )
             }
         }
@@ -803,7 +802,7 @@ async fn preview_url(
 
     let blacklist = &state.services.config.url_preview.ip_range_blacklist;
     if let Err(e) = crate::common::security::check_url_against_blacklist(url, blacklist) {
-        return Err(ApiError::forbidden(format!("URL not allowed: {}", e)));
+        return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
     let ts = params

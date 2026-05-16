@@ -52,8 +52,7 @@ mod federation_event_auth_error_tests {
 
         let auth_chain = vec!["$event1".to_string()];
         let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
-            .await;
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("missing"));
@@ -79,8 +78,7 @@ mod federation_event_auth_error_tests {
 
         let auth_chain = vec!["$event1".to_string()];
         let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
-            .await;
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -115,8 +113,7 @@ mod federation_event_auth_error_tests {
 
         let auth_chain = vec!["$event_99".to_string()];
         let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain)
-            .await;
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -128,8 +125,7 @@ mod federation_event_auth_error_tests {
 
         let auth_chain = vec!["$event1".to_string()];
         let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain)
-            .await;
+            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }

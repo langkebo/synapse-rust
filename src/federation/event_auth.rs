@@ -26,6 +26,7 @@ impl Default for EventAuthChain {
 }
 
 impl EventAuthChain {
+    #[allow(clippy::expect_used)]
     pub fn new() -> Self {
         Self {
             auth_chain_cache: Arc::new(RwLock::new(LruCache::new(
@@ -221,7 +222,7 @@ impl EventAuthChain {
                 continue;
             }
 
-            let key = format!("{}:{}", event_type, state_key);
+            let key = format!("{event_type}:{state_key}");
             state_by_key
                 .entry(key.clone())
                 .or_default()
@@ -286,7 +287,7 @@ impl EventAuthChain {
             }
 
             let sender_power = power_levels.get(sender).copied().unwrap_or(0);
-            let key = format!("{}:{}", event_type, state_key);
+            let key = format!("{event_type}:{state_key}");
             state_by_key.entry(key.clone()).or_default().push((
                 origin_server_ts,
                 event_id.to_string(),
@@ -328,7 +329,7 @@ impl EventAuthChain {
         events: &[EventInfo],
         event_id: &str,
     ) -> Option<i64> {
-        let cache_key = format!("depth:{}", event_id);
+        let cache_key = format!("depth:{event_id}");
 
         if let Some(cached) = self.get_cached_depth(&cache_key).await {
             return Some(cached);
@@ -349,7 +350,7 @@ impl EventAuthChain {
         events: &HashMap<String, EventData>,
         event_id: &str,
     ) -> Vec<String> {
-        let cache_key = format!("auth_chain:{}", event_id);
+        let cache_key = format!("auth_chain:{event_id}");
 
         let cached_result: Option<bool> = self.get_cached_auth_chain(&cache_key).await;
 
@@ -365,7 +366,7 @@ impl EventAuthChain {
         result
     }
 
-    pub async fn verify_event_auth_chain_complete(
+    pub fn verify_event_auth_chain_complete(
         &self,
         events: &HashMap<String, EventData>,
         room_id: &str,
@@ -497,7 +498,7 @@ impl EventAuthChain {
         )
     }
 
-    pub async fn detect_state_conflicts_advanced(
+    pub fn detect_state_conflicts_advanced(
         &self,
         state_events: &[Value],
         power_levels: Option<&HashMap<String, i64>>,
@@ -527,7 +528,7 @@ impl EventAuthChain {
                 .unwrap_or(0);
             let content_json = serde_json::to_string(&event).ok();
 
-            let key = format!("{}:{}", event_type, state_key);
+            let key = format!("{event_type}:{state_key}");
             state_by_key.entry(key.clone()).or_default().push((
                 origin_server_ts,
                 event_id.to_string(),
@@ -582,7 +583,7 @@ impl EventAuthChain {
                                 detail.insert("content".to_string(), v);
                             }
                         }
-                        (format!("rank_{}", i), Value::Object(detail))
+                        (format!("rank_{i}"), Value::Object(detail))
                     })
                     .collect();
 
@@ -1480,9 +1481,7 @@ mod tests {
         let chain = EventAuthChain::new();
         let events: HashMap<String, EventData> = HashMap::new();
 
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$1", &[])
-            .await;
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &[]);
         assert!(result.is_err());
     }
 
@@ -1491,9 +1490,12 @@ mod tests {
         let chain = EventAuthChain::new();
         let events: HashMap<String, EventData> = HashMap::new();
 
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()])
-            .await;
+        let result = chain.verify_event_auth_chain_complete(
+            &events,
+            "!room:test",
+            "$1",
+            &["$1".to_string()],
+        );
         assert!(result.is_err());
     }
 
@@ -1514,9 +1516,12 @@ mod tests {
             },
         );
 
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()])
-            .await;
+        let result = chain.verify_event_auth_chain_complete(
+            &events,
+            "!room:test",
+            "$1",
+            &["$1".to_string()],
+        );
         assert!(result.is_err());
     }
 
@@ -1549,14 +1554,12 @@ mod tests {
             },
         );
 
-        let result = chain
-            .verify_event_auth_chain_complete(
-                &events,
-                "!room:test",
-                "$member",
-                &["$create".to_string(), "$member".to_string()],
-            )
-            .await;
+        let result = chain.verify_event_auth_chain_complete(
+            &events,
+            "!room:test",
+            "$member",
+            &["$create".to_string(), "$member".to_string()],
+        );
 
         assert!(result.is_ok());
     }
@@ -1648,9 +1651,7 @@ mod tests {
             }),
         ];
 
-        let conflicts = chain
-            .detect_state_conflicts_advanced(&state_events, None)
-            .await;
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, None);
 
         assert_eq!(conflicts.len(), 1);
     }
@@ -1679,9 +1680,7 @@ mod tests {
         power_levels.insert("@alice:test".to_string(), 100);
         power_levels.insert("@bob:test".to_string(), 50);
 
-        let conflicts = chain
-            .detect_state_conflicts_advanced(&state_events, Some(&power_levels))
-            .await;
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, Some(&power_levels));
 
         assert_eq!(conflicts.len(), 1);
         // Alice has higher power
@@ -1698,9 +1697,7 @@ mod tests {
             "origin_server_ts": 1000
         })];
 
-        let conflicts = chain
-            .detect_state_conflicts_advanced(&state_events, None)
-            .await;
+        let conflicts = chain.detect_state_conflicts_advanced(&state_events, None);
 
         assert!(conflicts.is_empty());
     }

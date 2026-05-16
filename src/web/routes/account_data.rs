@@ -99,7 +99,7 @@ async fn list_account_data(
         .bind(&user_id)
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let account_data: serde_json::Map<String, Value> = result
         .iter()
@@ -134,7 +134,7 @@ async fn set_account_data(
     }
 
     let body_str = serde_json::to_string(&body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > 65536 {
         return Err(ApiError::bad_request(
             "Account data too large (max 64KB)".to_string(),
@@ -156,7 +156,7 @@ async fn set_account_data(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save account data: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to save account data: {e}")))?;
 
     Ok(Json(json!({})))
 }
@@ -178,7 +178,7 @@ async fn get_account_data(
             .bind(&data_type)
             .fetch_optional(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match result {
         Some(row) => Ok(Json(
@@ -223,7 +223,7 @@ async fn set_room_account_data(
     }
 
     let body_str = serde_json::to_string(&body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > 65536 {
         return Err(ApiError::bad_request(
             "Account data too large (max 64KB)".to_string(),
@@ -246,7 +246,7 @@ async fn set_room_account_data(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save room account data: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to save room account data: {e}")))?;
 
     Ok(Json(json!({})))
 }
@@ -270,7 +270,7 @@ async fn get_room_account_data(
     .bind(&data_type)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match result {
         Some(row) => Ok(Json(
@@ -309,7 +309,7 @@ async fn create_filter(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save filter: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to save filter: {e}")))?;
 
     Ok(Json(json!({
         "filter_id": filter_id
@@ -332,7 +332,7 @@ async fn get_filter(
         .bind(&user_id)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match result {
         Some(row) => Ok(Json(
@@ -358,7 +358,7 @@ async fn delete_account_data(
         .bind(&data_type)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete account data: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete account data: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Account data not found".to_string()));
@@ -386,7 +386,7 @@ async fn delete_room_account_data(
     .bind(&data_type)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to delete room account data: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to delete room account data: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found(
@@ -413,7 +413,7 @@ async fn delete_filter(
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete filter: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete filter: {e}")))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Filter not found".to_string()));
@@ -449,7 +449,7 @@ async fn get_openid_token(
     .bind(now + (expires_in * 1000))
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to create OpenID token: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to create OpenID token: {e}")))?;
 
     Ok(Json(json!({
         "access_token": token,

@@ -15,15 +15,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "Unknown panic".to_string()
         };
-        eprintln!("PANIC at {}: {}", location, message);
+        eprintln!("PANIC at {location}: {message}");
         eprintln!("Backtrace: {:?}", std::backtrace::Backtrace::capture());
     }));
 
     // 1. 预加载配置
-    let config = match Config::load().await {
+    let config = match Config::load() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Failed to load configuration: {}", e);
+            eprintln!("Failed to load configuration: {e}");
             std::process::exit(1);
         }
     };
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tracer_provider = match telemetry_service.initialize() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("Failed to initialize telemetry: {}", e);
+            eprintln!("Failed to initialize telemetry: {e}");
             None
         }
     };
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(telemetry_service.clone()),
         tracer_provider,
     ) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
         std::process::exit(1);
     }
 
