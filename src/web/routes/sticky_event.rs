@@ -54,7 +54,7 @@ pub async fn get_sticky_events(
             .sticky_event_storage
             .get_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get sticky event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get sticky event: {e}")))?;
 
         match sticky_event {
             Some(event) => Ok(Json(serde_json::json!({
@@ -76,7 +76,7 @@ pub async fn get_sticky_events(
             .sticky_event_storage
             .get_all_sticky_events(&room_id, &auth_user.user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get sticky events: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get sticky events: {e}")))?;
 
         let events: Vec<Value> = sticky_events
             .into_iter()
@@ -129,7 +129,7 @@ pub async fn set_sticky_events(
             .event_storage
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load sticky event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to load sticky event: {e}")))?;
         let Some(stored_event) =
             stored_event.filter(|stored_event| stored_event.room_id == room_id)
         else {
@@ -148,7 +148,7 @@ pub async fn set_sticky_events(
                 true,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to set sticky event: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to set sticky event: {e}")))?;
     }
 
     Ok(empty_json())
@@ -169,7 +169,7 @@ pub async fn clear_sticky_event(
         .sticky_event_storage
         .clear_sticky_event(&room_id, &auth_user.user_id, &event_type)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to clear sticky event: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to clear sticky event: {e}")))?;
 
     Ok(empty_json())
 }

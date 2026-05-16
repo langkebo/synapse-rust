@@ -277,7 +277,7 @@ impl Database {
 /// # 返回值
 ///
 /// 成功时返回 `Ok(())`，失败时返回 `Err(sqlx::Error)`
-pub async fn initialize_database(_pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
+pub fn initialize_database(_pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     tracing::info!("Database initialization completed");
     Ok(())
 }

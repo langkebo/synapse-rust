@@ -177,7 +177,7 @@ pub async fn admin_auth_middleware(
                 .admin_audit_service
                 .create_event(CreateAuditEventRequest {
                     actor_id,
-                    action: format!("{} {}", method, path),
+                    action: format!("{method} {path}"),
                     resource_type: "admin_api".to_string(),
                     resource_id: path.clone(),
                     result: "failure".to_string(),
@@ -216,7 +216,7 @@ pub async fn admin_auth_middleware(
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: admin.user_id.clone(),
-            action: format!("{} {}", method, path),
+            action: format!("{method} {path}"),
             resource_type: "admin_api".to_string(),
             resource_id: path.clone(),
             result: result.to_string(),

@@ -53,8 +53,7 @@ async fn test_telemetry_metrics_alerts_and_ack() {
             "observability",
             "manual alert for integration test",
             json!({ "source": "integration_test" }),
-        )
-        .await;
+        );
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/metrics")

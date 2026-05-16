@@ -135,7 +135,7 @@ fn generate_nonce() -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(64);
     for byte in bytes {
-        let _ = write!(&mut s, "{:02x}", byte);
+        let _ = write!(&mut s, "{byte:02x}");
     }
     s
 }
@@ -144,6 +144,7 @@ fn generate_nonce() -> String {
 ///
 /// 使用 `Mac::verify_slice` 进行常量时间比较，避免基于 hex 字符串
 /// 的逐字节比较带来的额外分配与潜在的时序信号。
+#[allow(clippy::expect_used)]
 fn verify_mac(
     shared_secret: &str,
     nonce: &str,
@@ -158,7 +159,7 @@ fn verify_mac(
     };
 
     let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
-        .expect("HMAC accepts keys of any size");
+        .expect("HMAC-SHA256 accepts keys of any size");
     mac.update(nonce.as_bytes());
     mac.update(b"\x00");
     mac.update(username.as_bytes());
@@ -230,7 +231,7 @@ fn is_local_registration_host(value: &str) -> bool {
     let candidate = if candidate.contains("://") {
         candidate.to_string()
     } else {
-        format!("http://{}", candidate)
+        format!("http://{candidate}")
     };
 
     let Ok(url) = Url::parse(&candidate) else {
@@ -535,7 +536,7 @@ async fn register(
         return Err(register_error_response(
             400,
             "M_INVALID_PARAM",
-            format!("Validation error: {}", e),
+            format!("Validation error: {e}"),
         ));
     }
 
@@ -638,7 +639,7 @@ async fn register(
                         register_error_response(
                             500,
                             "M_UNKNOWN",
-                            format!("Failed to persist user_type: {}", e),
+                            format!("Failed to persist user_type: {e}"),
                         )
                     })?;
             }
@@ -671,7 +672,7 @@ async fn register(
                 Err(register_error_response(
                     500,
                     "M_UNKNOWN",
-                    format!("Failed to create user: {}", error_msg),
+                    format!("Failed to create user: {error_msg}"),
                 ))
             }
         }

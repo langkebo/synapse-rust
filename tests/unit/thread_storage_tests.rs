@@ -19,8 +19,7 @@ mod thread_storage_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping thread storage tests because test database is unavailable: {}",
-                    error
+                    "Skipping thread storage tests because test database is unavailable: {error}"
                 );
                 None
             }

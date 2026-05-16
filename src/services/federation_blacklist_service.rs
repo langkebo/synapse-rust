@@ -148,15 +148,14 @@ impl FederationBlacklistService {
 
         let default_action = self
             .storage
-            .get_config("default_action")
-            .await?
+            .get_config("default_action")?
             .unwrap_or_else(|| "allow".to_string());
 
         Ok(CheckResult {
             is_blocked: default_action == "block",
             is_whitelisted: false,
             is_quarantined: default_action == "quarantine",
-            reason: Some(format!("Default action: {}", default_action)),
+            reason: Some(format!("Default action: {default_action}")),
             matched_rule: Some("default".to_string()),
         })
     }
@@ -169,13 +168,13 @@ impl FederationBlacklistService {
             "domain" => Ok(server_name == rule.pattern),
             "regex" => {
                 let re = Regex::new(&rule.pattern)
-                    .map_err(|e| ApiError::internal(format!("Invalid regex pattern: {}", e)))?;
+                    .map_err(|e| ApiError::internal(format!("Invalid regex pattern: {e}")))?;
                 Ok(re.is_match(server_name))
             }
             "wildcard" => {
                 let pattern = rule.pattern.replace('*', ".*");
-                let re = Regex::new(&format!("^{}$", pattern))
-                    .map_err(|e| ApiError::internal(format!("Invalid wildcard pattern: {}", e)))?;
+                let re = Regex::new(&format!("^{pattern}$"))
+                    .map_err(|e| ApiError::internal(format!("Invalid wildcard pattern: {e}")))?;
                 Ok(re.is_match(server_name))
             }
             "cidr" => Ok(false),
@@ -208,8 +207,7 @@ impl FederationBlacklistService {
     async fn check_auto_blacklist(&self, server_name: &str) -> Result<(), ApiError> {
         let auto_blacklist_enabled = self
             .storage
-            .get_config_as_bool("enable_auto_blacklist", true)
-            .await?;
+            .get_config_as_bool("enable_auto_blacklist", true)?;
 
         if !auto_blacklist_enabled {
             return Ok(());
@@ -217,12 +215,10 @@ impl FederationBlacklistService {
 
         let threshold = self
             .storage
-            .get_config_as_int("auto_blacklist_threshold", 10)
-            .await?;
+            .get_config_as_int("auto_blacklist_threshold", 10)?;
         let window_minutes = self
             .storage
-            .get_config_as_int("auto_blacklist_window_minutes", 60)
-            .await?;
+            .get_config_as_int("auto_blacklist_window_minutes", 60)?;
 
         let stats = self.storage.get_access_stats(server_name).await?;
 

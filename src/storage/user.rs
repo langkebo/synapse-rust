@@ -359,7 +359,7 @@ impl UserStorage {
             .await?;
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
-            let key = format!("user:profile:{}", user_id);
+            let key = format!("user:profile:{user_id}");
             let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
         }
 
@@ -378,7 +378,7 @@ impl UserStorage {
             .await?;
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
-            let key = format!("user:profile:{}", user_id);
+            let key = format!("user:profile:{user_id}");
             let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
         }
 
@@ -538,7 +538,7 @@ impl UserStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<UserProfile>, sqlx::Error> {
-        let key = format!("user:profile:{}", user_id);
+        let key = format!("user:profile:{user_id}");
 
         if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
             return Ok(Some(profile));

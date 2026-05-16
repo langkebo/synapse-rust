@@ -138,7 +138,7 @@ impl FriendRoomStorage {
         room_id: &str,
         request_type: &str,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let event_type = format!("m.friend_requests.{}", request_type);
+        let event_type = format!("m.friend_requests.{request_type}");
 
         let row = sqlx::query(
             r#"

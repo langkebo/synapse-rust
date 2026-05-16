@@ -149,8 +149,7 @@ impl DeviceKeyStorage {
             Err(e) => {
                 tracing::error!("Failed to create/update device key: {}", e);
                 Err(ApiError::internal(format!(
-                    "Failed to save device key: {}",
-                    e
+                    "Failed to save device key: {e}"
                 )))
             }
         }
@@ -198,8 +197,7 @@ impl DeviceKeyStorage {
             Err(e) => {
                 tracing::error!("Failed to create/update fallback key: {}", e);
                 Err(ApiError::internal(format!(
-                    "Failed to save fallback key: {}",
-                    e
+                    "Failed to save fallback key: {e}"
                 )))
             }
         }
@@ -220,7 +218,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete fallback keys: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete fallback keys: {e}")))?;
 
         Ok(())
     }
@@ -241,7 +239,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows
             .iter()
@@ -329,7 +327,7 @@ impl DeviceKeyStorage {
         .bind(device_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
     }
@@ -346,7 +344,7 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
     }
@@ -383,7 +381,7 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(count)
     }
@@ -442,7 +440,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         let mut counts = std::collections::HashMap::new();
         for row in rows {
@@ -471,7 +469,7 @@ impl DeviceKeyStorage {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {e}")))?;
 
         let row = sqlx::query(
             r#"
@@ -491,7 +489,7 @@ impl DeviceKeyStorage {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to claim one-time key: {}", e))
+            ApiError::internal(format!("Failed to claim one-time key: {e}"))
         })?;
 
         if let Some(r) = &row {
@@ -505,7 +503,7 @@ impl DeviceKeyStorage {
             }
             tx.commit()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {e}")))?;
             return Ok(row.as_ref().map(Self::parse_key_data));
         }
 
@@ -522,7 +520,7 @@ impl DeviceKeyStorage {
         .bind(algorithm)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to query fallback key: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to query fallback key: {e}")))?;
 
         if fallback_row.is_some() {
             tracing::warn!(
@@ -534,7 +532,7 @@ impl DeviceKeyStorage {
 
         tx.commit()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {e}")))?;
 
         Ok(fallback_row.as_ref().map(Self::parse_key_data))
     }
@@ -577,7 +575,7 @@ impl DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get key changes: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get key changes: {e}")))?;
 
         let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
 
@@ -599,7 +597,7 @@ impl DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {e}")))?;
 
         let left: Vec<String> = left_rows.iter().map(|row| row.get("user_id")).collect();
 
@@ -874,10 +872,10 @@ mod tests {
             let key = DeviceKey {
                 id: idx as i64 + 100,
                 user_id: "@test:example.com".to_string(),
-                device_id: format!("DEVICE_{}", idx),
+                device_id: format!("DEVICE_{idx}"),
                 display_name: None,
                 algorithm: algo.to_string(),
-                key_id: format!("KEY_{}", idx),
+                key_id: format!("KEY_{idx}"),
                 public_key: "test_key".to_string(),
                 signatures: json!({}),
                 created_ts: chrono::Utc::now(),
@@ -902,7 +900,7 @@ mod tests {
     #[test]
     fn test_device_key_debug_output() {
         let key = create_test_device_key();
-        let debug_str = format!("{:?}", key);
+        let debug_str = format!("{key:?}");
 
         assert!(debug_str.contains("DeviceKey"));
         assert!(debug_str.contains("@alice:example.com"));

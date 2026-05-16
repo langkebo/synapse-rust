@@ -657,7 +657,7 @@ impl ApiError {
                 tracing::error!("Database error: {}", msg);
                 "A database error occurred".to_string()
             }
-            ApiError::Cache(msg) => format!("Cache error: {}", msg),
+            ApiError::Cache(msg) => format!("Cache error: {msg}"),
             ApiError::Authentication(msg) => msg.clone(),
             ApiError::Validation(msg) => msg.clone(),
             ApiError::InvalidInput(msg) => msg.clone(),
@@ -747,20 +747,20 @@ impl ErrorContext for ApiError {
     fn with_context(self, module: &str, operation: &str) -> Self {
         match self {
             ApiError::Internal(msg) => {
-                ApiError::Internal(format!("[{}::{}] {}", module, operation, msg))
+                ApiError::Internal(format!("[{module}::{operation}] {msg}"))
             }
             ApiError::Database(msg) => {
-                ApiError::Database(format!("[{}::{}] {}", module, operation, msg))
+                ApiError::Database(format!("[{module}::{operation}] {msg}"))
             }
-            ApiError::Cache(msg) => ApiError::Cache(format!("[{}::{}] {}", module, operation, msg)),
+            ApiError::Cache(msg) => ApiError::Cache(format!("[{module}::{operation}] {msg}")),
             ApiError::Authentication(msg) => {
-                ApiError::Authentication(format!("[{}::{}] {}", module, operation, msg))
+                ApiError::Authentication(format!("[{module}::{operation}] {msg}"))
             }
             ApiError::Validation(msg) => {
-                ApiError::Validation(format!("[{}::{}] {}", module, operation, msg))
+                ApiError::Validation(format!("[{module}::{operation}] {msg}"))
             }
             ApiError::Crypto(msg) => {
-                ApiError::Crypto(format!("[{}::{}] {}", module, operation, msg))
+                ApiError::Crypto(format!("[{module}::{operation}] {msg}"))
             }
             _ => self,
         }
@@ -875,13 +875,13 @@ macro_rules! ensure_unauthorized {
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        let error_msg = format!("{:?}", err).to_lowercase();
+        let error_msg = format!("{err:?}").to_lowercase();
         if error_msg.contains("duplicate key")
             || error_msg.contains("unique constraint")
             || error_msg.contains("23505")
             || error_msg.contains("violates unique constraint")
         {
-            ApiError::BadRequest(format!("Duplicate entry: {}", err))
+            ApiError::BadRequest(format!("Duplicate entry: {err}"))
         } else {
             ApiError::Database(err.to_string())
         }
@@ -926,7 +926,7 @@ impl From<std::io::Error> for ApiError {
 
 impl From<ed25519_dalek::ed25519::Error> for ApiError {
     fn from(err: ed25519_dalek::ed25519::Error) -> Self {
-        ApiError::Crypto(format!("Ed25519 error: {}", err))
+        ApiError::Crypto(format!("Ed25519 error: {err}"))
     }
 }
 
@@ -1263,7 +1263,7 @@ mod tests {
         ];
 
         for error in errors {
-            let _ = format!("{:?}", error);
+            let _ = format!("{error:?}");
             let _ = error.code();
             let _ = error.message();
             let _ = error.http_status();
@@ -1598,7 +1598,7 @@ mod tests {
                 "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => {
                     MatrixErrorCode::CannotLeaveServerNoticeRoom.as_str()
                 }
-                _ => panic!("Unexpected error code: {}", expected_code),
+                _ => panic!("Unexpected error code: {expected_code}"),
             };
             assert_eq!(found, expected_code);
         }

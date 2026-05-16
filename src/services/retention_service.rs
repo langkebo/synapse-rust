@@ -162,7 +162,7 @@ impl RetentionService {
             .storage
             .get_room_policy(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get room policy: {e}")))?;
 
         Ok(policy)
     }
@@ -176,7 +176,7 @@ impl RetentionService {
             .storage
             .get_effective_policy(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get effective policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get effective policy: {e}")))?;
 
         Ok(policy)
     }
@@ -198,7 +198,7 @@ impl RetentionService {
             .storage
             .create_room_policy(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create room policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create room policy: {e}")))?;
 
         Ok(policy)
     }
@@ -213,7 +213,7 @@ impl RetentionService {
             .storage
             .update_room_policy(room_id, request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update room policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update room policy: {e}")))?;
 
         Ok(policy)
     }
@@ -225,7 +225,7 @@ impl RetentionService {
         self.storage
             .delete_room_policy(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete room policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to delete room policy: {e}")))?;
 
         Ok(())
     }
@@ -236,7 +236,7 @@ impl RetentionService {
             .storage
             .get_server_policy()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get server policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get server policy: {e}")))?;
 
         Ok(policy)
     }
@@ -252,7 +252,7 @@ impl RetentionService {
             .storage
             .update_server_policy(request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update server policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to update server policy: {e}")))?;
 
         Ok(policy)
     }
@@ -265,7 +265,7 @@ impl RetentionService {
             .storage
             .get_effective_policy(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get policy: {e}")))?;
 
         let max_lifetime = policy
             .max_lifetime
@@ -295,7 +295,7 @@ impl RetentionService {
                 })
             }
             Err(e) => {
-                let error_msg = format!("Failed to delete events: {}", e);
+                let error_msg = format!("Failed to delete events: {e}");
                 error!(room_id = room_id, error = %e, "Retention cleanup failed");
                 Err(ApiError::internal(error_msg))
             }
@@ -343,7 +343,7 @@ impl RetentionService {
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, ApiError> {
         let policies =
             self.storage.get_rooms_with_policies().await.map_err(|e| {
-                ApiError::internal(format!("Failed to get rooms with policies: {}", e))
+                ApiError::internal(format!("Failed to get rooms with policies: {e}"))
             })?;
 
         Ok(policies)
@@ -364,7 +364,7 @@ impl RetentionService {
             .storage
             .get_effective_policy(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get policy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get policy: {e}")))?;
 
         if let Some(max_lifetime) = policy.max_lifetime {
             let cutoff_ts = chrono::Utc::now().timestamp_millis() - max_lifetime;
@@ -381,7 +381,7 @@ impl RetentionService {
             .storage
             .get_rooms_with_policies()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get policies: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get policies: {e}")))?;
 
         let mut total_cleaned = 0;
 
@@ -515,7 +515,6 @@ impl RetentionService {
 
         match self
             .prune_finished_cleanup_queue(config.queue_retention_days, started_ts)
-            .await
         {
             Ok(count) => {
                 summary.cleanup_queue_rows_pruned = count;
@@ -565,10 +564,10 @@ impl RetentionService {
         self.audit_storage
             .delete_events_before(cutoff_ts)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup audit events: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup audit events: {e}")))
     }
 
-    async fn prune_finished_cleanup_queue(
+    fn prune_finished_cleanup_queue(
         &self,
         _retention_days: u64,
         _now_ts: i64,

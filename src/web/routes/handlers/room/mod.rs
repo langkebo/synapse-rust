@@ -49,7 +49,7 @@ pub(crate) fn normalize_room_event_type(event_type: &str) -> String {
     if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.to_string()
     } else {
-        format!("m.room.{}", event_type)
+        format!("m.room.{event_type}")
     }
 }
 

@@ -22,8 +22,7 @@ mod invite_blocklist_suite {
             Ok(pool) => Some(pool),
             Err(error) => {
                 eprintln!(
-                    "Skipping invite blocklist tests because test database is unavailable: {}",
-                    error
+                    "Skipping invite blocklist tests because test database is unavailable: {error}"
                 );
                 None
             }

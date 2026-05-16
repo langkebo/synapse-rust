@@ -68,7 +68,7 @@ impl StreamingResponse {
         headers.insert(header::CONTENT_LENGTH, content_length);
 
         if let Some(name) = filename {
-            let disposition = format!("attachment; filename=\"{}\"", name)
+            let disposition = format!("attachment; filename=\"{name}\"")
                 .parse()
                 .map_err(|_| {
                     StreamingError::HeaderParseError("Invalid content-disposition".to_string())
@@ -107,11 +107,11 @@ impl StreamingResponse {
     pub fn sse(event_name: String, data: String, id: Option<u64>) -> Result<Self, StreamingError> {
         let mut sse_data = String::new();
         if let Some(event_id) = id {
-            sse_data.push_str(&format!("id: {}\n", event_id));
+            sse_data.push_str(&format!("id: {event_id}\n"));
         }
-        sse_data.push_str(&format!("event: {}\n", event_name));
+        sse_data.push_str(&format!("event: {event_name}\n"));
         for line in data.lines() {
-            sse_data.push_str(&format!("data: {}\n", line));
+            sse_data.push_str(&format!("data: {line}\n"));
         }
         sse_data.push('\n');
 

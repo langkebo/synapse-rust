@@ -58,7 +58,7 @@ async fn validate_federation_origin_in_room(
         .member_storage
         .get_room_members(room_id, "join")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room members: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load room members: {e}")))?;
 
     if joined_members
         .iter()
@@ -82,7 +82,7 @@ async fn validate_federation_origin_can_observe_room(
         .member_storage
         .get_room_members(room_id, "join")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room members: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load room members: {e}")))?;
 
     if joined_members
         .iter()
@@ -104,7 +104,7 @@ async fn validate_federation_origin_shares_user_room(
         .room_storage
         .get_user_rooms(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load user rooms: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load user rooms: {e}")))?;
 
     if joined_room_ids.is_empty() {
         return Err(ApiError::forbidden(
@@ -122,7 +122,7 @@ async fn validate_federation_origin_shares_user_room(
             .member_storage
             .get_room_members(&room_id, "join")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load room members: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to load room members: {e}")))?;
 
         if joined_members
             .iter()
@@ -258,7 +258,7 @@ async fn openid_userinfo(
         .user_exists(&token.user_id)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to validate OpenID token subject: {}", e))
+            ApiError::internal(format!("Failed to validate OpenID token subject: {e}"))
         })?;
     if !user_exists {
         return Err(ApiError::unauthorized(

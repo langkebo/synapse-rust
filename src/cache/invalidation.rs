@@ -47,13 +47,13 @@ impl CacheInvalidationMessage {
 
     pub fn encode(&self) -> Result<Vec<u8>, ApiError> {
         serde_json::to_vec(self).map_err(|e| {
-            ApiError::internal(format!("Failed to encode invalidation message: {}", e))
+            ApiError::internal(format!("Failed to encode invalidation message: {e}"))
         })
     }
 
     pub fn decode(data: &[u8]) -> Result<Self, ApiError> {
         serde_json::from_slice(data).map_err(|e| {
-            ApiError::internal(format!("Failed to decode invalidation message: {}", e))
+            ApiError::internal(format!("Failed to decode invalidation message: {e}"))
         })
     }
 }
@@ -119,11 +119,11 @@ impl CacheInvalidationBroadcaster {
 
         let mut conn =
             self.pool.get().await.map_err(|e| {
-                ApiError::internal(format!("Failed to get Redis connection: {}", e))
+                ApiError::internal(format!("Failed to get Redis connection: {e}"))
             })?;
 
         let _: () = conn.publish(channel, encoded).await.map_err(|e| {
-            ApiError::internal(format!("Failed to publish invalidation message: {}", e))
+            ApiError::internal(format!("Failed to publish invalidation message: {e}"))
         })?;
 
         debug!(
@@ -176,7 +176,7 @@ impl std::fmt::Debug for CacheInvalidationSubscriber {
 impl CacheInvalidationSubscriber {
     pub fn new(redis_url: &str, config: CacheInvalidationConfig) -> Result<Self, ApiError> {
         let client = Client::open(redis_url)
-            .map_err(|e| ApiError::internal(format!("Failed to create Redis client: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to create Redis client: {e}")))?;
         let (sender, _) = broadcast::channel(1024);
         Ok(Self {
             client,
@@ -238,14 +238,14 @@ impl CacheInvalidationSubscriber {
         let mut pubsub = client
             .get_async_pubsub()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get async pubsub: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get async pubsub: {e}")))?;
 
         info!("Subscribed to cache invalidation channel: {}", channel);
 
         pubsub
             .subscribe(channel)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to subscribe to channel: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to subscribe to channel: {e}")))?;
 
         let mut message_stream = pubsub.on_message();
         let instance_id_owned = instance_id.to_string();
@@ -255,7 +255,7 @@ impl CacheInvalidationSubscriber {
             match message_stream.next().await {
                 Some(msg) => {
                     let payload: Vec<u8> = msg.get_payload().map_err(|e| {
-                        ApiError::internal(format!("Failed to get message payload: {}", e))
+                        ApiError::internal(format!("Failed to get message payload: {e}"))
                     })?;
 
                     match CacheInvalidationMessage::decode(&payload) {

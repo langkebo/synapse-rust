@@ -126,7 +126,7 @@ impl OidcService {
             .send()
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to fetch discovery document: {}", e))
+                ApiError::internal(format!("Failed to fetch discovery document: {e}"))
             })?;
 
         if !response.status().is_success() {
@@ -137,7 +137,7 @@ impl OidcService {
         }
 
         let discovery: OidcDiscoveryDocument = response.json().await.map_err(|e| {
-            ApiError::internal(format!("Failed to parse discovery document: {}", e))
+            ApiError::internal(format!("Failed to parse discovery document: {e}"))
         })?;
 
         {
@@ -169,7 +169,7 @@ impl OidcService {
         let auth_url = auth_endpoint.unwrap_or(default_auth);
 
         let mut url = url::Url::parse(&auth_url).map_err(|e| {
-            ApiError::internal(format!("Invalid OIDC authorization endpoint: {}", e))
+            ApiError::internal(format!("Invalid OIDC authorization endpoint: {e}"))
         })?;
         {
             let mut query = url.query_pairs_mut();
@@ -268,20 +268,19 @@ impl OidcService {
         let response = request
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Token exchange failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Token exchange failed: {e}")))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(ApiError::internal(format!(
-                "Token exchange failed: {}",
-                body
+                "Token exchange failed: {body}"
             )));
         }
 
         let token_response: OidcTokenResponse = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {e}")))?;
 
         if let Some(ref id_token) = token_response.id_token {
             if let Err(e) = self.validate_id_token(id_token).await {
@@ -322,7 +321,7 @@ impl OidcService {
             .get(&jwks_uri)
             .send()
             .await
-            .map_err(|e| format!("Failed to fetch JWKS: {}", e))?;
+            .map_err(|e| format!("Failed to fetch JWKS: {e}"))?;
 
         if !response.status().is_success() {
             return Err(format!("JWKS request failed: {}", response.status()));
@@ -331,7 +330,7 @@ impl OidcService {
         let jwks: OidcJwks = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse JWKS: {}", e))?;
+            .map_err(|e| format!("Failed to parse JWKS: {e}"))?;
 
         {
             let mut write = self.jwks.write().await;
@@ -343,10 +342,10 @@ impl OidcService {
     async fn validate_id_token(&self, id_token: &str) -> Result<(), String> {
         let header_bytes = URL_SAFE_NO_PAD
             .decode(id_token.split('.').next().unwrap_or(""))
-            .map_err(|e| format!("Invalid ID token header base64: {}", e))?;
+            .map_err(|e| format!("Invalid ID token header base64: {e}"))?;
 
         let header: serde_json::Value = serde_json::from_slice(&header_bytes)
-            .map_err(|e| format!("Invalid ID token header JSON: {}", e))?;
+            .map_err(|e| format!("Invalid ID token header JSON: {e}"))?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
         let alg_str = header
@@ -364,7 +363,7 @@ impl OidcService {
             "HS384" => Algorithm::HS384,
             "HS512" => Algorithm::HS512,
             "EdDSA" => Algorithm::EdDSA,
-            _ => return Err(format!("Unsupported ID token algorithm: {}", alg_str)),
+            _ => return Err(format!("Unsupported ID token algorithm: {alg_str}")),
         };
 
         match self.fetch_jwks().await {
@@ -381,19 +380,19 @@ impl OidcService {
                     let decoding_key = if key.kty == "RSA" {
                         match (&key.n, &key.e) {
                             (Some(n), Some(e)) => DecodingKey::from_rsa_components(n, e)
-                                .map_err(|e| format!("Invalid RSA key: {}", e))?,
+                                .map_err(|e| format!("Invalid RSA key: {e}"))?,
                             _ => return Err("RSA key missing n/e components".to_string()),
                         }
                     } else if key.kty == "EC" {
                         match (&key.crv, &key.x, &key.y) {
                             (Some(_), Some(x), Some(y)) => DecodingKey::from_ec_components(x, y)
-                                .map_err(|e| format!("Invalid EC key: {}", e))?,
+                                .map_err(|e| format!("Invalid EC key: {e}"))?,
                             _ => return Err("EC key missing crv/x/y components".to_string()),
                         }
                     } else if key.kty == "OKP" {
                         match (&key.crv, &key.x) {
                             (Some(_), Some(x)) => DecodingKey::from_ed_components(x)
-                                .map_err(|e| format!("Invalid EdDSA key: {}", e))?,
+                                .map_err(|e| format!("Invalid EdDSA key: {e}"))?,
                             _ => return Err("OKP key missing crv/x components".to_string()),
                         }
                     } else {
@@ -407,7 +406,7 @@ impl OidcService {
                     validation.validate_nbf = false;
 
                     decode::<serde_json::Value>(id_token, &decoding_key, &validation)
-                        .map_err(|e| format!("JWT signature verification failed: {}", e))?;
+                        .map_err(|e| format!("JWT signature verification failed: {e}"))?;
 
                     debug!(
                         "OIDC ID token JWT signature verified successfully (kid={:?})",
@@ -438,10 +437,10 @@ impl OidcService {
 
         let payload_bytes = URL_SAFE_NO_PAD
             .decode(parts[1])
-            .map_err(|e| format!("Invalid ID token payload base64: {}", e))?;
+            .map_err(|e| format!("Invalid ID token payload base64: {e}"))?;
 
         let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
-            .map_err(|e| format!("Invalid ID token payload JSON: {}", e))?;
+            .map_err(|e| format!("Invalid ID token payload JSON: {e}"))?;
 
         let token_issuer = payload
             .get("iss")
@@ -480,7 +479,7 @@ impl OidcService {
         let expires_at = payload.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
 
         if expires_at < now {
-            return Err(format!("ID token expired: exp={} now={}", expires_at, now));
+            return Err(format!("ID token expired: exp={expires_at} now={now}"));
         }
 
         let azp = payload.get("azp").and_then(|v| v.as_str());
@@ -523,20 +522,19 @@ impl OidcService {
         let response = request
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Token refresh failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Token refresh failed: {e}")))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(ApiError::internal(format!(
-                "Token refresh failed: {}",
-                body
+                "Token refresh failed: {body}"
             )));
         }
 
         response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to parse token response: {e}")))
     }
 
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
@@ -557,7 +555,7 @@ impl OidcService {
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("UserInfo request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("UserInfo request failed: {e}")))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -569,7 +567,7 @@ impl OidcService {
         response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse UserInfo: {}", e)))
+            .map_err(|e| ApiError::internal(format!("Failed to parse UserInfo: {e}")))
     }
 
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {

@@ -113,7 +113,7 @@ impl AdminRegistrationService {
         };
 
         let now = Utc::now().timestamp();
-        let key = format!("admin:register:nonce:{}", nonce);
+        let key = format!("admin:register:nonce:{nonce}");
         let _ = self
             .cache
             .set(&key, &now, self.config.nonce_timeout_seconds)
@@ -188,7 +188,7 @@ impl AdminRegistrationService {
     }
 
     async fn validate_and_consume_nonce(&self, nonce: &str) -> ApiResult<()> {
-        let key = format!("admin:register:nonce:{}", nonce);
+        let key = format!("admin:register:nonce:{nonce}");
         let existing = self.cache.get::<i64>(&key).await?;
         if existing.is_none() {
             return Err(ApiError::bad_request("Unrecognised nonce".to_string()));

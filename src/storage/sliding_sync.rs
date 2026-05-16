@@ -280,7 +280,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
@@ -312,7 +312,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncToken>, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncToken>(
             r#"
             SELECT * FROM sliding_sync_tokens 
@@ -333,7 +333,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         pos: &str,
     ) -> Result<bool, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let result: Option<(bool,)> = sqlx::query_as(
             r#"
             SELECT (pos = $4) FROM sliding_sync_tokens 
@@ -362,7 +362,7 @@ impl SlidingSyncStorage {
         room_subscription: Option<&serde_json::Value>,
         ranges: &[(u32, u32)],
     ) -> Result<SlidingSyncList, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
         let filters_json =
@@ -402,7 +402,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Vec<SlidingSyncList>, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncList>(
             r#"
             SELECT * FROM sliding_sync_lists 
@@ -424,7 +424,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         list_key: &str,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query(
             r#"
             DELETE FROM sliding_sync_lists 
@@ -460,7 +460,7 @@ impl SlidingSyncStorage {
         avatar: Option<&str>,
         timestamp: i64,
     ) -> Result<SlidingSyncRoom, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, SlidingSyncRoom>(
@@ -518,7 +518,7 @@ impl SlidingSyncStorage {
             end,
             filters,
         } = query_params;
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT * FROM sliding_sync_rooms
@@ -555,7 +555,7 @@ impl SlidingSyncStorage {
         list_key: &str,
         filters: Option<&SlidingSyncFilters>,
     ) -> Result<i64, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT COUNT(*) FROM sliding_sync_rooms
@@ -583,7 +583,7 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r#"
             SELECT * FROM sliding_sync_rooms 
@@ -605,7 +605,7 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
 
         let is_member = sqlx::query_scalar::<_, bool>(
             r#"
@@ -707,7 +707,7 @@ impl SlidingSyncStorage {
 
         if let Some(room_name_like) = filters.room_name_like.as_deref() {
             query.push(" AND COALESCE(name, '') ILIKE ");
-            query.push_bind(format!("%{}%", room_name_like));
+            query.push_bind(format!("%{room_name_like}%"));
         }
     }
 
@@ -718,7 +718,7 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query(
             r#"
             DELETE FROM sliding_sync_rooms 
@@ -744,7 +744,7 @@ impl SlidingSyncStorage {
         highlight_count: i32,
         notification_count: i32,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -775,7 +775,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         bump_stamp: i64,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -798,7 +798,7 @@ impl SlidingSyncStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
@@ -820,7 +820,7 @@ impl SlidingSyncStorage {
         limit: i64,
         from: Option<&RoomTokenSyncCursor>,
     ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
         let fetch_limit = limit.saturating_add(1);
 
@@ -919,7 +919,7 @@ impl SlidingSyncStorage {
     }
 
     pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         sqlx::query_scalar("SELECT COUNT(*) FROM sliding_sync_rooms WHERE room_id = $1")
             .bind(room_id)
             .fetch_one(&*self.pool)
@@ -930,7 +930,7 @@ impl SlidingSyncStorage {
         &self,
         user_id: &str,
     ) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         let rows = sqlx::query(
             r#"
             SELECT data_type, content
@@ -956,7 +956,7 @@ impl SlidingSyncStorage {
         user_id: &str,
         room_ids: &[String],
     ) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));
         }
@@ -990,11 +990,12 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
+    #[allow(clippy::expect_used)]
     pub async fn get_receipts_for_rooms(
         &self,
         room_ids: &[String],
     ) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema().await?;
+        self.ensure_schema()?;
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));
         }
@@ -1019,26 +1020,23 @@ impl SlidingSyncStorage {
             let ts: i64 = sqlx::Row::get(&row, "ts");
             let data: serde_json::Value = sqlx::Row::get(&row, "data");
 
-            let room_entry = rooms_map
+            let room_obj = rooms_map
                 .entry(room_id)
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-            let room_obj = room_entry
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
                 .as_object_mut()
-                .expect("room entry must be object");
+                .expect("or_insert_with always inserts Value::Object");
 
-            let receipt_type_entry = room_obj
+            let receipt_type_obj = room_obj
                 .entry(receipt_type)
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-            let receipt_type_obj = receipt_type_entry
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
                 .as_object_mut()
-                .expect("receipt type entry must be object");
+                .expect("or_insert_with always inserts Value::Object");
 
-            let event_entry = receipt_type_obj
+            let event_obj = receipt_type_obj
                 .entry(event_id)
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-            let event_obj = event_entry
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
                 .as_object_mut()
-                .expect("event entry must be object");
+                .expect("or_insert_with always inserts Value::Object");
 
             event_obj.insert(
                 user_id,
@@ -1052,7 +1050,7 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
-    async fn ensure_schema(&self) -> Result<(), sqlx::Error> {
+    fn ensure_schema(&self) -> Result<(), sqlx::Error> {
         Ok(())
     }
 }

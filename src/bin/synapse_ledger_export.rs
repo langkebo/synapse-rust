@@ -52,7 +52,7 @@ fn parse_args(raw: &[String]) -> Result<CliArgs, String> {
                 *i += 1;
                 raw.get(*i)
                     .cloned()
-                    .ok_or_else(|| format!("missing value for {}", key))
+                    .ok_or_else(|| format!("missing value for {key}"))
             }
         };
         match key {
@@ -61,7 +61,7 @@ fn parse_args(raw: &[String]) -> Result<CliArgs, String> {
             "--output" | "-o" => output = Some(take_value(&mut i)?),
             "--commit" => commit = Some(take_value(&mut i)?),
             "--timestamp" => timestamp = Some(take_value(&mut i)?),
-            other => return Err(format!("unknown argument: {}", other)),
+            other => return Err(format!("unknown argument: {other}")),
         }
         i += 1;
     }
@@ -151,7 +151,7 @@ fn run(args: CliArgs) -> Result<(), String> {
     })?;
 
     for warning in missing_feature_warnings(&args.profile) {
-        eprintln!("warning: {}", warning);
+        eprintln!("warning: {warning}");
     }
 
     let generated_at = args
@@ -163,20 +163,20 @@ fn run(args: CliArgs) -> Result<(), String> {
 
     match args.output {
         Some(path) => std::fs::write(&path, rendered.as_bytes())
-            .map_err(|e| format!("failed to write {}: {}", path, e))?,
+            .map_err(|e| format!("failed to write {path}: {e}"))?,
         None => {
             let mut stdout = std::io::stdout().lock();
             if let Err(error) = stdout.write_all(rendered.as_bytes()) {
                 if is_broken_pipe(&error) {
                     return Ok(());
                 }
-                return Err(format!("failed to write stdout: {}", error));
+                return Err(format!("failed to write stdout: {error}"));
             }
             if let Err(error) = stdout.flush() {
                 if is_broken_pipe(&error) {
                     return Ok(());
                 }
-                return Err(format!("failed to flush stdout: {}", error));
+                return Err(format!("failed to flush stdout: {error}"));
             }
         }
     }
@@ -192,7 +192,7 @@ fn main() -> ExitCode {
     let args = match parse_args(&raw) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             eprintln!();
             print_help();
             return ExitCode::from(2);
@@ -201,7 +201,7 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }

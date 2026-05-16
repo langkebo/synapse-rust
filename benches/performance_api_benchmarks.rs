@@ -99,10 +99,9 @@ fn benchmark_user_directory_search(c: &mut Criterion) {
                 };
                 let _ = client
                     .post(format!(
-                        "{}/_matrix/client/r0/user_directory/search",
-                        base_url
+                        "{base_url}/_matrix/client/r0/user_directory/search"
                     ))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .header("Authorization", format!("Bearer {token}"))
                     .json(&serde_json::json!({
                         "search_term": "admin",
                         "limit": 10
@@ -127,10 +126,9 @@ fn benchmark_user_directory_search(c: &mut Criterion) {
                         tokio::spawn(async move {
                             client
                                 .post(format!(
-                                    "{}/_matrix/client/r0/user_directory/search",
-                                    base_url
+                                    "{base_url}/_matrix/client/r0/user_directory/search"
                                 ))
-                                .header("Authorization", format!("Bearer {}", token))
+                                .header("Authorization", format!("Bearer {token}"))
                                 .json(&serde_json::json!({
                                     "search_term": "test",
                                     "limit": 10
@@ -162,10 +160,9 @@ fn benchmark_room_operations(c: &mut Criterion) {
                 };
                 let _ = client
                     .get(format!(
-                        "{}/_matrix/client/r0/rooms/!test:localhost/state",
-                        base_url
+                        "{base_url}/_matrix/client/r0/rooms/!test:localhost/state"
                     ))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
             });
@@ -180,10 +177,9 @@ fn benchmark_room_operations(c: &mut Criterion) {
                 };
                 let _ = client
                     .get(format!(
-                        "{}/_matrix/client/r0/rooms/!test:localhost/members",
-                        base_url
+                        "{base_url}/_matrix/client/r0/rooms/!test:localhost/members"
                     ))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
             });
@@ -204,8 +200,8 @@ fn benchmark_sync_operations(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .get(format!("{}/_matrix/client/r0/sync?timeout=1000", base_url))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .get(format!("{base_url}/_matrix/client/r0/sync?timeout=1000"))
+                    .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
             });
@@ -219,8 +215,8 @@ fn benchmark_sync_operations(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .get(format!("{}/_matrix/client/r0/sync?timeout=100", base_url))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .get(format!("{base_url}/_matrix/client/r0/sync?timeout=100"))
+                    .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
             });
@@ -241,8 +237,8 @@ fn benchmark_auth_operations(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .get(format!("{}/_matrix/client/r0/account/whoami", base_url))
-                    .header("Authorization", format!("Bearer {}", token))
+                    .get(format!("{base_url}/_matrix/client/r0/account/whoami"))
+                    .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
             });

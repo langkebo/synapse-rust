@@ -255,7 +255,7 @@ async fn query_keys(
 ) -> Result<Json<Value>, ApiError> {
     let mut request: crate::e2ee::device_keys::KeyQueryRequest =
         serde_json::from_value(body.clone())
-            .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
+            .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
 
     let device_keys_raw = body
         .get("device_keys")
@@ -350,7 +350,7 @@ async fn claim_keys(
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
-        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {}", e)))?;
+        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
 
     let requested_users = request
         .one_time_keys
@@ -438,7 +438,7 @@ async fn key_changes(
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {e}")))?;
 
     let to = to.unwrap_or(max_stream_id);
 
@@ -458,7 +458,7 @@ async fn key_changes(
     .bind(&auth_user.user_id)
     .fetch_all(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get key changes: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get key changes: {e}")))?;
 
     let changed: Vec<String> = changed_rows
         .iter()
@@ -491,7 +491,7 @@ async fn key_changes(
     .bind(&auth_user.user_id)
     .fetch_all(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {e}")))?;
 
     let left: Vec<String> = left_rows
         .iter()
@@ -542,7 +542,7 @@ async fn device_list_update(
             .device_storage
             .get_users_devices_batch(&users)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get devices: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to get devices: {e}")))?;
 
         for user_id in &users {
             if let Some(devices) = devices_by_user.get(user_id) {
@@ -581,7 +581,7 @@ async fn device_list_update(
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {e}")))?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
@@ -600,7 +600,7 @@ async fn device_list_update(
     .bind(&users)
     .fetch_all(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {e}")))?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -631,7 +631,7 @@ async fn device_list_update(
         .bind(&device_id)
         .fetch_optional(&*state.services.device_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device data: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get device data: {e}")))?;
 
         if let Some((display_name, last_seen_ts)) = row {
             changed.push(json!({
@@ -650,7 +650,7 @@ async fn device_list_update(
         .device_storage
         .filter_existing_users(&users)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {e}")))?;
 
     let existing: HashSet<String> = existing_users.into_iter().collect();
     for user_id in &users {
@@ -804,7 +804,7 @@ async fn create_room_key_request(
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
     let body: CreateRoomKeyRequestBody = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid room key request: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
 
     let request = state
         .services

@@ -66,7 +66,7 @@ impl KeyBackupService {
             auth_key,
             mgmt_key,
             backup_data: auth_data.unwrap_or(serde_json::json!({})),
-            etag: Some(format!("{:x}", version_i64)),
+            etag: Some(format!("{version_i64:x}")),
         };
 
         self.storage.create_backup(&backup).await?;
@@ -94,8 +94,7 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| {
                 ApiError::not_found(format!(
-                    "Backup version '{}' not found for user '{}'",
-                    version, user_id
+                    "Backup version '{version}' not found for user '{user_id}'"
                 ))
             })?;
 
@@ -261,7 +260,7 @@ impl KeyBackupService {
         session_data: &serde_json::Value,
     ) -> Result<(), ApiError> {
         let backup = self.storage.get_backup(user_id).await?.ok_or_else(|| {
-            ApiError::not_found(format!("No backup found for user '{}'", user_id))
+            ApiError::not_found(format!("No backup found for user '{user_id}'"))
         })?;
 
         self.key_storage
@@ -869,7 +868,7 @@ mod tests {
             session_data: "data".to_string(),
         };
 
-        let debug_str = format!("{:?}", params);
+        let debug_str = format!("{params:?}");
         assert!(debug_str.contains("BackupKeyUploadParams"));
         assert!(debug_str.contains("@test:example.com"));
     }

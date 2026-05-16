@@ -401,7 +401,7 @@ impl FeatureFlagStorage {
     }
 
     fn flag_cache_key(flag_key: &str) -> String {
-        format!("feature_flag:{}", flag_key)
+        format!("feature_flag:{flag_key}")
     }
 
     fn flag_list_cache_key(filters: &FeatureFlagFilters) -> String {

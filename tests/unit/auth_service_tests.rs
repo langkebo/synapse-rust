@@ -25,8 +25,7 @@ async fn setup_test_database() -> Option<Arc<PgPool>> {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
-                "Skipping auth service tests because test database is unavailable: {}",
-                error
+                "Skipping auth service tests because test database is unavailable: {error}"
             );
             return None;
         }
@@ -64,7 +63,7 @@ fn test_auth_service_register_invalid_username() {
         let auth = AuthService::new(&pool, cache, metrics, &security, "localhost");
 
         let id = unique_id();
-        let invalid_username = format!("user@{}", id);
+        let invalid_username = format!("user@{id}");
         let result = auth
             .register(&invalid_username, "password", false, None)
             .await;
@@ -104,7 +103,7 @@ fn test_auth_service_login_invalid_credentials() {
         let auth = AuthService::new(&pool, cache, metrics, &security, "localhost");
 
         let id = unique_id();
-        let nonexistent = format!("non_existent_{}", id);
+        let nonexistent = format!("non_existent_{id}");
         let result = auth.login(&nonexistent, "password", None, None).await;
         assert!(result.is_err());
     });
@@ -139,9 +138,9 @@ fn test_password_migration_on_login() {
         let auth = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
 
         let id = unique_id();
-        let username = format!("migration_user_{}", id);
+        let username = format!("migration_user_{id}");
         let password = "test_password_for_migration";
-        let user_id = format!("@{}:localhost", username);
+        let user_id = format!("@{username}:localhost");
 
         let legacy_hash = create_legacy_hash(password);
 
@@ -214,9 +213,9 @@ fn test_password_migration_preserves_login_ability() {
         let auth = AuthService::new(&pool, cache, metrics, &security, "localhost");
 
         let id = unique_id();
-        let username = format!("preserve_user_{}", id);
+        let username = format!("preserve_user_{id}");
         let password = "password_to_preserve";
-        let user_id = format!("@{}:localhost", username);
+        let user_id = format!("@{username}:localhost");
 
         let legacy_hash = create_legacy_hash(password);
 
@@ -279,9 +278,9 @@ fn test_no_migration_for_argon2_hash() {
         );
 
         let id = unique_id();
-        let username = format!("argon2_user_{}", id);
+        let username = format!("argon2_user_{id}");
         let password = "Argon2_password123";
-        let user_id = format!("@{}:localhost", username);
+        let user_id = format!("@{username}:localhost");
 
         let (user, _, _, _) = auth
             .register(&username, password, false, None)
@@ -325,5 +324,5 @@ fn create_legacy_hash(password: &str) -> String {
     hasher.update(salt);
     let result = hasher.finalize();
     let encoded = URL_SAFE_NO_PAD.encode(result);
-    format!("sha256$v=1$m=32,p=1${}${}", salt, encoded)
+    format!("sha256$v=1$m=32,p=1${salt}${encoded}")
 }

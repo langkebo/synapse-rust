@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_display() {
         let config = Argon2Config::default();
-        let display = format!("{}", config);
+        let display = format!("{config}");
         assert!(display.contains("m_cost=65536"));
         assert!(display.contains("t_cost=3"));
         assert!(display.contains("p_cost=1"));

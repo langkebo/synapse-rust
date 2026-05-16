@@ -361,8 +361,7 @@ async fn get_backup_version(
             })))
         }
         None => Err(crate::error::ApiError::not_found(format!(
-            "Backup version '{}' not found",
-            version
+            "Backup version '{version}' not found"
         ))),
     }
 }
@@ -405,8 +404,7 @@ async fn delete_backup_version(
 
     if backup.is_none() {
         return Err(crate::error::ApiError::not_found(format!(
-            "Backup version '{}' not found",
-            version
+            "Backup version '{version}' not found"
         )));
     }
 
@@ -460,7 +458,7 @@ async fn ensure_backup_exists(
         .get_backup(user_id, version)
         .await?
         .ok_or_else(|| {
-            crate::error::ApiError::not_found(format!("Backup version '{}' not found", version))
+            crate::error::ApiError::not_found(format!("Backup version '{version}' not found"))
         })
         .map(|_| ())
 }
@@ -574,8 +572,7 @@ async fn read_session(
         .await?
         .ok_or_else(|| {
             crate::error::ApiError::not_found(format!(
-                "Session '{}' in room '{}' not found",
-                session_id, room_id
+                "Session '{session_id}' in room '{room_id}' not found"
             ))
         })?;
 
@@ -1001,8 +998,7 @@ async fn recover_session_key(
             "session_data": k
         }))),
         None => Err(crate::error::ApiError::not_found(format!(
-            "Session '{}' not found in room '{}'",
-            session_id, room_id
+            "Session '{session_id}' not found in room '{room_id}'"
         ))),
     }
 }

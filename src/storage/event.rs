@@ -1296,13 +1296,12 @@ impl EventStorage {
                    COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events
             WHERE room_id = $1
-              AND stream_ordering {} $2
+              AND stream_ordering {op} $2
               AND stream_ordering <= $4
               AND is_redacted = false
-            ORDER BY stream_ordering {}
+            ORDER BY stream_ordering {order}
             LIMIT $3
-            "#,
-            op, order
+            "#
         );
         sqlx::query_as::<_, RoomEvent>(&query)
             .bind(room_id)

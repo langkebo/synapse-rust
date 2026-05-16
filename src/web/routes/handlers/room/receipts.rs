@@ -208,7 +208,7 @@ pub async fn write_read_markers_from_body(
                 .update_read_marker_with_type(room_id, user_id, event_id, "m.fully_read")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to set fully_read marker: {}", e))
+                    ApiError::internal(format!("Failed to set fully_read marker: {e}"))
                 })?;
         }
     }
@@ -221,7 +221,7 @@ pub async fn write_read_markers_from_body(
                 .update_read_marker_with_type(room_id, user_id, event_id, "m.private_read")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to set private_read marker: {}", e))
+                    ApiError::internal(format!("Failed to set private_read marker: {e}"))
                 })?;
         }
     }
@@ -243,8 +243,7 @@ pub async fn write_read_markers_from_body(
                             .await
                             .map_err(|e| {
                                 ApiError::internal(format!(
-                                    "Failed to set marked_unread marker: {}",
-                                    e
+                                    "Failed to set marked_unread marker: {e}"
                                 ))
                             })?;
                     }

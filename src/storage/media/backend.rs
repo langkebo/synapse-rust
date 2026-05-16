@@ -75,7 +75,7 @@ impl MemoryBackend {
     }
 
     fn thumbnail_key(media_id: &str, width: u32, height: u32, method: &str) -> String {
-        format!("{}_{}x{}_{}", media_id, width, height, method)
+        format!("{media_id}_{width}x{height}_{method}")
     }
 }
 

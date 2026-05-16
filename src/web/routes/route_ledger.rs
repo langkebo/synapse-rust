@@ -116,16 +116,14 @@ pub fn expand_under_prefixes(
     for prefix in prefixes {
         debug_assert!(
             !prefix.ends_with('/'),
-            "prefix {:?} must not end with '/' — expand_under_prefixes will add it",
-            prefix
+            "prefix {prefix:?} must not end with '/' — expand_under_prefixes will add it"
         );
         for (method, relative) in paths {
             debug_assert!(
                 relative.starts_with('/'),
-                "relative path {:?} must start with '/'",
-                relative
+                "relative path {relative:?} must start with '/'"
             );
-            let full: &'static str = Box::leak(format!("{}{}", prefix, relative).into_boxed_str());
+            let full: &'static str = Box::leak(format!("{prefix}{relative}").into_boxed_str());
             out.push(RouteEntry::new(method.clone(), full, registered_by));
         }
     }

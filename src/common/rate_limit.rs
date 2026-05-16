@@ -100,18 +100,18 @@ impl RateLimiter {
 
         if config.per_user {
             if let Some(uid) = user_id {
-                let key = format!("user:{}", uid);
+                let key = format!("user:{uid}");
                 self.check_entry(&key, config).await?;
             }
         }
 
         if config.per_ip {
-            let key = format!("ip:{}", ip);
+            let key = format!("ip:{ip}");
             self.check_entry(&key, config).await?;
         }
 
         let endpoint_config = self.get_endpoint_config(endpoint);
-        let key = format!("endpoint:{}", endpoint);
+        let key = format!("endpoint:{endpoint}");
         self.check_entry(&key, &endpoint_config).await
     }
 

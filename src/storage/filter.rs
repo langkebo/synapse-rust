@@ -45,7 +45,7 @@ impl FilterStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create filter: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create filter: {e}")))?;
 
         Ok(filter)
     }
@@ -66,7 +66,7 @@ impl FilterStorage {
         .bind(filter_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get filter: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get filter: {e}")))?;
 
         Ok(filter)
     }
@@ -83,7 +83,7 @@ impl FilterStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get filters: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get filters: {e}")))?;
 
         Ok(filters)
     }
@@ -99,7 +99,7 @@ impl FilterStorage {
         .bind(filter_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete filter: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete filter: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -114,7 +114,7 @@ impl FilterStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete filters: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete filters: {e}")))?;
 
         Ok(result.rows_affected())
     }

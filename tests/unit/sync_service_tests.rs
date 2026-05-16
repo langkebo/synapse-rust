@@ -28,8 +28,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!(
-                "Skipping sync service tests because test database is unavailable: {}",
-                error
+                "Skipping sync service tests because test database is unavailable: {error}"
             );
             return None;
         }

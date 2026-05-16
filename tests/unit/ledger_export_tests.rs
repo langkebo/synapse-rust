@@ -31,28 +31,29 @@ use synapse_rust::web::routes::ledger_export::{
 /// Fixed timestamp baked into every fixture so the artefact stays
 /// byte-stable across runs. Must match the `--timestamp` value used to
 /// regenerate the fixtures.
+#[allow(dead_code)]
 const FIXTURE_TIMESTAMP: &str = "2026-05-02T00:00:00Z";
 /// Fixed 40-hex placeholder SHA baked into every fixture. The value is
 /// meaningless — the test only asserts round-trip equality.
+#[allow(dead_code)]
 const FIXTURE_COMMIT: &str = "0000000000000000000000000000000000000000";
 
+#[allow(dead_code)]
 fn regen_instructions(profile: &str) -> String {
     format!(
         "\n\nTo regenerate (only if the ledger genuinely changed):\n    \
          cargo run --bin synapse_ledger_export -- \\\n        \
          --profile={profile} \\\n        \
-         --timestamp={ts} \\\n        \
-         --commit={commit} \\\n        \
+         --timestamp={FIXTURE_TIMESTAMP} \\\n        \
+         --commit={FIXTURE_COMMIT} \\\n        \
          --output=tests/unit/fixtures/ledger_export/{profile}.json",
-        profile = profile,
-        ts = FIXTURE_TIMESTAMP,
-        commit = FIXTURE_COMMIT,
     )
 }
 
+#[allow(dead_code)]
 fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
     let flags =
-        profile_for_name(profile).unwrap_or_else(|| panic!("unknown profile in test: {}", profile));
+        profile_for_name(profile).unwrap_or_else(|| panic!("unknown profile in test: {profile}"));
     let artifact = build_artifact(
         profile,
         &flags,
@@ -62,7 +63,7 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
     let rendered = render(&artifact);
 
     let fixture = std::str::from_utf8(fixture_bytes)
-        .unwrap_or_else(|e| panic!("fixture for profile '{}' is not UTF-8: {}", profile, e));
+        .unwrap_or_else(|e| panic!("fixture for profile '{profile}' is not UTF-8: {e}"));
 
     if rendered != fixture {
         // Produce a compact diff summary instead of dumping two 200 KB blobs.
@@ -70,7 +71,7 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
         let fixture_parsed: LedgerArtifact = serde_json::from_str(fixture).unwrap();
 
         let mut summary = String::new();
-        summary.push_str(&format!("ledger fixture drift on profile '{}'\n", profile));
+        summary.push_str(&format!("ledger fixture drift on profile '{profile}'\n"));
         summary.push_str(&format!(
             "  entry_count: live={} fixture={}\n",
             live_parsed.entry_count, fixture_parsed.entry_count
@@ -100,7 +101,7 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
         if !added.is_empty() {
             summary.push_str(&format!("  added in live ({} entries):\n", added.len()));
             for (m, p, reg) in added.iter().take(20) {
-                summary.push_str(&format!("    + {} {} [{}]\n", m, p, reg));
+                summary.push_str(&format!("    + {m} {p} [{reg}]\n"));
             }
             if added.len() > 20 {
                 summary.push_str(&format!("    ... {} more\n", added.len() - 20));
@@ -109,7 +110,7 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
         if !removed.is_empty() {
             summary.push_str(&format!("  removed in live ({} entries):\n", removed.len()));
             for (m, p, reg) in removed.iter().take(20) {
-                summary.push_str(&format!("    - {} {} [{}]\n", m, p, reg));
+                summary.push_str(&format!("    - {m} {p} [{reg}]\n"));
             }
             if removed.len() > 20 {
                 summary.push_str(&format!("    ... {} more\n", removed.len() - 20));
@@ -122,14 +123,12 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
     // Sanity: re-parsing the rendered output round-trips to an equal artefact.
     let reparsed: LedgerArtifact = serde_json::from_str(&rendered).unwrap_or_else(|e| {
         panic!(
-            "rendered output for '{}' failed to re-parse: {}",
-            profile, e
+            "rendered output for '{profile}' failed to re-parse: {e}"
         )
     });
     assert_eq!(
         reparsed, artifact,
-        "round-trip inequality for profile '{}'",
-        profile
+        "round-trip inequality for profile '{profile}'"
     );
     assert_eq!(reparsed.schema_version, SCHEMA_VERSION);
 }

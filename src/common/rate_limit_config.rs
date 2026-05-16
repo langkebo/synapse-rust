@@ -172,20 +172,17 @@ impl RateLimitConfigFile {
         for (idx, endpoint) in self.endpoints.iter().enumerate() {
             if endpoint.path.is_empty() {
                 return Err(RateLimitConfigError::ValidationError(format!(
-                    "endpoints[{}].path cannot be empty",
-                    idx
+                    "endpoints[{idx}].path cannot be empty"
                 )));
             }
             if endpoint.rule.per_second == 0 {
                 return Err(RateLimitConfigError::ValidationError(format!(
-                    "endpoints[{}].rule.per_second cannot be zero",
-                    idx
+                    "endpoints[{idx}].rule.per_second cannot be zero"
                 )));
             }
             if endpoint.rule.burst_size == 0 {
                 return Err(RateLimitConfigError::ValidationError(format!(
-                    "endpoints[{}].rule.burst_size cannot be zero",
-                    idx
+                    "endpoints[{idx}].rule.burst_size cannot be zero"
                 )));
             }
         }

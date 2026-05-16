@@ -158,8 +158,7 @@ pub async fn federation_auth_middleware(
                     status
                 );
                 return ApiError::forbidden(format!(
-                    "Server '{}' is not authorized for federation (status: {})",
-                    origin_server, status
+                    "Server '{origin_server}' is not authorized for federation (status: {status})"
                 ))
                 .into_response();
             }
@@ -180,8 +179,7 @@ pub async fn federation_auth_middleware(
                     origin_server
                 );
                 return ApiError::forbidden(format!(
-                    "Server '{}' is pending federation admission approval",
-                    origin_server
+                    "Server '{origin_server}' is pending federation admission approval"
                 ))
                 .into_response();
             }
@@ -406,7 +404,7 @@ async fn get_federation_verify_key(
     key_id: &str,
     key_fetch_priority: bool,
 ) -> Result<[u8; 32], ApiError> {
-    let cache_key = format!("federation:verify_key:{}:{}", origin, key_id);
+    let cache_key = format!("federation:verify_key:{origin}:{key_id}");
     if let Ok(Some(cached)) = state.cache.get::<String>(&cache_key).await {
         if let Ok(key) = decode_ed25519_public_key(&cached) {
             return Ok(key);
@@ -506,7 +504,7 @@ async fn fetch_federation_verify_key(
     key_id: &str,
     key_fetch_priority: bool,
 ) -> Result<String, ApiError> {
-    let backoff_key = format!("federation:key_fetch_backoff:{}:{}", origin, key_id);
+    let backoff_key = format!("federation:key_fetch_backoff:{origin}:{key_id}");
     if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
         return Err(ApiError::unauthorized("Public key not found".to_string()));
     }
@@ -529,15 +527,13 @@ async fn fetch_federation_verify_key(
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let urls = [
-        format!("https://{}/_matrix/key/v2/server", origin),
-        format!("http://{}/_matrix/key/v2/server", origin),
+        format!("https://{origin}/_matrix/key/v2/server"),
+        format!("http://{origin}/_matrix/key/v2/server"),
         format!(
-            "https://{}/_matrix/key/v2/query/{}/{}",
-            origin, origin, key_id
+            "https://{origin}/_matrix/key/v2/query/{origin}/{key_id}"
         ),
         format!(
-            "http://{}/_matrix/key/v2/query/{}/{}",
-            origin, origin, key_id
+            "http://{origin}/_matrix/key/v2/query/{origin}/{key_id}"
         ),
     ];
 
@@ -773,8 +769,7 @@ mod tests {
             base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
 
         let header = format!(
-            "X-Matrix origin=\"{}\", key=\"{}\", sig=\"{}\"",
-            origin, key_id, signature_b64
+            "X-Matrix origin=\"{origin}\", key=\"{key_id}\", sig=\"{signature_b64}\""
         );
         let params = parse_x_matrix_authorization(&header).expect("header should parse");
 

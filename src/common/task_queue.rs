@@ -239,12 +239,12 @@ pub struct RedisTaskQueue {
 }
 
 impl RedisTaskQueue {
-    pub async fn new(config: &crate::common::config::RedisConfig) -> Result<Self, TaskQueueError> {
+    pub fn new(config: &crate::common::config::RedisConfig) -> Result<Self, TaskQueueError> {
         let conn_str = config.connection_url();
         let cfg = Config::from_url(conn_str);
 
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {e}"))
         })?;
         Ok(Self { pool })
     }
@@ -255,18 +255,18 @@ impl RedisTaskQueue {
 
     pub async fn submit(&self, job: BackgroundJob) -> Result<String, TaskQueueError> {
         let payload = serde_json::to_string(&job).map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to serialize job: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to serialize job: {e}"))
         })?;
 
         let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
         })?;
 
         // XADD mq:tasks:default * payload {json}
         let id: String = conn
             .xadd("mq:tasks:default", "*", &[("payload", &payload)])
             .await
-            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to XADD job: {}", e)))?;
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to XADD job: {e}")))?;
 
         tracing::info!(
             "Submitted background job to Redis Stream: {} -> {}",
@@ -288,7 +288,7 @@ impl RedisTaskQueue {
     {
         // Ensure consumer group exists
         let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
         })?;
 
         let _: Result<(), _> = conn
@@ -363,12 +363,12 @@ impl RedisTaskQueue {
     }
     pub async fn get_metrics(&self, group_name: &str) -> Result<QueueMetrics, TaskQueueError> {
         let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
         })?;
 
         // 1. Get Stream Length (XLEN)
         let queue_length: u64 = conn.xlen("mq:tasks:default").await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get queue length: {}", e))
+            TaskQueueError::SubmissionError(format!("Failed to get queue length: {e}"))
         })?;
 
         // 2. Get Pending Info (XPENDING)
@@ -389,13 +389,13 @@ impl RedisTaskQueue {
             .xpending("mq:tasks:default", group_name)
             .await
             .map_err(|e| {
-                TaskQueueError::SubmissionError(format!("Failed to get pending info: {}", e))
+                TaskQueueError::SubmissionError(format!("Failed to get pending info: {e}"))
             })?;
 
         // Parse the summary response: [count, min_id, max_id, [[consumer, count], ...]]
         let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) =
             redis::from_redis_value(&info_val).map_err(|e| {
-                TaskQueueError::SubmissionError(format!("Failed to parse pending info: {}", e))
+                TaskQueueError::SubmissionError(format!("Failed to parse pending info: {e}"))
             })?;
 
         Ok(QueueMetrics {
@@ -494,15 +494,15 @@ mod tests {
 
         for i in 0..5 {
             let task_id = i;
-            let result = manager.submit_task(format!("task_{}", i), move || async move {
+            let result = manager.submit_task(format!("task_{i}"), move || async move {
                 TaskResultValue {
                     task_id,
                     success: true,
-                    message: format!("Task {} completed", i),
+                    message: format!("Task {i} completed"),
                 }
             });
 
-            assert!(result.is_ok(), "Task {} submission should succeed", i);
+            assert!(result.is_ok(), "Task {i} submission should succeed");
         }
 
         tokio::time::advance(tokio::time::Duration::from_millis(100)).await;

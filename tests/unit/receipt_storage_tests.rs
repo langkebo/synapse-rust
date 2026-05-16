@@ -17,8 +17,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
         Ok(pool) => Some(pool),
         Err(error) => {
             eprintln!(
-                "Skipping receipt storage tests because test database is unavailable: {}",
-                error
+                "Skipping receipt storage tests because test database is unavailable: {error}"
             );
             None
         }

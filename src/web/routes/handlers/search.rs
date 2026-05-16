@@ -111,8 +111,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
     if let Some(room_events) = &body.search_categories.room_events {
         if room_events.search_term.len() > MAX_SEARCH_TERM_LENGTH {
             return Err(ApiError::bad_request(format!(
-                "Search term too long (max {} characters)",
-                MAX_SEARCH_TERM_LENGTH
+                "Search term too long (max {MAX_SEARCH_TERM_LENGTH} characters)"
             )));
         }
 
@@ -124,8 +123,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
             if let Some(limit) = filter.limit {
                 if limit > MAX_SEARCH_LIMIT {
                     return Err(ApiError::bad_request(format!(
-                        "Limit too high (max {})",
-                        MAX_SEARCH_LIMIT
+                        "Limit too high (max {MAX_SEARCH_LIMIT})"
                     )));
                 }
             }
@@ -133,8 +131,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
             if let Some(rooms) = &filter.rooms {
                 if rooms.len() > MAX_FILTER_ROOMS {
                     return Err(ApiError::bad_request(format!(
-                        "Too many rooms in filter (max {})",
-                        MAX_FILTER_ROOMS
+                        "Too many rooms in filter (max {MAX_FILTER_ROOMS})"
                     )));
                 }
             }
@@ -142,8 +139,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
             if let Some(types) = &filter.types {
                 if types.len() > MAX_FILTER_TYPES {
                     return Err(ApiError::bad_request(format!(
-                        "Too many types in filter (max {})",
-                        MAX_FILTER_TYPES
+                        "Too many types in filter (max {MAX_FILTER_TYPES})"
                     )));
                 }
             }
@@ -151,8 +147,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
             if let Some(senders) = &filter.senders {
                 if senders.len() > MAX_FILTER_SENDERS {
                     return Err(ApiError::bad_request(format!(
-                        "Too many senders in filter (max {})",
-                        MAX_FILTER_SENDERS
+                        "Too many senders in filter (max {MAX_FILTER_SENDERS})"
                     )));
                 }
             }
@@ -162,16 +157,14 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
     if let Some(users_search) = &body.search_categories.users {
         if users_search.search_term.len() > MAX_SEARCH_TERM_LENGTH {
             return Err(ApiError::bad_request(format!(
-                "Search term too long (max {} characters)",
-                MAX_SEARCH_TERM_LENGTH
+                "Search term too long (max {MAX_SEARCH_TERM_LENGTH} characters)"
             )));
         }
 
         if let Some(limit) = users_search.limit {
             if limit > MAX_SEARCH_LIMIT {
                 return Err(ApiError::bad_request(format!(
-                    "Limit too high (max {})",
-                    MAX_SEARCH_LIMIT
+                    "Limit too high (max {MAX_SEARCH_LIMIT})"
                 )));
             }
         }
@@ -338,7 +331,7 @@ async fn search_room_events(
         .member_storage
         .get_joined_rooms(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {e}")))?;
 
     let mut query_builder = sqlx::QueryBuilder::new(
         "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
@@ -443,7 +436,7 @@ async fn search_room_events(
         .build()
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let next_batch = if rows.len() > limit as usize {
         rows.get(limit as usize).map(|row| {
@@ -499,7 +492,7 @@ async fn search_users(
     search: &UsersSearch,
 ) -> Result<Value, ApiError> {
     let limit = search.limit.unwrap_or(10) as i64;
-    let rate_limit_key = format!("ratelimit:search-users:{}", user_id);
+    let rate_limit_key = format!("ratelimit:search-users:{user_id}");
     let decision = state
         .cache
         .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
@@ -513,7 +506,7 @@ async fn search_users(
         .user_storage
         .search_directory_users(&search.search_term, limit, false)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut results = Vec::new();
     for row in rows {
@@ -555,7 +548,7 @@ async fn build_room_hierarchy_response(
         .room_storage
         .get_room(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to load room: {e}")))?;
 
     if let Some(space) = state
         .services
@@ -577,7 +570,7 @@ async fn build_room_hierarchy_response(
             .await?;
 
         let mut response_value = serde_json::to_value(response)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy: {e}")))?;
 
         if let Some(obj) = response_value.as_object_mut() {
             let rooms = obj
@@ -600,7 +593,7 @@ async fn build_room_hierarchy_response(
                     .event_storage
                     .get_state_events(room_id)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+                    .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
 
                 let mut children_state = Vec::new();
                 let mut child_rooms = Vec::new();
@@ -637,8 +630,7 @@ async fn build_room_hierarchy_response(
                                     .await
                                     .map_err(|e| {
                                         ApiError::internal(format!(
-                                            "Failed to load child room: {}",
-                                            e
+                                            "Failed to load child room: {e}"
                                         ))
                                     })?
                                 {
@@ -736,7 +728,7 @@ async fn build_room_hierarchy_response(
         .event_storage
         .get_state_events(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
 
     let room_type = state_events
         .iter()
@@ -780,7 +772,7 @@ async fn build_room_hierarchy_response(
                         .get_room(&child_room_id)
                         .await
                         .map_err(|e| {
-                            ApiError::internal(format!("Failed to load child room: {}", e))
+                            ApiError::internal(format!("Failed to load child room: {e}"))
                         })?
                     {
                         let child_state_events = state
@@ -947,7 +939,7 @@ async fn timestamp_to_event(
         .fetch_optional(&*state.services.user_storage.pool)
         .await
     }
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match event {
         Some(row) => Ok(Json(json!({
@@ -984,7 +976,7 @@ async fn get_event_context(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if target_event.room_id != room_id {
@@ -1001,7 +993,7 @@ async fn get_event_context(
     .bind(limit as i64)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let events_after = sqlx::query(
         "SELECT event_id, sender, event_type AS type, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts > $2 ORDER BY origin_server_ts ASC LIMIT $3"
@@ -1011,7 +1003,7 @@ async fn get_event_context(
     .bind(limit as i64)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let events_before_list: Vec<Value> = events_before
         .iter()
@@ -1338,7 +1330,7 @@ async fn search_recipients(
         .user_storage
         .search_directory_users(search_term, limit, false)
         .await
-        .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
 
     let mut results = Vec::new();
     for row in users {
@@ -1419,7 +1411,7 @@ async fn search_rooms(
     .bind(limit)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Search failed: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
 
     let results: Vec<Value> = rooms
         .iter()

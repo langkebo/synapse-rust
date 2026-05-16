@@ -78,7 +78,7 @@ mod e2e_tests {
         let bytes = response
             .bytes()
             .await
-            .unwrap_or_else(|e| panic!("{}: Failed to read response body: {}", context, e));
+            .unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
         if !status.is_success() {
             panic!(
                 "{}: HTTP {} {}",
@@ -102,7 +102,7 @@ mod e2e_tests {
         let bytes = response
             .bytes()
             .await
-            .unwrap_or_else(|e| panic!("{}: Failed to read response body: {}", context, e));
+            .unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
         if !status.is_success() {
             panic!(
                 "{}: HTTP {} {}",
@@ -155,7 +155,7 @@ mod e2e_tests {
 
         let response = client
             .post(format!("{}/_matrix/client/r0/createRoom", base_url()))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
             .await
@@ -176,7 +176,7 @@ mod e2e_tests {
 
         let response = client
             .post(format!("{}/_matrix/client/r0/createRoom", base_url()))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
             .await
@@ -194,7 +194,7 @@ mod e2e_tests {
                 room_id,
                 chrono::Utc::now().timestamp_millis()
             ))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({
                 "msgtype": "m.text",
                 "body": message
@@ -214,7 +214,7 @@ mod e2e_tests {
         let client = Client::new();
         let response = client
             .post(format!("{}/_matrix/media/v3/upload", base_url()))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .header("Content-Type", content_type)
             .body(content)
             .send()
@@ -231,7 +231,7 @@ mod e2e_tests {
                 "{}/_matrix/client/v3/user_directory/search",
                 base_url()
             ))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({
                 "search_term": username,
                 "limit": 10
@@ -258,7 +258,7 @@ mod e2e_tests {
 
         let response = client
             .post(format!("{}/_matrix/client/r0/friends/request", base_url()))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
             .await
@@ -275,7 +275,7 @@ mod e2e_tests {
                 base_url(),
                 user_id
             ))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
             .expect("Failed to accept friend request");
@@ -293,7 +293,7 @@ mod e2e_tests {
                 event_id,
                 chrono::Utc::now().timestamp_millis()
             ))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({"reason": "Delete message"}))
             .send()
             .await
@@ -310,7 +310,7 @@ mod e2e_tests {
                 base_url(),
                 room_id
             ))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({}))
             .send()
             .await

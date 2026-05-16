@@ -306,7 +306,7 @@ impl TelemetryAlertService {
     ) -> Result<(DatabaseHealthStatus, Vec<TelemetryAlert>), ApiError> {
         let monitor = DatabaseMonitor::new((*self.pool).clone(), None, self.max_connections);
         let health = monitor.get_full_health_status().await.map_err(|error| {
-            ApiError::internal(format!("failed to collect telemetry health: {}", error))
+            ApiError::internal(format!("failed to collect telemetry health: {error}"))
         })?;
 
         let now = chrono::Utc::now().timestamp_millis();
@@ -335,7 +335,7 @@ impl TelemetryAlertService {
                     "Connection pool utilization",
                     TelemetryAlertSeverity::Critical,
                     "database",
-                    format!("connection pool utilization is {:.1}%", util),
+                    format!("connection pool utilization is {util:.1}%"),
                     json!({ "connection_utilization": util }),
                 ),
             );
@@ -387,7 +387,7 @@ impl TelemetryAlertService {
         Ok((health, result))
     }
 
-    pub async fn raise_alert(
+    pub fn raise_alert(
         &self,
         alert_key: &str,
         rule_name: &str,
@@ -431,7 +431,7 @@ impl TelemetryAlertService {
         entry.clone()
     }
 
-    pub async fn list_alerts(
+    pub fn list_alerts(
         &self,
         filters: TelemetryAlertFilters,
     ) -> Result<Vec<TelemetryAlert>, ApiError> {
@@ -463,7 +463,7 @@ impl TelemetryAlertService {
         Ok(entries)
     }
 
-    pub async fn acknowledge_alert(
+    pub fn acknowledge_alert(
         &self,
         alert_id: &str,
         acknowledged_by: &str,
@@ -479,7 +479,7 @@ impl TelemetryAlertService {
         let alert = alerts
             .values_mut()
             .find(|a| a.alert_id == alert_id)
-            .ok_or_else(|| ApiError::not_found(format!("alert not found: {}", alert_id)))?;
+            .ok_or_else(|| ApiError::not_found(format!("alert not found: {alert_id}")))?;
         if alert.status == TelemetryAlertStatus::Recovered {
             return Err(ApiError::bad_request(
                 "ALERT_ACK_FORBIDDEN: recovered alerts cannot be acknowledged",

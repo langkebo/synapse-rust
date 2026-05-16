@@ -128,7 +128,7 @@ where
 {
     request
         .validate()
-        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
 }
 
 pub fn create_space_router(state: AppState) -> Router<AppState> {

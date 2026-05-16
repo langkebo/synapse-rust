@@ -8,6 +8,7 @@ use url::Url;
 const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":false}}"#;
 
 /// 获取客户端 API 版本
+#[allow(clippy::expect_used)]
 pub async fn get_client_versions(
     State(state): State<AppState>,
 ) -> impl axum::response::IntoResponse {
@@ -40,9 +41,9 @@ pub async fn get_server_version(
 
 fn format_host_port(host: &str, port: u16) -> String {
     if host.contains(':') && !host.starts_with('[') {
-        format!("[{}]:{}", host, port)
+        format!("[{host}]:{port}")
     } else {
-        format!("{}:{}", host, port)
+        format!("{host}:{port}")
     }
 }
 

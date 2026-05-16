@@ -89,7 +89,7 @@ impl UiaService {
             created_ts: Utc::now().timestamp_millis(),
             flows,
         };
-        let key = format!("uia:session:{}", session_id);
+        let key = format!("uia:session:{session_id}");
         let _ = self
             .cache
             .set(&key, &session, self.session_timeout_secs as u64)
@@ -98,12 +98,12 @@ impl UiaService {
     }
 
     pub async fn get_session(&self, session_id: &str) -> Option<UiaSession> {
-        let key = format!("uia:session:{}", session_id);
+        let key = format!("uia:session:{session_id}");
         self.cache.get(&key).await.ok().flatten()
     }
 
     pub async fn complete_stage(&self, session_id: &str, stage: &str) -> Option<UiaSession> {
-        let key = format!("uia:session:{}", session_id);
+        let key = format!("uia:session:{session_id}");
         let mut session: UiaSession = self.cache.get(&key).await.ok().flatten()?;
 
         if !session.completed.contains(&stage.to_string()) {
@@ -118,7 +118,7 @@ impl UiaService {
     }
 
     pub async fn remove_session(&self, session_id: &str) {
-        let key = format!("uia:session:{}", session_id);
+        let key = format!("uia:session:{session_id}");
         let _ = self.cache.delete(&key).await;
     }
 
@@ -212,7 +212,7 @@ impl UiaService {
             return Err(self.build_uia_response(
                 &session,
                 "M_INVALID_PARAM",
-                &format!("Unsupported auth type: {}", stage),
+                &format!("Unsupported auth type: {stage}"),
             ));
         }
 
@@ -287,7 +287,7 @@ impl UiaService {
         Ok(())
     }
 
-    pub async fn verify_token_stage(&self, auth: &Value, _user_id: &str) -> Result<(), ApiError> {
+    pub fn verify_token_stage(&self, auth: &Value, _user_id: &str) -> Result<(), ApiError> {
         let _token = auth
             .get("token")
             .and_then(|v| v.as_str())
@@ -302,7 +302,7 @@ impl UiaService {
         Ok(())
     }
 
-    pub async fn cleanup_expired_sessions(&self) -> Result<(), String> {
+    pub fn cleanup_expired_sessions(&self) -> Result<(), String> {
         Ok(())
     }
 }

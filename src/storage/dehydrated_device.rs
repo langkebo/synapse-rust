@@ -273,7 +273,7 @@ impl DehydratedDeviceStorage {
         let id: i64 = row.get("id");
         let mut device_data: Value = row.get("device_data");
 
-        let prefix = format!("{}:", algorithm);
+        let prefix = format!("{algorithm}:");
 
         // 1) Try one-time keys first; consume on success.
         if let Some(otk_obj) = device_data

@@ -67,7 +67,7 @@ impl FromStr for WorkerType {
             "media_repository" => Ok(WorkerType::MediaRepository),
             "pusher" => Ok(WorkerType::Pusher),
             "appservice" => Ok(WorkerType::AppService),
-            _ => Err(format!("Invalid worker type: {}", s)),
+            _ => Err(format!("Invalid worker type: {s}")),
         }
     }
 }
@@ -104,7 +104,7 @@ impl FromStr for WorkerStatus {
             "stopping" => Ok(WorkerStatus::Stopping),
             "stopped" => Ok(WorkerStatus::Stopped),
             "error" => Ok(WorkerStatus::Error),
-            _ => Err(format!("Invalid worker status: {}", s)),
+            _ => Err(format!("Invalid worker status: {s}")),
         }
     }
 }

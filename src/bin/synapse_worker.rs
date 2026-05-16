@@ -17,11 +17,11 @@ struct MetricsState {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
-    let config = Config::load().await?;
+    let config = Config::load()?;
 
     let redis_url = config.redis_url();
     tracing::info!("Connecting to Redis at {}", redis_url);
-    let queue = Arc::new(RedisTaskQueue::new(&config.redis).await?);
+    let queue = Arc::new(RedisTaskQueue::new(&config.redis)?);
 
     let db_url = config.database_url();
     tracing::info!("Connecting to Database...");
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_storage = Arc::new(EventStorage::new(&Arc::new(pool), server_name));
 
     let worker_id = uuid::Uuid::new_v4().to_string();
-    let consumer_name = format!("worker-{}", worker_id);
+    let consumer_name = format!("worker-{worker_id}");
     let group_name = "synapse_workers";
 
     tracing::info!(
@@ -141,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(9091);
-    let metrics_addr: SocketAddr = format!("{}:{}", metrics_host, metrics_port).parse()?;
+    let metrics_addr: SocketAddr = format!("{metrics_host}:{metrics_port}").parse()?;
     let metrics_token = std::env::var("SYNAPSE_WORKER_METRICS_TOKEN")
         .ok()
         .filter(|t| !t.is_empty());
@@ -257,8 +257,7 @@ async fn get_metrics(
             body.push_str("# TYPE synapse_worker_consumer_pending gauge\n");
             for (consumer, pending) in metrics.consumers {
                 body.push_str(&format!(
-                    "synapse_worker_consumer_pending{{consumer=\"{}\"}} {}\n",
-                    consumer, pending
+                    "synapse_worker_consumer_pending{{consumer=\"{consumer}\"}} {pending}\n"
                 ));
             }
 

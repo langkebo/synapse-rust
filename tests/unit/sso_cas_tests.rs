@@ -7,7 +7,7 @@ mod tests {
         let server_name = "localhost";
         let ticket_prefix = "ST";
         let random_part = "abc123XYZ";
-        let ticket_id = format!("{}-{}-{}", ticket_prefix, server_name, random_part);
+        let ticket_id = format!("{ticket_prefix}-{server_name}-{random_part}");
 
         assert!(ticket_id.starts_with("ST-"));
         assert!(ticket_id.contains(server_name));
@@ -18,7 +18,7 @@ mod tests {
         let server_name = "localhost";
         let ticket_prefix = "PT";
         let random_part = "def456UVW";
-        let ticket_id = format!("{}-{}-{}", ticket_prefix, server_name, random_part);
+        let ticket_id = format!("{ticket_prefix}-{server_name}-{random_part}");
 
         assert!(ticket_id.starts_with("PT-"));
         assert!(ticket_id.contains(server_name));
@@ -29,7 +29,7 @@ mod tests {
         let server_name = "localhost";
         let ticket_prefix = "PGT";
         let random_part = "ghi789RST";
-        let ticket_id = format!("{}-{}-{}", ticket_prefix, server_name, random_part);
+        let ticket_id = format!("{ticket_prefix}-{server_name}-{random_part}");
 
         assert!(ticket_id.starts_with("PGT-"));
         assert!(ticket_id.contains(server_name));
@@ -44,7 +44,7 @@ mod tests {
         ];
 
         for url in valid_urls {
-            assert!(url::Url::parse(url).is_ok(), "Expected valid URL: {}", url);
+            assert!(url::Url::parse(url).is_ok(), "Expected valid URL: {url}");
         }
     }
 

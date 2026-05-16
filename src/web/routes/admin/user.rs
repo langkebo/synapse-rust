@@ -191,7 +191,7 @@ async fn evict_user(
         .member_storage
         .get_joined_rooms(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut failures: Vec<Value> = Vec::new();
     for room_id in &joined_rooms {
@@ -249,7 +249,7 @@ async fn resolve_user(state: &AppState, identifier: &str) -> Result<User, ApiErr
         .user_storage
         .get_user_by_identifier(identifier)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))
 }
 
@@ -278,14 +278,14 @@ pub async fn get_users(
             cursor.map(|(_, user_id)| user_id),
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let total = state
         .services
         .user_storage
         .get_user_count()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let user_list: Vec<Value> = users
         .iter()
@@ -329,7 +329,7 @@ async fn get_user(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -373,7 +373,7 @@ async fn delete_user(
                 error = %e,
                 "Failed to delete user"
             );
-            ApiError::internal(format!("Database error: {}", e))
+            ApiError::internal(format!("Database error: {e}"))
         })?;
 
     // 记录审计日志
@@ -443,7 +443,7 @@ pub async fn set_admin(
                 error = %e,
                 "Failed to set admin status"
             );
-            ApiError::internal(format!("Database error: {}", e))
+            ApiError::internal(format!("Database error: {e}"))
         })?;
     state
         .cache
@@ -575,7 +575,7 @@ pub async fn get_user_rooms_admin(
         .room_storage
         .get_user_rooms(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(json!({ "rooms": rooms })))
 }
@@ -592,7 +592,7 @@ pub async fn get_user_devices_admin(
         .device_storage
         .get_user_devices(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let device_list: Vec<Value> = devices
         .iter()
@@ -673,7 +673,7 @@ pub async fn login_as_user(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     if user.is_deactivated {
@@ -688,7 +688,7 @@ pub async fn login_as_user(
         .auth_service
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to generate token: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to generate token: {e}")))?;
 
     Ok(Json(json!({
         "access_token": token,
@@ -710,7 +710,7 @@ pub async fn logout_user_devices(
         .device_storage
         .get_device_count(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
@@ -745,7 +745,7 @@ pub async fn get_users_v2(
 
     if let Some(name) = params.get("name") {
         query.push(" AND username LIKE ");
-        query.push_bind(format!("%{}%", name));
+        query.push_bind(format!("%{name}%"));
     }
 
     if let Some((ts, user_id)) = cursor {
@@ -765,7 +765,7 @@ pub async fn get_users_v2(
         .build()
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let users: Vec<Value> = rows
         .iter()
@@ -787,7 +787,7 @@ pub async fn get_users_v2(
     let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let next_token = if rows.len() as i64 == limit {
         rows.last().map(|row| {
@@ -818,7 +818,7 @@ pub async fn get_user_v2(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match user {
         Some(u) => {
@@ -827,7 +827,7 @@ pub async fn get_user_v2(
                 .device_storage
                 .get_user_devices(&u.user_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
             let device_list: Vec<Value> = devices
                 .iter()
@@ -877,7 +877,7 @@ pub async fn create_or_update_user_v2(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     if let Some(_user) = existing_user {
         sqlx::query(
@@ -901,7 +901,7 @@ pub async fn create_or_update_user_v2(
         .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update user: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to update user: {e}")))?;
 
         Ok(Json(json!({})))
     } else {
@@ -919,10 +919,10 @@ pub async fn create_or_update_user_v2(
 
         let password_hash = if let Some(ref pwd) = body.password {
             crate::common::crypto::hash_password(pwd)
-                .map_err(|e| ApiError::internal(format!("Password hashing failed: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Password hashing failed: {e}")))?
         } else {
             crate::common::crypto::hash_password(&crate::common::random_string(16))
-                .map_err(|e| ApiError::internal(format!("Password hashing failed: {}", e)))?
+                .map_err(|e| ApiError::internal(format!("Password hashing failed: {e}")))?
         };
 
         sqlx::query(
@@ -943,7 +943,7 @@ pub async fn create_or_update_user_v2(
         .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create user: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create user: {e}")))?;
 
         Ok(Json(json!({})))
     }
@@ -967,7 +967,7 @@ pub async fn get_user_stats(
     )
     .fetch_one(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get user stats: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get user stats: {e}")))?;
 
     let total_users = stats.get::<i64, _>("total_users");
     let active_users = stats.get::<i64, _>("active_users");
@@ -980,7 +980,7 @@ pub async fn get_user_stats(
         .room_storage
         .get_room_count()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room count: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get room count: {e}")))?;
 
     let average_rooms_per_user = if total_users > 0 {
         (room_count as f64 / total_users as f64).round()
@@ -1012,7 +1012,7 @@ pub async fn get_single_user_stats(
         .member_storage
         .get_joined_room_count(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to count rooms: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to count rooms: {e}")))?;
 
     let pool = &*state.services.room_storage.pool;
 
@@ -1022,7 +1022,7 @@ pub async fn get_single_user_stats(
     .bind(&user.user_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to count messages: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to count messages: {e}")))?;
 
     let last_seen: Option<i64> = sqlx::query_scalar(
         "SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1",
@@ -1030,7 +1030,7 @@ pub async fn get_single_user_stats(
     .bind(&user.user_id)
     .fetch_optional(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get last seen: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to get last seen: {e}")))?;
 
     Ok(Json(json!({
         "user_id": user.user_id,
@@ -1084,7 +1084,7 @@ pub async fn batch_create_users(
         let username = user.username.clone();
 
         let password_hash = hash_password(&password)
-            .map_err(|e| ApiError::internal(format!("Failed to hash password: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to hash password: {e}")))?;
 
         let result = sqlx::query(
             r#"
@@ -1177,7 +1177,7 @@ pub async fn get_user_sessions(
         .device_storage
         .get_user_devices(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let sessions: Vec<Value> = devices
         .iter()
@@ -1213,7 +1213,7 @@ pub async fn invalidate_user_sessions(
         .device_storage
         .get_device_count(&canonical_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     state
         .services
@@ -1242,14 +1242,14 @@ pub async fn get_account_details(
         .device_storage
         .get_device_count(canonical_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let room_count: i64 = state
         .services
         .member_storage
         .get_joined_room_count(canonical_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     Ok(Json(json!({
         "name": user.username,
@@ -1288,7 +1288,7 @@ pub async fn update_account(
             .bind(canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
     }
 
     if let Some(admin_status) = body.admin {
@@ -1298,11 +1298,11 @@ pub async fn update_account(
             .bind(canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
         state
             .cache
             .set(
-                &format!("user:admin:{}", canonical_user_id),
+                &format!("user:admin:{canonical_user_id}"),
                 admin_status,
                 3600,
             )

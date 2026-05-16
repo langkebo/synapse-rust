@@ -20,7 +20,7 @@ impl FromStr for ThumbnailMethod {
         match s.to_lowercase().as_str() {
             "crop" => Ok(ThumbnailMethod::Crop),
             "scale" => Ok(ThumbnailMethod::Scale),
-            _ => Err(format!("Invalid thumbnail method: {}", s)),
+            _ => Err(format!("Invalid thumbnail method: {s}")),
         }
     }
 }
@@ -200,12 +200,12 @@ impl MediaService {
                 .take(200)
                 .collect::<String>();
             if safe.is_empty() {
-                format!("{}.{}", media_id, extension)
+                format!("{media_id}.{extension}")
             } else {
-                format!("{}_{}", media_id, safe)
+                format!("{media_id}_{safe}")
             }
         } else {
-            format!("{}.{}", media_id, extension)
+            format!("{media_id}.{extension}")
         };
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
@@ -224,16 +224,14 @@ impl MediaService {
             if let Err(e) = std::fs::create_dir_all(&self.media_path) {
                 ::tracing::error!("Failed to create media directory: {}", e);
                 return Err(ApiError::internal(format!(
-                    "Media storage not available: {}. Please ensure the media directory exists and has correct permissions.",
-                    e
+                    "Media storage not available: {e}. Please ensure the media directory exists and has correct permissions."
                 )));
             }
         }
 
         if self.find_media_file_name(media_id).await?.is_some() {
             return Err(ApiError::conflict(format!(
-                "Media ID already exists: {}",
-                media_id
+                "Media ID already exists: {media_id}"
             )));
         }
 
@@ -241,7 +239,7 @@ impl MediaService {
         let write_result =
             tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
                 .await
-                .map_err(|e| ApiError::internal(format!("Write task panicked: {}", e)))?;
+                .map_err(|e| ApiError::internal(format!("Write task panicked: {e}")))?;
 
         if let Err(e) = write_result {
             ::tracing::error!("Failed to save media file - Error: {}", e);
@@ -249,18 +247,16 @@ impl MediaService {
             let error_msg = match e.kind() {
                 std::io::ErrorKind::PermissionDenied => {
                     format!(
-                        "Permission denied writing to media directory. Please run: chmod 755 {} && chown -R synapse:synapse {}",
-                        media_path_display,
-                        media_path_display
+                        "Permission denied writing to media directory. Please run: chmod 755 {media_path_display} && chown -R synapse:synapse {media_path_display}"
                     )
                 }
                 std::io::ErrorKind::NotFound => {
-                    format!("Media directory not found: {}", media_path_display)
+                    format!("Media directory not found: {media_path_display}")
                 }
                 std::io::ErrorKind::StorageFull => {
                     "Storage full. Please free up disk space.".to_string()
                 }
-                _ => format!("Failed to save media: {}", e),
+                _ => format!("Failed to save media: {e}"),
             };
 
             return Err(ApiError::internal(error_msg));
@@ -330,7 +326,7 @@ impl MediaService {
             None
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))
     }
 
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
@@ -376,7 +372,7 @@ impl MediaService {
     ) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
         let thumbnail_method = ThumbnailMethod::from_str(method).map_err(ApiError::bad_request)?;
-        let thumbnail_filename = format!("{}_{}x{}_{}.jpg", media_id, width, height, method);
+        let thumbnail_filename = format!("{media_id}_{width}x{height}_{method}.jpg");
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
         if let Ok(content) = tokio::fs::read(&thumbnail_path).await {
@@ -409,7 +405,7 @@ impl MediaService {
         use image::ImageFormat;
 
         let mut img = image::load_from_memory(image_data)
-            .map_err(|e| ApiError::bad_request(format!("Invalid image data: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
 
         let thumbnail = match method {
             ThumbnailMethod::Crop => {
@@ -437,7 +433,7 @@ impl MediaService {
         let mut output = Vec::new();
         thumbnail
             .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Jpeg)
-            .map_err(|e| ApiError::internal(format!("Failed to encode thumbnail: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to encode thumbnail: {e}")))?;
 
         Ok(output)
     }
@@ -506,7 +502,7 @@ impl MediaService {
             deleted_count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
 
         Ok(result)
     }
@@ -635,7 +631,7 @@ impl MediaService {
             None
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
 
         result.ok_or(ApiError::not_found("Media not found".to_string()))
     }
@@ -653,7 +649,7 @@ impl MediaService {
                         if media_file_matches_id(file_name, &media_id) {
                             let path = entry.path();
                             if let Err(e) = std::fs::remove_file(&path) {
-                                return Err(format!("Failed to delete media file: {}", e));
+                                return Err(format!("Failed to delete media file: {e}"));
                             }
                             ::tracing::info!(
                                 "Deleted media: {} from server {}",
@@ -668,7 +664,7 @@ impl MediaService {
             Err("Media not found".to_string())
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
 
         result.map_err(ApiError::not_found)
     }
@@ -700,7 +696,7 @@ impl MediaService {
             count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
 
         deleted_count += media_deleted;
 
@@ -724,7 +720,7 @@ impl MediaService {
             count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
 
         deleted_count += thumb_deleted;
         ::tracing::info!(
@@ -948,8 +944,7 @@ mod tests {
             let ext = MediaService::get_extension_from_content_type(content_type);
             assert_eq!(
                 ext, expected_ext,
-                "Failed for content type: {}",
-                content_type
+                "Failed for content type: {content_type}"
             );
         }
     }

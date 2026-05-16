@@ -97,7 +97,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                return Err(XmlParseError::Parse(format!("Error parsing XML: {:?}", e)));
+                return Err(XmlParseError::Parse(format!("Error parsing XML: {e:?}")));
             }
             _ => {}
         }
@@ -180,7 +180,7 @@ pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseErro
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                return Err(XmlParseError::Parse(format!("Error parsing XML: {:?}", e)));
+                return Err(XmlParseError::Parse(format!("Error parsing XML: {e:?}")));
             }
             _ => {}
         }

@@ -45,7 +45,7 @@ fn test_admin_registration_hmac_logic() {
     let signature = mac.finalize().into_bytes();
     let hex_signature = signature
         .iter()
-        .map(|b| format!("{:02x}", b))
+        .map(|b| format!("{b:02x}"))
         .collect::<String>();
 
     assert_eq!(

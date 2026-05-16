@@ -25,7 +25,7 @@ impl MessageQueue {
         let mut queues = self.queues.write().await;
 
         if queues.contains_key(name) {
-            return Err(format!("Queue {} already exists", name));
+            return Err(format!("Queue {name} already exists"));
         }
 
         queues.insert(name.to_string(), VecDeque::new());
@@ -154,7 +154,7 @@ impl MessageQueue {
         stats
             .get(queue_name)
             .cloned()
-            .ok_or_else(|| format!("Queue {} not found", queue_name))
+            .ok_or_else(|| format!("Queue {queue_name} not found"))
     }
 
     pub async fn list_queues(&self) -> Vec<String> {
@@ -168,7 +168,7 @@ impl MessageQueue {
         queues
             .get(queue_name)
             .map(|q| q.len() as u64)
-            .ok_or_else(|| format!("Queue {} not found", queue_name))
+            .ok_or_else(|| format!("Queue {queue_name} not found"))
     }
 
     pub async fn purge_queue(&self, queue_name: &str) -> Result<u64, String> {
@@ -185,7 +185,7 @@ impl MessageQueue {
 
             Ok(count)
         } else {
-            Err(format!("Queue {} not found", queue_name))
+            Err(format!("Queue {queue_name} not found"))
         }
     }
 

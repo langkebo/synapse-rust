@@ -353,7 +353,7 @@ impl EventReportStorage {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn add_history(
+    pub fn add_history(
         &self,
         report_id: i64,
         action: &str,
@@ -387,7 +387,7 @@ impl EventReportStorage {
         })
     }
 
-    pub async fn get_report_history(
+    pub fn get_report_history(
         &self,
         _report_id: i64,
     ) -> Result<Vec<EventReportHistory>, sqlx::Error> {
@@ -399,8 +399,7 @@ impl EventReportStorage {
         user_id: &str,
     ) -> Result<ReportRateLimitCheck, sqlx::Error> {
         let limit = sqlx::query_as::<_, ReportRateLimit>(&format!(
-            "{} WHERE user_id = $1",
-            REPORT_RATE_LIMIT_SELECT
+            "{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"
         ))
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -472,8 +471,7 @@ impl EventReportStorage {
         let one_day_ago = now - 86400000;
 
         let existing = sqlx::query_as::<_, ReportRateLimit>(&format!(
-            "{} WHERE user_id = $1",
-            REPORT_RATE_LIMIT_SELECT
+            "{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"
         ))
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -555,7 +553,7 @@ impl EventReportStorage {
         Ok(())
     }
 
-    pub async fn get_stats(&self, _days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
+    pub fn get_stats(&self, _days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
         Ok(vec![])
     }
 

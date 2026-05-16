@@ -881,7 +881,7 @@ mod tests {
                 .collect();
 
         for c in token.chars() {
-            assert!(valid_chars.contains(&c), "Invalid character: {}", c);
+            assert!(valid_chars.contains(&c), "Invalid character: {c}");
         }
     }
 
@@ -893,8 +893,7 @@ mod tests {
         for c in token.chars() {
             assert!(
                 !ambiguous_chars.contains(&c),
-                "Ambiguous character found: {}",
-                c
+                "Ambiguous character found: {c}"
             );
         }
     }

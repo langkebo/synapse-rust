@@ -206,7 +206,7 @@ mod tests {
         let user_id = UserId::new("alice", "example.com");
         assert_eq!(user_id.localpart, "alice");
         assert_eq!(user_id.server_name, "example.com");
-        assert_eq!(format!("{}", user_id), "@alice:example.com");
+        assert_eq!(format!("{user_id}"), "@alice:example.com");
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod tests {
         let alias = RoomAlias::new("general", "example.com");
         assert_eq!(alias.localpart, "general");
         assert_eq!(alias.server_name, "example.com");
-        assert_eq!(format!("{}", alias), "#general:example.com");
+        assert_eq!(format!("{alias}"), "#general:example.com");
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
         let event_id = EventId::new("abc123", "example.com");
         assert_eq!(event_id.value, "abc123");
         assert_eq!(event_id.server_name, "example.com");
-        assert_eq!(format!("{}", event_id), "$abc123");
+        assert_eq!(format!("{event_id}"), "$abc123");
     }
 
     #[test]
@@ -274,8 +274,8 @@ mod tests {
     #[test]
     fn test_secret_string_redacted() {
         let secret = SecretString::new("my_secret".to_string());
-        assert_eq!(format!("{:?}", secret), "SecretString([REDACTED])");
-        assert_eq!(format!("{}", secret), "[REDACTED]");
+        assert_eq!(format!("{secret:?}"), "SecretString([REDACTED])");
+        assert_eq!(format!("{secret}"), "[REDACTED]");
     }
 
     #[test]

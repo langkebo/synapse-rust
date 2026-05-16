@@ -77,7 +77,7 @@ async fn get_global_tags(
 
     let tags = get_all_user_tags(&state.services.user_storage.pool, &user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get tags: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get tags: {e}")))?;
 
     let mut rooms_map = serde_json::Map::new();
     for tag in tags {
@@ -111,7 +111,7 @@ async fn get_tags(
 
     let tags = get_room_tags(&state.services.user_storage.pool, &user_id, &room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get tags: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to get tags: {e}")))?;
 
     let tags_map: serde_json::Map<String, serde_json::Value> = tags
         .into_iter()
@@ -147,7 +147,7 @@ async fn put_tag(
         now,
     )
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to set tag: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to set tag: {e}")))?;
 
     Ok(empty_json())
 }
@@ -163,7 +163,7 @@ async fn delete_tag(
 
     delete_room_tag(&state.services.user_storage.pool, &user_id, &room_id, &tag)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete tag: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete tag: {e}")))?;
 
     Ok(empty_json())
 }

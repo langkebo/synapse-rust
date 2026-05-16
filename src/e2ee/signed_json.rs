@@ -170,7 +170,7 @@ pub fn verify_one_time_key_signature(
         .and_then(|v| v.as_object())
         .ok_or(CryptoError::SignatureVerificationFailed)?;
 
-    let signing_key_id = format!("ed25519:{}", device_id);
+    let signing_key_id = format!("ed25519:{device_id}");
 
     let signature = user_sigs
         .get(&signing_key_id)

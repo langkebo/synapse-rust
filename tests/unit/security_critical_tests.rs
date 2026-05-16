@@ -18,8 +18,7 @@ fn validate_password_change_request(
         "m.login.email.identity" => {}
         _ => {
             return Err(format!(
-                "m.login.password or m.login.email.identity authentication required, got: {}",
-                auth_type
+                "m.login.password or m.login.email.identity authentication required, got: {auth_type}"
             ));
         }
     }
@@ -442,8 +441,7 @@ fn test_password_change_rejects_all_non_password_auth_types() {
         let result = validate_password_change_request(auth_type, true, true);
         assert!(
             result.is_err(),
-            "Auth type {} should be rejected for password change",
-            auth_type
+            "Auth type {auth_type} should be rejected for password change"
         );
     }
 }

@@ -33,7 +33,7 @@ impl std::str::FromStr for DeviceTrustLevel {
             "verified" => Ok(DeviceTrustLevel::Verified),
             "unverified" => Ok(DeviceTrustLevel::Unverified),
             "blocked" => Ok(DeviceTrustLevel::Blocked),
-            _ => Err(format!("Unknown trust level: {}", s)),
+            _ => Err(format!("Unknown trust level: {s}")),
         }
     }
 }
@@ -110,7 +110,7 @@ impl std::str::FromStr for VerificationMethod {
             "sas" => Ok(VerificationMethod::Sas),
             "qr" => Ok(VerificationMethod::Qr),
             "emoji" => Ok(VerificationMethod::Emoji),
-            _ => Err(format!("Unknown verification method: {}", s)),
+            _ => Err(format!("Unknown verification method: {s}")),
         }
     }
 }
@@ -147,7 +147,7 @@ impl std::str::FromStr for VerificationRequestStatus {
             "approved" => Ok(VerificationRequestStatus::Approved),
             "rejected" => Ok(VerificationRequestStatus::Rejected),
             "expired" => Ok(VerificationRequestStatus::Expired),
-            _ => Err(format!("Unknown verification status: {}", s)),
+            _ => Err(format!("Unknown verification status: {s}")),
         }
     }
 }

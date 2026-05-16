@@ -182,13 +182,7 @@ impl Histogram {
             return Ok(0.0);
         }
         values.sort_by(|a, b| {
-            a.partial_cmp(b)
-                .ok_or_else(|| {
-                    MetricsError::ValueComparisonError(
-                        "Cannot compare histogram values".to_string(),
-                    )
-                })
-                .expect("This should never happen after ok_or_else")
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
         });
         let index = ((percentile / 100.0) * (values.len() - 1) as f64).floor() as usize;
         Ok(values[index.min(values.len() - 1)])
@@ -360,7 +354,7 @@ impl MetricsCollector {
                 let labels: Vec<String> = counter
                     .labels
                     .iter()
-                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .map(|(k, v)| format!("{k}=\"{v}\""))
                     .collect();
                 output.push_str(&format!(
                     "{}{{{}}} {}\n",
@@ -381,7 +375,7 @@ impl MetricsCollector {
                 let labels: Vec<String> = gauge
                     .labels
                     .iter()
-                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .map(|(k, v)| format!("{k}=\"{v}\""))
                     .collect();
                 output.push_str(&format!(
                     "{}{{{}}} {}\n",
@@ -395,15 +389,15 @@ impl MetricsCollector {
         let histograms = self.histograms.lock();
         for histogram in histograms.values() {
             let count_name = format!("{}_count", histogram.name);
-            output.push_str(&format!("# HELP {} {}\n", count_name, count_name));
-            output.push_str(&format!("# TYPE {} counter\n", count_name));
+            output.push_str(&format!("# HELP {count_name} {count_name}\n"));
+            output.push_str(&format!("# TYPE {count_name} counter\n"));
             if histogram.labels.is_empty() {
                 output.push_str(&format!("{} {}\n", count_name, histogram.get_count()));
             } else {
                 let labels: Vec<String> = histogram
                     .labels
                     .iter()
-                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .map(|(k, v)| format!("{k}=\"{v}\""))
                     .collect();
                 output.push_str(&format!(
                     "{}{{{}}} {}\n",
@@ -414,15 +408,15 @@ impl MetricsCollector {
             }
 
             let sum_name = format!("{}_sum", histogram.name);
-            output.push_str(&format!("# HELP {} {}\n", sum_name, sum_name));
-            output.push_str(&format!("# TYPE {} counter\n", sum_name));
+            output.push_str(&format!("# HELP {sum_name} {sum_name}\n"));
+            output.push_str(&format!("# TYPE {sum_name} counter\n"));
             if histogram.labels.is_empty() {
                 output.push_str(&format!("{} {}\n", sum_name, histogram.get_sum()));
             } else {
                 let labels: Vec<String> = histogram
                     .labels
                     .iter()
-                    .map(|(k, v)| format!("{}=\"{}\"", k, v))
+                    .map(|(k, v)| format!("{k}=\"{v}\""))
                     .collect();
                 output.push_str(&format!(
                     "{}{{{}}} {}\n",

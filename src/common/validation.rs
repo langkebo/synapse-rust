@@ -72,8 +72,7 @@ impl Validator {
             return Err(ValidationError::new(
                 "username",
                 &format!(
-                    "Username must be at least {} characters",
-                    MIN_USERNAME_LENGTH
+                    "Username must be at least {MIN_USERNAME_LENGTH} characters"
                 ),
                 "TOO_SHORT",
             ));
@@ -83,8 +82,7 @@ impl Validator {
             return Err(ValidationError::new(
                 "username",
                 &format!(
-                    "Username must be at most {} characters",
-                    MAX_USERNAME_LENGTH
+                    "Username must be at most {MAX_USERNAME_LENGTH} characters"
                 ),
                 "TOO_LONG",
             ));
@@ -114,8 +112,7 @@ impl Validator {
             return Err(ValidationError::new(
                 "password",
                 &format!(
-                    "Password must be at least {} characters",
-                    MIN_PASSWORD_LENGTH
+                    "Password must be at least {MIN_PASSWORD_LENGTH} characters"
                 ),
                 "TOO_SHORT",
             ));
@@ -125,8 +122,7 @@ impl Validator {
             return Err(ValidationError::new(
                 "password",
                 &format!(
-                    "Password must be at most {} characters",
-                    MAX_PASSWORD_LENGTH
+                    "Password must be at most {MAX_PASSWORD_LENGTH} characters"
                 ),
                 "TOO_LONG",
             ));
@@ -247,8 +243,7 @@ impl Validator {
             return Err(ValidationError::new(
                 "device_id",
                 &format!(
-                    "Device ID must be at most {} characters",
-                    MAX_DEVICE_ID_LENGTH
+                    "Device ID must be at most {MAX_DEVICE_ID_LENGTH} characters"
                 ),
                 "TOO_LONG",
             ));
@@ -291,7 +286,7 @@ impl Validator {
         if min > 0 && value.is_empty() {
             return Err(ValidationError::new(
                 field,
-                &format!("{} cannot be empty", field),
+                &format!("{field} cannot be empty"),
                 "EMPTY",
             ));
         }
@@ -299,7 +294,7 @@ impl Validator {
         if value.len() < min {
             return Err(ValidationError::new(
                 field,
-                &format!("{} must be at least {} characters", field, min),
+                &format!("{field} must be at least {min} characters"),
                 "TOO_SHORT",
             ));
         }
@@ -307,7 +302,7 @@ impl Validator {
         if value.len() > max {
             return Err(ValidationError::new(
                 field,
-                &format!("{} must be at most {} characters", field, max),
+                &format!("{field} must be at most {max} characters"),
                 "TOO_LONG",
             ));
         }
@@ -331,7 +326,7 @@ impl Validator {
         if limit < min {
             return Err(ValidationError::new(
                 "limit",
-                format!("Limit must be at least {}", min).as_str(),
+                format!("Limit must be at least {min}").as_str(),
                 "TOO_SMALL",
             ));
         }
@@ -339,7 +334,7 @@ impl Validator {
         if limit > max {
             return Err(ValidationError::new(
                 "limit",
-                format!("Limit must be at most {}", max).as_str(),
+                format!("Limit must be at most {max}").as_str(),
                 "TOO_LARGE",
             ));
         }
@@ -404,21 +399,21 @@ impl Default for Validator {
 }
 
 impl Validator {
+    #[allow(clippy::expect_used)]
     fn create_fallback_validator() -> Self {
-        // 这些正则表达式是硬编码的，语法是正确的，不会失败
-        // 使用 expect 来提供清晰的错误信息
         Self {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$")
-                .expect("Valid regex pattern should not fail"),
+                .expect("hardcoded fallback regex is syntactically valid"),
             email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
-                .expect("Valid regex pattern should not fail"),
+                .expect("hardcoded fallback regex is syntactically valid"),
             matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$")
-                .expect("Valid regex pattern should not fail"),
+                .expect("hardcoded fallback regex is syntactically valid"),
             room_id_regex: Regex::new(r"^![^:]+:[^:]+$")
-                .expect("Valid regex pattern should not fail"),
+                .expect("hardcoded fallback regex is syntactically valid"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
-                .expect("Valid regex pattern should not fail"),
-            url_regex: Regex::new(r"^https?://.+").expect("Valid regex pattern should not fail"),
+                .expect("hardcoded fallback regex is syntactically valid"),
+            url_regex: Regex::new(r"^https?://.+")
+                .expect("hardcoded fallback regex is syntactically valid"),
         }
     }
 }
@@ -762,7 +757,7 @@ mod tests {
                     })
                     .collect();
 
-                EmailInput(format!("{}@{}.{}", local, domain, tld))
+                EmailInput(format!("{local}@{domain}.{tld}"))
             }
         }
 
@@ -805,7 +800,7 @@ mod tests {
                     })
                     .collect();
 
-                MatrixIdInput(format!("@{}:{}.com", local, server))
+                MatrixIdInput(format!("@{local}:{server}.com"))
             }
         }
 
