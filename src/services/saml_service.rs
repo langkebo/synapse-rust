@@ -1138,7 +1138,7 @@ impl SamlService {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        self.storage.cleanup_expired_sessions()
+        self.storage.cleanup_expired_sessions().await
     }
 
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
