@@ -342,10 +342,10 @@ mod tests {
     fn test_burn_settings_struct() {
         let settings = BurnSettings {
             is_enabled: true,
-            burn_after_ms: 60000,
+            burn_after_ms: 60_000,
         };
         assert!(settings.is_enabled);
-        assert_eq!(settings.burn_after_ms, 60000);
+        assert_eq!(settings.burn_after_ms, 60_000);
     }
 
     #[test]

@@ -275,12 +275,12 @@ impl DeviceSyncManager {
 
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let devices: Vec<DeviceRow> = sqlx::query_as(
-            r#"
+            r"
             SELECT device_id, user_id, display_name as device_display_name, 
                    device_key as keys, last_seen_ts, last_seen_ip,
                    FALSE as is_blocked, FALSE as verified
             FROM devices WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -340,11 +340,11 @@ impl DeviceSyncManager {
         let expiry_threshold = Utc::now() - Duration::days(DEVICE_KEY_EXPIRY_DAYS);
 
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM devices 
             WHERE user_id = $1 
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(expiry_threshold.timestamp_millis())
@@ -392,12 +392,12 @@ impl DeviceSyncManager {
 
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             UPDATE devices SET 
                 device_key = NULL,
                 last_seen_ts = NULL
             WHERE device_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(device_id)
         .bind(user_id)

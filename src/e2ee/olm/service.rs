@@ -398,7 +398,7 @@ mod tests {
 
     fn create_test_cache() -> Arc<CacheManager> {
         let config = CacheConfig::default();
-        Arc::new(CacheManager::new(config))
+        Arc::new(CacheManager::new(&config))
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub mod schema_validator;
 pub mod search_index;
 pub mod sliding_sync;
 pub mod space;
+pub mod state_groups;
 pub mod sticky_event;
 pub mod thread;
 pub mod threepid;

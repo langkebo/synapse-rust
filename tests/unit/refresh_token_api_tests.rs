@@ -61,7 +61,7 @@ fn test_user_tokens_response() {
         "user_id": "@user:localhost",
         "device_id": "DEVICE_ID",
         "created_ts": 1700000000000_i64,
-        "expires_ts": 1700003600000_i64,
+        "expires_ts": 1_700_003_600_000_i64,
         "is_revoked": false
     })];
 

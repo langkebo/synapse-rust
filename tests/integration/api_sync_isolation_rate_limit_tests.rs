@@ -22,7 +22,7 @@ async fn setup_test_app_with_sync_isolation_rate_limit(
     container.config.rate_limit.sync.initial = initial;
     container.config.rate_limit.sync.incremental = incremental;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }
@@ -37,7 +37,7 @@ async fn setup_test_app_with_broken_sync_rate_limit_backend(
         .expect("failed to create Redis pool for broken backend test");
     let cache = Arc::new(CacheManager::with_redis_pool_and_url(
         redis_pool,
-        CacheConfig::default(),
+        &CacheConfig::default(),
         "redis://127.0.0.1:1",
     ));
 

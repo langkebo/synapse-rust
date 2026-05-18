@@ -29,12 +29,12 @@ pub enum ContentType {
 impl ContentType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ContentType::MediaImage => "media_image",
-            ContentType::MediaVideo => "media_video",
-            ContentType::MediaAudio => "media_audio",
-            ContentType::MediaFile => "media_file",
-            ContentType::MessageText => "message_text",
-            ContentType::FileAttachment => "file_attachment",
+            Self::MediaImage => "media_image",
+            Self::MediaVideo => "media_video",
+            Self::MediaAudio => "media_audio",
+            Self::MediaFile => "media_file",
+            Self::MessageText => "message_text",
+            Self::FileAttachment => "file_attachment",
         }
     }
 }
@@ -44,12 +44,12 @@ impl std::str::FromStr for ContentType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "media_image" => Ok(ContentType::MediaImage),
-            "media_video" => Ok(ContentType::MediaVideo),
-            "media_audio" => Ok(ContentType::MediaAudio),
-            "media_file" => Ok(ContentType::MediaFile),
-            "message_text" => Ok(ContentType::MessageText),
-            "file_attachment" => Ok(ContentType::FileAttachment),
+            "media_image" => Ok(Self::MediaImage),
+            "media_video" => Ok(Self::MediaVideo),
+            "media_audio" => Ok(Self::MediaAudio),
+            "media_file" => Ok(Self::MediaFile),
+            "message_text" => Ok(Self::MessageText),
+            "file_attachment" => Ok(Self::FileAttachment),
             _ => Err(()),
         }
     }

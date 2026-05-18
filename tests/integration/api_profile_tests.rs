@@ -4,9 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::state::AppState;
+use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
@@ -15,12 +13,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
 {
-    let pool = super::get_test_pool().await?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
-    let state = AppState::new(container, cache.clone());
-
-    Some((synapse_rust::web::create_router(state), pool, cache))
+    super::setup_test_app_with_pool().await
 }
 
 async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {

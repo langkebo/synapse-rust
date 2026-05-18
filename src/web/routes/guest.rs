@@ -31,9 +31,9 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
     .map_err(|e| ApiError::internal(format!("Failed to create guest user: {e}")))?;
 
     sqlx::query(
-        r#"
+        r"
         UPDATE users SET is_guest = TRUE WHERE user_id = $1
-        "#,
+        ",
     )
     .bind(&user.user_id)
     .execute(&*state.services.user_storage.pool)
@@ -135,9 +135,9 @@ pub async fn upgrade_guest(
                 .await?;
 
             sqlx::query(
-                r#"
+                r"
                 UPDATE users SET username = $1, is_guest = FALSE, password_hash = $2 WHERE user_id = $3
-                "#,
+                ",
             )
             .bind(username)
             .bind(&password_hash)

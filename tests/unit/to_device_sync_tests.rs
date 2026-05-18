@@ -211,6 +211,66 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
     .await
     .expect("Failed to create device_lists_changes table");
 
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_pending (
+                room_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                triggered_by_user_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                PRIMARY KEY (room_id, triggered_by_user_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create key_rotation_pending table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_state (
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                is_rotated BOOLEAN NOT NULL DEFAULT FALSE,
+                rotated_at TIMESTAMPTZ,
+                PRIMARY KEY (user_id, room_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create key_rotation_state table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS megolm_key_shares (
+                room_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                share_reason TEXT NOT NULL,
+                shared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (room_id, session_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create megolm_key_shares table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS megolm_sessions (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                sender_key TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create megolm_sessions table");
+
     pool
 }
 
@@ -220,7 +280,7 @@ fn test_to_device_next_batch_token_respects_limit() {
     rt.block_on(async {
         let pool = setup_test_database().await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -314,7 +374,7 @@ fn test_to_device_messages_are_deleted_after_ack() {
         let sync_service = SyncService::new(
             PresenceStorage::new(
                 pool.clone(),
-                Arc::new(CacheManager::new(CacheConfig::default())),
+                Arc::new(CacheManager::new(&CacheConfig::default())),
             ),
             RoomMemberStorage::new(&pool, "localhost"),
             EventStorage::new(&pool, "localhost".to_string()),

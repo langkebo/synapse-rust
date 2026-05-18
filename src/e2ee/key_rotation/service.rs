@@ -279,7 +279,7 @@ impl KeyRotationStorage {
 
     pub async fn get_encrypted_rooms(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT DISTINCT r.room_id 
             FROM rooms r
             INNER JOIN room_memberships rm ON r.room_id = rm.room_id
@@ -287,7 +287,7 @@ impl KeyRotationStorage {
             WHERE rm.user_id = $1 
               AND rm.membership = 'join'
               AND re.event_type = 'm.room.encryption'
-            "#
+            "
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -304,11 +304,11 @@ impl KeyRotationStorage {
         share_reason: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO megolm_key_shares (room_id, session_id, share_reason, shared_at)
             VALUES ($1, $2, $3, NOW())
             ON CONFLICT (room_id, session_id) DO UPDATE SET share_reason = $3, shared_at = NOW()
-            "#
+            "
         )
         .bind(room_id)
         .bind(session_id)
@@ -322,11 +322,11 @@ impl KeyRotationStorage {
 
     pub async fn mark_rotated(&self, user_id: &str, room_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO key_rotation_state (user_id, room_id, is_rotated, rotated_at)
             VALUES ($1, $2, TRUE, NOW())
             ON CONFLICT (user_id, room_id) DO UPDATE SET is_rotated = TRUE, rotated_at = NOW()
-            "#
+            "
         )
         .bind(user_id)
         .bind(room_id)
@@ -339,10 +339,10 @@ impl KeyRotationStorage {
 
     pub async fn check_needs_rotation(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, (bool,)>(
-            r#"
+            r"
             SELECT COALESCE(is_rotated, FALSE) FROM key_rotation_state 
             WHERE user_id = $1 AND room_id = $2
-            "#
+            "
         )
         .bind(user_id)
         .bind(room_id)
@@ -393,14 +393,14 @@ impl KeyRotationStorage {
         room_id: &str,
     ) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT rm.user_id
             FROM room_memberships rm
             INNER JOIN room_events re ON rm.room_id = re.room_id
             WHERE rm.room_id = $1
               AND rm.membership = 'join'
               AND re.event_type = 'm.room.encryption'
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -417,11 +417,11 @@ impl KeyRotationStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
             VALUES ($1, 'member_left', $2, $3)
             ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(leaving_user_id)
@@ -438,13 +438,13 @@ impl KeyRotationStorage {
         user_id: &str,
     ) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT DISTINCT krp.room_id
             FROM key_rotation_pending krp
             INNER JOIN room_memberships rm ON krp.room_id = rm.room_id
             WHERE rm.user_id = $1
               AND rm.membership = 'join'
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -459,9 +459,9 @@ impl KeyRotationStorage {
         room_id: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM key_rotation_pending WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .execute(&*self.pool)

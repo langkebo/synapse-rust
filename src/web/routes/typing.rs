@@ -35,12 +35,12 @@ async fn write_typing_ephemeral(
     });
     let now = chrono::Utc::now().timestamp_millis();
     let _ = sqlx::query(
-        r#"
+        r"
         INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
         VALUES ($1, 'm.typing', $2, $3, $4, $5, $6)
         ON CONFLICT (room_id, event_type, user_id) DO UPDATE
         SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts, expires_at = EXCLUDED.expires_at
-        "#,
+        ",
     )
     .bind(room_id)
     .bind(user_id)
@@ -54,10 +54,10 @@ async fn write_typing_ephemeral(
 
 async fn clear_typing_ephemeral(state: &AppState, room_id: &str, user_id: &str) {
     let _ = sqlx::query(
-        r#"
+        r"
         DELETE FROM room_ephemeral
         WHERE room_id = $1 AND event_type = 'm.typing' AND user_id = $2
-        "#,
+        ",
     )
     .bind(room_id)
     .bind(user_id)

@@ -65,7 +65,7 @@ pub(super) async fn get_missing_events(
         .get("latest_events")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("latest_events required".to_string()))?;
-    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
 
     let events = state
         .services
@@ -221,8 +221,7 @@ pub(super) async fn get_state_ids(
             event
                 .event_type
                 .as_deref()
-                .map(crate::federation::event_auth::EventAuthChain::is_auth_event)
-                .unwrap_or(false)
+                .is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
         })
         .map(|event| event.event_id.clone())
         .collect();
@@ -775,8 +774,7 @@ fn build_federation_state_payload(
             event
                 .event_type
                 .as_deref()
-                .map(crate::federation::event_auth::EventAuthChain::is_auth_event)
-                .unwrap_or(false)
+                .is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
         })
         .map(|event| serialize_state_event_minimal(server_name, event))
         .collect();

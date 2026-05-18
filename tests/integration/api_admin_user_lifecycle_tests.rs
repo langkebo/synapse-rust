@@ -5,20 +5,11 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::create_router;
-use synapse_rust::web::AppState;
+use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
-    let pool = super::get_test_pool().await?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
-    let pool = container.user_storage.pool.clone();
-    let state = AppState::new(container, cache.clone());
-
-    Some((create_router(state), pool, cache))
+    super::setup_test_app_with_pool().await
 }
 
 async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheManager) -> String {

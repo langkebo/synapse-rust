@@ -1,5 +1,6 @@
 use crate::common::*;
 use crate::services::media_service::MediaService;
+use crate::storage::voice::VoiceStorage;
 use serde_json::json;
 
 const ALLOWED_AUDIO_TYPES: &[&str] = &[
@@ -27,13 +28,15 @@ pub struct VoiceMessageUploadParams {
 #[derive(Clone)]
 pub struct VoiceService {
     media_service: MediaService,
+    voice_storage: VoiceStorage,
     server_name: String,
 }
 
 impl VoiceService {
-    pub fn new(media_service: MediaService, server_name: &str) -> Self {
+    pub fn new(media_service: MediaService, voice_storage: VoiceStorage, server_name: &str) -> Self {
         Self {
             media_service,
+            voice_storage,
             server_name: server_name.to_string(),
         }
     }
@@ -75,6 +78,16 @@ impl VoiceService {
             .unwrap_or_default()
             .to_string();
 
+        let media_id = content_uri
+            .trim_start_matches(&format!("mxc://{}/", self.server_name))
+            .to_string();
+
+        let size_bytes = params.content.len() as i64;
+        let duration_ms = params.duration_ms;
+        let content_type = params.content_type.clone();
+        let room_id = params.room_id.clone();
+        let user_id = params.user_id.clone();
+
         let mut voice_content = json!({
             "body": "Voice message",
             "msgtype": "m.audio",
@@ -89,6 +102,17 @@ impl VoiceService {
 
         if let Some(waveform) = &params.waveform {
             voice_content["org.matrix.msc3245.voice"]["waveform"] = json!(waveform);
+        }
+
+        if let Err(e) = self.voice_storage.record_upload(
+            &user_id,
+            room_id.as_deref(),
+            &media_id,
+            &content_type,
+            duration_ms,
+            size_bytes,
+        ).await {
+            ::tracing::warn!(target: "voice", "Failed to record voice usage stats: {}", e);
         }
 
         Ok(json!({
@@ -111,6 +135,158 @@ impl VoiceService {
         self.media_service
             .delete_media(&self.server_name, media_id)
             .await
+    }
+
+    pub async fn get_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
+        match self.voice_storage.get_user_stats(user_id).await {
+            Ok(stats) => Ok(json!({
+                "user_id": user_id,
+                "total_uploads": stats.total_uploads,
+                "total_duration_ms": stats.total_duration_ms,
+                "total_size_bytes": stats.total_size_bytes,
+                "uploads_today": stats.uploads_today,
+            })),
+            Err(e) => {
+                ::tracing::warn!(target: "voice", "Failed to get voice stats: {}", e);
+                Ok(json!({
+                    "user_id": user_id,
+                    "total_uploads": 0,
+                    "total_duration_ms": 0,
+                    "total_size_bytes": 0,
+                    "uploads_today": 0,
+                }))
+            }
+        }
+    }
+
+    pub async fn get_room_voice_stats(&self, room_id: &str) -> ApiResult<serde_json::Value> {
+        match self.voice_storage.get_room_stats(room_id).await {
+            Ok(stats) => Ok(json!({
+                "room_id": room_id,
+                "total_uploads": stats.total_uploads,
+                "total_duration_ms": stats.total_duration_ms,
+                "total_size_bytes": stats.total_size_bytes,
+            })),
+            Err(e) => {
+                ::tracing::warn!(target: "voice", "Failed to get room voice stats: {}", e);
+                Ok(json!({
+                    "room_id": room_id,
+                    "total_uploads": 0,
+                    "total_duration_ms": 0,
+                    "total_size_bytes": 0,
+                }))
+            }
+        }
+    }
+
+    pub async fn get_user_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
+        match self.voice_storage.get_global_user_stats(user_id).await {
+            Ok(stats) => Ok(json!({
+                "user_id": user_id,
+                "total_uploads": stats.total_uploads,
+                "total_duration_ms": stats.total_duration_ms,
+                "total_size_bytes": stats.total_size_bytes,
+                "uploads_today": stats.uploads_today,
+            })),
+            Err(e) => {
+                ::tracing::warn!(target: "voice", "Failed to get user voice stats: {}", e);
+                Ok(json!({
+                    "user_id": user_id,
+                    "total_uploads": 0,
+                    "total_duration_ms": 0,
+                    "total_size_bytes": 0,
+                    "uploads_today": 0,
+                }))
+            }
+        }
+    }
+
+    pub async fn get_room_voice_messages(
+        &self,
+        room_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+    ) -> ApiResult<serde_json::Value> {
+        let records = self
+            .voice_storage
+            .get_room_messages(room_id, limit, from_ts)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+
+        let messages: Vec<serde_json::Value> = records
+            .iter()
+            .map(|r| self.record_to_message_json(r))
+            .collect();
+
+        let end_token = messages.last().and_then(|m| m.get("created_ts").and_then(|v| v.as_i64()));
+
+        Ok(json!({
+            "room_id": room_id,
+            "messages": messages,
+            "next_batch": end_token,
+        }))
+    }
+
+    pub async fn get_user_voice_messages(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+    ) -> ApiResult<serde_json::Value> {
+        let records = self
+            .voice_storage
+            .get_user_messages(user_id, limit, from_ts)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+
+        let messages: Vec<serde_json::Value> = records
+            .iter()
+            .map(|r| self.record_to_message_json(r))
+            .collect();
+
+        let end_token = messages.last().and_then(|m| m.get("created_ts").and_then(|v| v.as_i64()));
+
+        Ok(json!({
+            "user_id": user_id,
+            "messages": messages,
+            "next_batch": end_token,
+        }))
+    }
+
+    pub async fn get_voice_message_content(&self, media_id: &str) -> ApiResult<serde_json::Value> {
+        let record = self
+            .voice_storage
+            .get_by_media_id(media_id)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .ok_or_else(|| ApiError::not_found(format!("Voice message not found: {}", media_id)))?;
+
+        let content_uri = format!("mxc://{}/{}", self.server_name, media_id);
+
+        Ok(json!({
+            "media_id": record.media_id,
+            "user_id": record.user_id,
+            "room_id": record.room_id,
+            "content_uri": content_uri,
+            "content_type": record.content_type,
+            "duration_ms": record.duration_ms,
+            "size_bytes": record.size_bytes,
+            "created_ts": record.created_ts,
+        }))
+    }
+
+    fn record_to_message_json(&self, record: &crate::storage::voice::VoiceUsageRecord) -> serde_json::Value {
+        let content_uri = format!("mxc://{}/{}", self.server_name, record.media_id);
+        json!({
+            "media_id": record.media_id,
+            "user_id": record.user_id,
+            "room_id": record.room_id,
+            "content_uri": content_uri,
+            "content_type": record.content_type,
+            "duration_ms": record.duration_ms,
+            "size_bytes": record.size_bytes,
+            "created_ts": record.created_ts,
+        })
     }
 }
 

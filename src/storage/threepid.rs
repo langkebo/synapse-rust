@@ -62,7 +62,7 @@ impl ThreepidStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             INSERT INTO user_threepids (user_id, medium, address, added_ts, is_verified, verification_token, verification_expires_at)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING
@@ -75,7 +75,7 @@ impl ThreepidStorage {
                 is_verified,
                 verification_token,
                 verification_expires_at
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.medium)
@@ -97,7 +97,7 @@ impl ThreepidStorage {
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             SELECT
                 id,
                 user_id,
@@ -110,7 +110,7 @@ impl ThreepidStorage {
                 verification_expires_at
             FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(medium)
@@ -127,7 +127,7 @@ impl ThreepidStorage {
         user_id: &str,
     ) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             SELECT
                 id,
                 user_id,
@@ -141,7 +141,7 @@ impl ThreepidStorage {
             FROM user_threepids
             WHERE user_id = $1
             ORDER BY added_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -157,7 +157,7 @@ impl ThreepidStorage {
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             SELECT
                 id,
                 user_id,
@@ -170,7 +170,7 @@ impl ThreepidStorage {
                 verification_expires_at
             FROM user_threepids
             WHERE medium = $1 AND address = $2
-            "#,
+            ",
         )
         .bind(medium)
         .bind(address)
@@ -187,7 +187,7 @@ impl ThreepidStorage {
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             SELECT
                 id,
                 user_id,
@@ -200,7 +200,7 @@ impl ThreepidStorage {
                 verification_expires_at
             FROM user_threepids
             WHERE medium = $1 AND address = $2 AND is_verified = TRUE
-            "#,
+            ",
         )
         .bind(medium)
         .bind(address)
@@ -222,11 +222,11 @@ impl ThreepidStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE user_threepids
             SET is_verified = TRUE, validated_ts = $4, verification_token = NULL, verification_expires_at = NULL
             WHERE user_id = $1 AND medium = $2 AND address = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(medium)
@@ -246,7 +246,7 @@ impl ThreepidStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
-            r#"
+            r"
             UPDATE user_threepids
             SET is_verified = TRUE, validated_ts = $2, verification_token = NULL, verification_expires_at = NULL
             WHERE verification_token = $1 AND verification_expires_at > $2
@@ -260,7 +260,7 @@ impl ThreepidStorage {
                 is_verified,
                 verification_token,
                 verification_expires_at
-            "#,
+            ",
         )
         .bind(token)
         .bind(now)
@@ -278,10 +278,10 @@ impl ThreepidStorage {
         address: &str,
     ) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(medium)
@@ -295,10 +295,10 @@ impl ThreepidStorage {
 
     pub async fn remove_threepids_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM user_threepids
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&*self.pool)
@@ -312,10 +312,10 @@ impl ThreepidStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM user_threepids
             WHERE is_verified = FALSE AND verification_expires_at IS NOT NULL AND verification_expires_at < $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -340,12 +340,12 @@ impl ThreepidStorage {
         expires_at: i64,
     ) -> Result<i64, ApiError> {
         sqlx::query_as::<_, (i64,)>(
-            r#"
+            r"
             INSERT INTO threepid_validation_session
             (session_id, medium, address, client_secret, token, next_link, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
-            "#,
+            ",
         )
         .bind(session_id)
         .bind(medium)
@@ -368,11 +368,11 @@ impl ThreepidStorage {
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
         sqlx::query_as::<_, ThreepidValidationSession>(
-            r#"
+            r"
             SELECT * FROM threepid_validation_session
             WHERE session_id = $1 AND client_secret = $2 AND token = $3
             AND is_validated = FALSE AND expires_at > $4
-            "#,
+            ",
         )
         .bind(session_id)
         .bind(client_secret)
@@ -388,9 +388,9 @@ impl ThreepidStorage {
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
         sqlx::query_as::<_, ThreepidValidationSession>(
-            r#"
+            r"
             SELECT * FROM threepid_validation_session WHERE token = $1
-            "#,
+            ",
         )
         .bind(token)
         .fetch_optional(&*self.pool)
@@ -402,11 +402,11 @@ impl ThreepidStorage {
 
     pub async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             UPDATE threepid_validation_session
             SET is_validated = TRUE, validated_at = $2
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(id)
         .bind(chrono::Utc::now().timestamp_millis())

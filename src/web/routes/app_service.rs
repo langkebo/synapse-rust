@@ -175,7 +175,7 @@ impl From<ApplicationServiceUser> for VirtualUserResponse {
     }
 }
 
-fn app_service_state_json(state_entry: ApplicationServiceState) -> Json<serde_json::Value> {
+fn app_service_state_json(state_entry: &ApplicationServiceState) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "as_id": state_entry.as_id,
         "state_key": state_entry.state_key,
@@ -283,7 +283,7 @@ pub async fn set_app_service_state(
         .set_state(&as_id, &body.state_key, &body.state_value)
         .await?;
 
-    Ok(app_service_state_json(state_entry))
+    Ok(app_service_state_json(&state_entry))
 }
 
 pub async fn get_app_service_state(
@@ -297,7 +297,7 @@ pub async fn get_app_service_state(
         .get_state(&as_id, &state_key)
         .await?;
 
-    Ok(app_service_state_json(require_found(
+    Ok(app_service_state_json(&require_found(
         state_entry,
         "State not found",
     )?))
@@ -371,7 +371,7 @@ pub async fn get_pending_events(
     _admin: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let events = state
         .services
         .app_service_manager
@@ -717,7 +717,7 @@ pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     .collect()
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 async fn get_user_appservice(
     State(_state): State<AppState>,
     auth_user: AuthenticatedUser,

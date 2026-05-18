@@ -163,8 +163,7 @@ pub(super) async fn send_transaction(
         let event_id = pdu
             .get("event_id")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("${}", crate::common::crypto::generate_event_id(origin)));
+            .map_or_else(|| format!("${}", crate::common::crypto::generate_event_id(origin)), |s| s.to_string());
 
         if let Err(e) = crate::federation::signing::check_pdu_size_limits(pdu) {
             super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
@@ -352,10 +351,12 @@ pub(super) async fn send_transaction(
     })))
 }
 
+type PduValidationResult<'a> = Result<(&'a str, &'a str, &'a str, Option<&'a str>), ApiError>;
+
 fn validate_inbound_transaction_pdu<'a>(
     authenticated_origin: &str,
     pdu: &'a Value,
-) -> Result<(&'a str, &'a str, &'a str, Option<&'a str>), ApiError> {
+) -> PduValidationResult<'a> {
     let room_id = pdu
         .get("room_id")
         .and_then(|v| v.as_str())

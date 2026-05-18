@@ -1,17 +1,15 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
-use lru::LruCache;
-use parking_lot::RwLock;
+use moka::sync::Cache;
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const REPLAY_CACHE_SIZE: usize = 10000;
+const REPLAY_CACHE_SIZE: u64 = 10000;
 const REPLAY_PROTECTION_WINDOW_SECS: u64 = 300;
 
 #[derive(Debug, Clone)]
 pub struct ReplayProtectionConfig {
     pub enabled: bool,
-    pub cache_size: usize,
+    pub cache_size: u64,
     pub window_secs: u64,
 }
 
@@ -26,20 +24,17 @@ impl Default for ReplayProtectionConfig {
 }
 
 pub struct ReplayProtectionCache {
-    cache: Arc<RwLock<LruCache<String, Instant>>>,
+    cache: Cache<String, Instant>,
     config: ReplayProtectionConfig,
 }
 
 impl ReplayProtectionCache {
-    #[allow(clippy::expect_used)]
     pub fn new(config: ReplayProtectionConfig) -> Self {
-        let cache = LruCache::new(
-            std::num::NonZeroUsize::new(config.cache_size).expect("cache_size should be non-zero"),
-        );
-        Self {
-            cache: Arc::new(RwLock::new(cache)),
-            config,
-        }
+        let cache = Cache::builder()
+            .max_capacity(config.cache_size)
+            .time_to_idle(Duration::from_secs(config.window_secs))
+            .build();
+        Self { cache, config }
     }
 
     pub fn check_and_record(&self, signature_hash: &str) -> bool {
@@ -47,9 +42,7 @@ impl ReplayProtectionCache {
             return true;
         }
 
-        let mut cache = self.cache.write();
-
-        if let Some(&timestamp) = cache.get(signature_hash) {
+        if let Some(timestamp) = self.cache.get(signature_hash) {
             let elapsed = Instant::now().duration_since(timestamp);
             if elapsed < Duration::from_secs(self.config.window_secs) {
                 tracing::warn!(
@@ -63,37 +56,19 @@ impl ReplayProtectionCache {
             }
         }
 
-        cache.put(signature_hash.to_string(), Instant::now());
+        self.cache
+            .insert(signature_hash.to_string(), Instant::now());
         true
     }
 
     pub fn cleanup_expired(&self) {
-        let mut cache = self.cache.write();
-        let now = Instant::now();
-        let window = Duration::from_secs(self.config.window_secs);
-
-        let expired_keys: Vec<String> = cache
-            .iter()
-            .filter(|(_, &timestamp)| now.duration_since(timestamp) >= window)
-            .map(|(k, _)| k.clone())
-            .collect();
-
-        for key in expired_keys {
-            cache.pop(&key);
-        }
-
-        tracing::debug!(
-            target: "replay_protection",
-            remaining_entries = cache.len(),
-            "Cleaned up expired replay protection entries"
-        );
+        self.cache.run_pending_tasks();
     }
 
     pub fn stats(&self) -> ReplayProtectionStats {
-        let cache = self.cache.read();
         ReplayProtectionStats {
-            total_entries: cache.len(),
-            capacity: self.config.cache_size,
+            total_entries: self.cache.entry_count() as usize,
+            capacity: self.config.cache_size as usize,
         }
     }
 }
@@ -334,13 +309,13 @@ mod tests {
     #[test]
     fn test_validate_federation_timestamp_valid() {
         let now = chrono::Utc::now().timestamp_millis();
-        assert!(SecurityValidator::validate_federation_timestamp(now, 60000).is_ok());
+        assert!(SecurityValidator::validate_federation_timestamp(now, 60_000).is_ok());
     }
 
     #[test]
     fn test_validate_federation_timestamp_expired() {
         let old = chrono::Utc::now().timestamp_millis() - 120000;
-        assert!(SecurityValidator::validate_federation_timestamp(old, 60000).is_err());
+        assert!(SecurityValidator::validate_federation_timestamp(old, 60_000).is_err());
     }
 
     #[test]

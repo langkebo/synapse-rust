@@ -94,7 +94,7 @@ mod tests {
             completed_jobs: 8,
             failed_jobs: 2,
             total_items_processed: 100000,
-            total_execution_time_ms: 3600000,
+            total_execution_time_ms: 3_600_000,
             avg_items_per_second: Some(27.78),
             created_ts: 1234567890,
             updated_ts: 1234567890,

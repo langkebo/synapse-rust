@@ -48,11 +48,11 @@ impl ScheduledTasks {
         }
     }
 
-    pub async fn start_all(&self) {
+    pub fn start_all(&self) {
         self.start_health_check_task();
-        self.start_performance_check_task().await;
-        self.start_integrity_check_task().await;
-        self.start_maintenance_task().await;
+        self.start_performance_check_task();
+        self.start_integrity_check_task();
+        self.start_maintenance_task();
     }
 
     fn start_health_check_task(&self) {
@@ -92,7 +92,7 @@ impl ScheduledTasks {
         });
     }
 
-    async fn start_performance_check_task(&self) {
+    fn start_performance_check_task(&self) {
         let interval = self.performance_check_interval;
         let database = self.database.clone();
         let last_metrics = self.last_performance_metrics.clone();
@@ -140,7 +140,7 @@ impl ScheduledTasks {
         });
     }
 
-    async fn start_integrity_check_task(&self) {
+    fn start_integrity_check_task(&self) {
         let interval = self.integrity_check_interval;
         let database = self.database.clone();
         let last_report = self.last_integrity_report.clone();
@@ -191,7 +191,7 @@ impl ScheduledTasks {
         });
     }
 
-    async fn start_maintenance_task(&self) {
+    fn start_maintenance_task(&self) {
         let interval = self.maintenance_interval;
         let pool = self.database.pool().clone();
         let last_report = self.last_maintenance_report.clone();

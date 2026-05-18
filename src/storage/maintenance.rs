@@ -70,11 +70,11 @@ impl DatabaseMaintenance {
 
         for table in tables {
             let modifications = sqlx::query_scalar::<_, Option<i64>>(
-                r#"
+                r"
                 SELECT COALESCE(n_mod_since_analyze, 0)
                 FROM pg_stat_user_tables
                 WHERE relname = $1
-                "#,
+                ",
             )
             .bind(table)
             .fetch_optional(&self.pool)
@@ -135,9 +135,9 @@ impl DatabaseMaintenance {
             let _start = Instant::now();
 
             match sqlx::query_scalar::<_, String>(
-                r#"
+                r"
                 SELECT indexname FROM pg_indexes WHERE indexname = $1
-                "#,
+                ",
             )
             .bind(index)
             .fetch_optional(&self.pool)
@@ -170,7 +170,7 @@ impl DatabaseMaintenance {
         let mut stats = Vec::new();
 
         let tables = sqlx::query_as::<_, (String, i64, i64, i64)>(
-            r#"
+            r"
             SELECT 
                 relname as table_name,
                 COALESCE(n_live_tup, 0) as live_tuples,
@@ -179,7 +179,7 @@ impl DatabaseMaintenance {
             FROM pg_stat_user_tables
             ORDER BY n_mod_since_analyze DESC
             LIMIT 20
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await?;

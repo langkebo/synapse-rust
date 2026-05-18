@@ -1,6 +1,6 @@
 use super::{
-    cors_origins_regex, get_allowed_origins, is_dev_mode, is_origin_allowed, same_origin,
-    set_config_allowed_origins_once,
+    cors_origins_regex, get_allowed_origins, is_dev_mode, is_localhost_bind, is_origin_allowed,
+    same_origin, set_config_allowed_origins_once,
 };
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode};
@@ -9,6 +9,7 @@ use axum::response::Response;
 #[derive(Debug, Clone)]
 pub struct CorsSecurityReport {
     pub is_development_mode: bool,
+    pub is_localhost_bind: bool,
     pub allows_any_origin: bool,
     pub allowed_origins: Vec<String>,
     pub has_pattern: bool,
@@ -36,10 +37,19 @@ pub fn check_cors_security() -> CorsSecurityReport {
     let mut errors = Vec::new();
 
     if is_dev {
-        warnings.push(
-            "⚠️  DEVELOPMENT MODE ENABLED - CORS allows all origins. DO NOT use in production!"
-                .to_string(),
-        );
+        if is_localhost_bind() {
+            warnings.push(
+                "⚠️  DEVELOPMENT MODE ENABLED - CORS allows all origins. DO NOT use in production!"
+                    .to_string(),
+            );
+        } else {
+            warnings.push(
+                "⚠️  DEVELOPMENT MODE on non-localhost address - permissive CORS is DISABLED. \
+                 Only same-origin requests will be allowed. \
+                 Bind to 127.0.0.1/localhost to enable permissive CORS in development."
+                    .to_string(),
+            );
+        }
     }
 
     if !is_dev && allows_any_origin {
@@ -69,6 +79,7 @@ pub fn check_cors_security() -> CorsSecurityReport {
 
     CorsSecurityReport {
         is_development_mode: is_dev,
+        is_localhost_bind: is_localhost_bind(),
         allows_any_origin,
         allowed_origins,
         has_pattern,
@@ -85,8 +96,13 @@ pub fn log_cors_security_report(report: &CorsSecurityReport) {
 
     if report.is_development_mode {
         println!("║  🔧 MODE: DEVELOPMENT                                          ║");
-        println!("║  ⚠️  WARNING: Development mode is ACTIVE                        ║");
-        println!("║  ⚠️  All CORS origins are permitted - NOT SAFE FOR PRODUCTION  ║");
+        if report.is_localhost_bind {
+            println!("║  ⚠️  WARNING: Development mode is ACTIVE                        ║");
+            println!("║  ⚠️  All CORS origins are permitted - NOT SAFE FOR PRODUCTION  ║");
+        } else {
+            println!("║  ⚠️  WARNING: Non-localhost bind address detected               ║");
+            println!("║  ⚠️  Permissive CORS is DISABLED for non-localhost              ║");
+        }
     } else {
         println!("║  🏭 MODE: PRODUCTION                                           ║");
     }
@@ -189,8 +205,22 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
 
     let is_options = request.method() == "OPTIONS";
 
-    let allow_origin = if is_dev_mode() {
+    let allow_origin = if is_dev_mode() && is_localhost_bind() {
         origin.as_deref().or(Some("*"))
+    } else if is_dev_mode() && !is_localhost_bind() {
+        if let Some(ref req_origin) = origin {
+            if same_origin(req_origin, request.headers()) {
+                Some(req_origin.as_str())
+            } else {
+                tracing::warn!(
+                    "CORS origin rejected in dev mode (non-localhost bind): {}",
+                    req_origin
+                );
+                None
+            }
+        } else {
+            None
+        }
     } else if let Some(ref req_origin) = origin {
         if is_origin_allowed(req_origin) || same_origin(req_origin, request.headers()) {
             Some(req_origin.as_str())
@@ -453,6 +483,7 @@ mod tests {
     fn test_cors_security_report_has_issues() {
         let report_with_errors = CorsSecurityReport {
             is_development_mode: false,
+            is_localhost_bind: true,
             allows_any_origin: true,
             allowed_origins: vec!["*".to_string()],
             has_pattern: false,
@@ -463,6 +494,7 @@ mod tests {
 
         let report_with_warnings = CorsSecurityReport {
             is_development_mode: true,
+            is_localhost_bind: true,
             allows_any_origin: true,
             allowed_origins: vec![],
             has_pattern: false,
@@ -473,6 +505,7 @@ mod tests {
 
         let report_clean = CorsSecurityReport {
             is_development_mode: false,
+            is_localhost_bind: true,
             allows_any_origin: false,
             allowed_origins: vec!["https://example.com".to_string()],
             has_pattern: false,

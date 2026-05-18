@@ -37,7 +37,7 @@ impl MediaStorageBackendFactory {
             StorageBackendType::Filesystem => {
                 let fs_config = config.filesystem.clone().unwrap_or_default();
                 Ok(Box::new(
-                    crate::storage::media::filesystem::FilesystemBackend::new(fs_config)?,
+                    crate::storage::media::filesystem::FilesystemBackend::new(&fs_config)?,
                 ))
             }
             StorageBackendType::S3 => {

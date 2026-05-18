@@ -1,10 +1,9 @@
+use crate::common::error::ApiError;
 use axum::body::Body;
-use axum::http::{HeaderValue, Request, StatusCode};
+use axum::http::{HeaderValue, Request};
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::middleware::Next;
-use axum::Json;
-use serde_json::json;
 use std::time::Instant;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
@@ -104,7 +103,7 @@ pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
-pub async fn panic_catcher_middleware(request: Request<Body>, next: Next) -> Response {
+pub async fn request_debug_middleware(request: Request<Body>, next: Next) -> Response {
     let debug = tracing::enabled!(tracing::Level::DEBUG);
     let method = debug.then(|| request.method().clone());
     let path = debug.then(|| request.uri().path().to_string());
@@ -139,14 +138,11 @@ pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> R
         Ok(response) => response,
         Err(_) => {
             tracing::warn!("Request timeout after {}s", timeout_secs);
-            (
-                StatusCode::REQUEST_TIMEOUT,
-                Json(json!({
-                    "errcode": "M_REQUEST_TIMEOUT",
-                    "error": format!("Request processing exceeded server timeout of {}s", timeout_secs)
-                })),
-            )
-                .into_response()
+            ApiError::request_timeout(format!(
+                "Request processing exceeded server timeout of {}s",
+                timeout_secs
+            ))
+            .into_response()
         }
     }
 }
@@ -167,8 +163,7 @@ fn resolve_request_timeout_secs(request: &Request<Body>) -> u64 {
         .unwrap_or(90);
 
     let query_timeout_secs = parse_timeout_query_secs(request.uri().query())
-        .map(|timeout_secs| timeout_secs.saturating_add(15))
-        .unwrap_or(0);
+        .map_or(0, |timeout_secs| timeout_secs.saturating_add(15));
 
     long_poll_timeout_secs.max(query_timeout_secs)
 }
@@ -196,8 +191,7 @@ pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Respon
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("req-{}", uuid::Uuid::new_v4()));
+        .map_or_else(|| format!("req-{}", uuid::Uuid::new_v4()), |s| s.to_string());
 
     let mut response = next.run(request).await;
 
@@ -212,6 +206,7 @@ pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Respon
 mod tests {
     use super::*;
     use crate::test_utils::EnvGuard;
+    use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::time::Duration;
     use tower::ServiceExt;

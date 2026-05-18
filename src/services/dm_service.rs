@@ -166,7 +166,7 @@ impl DMService {
         creator_id: &str,
         recipients: &[String],
     ) -> ApiResult<()> {
-        let recipient_id = recipients.first().map(|s| s.as_str()).unwrap_or("");
+        let recipient_id = recipients.first().map_or("", |s| s.as_str());
 
         let dm = DMRoom {
             room_id: room_id.to_string(),

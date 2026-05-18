@@ -353,7 +353,7 @@ fn media_response_headers(
     build_media_headers(content_type, content_length, filename)
 }
 
-fn media_error_response(error: ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
+fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
     let status = error.http_status();
     let error_body = serde_json::to_vec(&json!({
         "errcode": error.code(),
@@ -679,6 +679,7 @@ async fn get_thumbnail_authenticated(
     }
 }
 
+#[allow(clippy::unused_async)]
 async fn _preview_url(
     State(_state): State<AppState>,
     Query(params): Query<Value>,
@@ -745,7 +746,7 @@ async fn download_media_v1(
                 media_response_headers(content_type, content.len(), stored_filename.as_deref());
             (StatusCode::OK, headers, content)
         }
-        Err(error) => media_error_response(error),
+        Err(error) => media_error_response(&error),
     }
 }
 
@@ -758,7 +759,7 @@ async fn download_media_v1_with_filename(
             let headers = media_response_headers(content_type, content.len(), Some(&filename));
             (StatusCode::OK, headers, content)
         }
-        Err(error) => media_error_response(error),
+        Err(error) => media_error_response(&error),
     }
 }
 

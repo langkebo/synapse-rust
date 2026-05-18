@@ -171,14 +171,14 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RefreshToken>(
-            r#"
+            r"
             INSERT INTO refresh_tokens (
                 token_hash, user_id, device_id, access_token_id, scope, created_ts,
                 expires_at, client_info, ip_address, user_agent
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.token_hash)
         .bind(&request.user_id)
@@ -230,13 +230,13 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let rows = sqlx::query_as::<_, RefreshToken>(
-            r#"
+            r"
             SELECT * FROM refresh_tokens 
             WHERE user_id = $1 
             AND is_revoked = FALSE 
             AND expires_at > $2
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(now)
@@ -248,12 +248,12 @@ impl RefreshTokenStorage {
 
     pub async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $2
             WHERE token_hash = $1
-            "#,
+            ",
         )
         .bind(token_hash)
         .bind(reason)
@@ -269,12 +269,12 @@ impl RefreshTokenStorage {
         reason: &str,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $2
             WHERE token_hash = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(token_hash)
         .bind(reason)
@@ -286,12 +286,12 @@ impl RefreshTokenStorage {
 
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $2
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(id)
         .bind(reason)
@@ -307,12 +307,12 @@ impl RefreshTokenStorage {
         reason: &str,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $2
             WHERE user_id = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(reason)
@@ -329,12 +329,12 @@ impl RefreshTokenStorage {
         reason: &str,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $3
             WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -355,12 +355,12 @@ impl RefreshTokenStorage {
         reason: &str,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 is_revoked = TRUE,
                 revoked_reason = $3
             WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -379,13 +379,13 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE refresh_tokens SET
                 access_token_id = $2,
                 last_used_ts = $3,
                 use_count = use_count + 1
             WHERE token_hash = $1
-            "#,
+            ",
         )
         .bind(token_hash)
         .bind(access_token_id)
@@ -400,13 +400,13 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO refresh_token_usage (
                 refresh_token_id, user_id, old_access_token_id, new_access_token_id,
                 used_ts, ip_address, user_agent, success, error_message
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            "#,
+            ",
         )
         .bind(request.refresh_token_id)
         .bind(&request.user_id)
@@ -432,11 +432,11 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RefreshTokenFamily>(
-            r#"
+            r"
             INSERT INTO refresh_token_families (family_id, user_id, device_id, created_ts)
             VALUES ($1, $2, $3, $4)
             RETURNING *
-            "#,
+            ",
         )
         .bind(family_id)
         .bind(user_id)
@@ -466,12 +466,12 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE refresh_token_families SET
                 is_compromised = TRUE,
                 compromised_ts = $2
             WHERE family_id = $1
-            "#,
+            ",
         )
         .bind(family_id)
         .bind(now)
@@ -491,10 +491,10 @@ impl RefreshTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO refresh_token_rotations (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
             VALUES ($1, $2, $3, $4, $5)
-            "#,
+            ",
         )
         .bind(family_id)
         .bind(old_token_hash)
@@ -505,12 +505,12 @@ impl RefreshTokenStorage {
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE refresh_token_families SET
                 last_refresh_ts = $2,
                 refresh_count = refresh_count + 1
             WHERE family_id = $1
-            "#,
+            ",
         )
         .bind(family_id)
         .bind(now)
@@ -543,11 +543,11 @@ impl RefreshTokenStorage {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO token_blacklist (token_hash, token_type, user_id, is_revoked, expires_at, reason)
             VALUES ($1, $2, $3, TRUE, $4, $5)
             ON CONFLICT (token_hash) DO NOTHING
-            "#,
+            ",
         )
         .bind(token_hash)
         .bind(token_type)
@@ -602,7 +602,7 @@ impl RefreshTokenStorage {
         user_id: &str,
     ) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
         let row = sqlx::query_as::<_, RefreshTokenStats>(
-            r#"
+            r"
             SELECT 
                 user_id,
                 COUNT(*) as total_tokens,
@@ -613,7 +613,7 @@ impl RefreshTokenStorage {
             FROM refresh_tokens
             WHERE user_id = $1
             GROUP BY user_id
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)

@@ -39,11 +39,11 @@ impl OpenIdTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let token = sqlx::query_as::<_, OpenIdToken>(
-            r#"
+            r"
             INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid)
             VALUES ($1, $2, $3, $4, $5, TRUE)
             RETURNING id, token, user_id, device_id, created_ts, expires_at, is_valid
-            "#,
+            ",
         )
         .bind(&request.token)
         .bind(&request.user_id)
@@ -59,11 +59,11 @@ impl OpenIdTokenStorage {
 
     pub async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let token_data = sqlx::query_as::<_, OpenIdToken>(
-            r#"
+            r"
             SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE token = $1 AND is_valid = TRUE
-            "#,
+            ",
         )
         .bind(token)
         .fetch_optional(&*self.pool)
@@ -77,11 +77,11 @@ impl OpenIdTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let token_data = sqlx::query_as::<_, OpenIdToken>(
-            r#"
+            r"
             SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE token = $1 AND is_valid = TRUE AND expires_at > $2
-            "#,
+            ",
         )
         .bind(token)
         .bind(now)
@@ -94,11 +94,11 @@ impl OpenIdTokenStorage {
 
     pub async fn revoke_token(&self, token: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE openid_tokens
             SET is_valid = FALSE
             WHERE token = $1
-            "#,
+            ",
         )
         .bind(token)
         .execute(&*self.pool)
@@ -110,11 +110,11 @@ impl OpenIdTokenStorage {
 
     pub async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE openid_tokens
             SET is_valid = FALSE
             WHERE user_id = $1 AND is_valid = TRUE
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&*self.pool)
@@ -128,10 +128,10 @@ impl OpenIdTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM openid_tokens
             WHERE expires_at < $1 OR is_valid = FALSE
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -145,12 +145,12 @@ impl OpenIdTokenStorage {
 
     pub async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
         let tokens = sqlx::query_as::<_, OpenIdToken>(
-            r#"
+            r"
             SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE user_id = $1
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

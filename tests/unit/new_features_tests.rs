@@ -155,7 +155,7 @@ mod common_tests {
             .as_millis() as i64;
 
         assert!(now > 0);
-        assert!(now > 1600000000000i64); // Should be after 2020
+        assert!(now > 160_0000000000i64); // Should be after 2020
     }
 
     #[test]

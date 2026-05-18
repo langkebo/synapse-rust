@@ -159,7 +159,7 @@ fn create_summary_member_request_for_room(
     }
 }
 
-fn room_summary_state_json(state: RoomSummaryState) -> Json<serde_json::Value> {
+fn room_summary_state_json(state: &RoomSummaryState) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "event_id": state.event_id,
         "content": state.content,
@@ -422,7 +422,7 @@ pub async fn get_state(
         .get_state(&room_id, &event_type, &state_key)
         .await?;
 
-    Ok(room_summary_state_json(require_found(
+    Ok(room_summary_state_json(&require_found(
         state,
         "State not found",
     )?))
@@ -449,7 +449,7 @@ pub async fn update_state(
         )
         .await?;
 
-    Ok(room_summary_state_json(state))
+    Ok(room_summary_state_json(&state))
 }
 
 pub async fn get_all_state(
@@ -532,7 +532,7 @@ pub async fn process_updates(
     _admin: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let processed = state
         .services
         .room_service

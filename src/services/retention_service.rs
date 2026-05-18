@@ -141,14 +141,14 @@ impl RetentionService {
     pub fn new(
         storage: Arc<RetentionStorage>,
         pool: Arc<PgPool>,
-        metrics: Arc<MetricsCollector>,
+        metrics: &Arc<MetricsCollector>,
         audit_storage: Arc<AuditEventStorage>,
     ) -> Self {
         Self {
             storage,
             pool,
             audit_storage,
-            lifecycle_metrics: RetentionLifecycleMetrics::new(&metrics),
+            lifecycle_metrics: RetentionLifecycleMetrics::new(metrics),
             last_lifecycle_summary: Arc::new(RwLock::new(None)),
         }
     }
@@ -633,12 +633,12 @@ mod tests {
     fn test_create_room_retention_policy_request() {
         let request = crate::storage::retention::CreateRoomRetentionPolicyRequest {
             room_id: "!room:example.com".to_string(),
-            max_lifetime: Some(86400000),
+            max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
             expire_on_clients: Some(true),
         };
         assert_eq!(request.room_id, "!room:example.com");
-        assert_eq!(request.max_lifetime, Some(86400000));
+        assert_eq!(request.max_lifetime, Some(86_400_000));
     }
 
     #[test]
@@ -665,7 +665,7 @@ mod tests {
         let policy = crate::storage::retention::RoomRetentionPolicy {
             id: 1,
             room_id: "!room:example.com".to_string(),
-            max_lifetime: Some(86400000),
+            max_lifetime: Some(86_400_000),
             min_lifetime: 0,
             expire_on_clients: true,
             is_server_default: false,

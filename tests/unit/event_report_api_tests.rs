@@ -206,7 +206,7 @@ fn test_report_rate_limit() {
     let rate_limit = json!({
         "allowed": true,
         "remaining": 9,
-        "reset_ts": 1700003600000_i64
+        "reset_ts": 1_700_003_600_000_i64
     });
 
     assert!(rate_limit.get("allowed").is_some());

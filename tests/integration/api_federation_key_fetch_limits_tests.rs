@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
@@ -42,11 +42,7 @@ impl KeyServerMetrics {
             if now <= max {
                 break;
             }
-            if self
-                .max_inflight
-                .compare_exchange(max, now, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
+            if self.max_inflight.compare_exchange(max, now, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                 break;
             }
         }
@@ -106,17 +102,11 @@ async fn handle_key_query(
     )
 }
 
-async fn start_key_server(
-    delay_ms: u64,
-    fail_status: Option<StatusCode>,
-) -> (String, Arc<KeyServerMetrics>) {
+async fn start_key_server(delay_ms: u64, fail_status: Option<StatusCode>) -> (String, Arc<KeyServerMetrics>) {
     let metrics = Arc::new(KeyServerMetrics::new(delay_ms, fail_status));
     let app = Router::new()
         .route("/_matrix/key/v2/server", get(handle_server_keys))
-        .route(
-            "/_matrix/key/v2/query/{server_name}/{key_id}",
-            get(handle_key_query),
-        )
+        .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(handle_key_query))
         .with_state(metrics.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -137,7 +127,7 @@ async fn setup_test_app_with_federation_key_fetch_config(
     container.config.federation.key_fetch_timeout_ms = key_fetch_timeout_ms;
     container.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }
@@ -154,11 +144,7 @@ async fn test_federation_key_fetch_respects_timeout_config() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:any", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -179,10 +165,7 @@ async fn test_federation_key_fetch_global_concurrency_limit_is_enforced() {
                 .uri(format!("/_matrix/key/v2/query/{}/ed25519:{}", origin, i))
                 .body(Body::empty())
                 .unwrap();
-            let response = app
-                .oneshot(super::with_local_connect_info(request))
-                .await
-                .unwrap();
+            let response = app.oneshot(super::with_local_connect_info(request)).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }));
     }
@@ -206,11 +189,7 @@ async fn test_federation_key_fetch_backoff_skips_retries() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:backoff", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let first_count = metrics.total_requests.load(Ordering::SeqCst);
     assert!(first_count > 0);
@@ -220,11 +199,7 @@ async fn test_federation_key_fetch_backoff_skips_retries() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:backoff", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let second_count = metrics.total_requests.load(Ordering::SeqCst);

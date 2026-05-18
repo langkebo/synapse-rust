@@ -165,7 +165,7 @@ pub enum FederationClientError {
 
 impl From<FederationClientError> for ApiError {
     fn from(e: FederationClientError) -> Self {
-        ApiError::internal(format!("Federation error: {e}"))
+        Self::internal(format!("Federation error: {e}"))
     }
 }
 
@@ -243,8 +243,7 @@ impl FederationClient {
             path,
             &self.server_name,
             destination,
-            body.map(|s| serde_json::from_str(s).unwrap_or(serde_json::Value::Null))
-                .as_ref(),
+            body.and_then(|s| serde_json::from_str(s).ok()).as_ref(),
         );
 
         let signature = signing_key.sign(&message);

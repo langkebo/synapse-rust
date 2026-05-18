@@ -101,7 +101,7 @@ fn test_typing_set_and_clear() {
             None => return,
         };
         let arc_pool = Arc::new(pool.clone());
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence = PresenceStorage::new(arc_pool.clone(), cache.clone());
 
         let room_id = "!room:test";
@@ -206,7 +206,7 @@ fn test_receipt_insert() {
             assert_eq!(row.0, room_id);
             assert_eq!(row.1, "m.read".to_string());
             assert_eq!(row.2, event_id);
-            let _ = services; // ensure services construct in tests
-            let _ = event_storage; // ensure storage is usable
+            drop(services);
+            drop(event_storage);
         });
 }

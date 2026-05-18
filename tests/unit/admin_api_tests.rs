@@ -109,7 +109,7 @@ fn test_server_notice_content() {
 #[test]
 fn test_retention_policy_validation() {
     let policy = json!({
-        "min_lifetime": 86400000_i64,
+        "min_lifetime": 86_400_000_i64,
         "max_lifetime": 2592000000_i64
     });
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 use crate::services::external_service_integration::*;
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::{AdminUser, AuthenticatedUser, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
@@ -336,13 +336,70 @@ pub async fn get_all_health_status(
     Ok(Json(status_list))
 }
 
+pub async fn client_update_external_service(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(service_id): Path<String>,
+    Json(body): Json<UpdateExternalServiceBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let integration = ExternalServiceIntegration::new(
+        Arc::new(state.services.app_service_storage.clone()),
+        state.services.server_name.clone(),
+    );
+
+    let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
+    if let Some(webhook_url) = body.webhook_url {
+        request = request.url(webhook_url);
+    }
+    if let Some(api_key) = body.api_key {
+        request = request.api_key(api_key);
+    }
+    if let Some(config) = body.config {
+        request = request.config(config);
+    }
+    if let Some(is_enabled) = body.is_enabled {
+        request = request.is_enabled(is_enabled);
+    }
+
+    let service = integration.update_external_service(&service_id, request).await?;
+    Ok(Json(ExternalServiceResponse::from(service)))
+}
+
+pub async fn client_delete_external_service(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(service_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let integration = ExternalServiceIntegration::new(
+        Arc::new(state.services.app_service_storage.clone()),
+        state.services.server_name.clone(),
+    );
+
+    integration.unregister_external_service(&service_id).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn client_health_check_all(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let integration = ExternalServiceIntegration::new(
+        Arc::new(state.services.app_service_storage.clone()),
+        state.services.server_name.clone(),
+    );
+
+    let status_list = integration.get_all_health_status().await;
+
+    Ok(Json(status_list))
+}
+
 pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     let admin_routes = Router::new()
         .route(
             "/_synapse/admin/v1/external_services",
             get(list_external_services).post(register_external_service),
         )
-        // 具体的路由必须在参数路由之前
         .route(
             "/_synapse/admin/v1/external_services/{as_id}/health",
             get(get_external_service_health),
@@ -364,6 +421,34 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             crate::web::middleware::admin_auth_middleware,
         ));
 
+    let admin_v1_routes = Router::new()
+        .route(
+            "/_matrix/admin/v1/external_services",
+            get(list_external_services).post(register_external_service),
+        )
+        .route(
+            "/_matrix/admin/v1/external_services/{as_id}",
+            put(update_external_service).delete(unregister_external_service),
+        )
+        .route(
+            "/_matrix/admin/v1/external_services/health",
+            get(get_all_health_status),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::admin_auth_middleware,
+        ));
+
+    let client_v1_routes = Router::new()
+        .route(
+            "/_matrix/client/v1/external_services/health",
+            get(client_health_check_all),
+        )
+        .route(
+            "/_matrix/client/v1/external_services/{service_id}",
+            put(client_update_external_service).delete(client_delete_external_service),
+        );
+
     let public_routes = Router::new()
         .route(
             "/_synapse/external/trendradar/{service_id}/webhook",
@@ -379,7 +464,11 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
         post(handle_openclaw_webhook),
     );
 
-    public_routes.merge(admin_routes).with_state(state)
+    public_routes
+        .merge(admin_routes)
+        .merge(admin_v1_routes)
+        .merge(client_v1_routes)
+        .with_state(state)
 }
 
 pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -408,6 +497,23 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
             "/_synapse/external/trendradar/{service_id}/webhook",
         ),
         (Method::POST, "/_synapse/external/webhook/{service_id}"),
+        (Method::GET, "/_matrix/admin/v1/external_services"),
+        (Method::POST, "/_matrix/admin/v1/external_services"),
+        (Method::PUT, "/_matrix/admin/v1/external_services/{as_id}"),
+        (
+            Method::DELETE,
+            "/_matrix/admin/v1/external_services/{as_id}",
+        ),
+        (Method::GET, "/_matrix/admin/v1/external_services/health"),
+        (Method::GET, "/_matrix/client/v1/external_services/health"),
+        (
+            Method::PUT,
+            "/_matrix/client/v1/external_services/{service_id}",
+        ),
+        (
+            Method::DELETE,
+            "/_matrix/client/v1/external_services/{service_id}",
+        ),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "external_service"))

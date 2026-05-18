@@ -304,13 +304,13 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, Module>(
-            r#"
+            r"
             INSERT INTO modules (
                 module_name, module_type, version, description, is_enabled, priority, config, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.module_name)
         .bind(&request.module_type)
@@ -395,11 +395,11 @@ impl ModuleStorage {
         config: serde_json::Value,
     ) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
-            r#"
+            r"
             UPDATE modules SET config = $2
             WHERE module_name = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(module_name)
         .bind(&config)
@@ -416,11 +416,11 @@ impl ModuleStorage {
         is_enabled: bool,
     ) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
-            r#"
+            r"
             UPDATE modules SET is_enabled = $2
             WHERE module_name = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(module_name)
         .bind(is_enabled)
@@ -451,14 +451,14 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE modules SET
                 last_executed_ts = $2,
                 execution_count = execution_count + 1,
                 error_count = CASE WHEN $3 THEN error_count ELSE error_count + 1 END,
                 last_error = $4
             WHERE module_name = $1
-            "#,
+            ",
         )
         .bind(module_name)
         .bind(now)
@@ -558,13 +558,13 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, ModuleExecutionLog>(
-            r#"
+            r"
             INSERT INTO module_execution_logs (
                 module_name, module_type, event_id, room_id, execution_time_ms, success, error_message, metadata, executed_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.module_name)
         .bind(&request.module_type)
@@ -606,7 +606,7 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountValidity>(
-            r#"
+            r"
             INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
@@ -621,7 +621,7 @@ impl ModuleStorage {
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(request.expiration_ts)
@@ -639,7 +639,7 @@ impl ModuleStorage {
         user_id: &str,
     ) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
-            r#"
+            r"
             SELECT
                 user_id,
                 expiration_at,
@@ -650,7 +650,7 @@ impl ModuleStorage {
                 COALESCE(updated_ts, created_ts) AS updated_ts
             FROM account_validity
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -667,7 +667,7 @@ impl ModuleStorage {
         new_expiration_ts: i64,
     ) -> Result<AccountValidity, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
-            r#"
+            r"
             UPDATE account_validity SET
                 expiration_at = $3,
                 renewal_token = NULL,
@@ -681,7 +681,7 @@ impl ModuleStorage {
                 is_valid,
                 created_ts,
                 COALESCE(updated_ts, created_ts) AS updated_ts
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(renewal_token)
@@ -709,7 +709,7 @@ impl ModuleStorage {
         before_ts: i64,
     ) -> Result<Vec<AccountValidity>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountValidity>(
-            r#"
+            r"
             SELECT
                 user_id,
                 expiration_at,
@@ -720,7 +720,7 @@ impl ModuleStorage {
                 COALESCE(updated_ts, created_ts) AS updated_ts
             FROM account_validity
             WHERE expiration_at < $1 AND is_valid = true
-            "#,
+            ",
         )
         .bind(before_ts)
         .fetch_all(&*self.pool)
@@ -765,13 +765,13 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, MediaCallback>(
-            r#"
+            r"
             INSERT INTO media_callbacks (
                 callback_name, callback_type, url, method, headers, is_enabled, timeout_ms, retry_count, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.callback_name)
         .bind(&request.callback_type)
@@ -830,13 +830,13 @@ impl ModuleStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountDataCallback>(
-            r#"
+            r"
             INSERT INTO account_data_callbacks (
                 callback_name, callback_type, config, is_enabled, priority, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.callback_name)
         .bind(&request.callback_type)

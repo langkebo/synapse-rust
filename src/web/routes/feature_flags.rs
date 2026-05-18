@@ -177,6 +177,5 @@ fn request_id(headers: &HeaderMap) -> String {
         .get("x-request-id")
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("feature-flag-{}", uuid::Uuid::new_v4()))
+        .map_or_else(|| format!("feature-flag-{}", uuid::Uuid::new_v4()), ToOwned::to_owned)
 }

@@ -214,11 +214,11 @@ impl StreamWriterManager {
             .collect()
     }
 
-    pub async fn can_write(&self, stream_name: &str) -> bool {
+    pub fn can_write(&self, stream_name: &str) -> bool {
         self.is_local_writer(stream_name)
     }
 
-    pub async fn validate_writer(
+    pub fn validate_writer(
         &self,
         stream_name: &str,
         writer_instance: &str,
@@ -292,11 +292,11 @@ impl StreamWriterManager {
         Ok(())
     }
 
-    pub async fn get_stream_config(&self) -> StreamWriters {
+    pub fn get_stream_config(&self) -> StreamWriters {
         self.config.clone()
     }
 
-    pub async fn update_stream_config(&mut self, new_config: StreamWriters) {
+    pub fn update_stream_config(&mut self, new_config: StreamWriters) {
         self.config = new_config;
     }
 

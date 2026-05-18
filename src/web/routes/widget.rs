@@ -764,7 +764,7 @@ mod tests {
         let body = CreateSessionBody {
             widget_id: Some("widget_123".to_string()),
             device_id: Some("DEVICE123".to_string()),
-            expires_in_ms: Some(3600000),
+            expires_in_ms: Some(3_600_000),
         };
 
         assert_eq!(body.widget_id.as_deref(), Some("widget_123"));

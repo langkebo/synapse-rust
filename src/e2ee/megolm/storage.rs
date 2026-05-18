@@ -16,10 +16,10 @@ impl MegolmSessionStorage {
 
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO megolm_sessions (id, session_id, room_id, sender_key, session_key, algorithm, message_index, created_ts, last_used_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#
+            "
         )
         .bind(session.id)
         .bind(&session.session_id)
@@ -39,12 +39,12 @@ impl MegolmSessionStorage {
 
     pub async fn get_session(&self, session_id: &str) -> Result<Option<MegolmSession>, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
                    created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE session_id = $1
-            "#,
+            ",
         )
         .bind(session_id)
         .fetch_optional(&*self.pool)
@@ -79,12 +79,12 @@ impl MegolmSessionStorage {
 
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
                    created_ts, last_used_ts, expires_at
             FROM megolm_sessions
             WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -122,11 +122,11 @@ impl MegolmSessionStorage {
 
     pub async fn update_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             UPDATE megolm_sessions
             SET session_key = $2, message_index = $3, last_used_ts = $4, expires_at = $5
             WHERE session_id = $1
-            "#,
+            ",
         )
         .bind(&session.session_id)
         .bind(&session.session_key)
@@ -141,10 +141,10 @@ impl MegolmSessionStorage {
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM megolm_sessions
             WHERE session_id = $1
-            "#,
+            ",
         )
         .bind(session_id)
         .execute(&*self.pool)

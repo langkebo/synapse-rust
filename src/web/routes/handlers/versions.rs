@@ -5,7 +5,7 @@ use axum::{extract::State, Json};
 use serde_json::{json, Value};
 use url::Url;
 
-const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":false}}"#;
+const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":false,"org.matrix.msc3886.sliding_sync":true,"org.matrix.msc4261.widget":true,"io.hula.burn_after_read":true}}"#;
 
 /// 获取客户端 API 版本
 #[allow(clippy::expect_used)]
@@ -93,28 +93,82 @@ pub async fn get_well_known_support() -> impl axum::response::IntoResponse {
 }
 
 /// 获取服务端能力
-pub async fn get_capabilities() -> impl axum::response::IntoResponse {
-    Json(json!({
-        "capabilities": {
-            "m.change_password": { "enabled": true },
-            "m.room_versions": {
-                "default": "10",
-                "available": {
-                    "1": "stable", "2": "stable", "3": "stable",
-                    "4": "stable", "5": "stable", "6": "stable",
-                    "7": "stable", "8": "stable", "9": "stable",
-                    "10": "stable", "11": "stable"
-                }
-            },
-            "m.set_displayname": { "enabled": true },
-            "m.set_avatar_url": { "enabled": true },
-            "m.3pid_changes": { "enabled": true },
-            "m.room.summary": { "enabled": true },
-            "m.room.suggested": { "enabled": true },
-            "io.hula.friends": true
+pub async fn get_capabilities(
+    State(state): State<AppState>,
+) -> impl axum::response::IntoResponse {
+    let saml_enabled = state.services.config.saml.enabled;
+    let mut capabilities = json!({
+        "m.change_password": { "enabled": true },
+        "m.room_versions": {
+            "default": "10",
+            "available": {
+                "1": "stable", "2": "stable", "3": "stable",
+                "4": "stable", "5": "stable", "6": "stable",
+                "7": "stable", "8": "stable", "9": "stable",
+                "10": "stable", "11": "stable"
+            }
         },
+        "m.set_displayname": { "enabled": true },
+        "m.set_avatar_url": { "enabled": true },
+        "m.3pid_changes": { "enabled": true },
+        "m.room.summary": { "enabled": true },
+        "m.room.suggested": { "enabled": true },
+        "io.hula.friends": true,
+        "m.sso": {
+            "enabled": saml_enabled,
+            "providers": if saml_enabled { json!(["saml"]) } else { json!([]) }
+        },
+        "m.voice": { "enabled": true },
+        "io.hula.burn_after_read": { "enabled": true },
+        "m.thread": { "enabled": true },
+        "io.hula.sliding_sync": { "enabled": true },
+        "io.hula.widget": { "enabled": true }
+    });
+
+    #[cfg(feature = "openclaw-routes")]
+    {
+        let ai_connection_enabled = state.services.config.experimental.openclaw_routes_enabled;
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert(
+                "ai_connection".to_string(),
+                json!({ "enabled": ai_connection_enabled }),
+            );
+            caps.insert(
+                "openclaw".to_string(),
+                json!({ "enabled": ai_connection_enabled }),
+            );
+        }
+    }
+    #[cfg(not(feature = "openclaw-routes"))]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("ai_connection".to_string(), json!({ "enabled": false }));
+            caps.insert("openclaw".to_string(), json!({ "enabled": false }));
+        }
+    }
+
+    #[cfg(feature = "external-services")]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("external_services".to_string(), json!({ "enabled": true }));
+        }
+    }
+    #[cfg(not(feature = "external-services"))]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("external_services".to_string(), json!({ "enabled": false }));
+        }
+    }
+
+    Json(json!({
+        "capabilities": capabilities,
         "unstable_features": {
-            "io.hula.friends": true
+            "io.hula.friends": true,
+            "org.matrix.msc3245.voice": true,
+            "org.matrix.msc3983.thread": true,
+            "org.matrix.msc3886.sliding_sync": true,
+            "org.matrix.msc4261.widget": true,
+            "io.hula.burn_after_read": true
         }
     }))
 }
@@ -139,7 +193,7 @@ mod tests {
                     .expect("Failed to create test database pool"),
             )
         });
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let services = ServiceContainer::new(&pool, cache.clone(), config, None).await;
         AppState::new(services, cache)
     }

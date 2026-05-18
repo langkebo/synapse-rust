@@ -134,16 +134,8 @@ async fn add_child(
 }
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, std::sync::Arc<sqlx::PgPool>)> {
-    use synapse_rust::cache::CacheManager;
-    use synapse_rust::services::ServiceContainer;
-    use synapse_rust::web::routes::state::AppState;
-
-    let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache = std::sync::Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
-
-    Some((synapse_rust::web::create_router(state), pool))
+    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    Some((app, pool))
 }
 
 #[tokio::test]

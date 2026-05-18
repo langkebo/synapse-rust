@@ -562,6 +562,7 @@ async fn get_extended_profile_field(
 }
 
 async fn put_extended_profile_field(
+    _auth_user: AuthenticatedUser,
     Path(_params): Path<(String, String)>,
     Json(_body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -569,6 +570,7 @@ async fn put_extended_profile_field(
 }
 
 async fn delete_extended_profile_field(
+    _auth_user: AuthenticatedUser,
     Path(_params): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(json!({})))
@@ -655,7 +657,8 @@ pub fn create_router(state: AppState) -> Router {
             );
         }
         Err(err) => {
-            panic!("route manifest contains duplicate entries — refusing to start:\n{err}");
+            eprintln!("route manifest contains duplicate entries — refusing to start:\n{err}");
+            std::process::exit(1);
         }
     }
 

@@ -36,10 +36,12 @@ impl TcpReplicationServer {
 
     pub async fn run(&self) -> Result<(), std::io::Error> {
         let shared_secret = std::env::var("REPLICATION_SHARED_SECRET")
-            .unwrap_or_else(|_| {
-                tracing::warn!("REPLICATION_SHARED_SECRET not set - replication connections will be unauthenticated!");
-                String::new()
-            });
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "REPLICATION_SHARED_SECRET not set - refusing to start unauthenticated replication listener",
+                )
+            })?;
 
         loop {
             let (stream, addr) = self.listener.accept().await?;

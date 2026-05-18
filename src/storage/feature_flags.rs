@@ -103,7 +103,7 @@ impl FeatureFlagStorage {
         let mut transaction = self.pool.begin().await?;
 
         let record = sqlx::query_as::<_, FeatureFlagRecord>(
-            r#"
+            r"
             INSERT INTO feature_flags (
                 flag_key,
                 target_scope,
@@ -117,7 +117,7 @@ impl FeatureFlagStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             RETURNING flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(&request.flag_key)
         .bind(&request.target_scope)
@@ -166,7 +166,7 @@ impl FeatureFlagStorage {
         let mut transaction = self.pool.begin().await?;
 
         let record = sqlx::query_as::<_, FeatureFlagRecord>(
-            r#"
+            r"
             UPDATE feature_flags
             SET rollout_percent = COALESCE($2, rollout_percent),
                 expires_at = COALESCE($3, expires_at),
@@ -175,7 +175,7 @@ impl FeatureFlagStorage {
                 updated_ts = $6
             WHERE flag_key = $1
             RETURNING flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(flag_key)
         .bind(request.rollout_percent)
@@ -231,11 +231,11 @@ impl FeatureFlagStorage {
         }
 
         let record = sqlx::query_as::<_, FeatureFlagRecord>(
-            r#"
+            r"
             SELECT flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
             FROM feature_flags
             WHERE flag_key = $1
-            "#,
+            ",
         )
         .bind(flag_key)
         .fetch_optional(&*self.pool)
@@ -346,7 +346,7 @@ impl FeatureFlagStorage {
         let mut inserted = Vec::with_capacity(targets.len());
         for target in targets {
             let record = sqlx::query_as::<_, FeatureFlagTargetRecord>(
-                r#"
+                r"
                 INSERT INTO feature_flag_targets (
                     flag_key,
                     subject_type,
@@ -355,7 +355,7 @@ impl FeatureFlagStorage {
                 )
                 VALUES ($1, $2, $3, $4)
                 RETURNING id, flag_key, subject_type, subject_id, created_ts
-                "#,
+                ",
             )
             .bind(flag_key)
             .bind(&target.subject_type)
@@ -444,7 +444,7 @@ mod tests {
     use uuid::Uuid;
 
     fn create_test_cache() -> Arc<CacheManager> {
-        Arc::new(CacheManager::new(CacheConfig::default()))
+        Arc::new(CacheManager::new(&CacheConfig::default()))
     }
 
     async fn create_test_pool() -> Option<Arc<PgPool>> {

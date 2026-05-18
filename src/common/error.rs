@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -6,6 +8,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
+
+use crate::common::metrics::MetricsCollector;
+
+static ERROR_METRICS: OnceLock<std::sync::Arc<MetricsCollector>> = OnceLock::new();
+
+pub fn init_error_metrics(collector: std::sync::Arc<MetricsCollector>) {
+    let _ = ERROR_METRICS.set(collector);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatrixErrorCode {
@@ -41,83 +51,89 @@ pub enum MatrixErrorCode {
     Exclusive,
     ResourceLimitExceeded,
     CannotLeaveServerNoticeRoom,
+    Unimplemented,
+    RequestTimeout,
 }
 
 impl MatrixErrorCode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            MatrixErrorCode::Forbidden => "M_FORBIDDEN",
-            MatrixErrorCode::UnknownToken => "M_UNKNOWN_TOKEN",
-            MatrixErrorCode::MissingToken => "M_MISSING_TOKEN",
-            MatrixErrorCode::BadJson => "M_BAD_JSON",
-            MatrixErrorCode::NotJson => "M_NOT_JSON",
-            MatrixErrorCode::NotFound => "M_NOT_FOUND",
-            MatrixErrorCode::LimitExceeded => "M_LIMIT_EXCEEDED",
-            MatrixErrorCode::Unknown => "M_UNKNOWN",
-            MatrixErrorCode::Unrecognized => "M_UNRECOGNIZED",
-            MatrixErrorCode::Unauthorized => "M_UNAUTHORIZED",
-            MatrixErrorCode::UserDeactivated => "M_USER_DEACTIVATED",
-            MatrixErrorCode::UserInUse => "M_USER_IN_USE",
-            MatrixErrorCode::InvalidUsername => "M_INVALID_USERNAME",
-            MatrixErrorCode::RoomInUse => "M_ROOM_IN_USE",
-            MatrixErrorCode::InvalidRoomState => "M_INVALID_ROOM_STATE",
-            MatrixErrorCode::ThreepidInUse => "M_THREEPID_IN_USE",
-            MatrixErrorCode::ThreepidNotFound => "M_THREEPID_NOT_FOUND",
-            MatrixErrorCode::ThreepidAuthFailed => "M_THREEPID_AUTH_FAILED",
-            MatrixErrorCode::ThreepidDenied => "M_THREEPID_DENIED",
-            MatrixErrorCode::ServerNotTrusted => "M_SERVER_NOT_TRUSTED",
-            MatrixErrorCode::UnsupportedRoomVersion => "M_UNSUPPORTED_ROOM_VERSION",
-            MatrixErrorCode::IncompatibleRoomVersion => "M_INCOMPATIBLE_ROOM_VERSION",
-            MatrixErrorCode::BadState => "M_BAD_STATE",
-            MatrixErrorCode::GuestAccessForbidden => "M_GUEST_ACCESS_FORBIDDEN",
-            MatrixErrorCode::CaptchaNeeded => "M_CAPTCHA_NEEDED",
-            MatrixErrorCode::CaptchaInvalid => "M_CAPTCHA_INVALID",
-            MatrixErrorCode::MissingParam => "M_MISSING_PARAM",
-            MatrixErrorCode::InvalidParam => "M_INVALID_PARAM",
-            MatrixErrorCode::TooLarge => "M_TOO_LARGE",
-            MatrixErrorCode::Exclusive => "M_EXCLUSIVE",
-            MatrixErrorCode::ResourceLimitExceeded => "M_RESOURCE_LIMIT_EXCEEDED",
-            MatrixErrorCode::CannotLeaveServerNoticeRoom => "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
+            Self::Forbidden => "M_FORBIDDEN",
+            Self::UnknownToken => "M_UNKNOWN_TOKEN",
+            Self::MissingToken => "M_MISSING_TOKEN",
+            Self::BadJson => "M_BAD_JSON",
+            Self::NotJson => "M_NOT_JSON",
+            Self::NotFound => "M_NOT_FOUND",
+            Self::LimitExceeded => "M_LIMIT_EXCEEDED",
+            Self::Unknown => "M_UNKNOWN",
+            Self::Unrecognized => "M_UNRECOGNIZED",
+            Self::Unauthorized => "M_UNAUTHORIZED",
+            Self::UserDeactivated => "M_USER_DEACTIVATED",
+            Self::UserInUse => "M_USER_IN_USE",
+            Self::InvalidUsername => "M_INVALID_USERNAME",
+            Self::RoomInUse => "M_ROOM_IN_USE",
+            Self::InvalidRoomState => "M_INVALID_ROOM_STATE",
+            Self::ThreepidInUse => "M_THREEPID_IN_USE",
+            Self::ThreepidNotFound => "M_THREEPID_NOT_FOUND",
+            Self::ThreepidAuthFailed => "M_THREEPID_AUTH_FAILED",
+            Self::ThreepidDenied => "M_THREEPID_DENIED",
+            Self::ServerNotTrusted => "M_SERVER_NOT_TRUSTED",
+            Self::UnsupportedRoomVersion => "M_UNSUPPORTED_ROOM_VERSION",
+            Self::IncompatibleRoomVersion => "M_INCOMPATIBLE_ROOM_VERSION",
+            Self::BadState => "M_BAD_STATE",
+            Self::GuestAccessForbidden => "M_GUEST_ACCESS_FORBIDDEN",
+            Self::CaptchaNeeded => "M_CAPTCHA_NEEDED",
+            Self::CaptchaInvalid => "M_CAPTCHA_INVALID",
+            Self::MissingParam => "M_MISSING_PARAM",
+            Self::InvalidParam => "M_INVALID_PARAM",
+            Self::TooLarge => "M_TOO_LARGE",
+            Self::Exclusive => "M_EXCLUSIVE",
+            Self::ResourceLimitExceeded => "M_RESOURCE_LIMIT_EXCEEDED",
+            Self::CannotLeaveServerNoticeRoom => "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
+            Self::Unimplemented => "M_UNRECOGNIZED",
+            Self::RequestTimeout => "M_REQUEST_TIMEOUT",
         }
     }
 
     pub fn http_status(&self) -> StatusCode {
         match self {
-            MatrixErrorCode::Forbidden => StatusCode::FORBIDDEN,
-            MatrixErrorCode::UnknownToken => StatusCode::UNAUTHORIZED,
-            MatrixErrorCode::MissingToken => StatusCode::UNAUTHORIZED,
-            MatrixErrorCode::BadJson => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::NotJson => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::NotFound => StatusCode::NOT_FOUND,
-            MatrixErrorCode::LimitExceeded => StatusCode::TOO_MANY_REQUESTS,
-            MatrixErrorCode::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::UnknownToken => StatusCode::UNAUTHORIZED,
+            Self::MissingToken => StatusCode::UNAUTHORIZED,
+            Self::BadJson => StatusCode::BAD_REQUEST,
+            Self::NotJson => StatusCode::BAD_REQUEST,
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::LimitExceeded => StatusCode::TOO_MANY_REQUESTS,
+            Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
             // Per Matrix spec v1.11+: M_UNRECOGNIZED is returned with 404 when an
             // endpoint is not implemented. Returning 400 here causes Element to
             // surface a confusing "bad request" error for unsupported MSC endpoints.
-            MatrixErrorCode::Unrecognized => StatusCode::NOT_FOUND,
-            MatrixErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
-            MatrixErrorCode::UserDeactivated => StatusCode::FORBIDDEN,
-            MatrixErrorCode::UserInUse => StatusCode::CONFLICT,
-            MatrixErrorCode::InvalidUsername => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::RoomInUse => StatusCode::CONFLICT,
-            MatrixErrorCode::InvalidRoomState => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::ThreepidInUse => StatusCode::CONFLICT,
-            MatrixErrorCode::ThreepidNotFound => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::ThreepidAuthFailed => StatusCode::FORBIDDEN,
-            MatrixErrorCode::ThreepidDenied => StatusCode::FORBIDDEN,
-            MatrixErrorCode::ServerNotTrusted => StatusCode::BAD_GATEWAY,
-            MatrixErrorCode::UnsupportedRoomVersion => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::IncompatibleRoomVersion => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::BadState => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::GuestAccessForbidden => StatusCode::FORBIDDEN,
-            MatrixErrorCode::CaptchaNeeded => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::CaptchaInvalid => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::MissingParam => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::InvalidParam => StatusCode::BAD_REQUEST,
-            MatrixErrorCode::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            MatrixErrorCode::Exclusive => StatusCode::CONFLICT,
-            MatrixErrorCode::ResourceLimitExceeded => StatusCode::FORBIDDEN,
-            MatrixErrorCode::CannotLeaveServerNoticeRoom => StatusCode::FORBIDDEN,
+            Self::Unrecognized => StatusCode::NOT_FOUND,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::UserDeactivated => StatusCode::FORBIDDEN,
+            Self::UserInUse => StatusCode::CONFLICT,
+            Self::InvalidUsername => StatusCode::BAD_REQUEST,
+            Self::RoomInUse => StatusCode::CONFLICT,
+            Self::InvalidRoomState => StatusCode::BAD_REQUEST,
+            Self::ThreepidInUse => StatusCode::CONFLICT,
+            Self::ThreepidNotFound => StatusCode::BAD_REQUEST,
+            Self::ThreepidAuthFailed => StatusCode::FORBIDDEN,
+            Self::ThreepidDenied => StatusCode::FORBIDDEN,
+            Self::ServerNotTrusted => StatusCode::BAD_GATEWAY,
+            Self::UnsupportedRoomVersion => StatusCode::BAD_REQUEST,
+            Self::IncompatibleRoomVersion => StatusCode::BAD_REQUEST,
+            Self::BadState => StatusCode::BAD_REQUEST,
+            Self::GuestAccessForbidden => StatusCode::FORBIDDEN,
+            Self::CaptchaNeeded => StatusCode::BAD_REQUEST,
+            Self::CaptchaInvalid => StatusCode::BAD_REQUEST,
+            Self::MissingParam => StatusCode::BAD_REQUEST,
+            Self::InvalidParam => StatusCode::BAD_REQUEST,
+            Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::Exclusive => StatusCode::CONFLICT,
+            Self::ResourceLimitExceeded => StatusCode::FORBIDDEN,
+            Self::CannotLeaveServerNoticeRoom => StatusCode::FORBIDDEN,
+            Self::Unimplemented => StatusCode::NOT_IMPLEMENTED,
+            Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
         }
     }
 }
@@ -144,38 +160,39 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
     {
         let s = String::deserialize(deserializer)?;
         match s.as_str() {
-            "M_FORBIDDEN" => Ok(MatrixErrorCode::Forbidden),
-            "M_UNKNOWN_TOKEN" => Ok(MatrixErrorCode::UnknownToken),
-            "M_MISSING_TOKEN" => Ok(MatrixErrorCode::MissingToken),
-            "M_BAD_JSON" => Ok(MatrixErrorCode::BadJson),
-            "M_NOT_JSON" => Ok(MatrixErrorCode::NotJson),
-            "M_NOT_FOUND" => Ok(MatrixErrorCode::NotFound),
-            "M_LIMIT_EXCEEDED" => Ok(MatrixErrorCode::LimitExceeded),
-            "M_UNKNOWN" => Ok(MatrixErrorCode::Unknown),
-            "M_UNRECOGNIZED" => Ok(MatrixErrorCode::Unrecognized),
-            "M_UNAUTHORIZED" => Ok(MatrixErrorCode::Unauthorized),
-            "M_USER_DEACTIVATED" => Ok(MatrixErrorCode::UserDeactivated),
-            "M_USER_IN_USE" => Ok(MatrixErrorCode::UserInUse),
-            "M_INVALID_USERNAME" => Ok(MatrixErrorCode::InvalidUsername),
-            "M_ROOM_IN_USE" => Ok(MatrixErrorCode::RoomInUse),
-            "M_INVALID_ROOM_STATE" => Ok(MatrixErrorCode::InvalidRoomState),
-            "M_THREEPID_IN_USE" => Ok(MatrixErrorCode::ThreepidInUse),
-            "M_THREEPID_NOT_FOUND" => Ok(MatrixErrorCode::ThreepidNotFound),
-            "M_THREEPID_AUTH_FAILED" => Ok(MatrixErrorCode::ThreepidAuthFailed),
-            "M_THREEPID_DENIED" => Ok(MatrixErrorCode::ThreepidDenied),
-            "M_SERVER_NOT_TRUSTED" => Ok(MatrixErrorCode::ServerNotTrusted),
-            "M_UNSUPPORTED_ROOM_VERSION" => Ok(MatrixErrorCode::UnsupportedRoomVersion),
-            "M_INCOMPATIBLE_ROOM_VERSION" => Ok(MatrixErrorCode::IncompatibleRoomVersion),
-            "M_BAD_STATE" => Ok(MatrixErrorCode::BadState),
-            "M_GUEST_ACCESS_FORBIDDEN" => Ok(MatrixErrorCode::GuestAccessForbidden),
-            "M_CAPTCHA_NEEDED" => Ok(MatrixErrorCode::CaptchaNeeded),
-            "M_CAPTCHA_INVALID" => Ok(MatrixErrorCode::CaptchaInvalid),
-            "M_MISSING_PARAM" => Ok(MatrixErrorCode::MissingParam),
-            "M_INVALID_PARAM" => Ok(MatrixErrorCode::InvalidParam),
-            "M_TOO_LARGE" => Ok(MatrixErrorCode::TooLarge),
-            "M_EXCLUSIVE" => Ok(MatrixErrorCode::Exclusive),
-            "M_RESOURCE_LIMIT_EXCEEDED" => Ok(MatrixErrorCode::ResourceLimitExceeded),
-            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Ok(MatrixErrorCode::CannotLeaveServerNoticeRoom),
+            "M_FORBIDDEN" => Ok(Self::Forbidden),
+            "M_UNKNOWN_TOKEN" => Ok(Self::UnknownToken),
+            "M_MISSING_TOKEN" => Ok(Self::MissingToken),
+            "M_BAD_JSON" => Ok(Self::BadJson),
+            "M_NOT_JSON" => Ok(Self::NotJson),
+            "M_NOT_FOUND" => Ok(Self::NotFound),
+            "M_LIMIT_EXCEEDED" => Ok(Self::LimitExceeded),
+            "M_UNKNOWN" => Ok(Self::Unknown),
+            "M_UNRECOGNIZED" => Ok(Self::Unrecognized),
+            "M_UNAUTHORIZED" => Ok(Self::Unauthorized),
+            "M_USER_DEACTIVATED" => Ok(Self::UserDeactivated),
+            "M_USER_IN_USE" => Ok(Self::UserInUse),
+            "M_INVALID_USERNAME" => Ok(Self::InvalidUsername),
+            "M_ROOM_IN_USE" => Ok(Self::RoomInUse),
+            "M_INVALID_ROOM_STATE" => Ok(Self::InvalidRoomState),
+            "M_THREEPID_IN_USE" => Ok(Self::ThreepidInUse),
+            "M_THREEPID_NOT_FOUND" => Ok(Self::ThreepidNotFound),
+            "M_THREEPID_AUTH_FAILED" => Ok(Self::ThreepidAuthFailed),
+            "M_THREEPID_DENIED" => Ok(Self::ThreepidDenied),
+            "M_SERVER_NOT_TRUSTED" => Ok(Self::ServerNotTrusted),
+            "M_UNSUPPORTED_ROOM_VERSION" => Ok(Self::UnsupportedRoomVersion),
+            "M_INCOMPATIBLE_ROOM_VERSION" => Ok(Self::IncompatibleRoomVersion),
+            "M_BAD_STATE" => Ok(Self::BadState),
+            "M_GUEST_ACCESS_FORBIDDEN" => Ok(Self::GuestAccessForbidden),
+            "M_CAPTCHA_NEEDED" => Ok(Self::CaptchaNeeded),
+            "M_CAPTCHA_INVALID" => Ok(Self::CaptchaInvalid),
+            "M_MISSING_PARAM" => Ok(Self::MissingParam),
+            "M_INVALID_PARAM" => Ok(Self::InvalidParam),
+            "M_TOO_LARGE" => Ok(Self::TooLarge),
+            "M_EXCLUSIVE" => Ok(Self::Exclusive),
+            "M_RESOURCE_LIMIT_EXCEEDED" => Ok(Self::ResourceLimitExceeded),
+            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Ok(Self::CannotLeaveServerNoticeRoom),
+            "M_REQUEST_TIMEOUT" => Ok(Self::RequestTimeout),
             _ => Err(serde::de::Error::unknown_variant(
                 &s,
                 &[
@@ -211,6 +228,7 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_EXCLUSIVE",
                     "M_RESOURCE_LIMIT_EXCEEDED",
                     "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
+                    "M_REQUEST_TIMEOUT",
                 ],
             )),
         }
@@ -310,6 +328,9 @@ pub enum ApiError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 
     #[error("Conflict: {0}")]
     Conflict(String),
@@ -424,6 +445,9 @@ pub enum ApiError {
 
     #[error("Unrecognized: {0}")]
     Unrecognized(String),
+
+    #[error("Request timeout: {0}")]
+    RequestTimeout(String),
 }
 
 impl ApiError {
@@ -441,6 +465,10 @@ impl ApiError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::NotFound(message.into())
+    }
+
+    pub fn not_implemented(message: impl Into<String>) -> Self {
+        Self::NotImplemented(message.into())
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
@@ -587,52 +615,58 @@ impl ApiError {
         Self::Unrecognized(message.into())
     }
 
+    pub fn request_timeout(message: impl Into<String>) -> Self {
+        Self::RequestTimeout(message.into())
+    }
+
     pub fn matrix_code(&self) -> MatrixErrorCode {
         match self {
-            ApiError::BadRequest(_) => MatrixErrorCode::BadJson,
-            ApiError::Unauthorized(_) => MatrixErrorCode::Unauthorized,
-            ApiError::Forbidden(_) => MatrixErrorCode::Forbidden,
-            ApiError::NotFound(_) => MatrixErrorCode::NotFound,
-            ApiError::Conflict(_) => MatrixErrorCode::UserInUse,
-            ApiError::RateLimited => MatrixErrorCode::LimitExceeded,
-            ApiError::RateLimitedWithRetry(_) => MatrixErrorCode::LimitExceeded,
-            ApiError::Internal(_) => MatrixErrorCode::Unknown,
-            ApiError::Database(_) => MatrixErrorCode::Unknown,
-            ApiError::Cache(_) => MatrixErrorCode::Unknown,
-            ApiError::Authentication(_) => MatrixErrorCode::UnknownToken,
-            ApiError::Validation(_) => MatrixErrorCode::InvalidParam,
-            ApiError::InvalidInput(_) => MatrixErrorCode::InvalidParam,
-            ApiError::DecryptionError(_) => MatrixErrorCode::Unknown,
-            ApiError::EncryptionError(_) => MatrixErrorCode::Unknown,
-            ApiError::Crypto(_) => MatrixErrorCode::Unknown,
-            ApiError::Gone(_) => MatrixErrorCode::NotFound,
-            ApiError::MissingToken => MatrixErrorCode::MissingToken,
-            ApiError::NotJson(_) => MatrixErrorCode::NotJson,
-            ApiError::UserDeactivated(_) => MatrixErrorCode::UserDeactivated,
-            ApiError::InvalidUsername(_) => MatrixErrorCode::InvalidUsername,
-            ApiError::RoomInUse(_) => MatrixErrorCode::RoomInUse,
-            ApiError::UserInUse(_) => MatrixErrorCode::UserInUse,
-            ApiError::InvalidRoomState(_) => MatrixErrorCode::InvalidRoomState,
-            ApiError::ThreepidInUse(_) => MatrixErrorCode::ThreepidInUse,
-            ApiError::ThreepidNotFound(_) => MatrixErrorCode::ThreepidNotFound,
-            ApiError::ThreepidAuthFailed(_) => MatrixErrorCode::ThreepidAuthFailed,
-            ApiError::ThreepidDenied(_) => MatrixErrorCode::ThreepidDenied,
-            ApiError::ServerNotTrusted(_) => MatrixErrorCode::ServerNotTrusted,
-            ApiError::UnsupportedRoomVersion(_) => MatrixErrorCode::UnsupportedRoomVersion,
-            ApiError::IncompatibleRoomVersion(_) => MatrixErrorCode::IncompatibleRoomVersion,
-            ApiError::BadState(_) => MatrixErrorCode::BadState,
-            ApiError::GuestAccessForbidden(_) => MatrixErrorCode::GuestAccessForbidden,
-            ApiError::CaptchaNeeded(_) => MatrixErrorCode::CaptchaNeeded,
-            ApiError::CaptchaInvalid(_) => MatrixErrorCode::CaptchaInvalid,
-            ApiError::MissingParam(_) => MatrixErrorCode::MissingParam,
-            ApiError::TooLarge(_) => MatrixErrorCode::TooLarge,
-            ApiError::Exclusive(_) => MatrixErrorCode::Exclusive,
-            ApiError::ResourceLimitExceeded(_) => MatrixErrorCode::ResourceLimitExceeded,
-            ApiError::CannotLeaveServerNoticeRoom(_) => {
+            Self::BadRequest(_) => MatrixErrorCode::BadJson,
+            Self::Unauthorized(_) => MatrixErrorCode::Unauthorized,
+            Self::Forbidden(_) => MatrixErrorCode::Forbidden,
+            Self::NotFound(_) => MatrixErrorCode::NotFound,
+            Self::NotImplemented(_) => MatrixErrorCode::Unimplemented,
+            Self::Conflict(_) => MatrixErrorCode::UserInUse,
+            Self::RateLimited => MatrixErrorCode::LimitExceeded,
+            Self::RateLimitedWithRetry(_) => MatrixErrorCode::LimitExceeded,
+            Self::Internal(_) => MatrixErrorCode::Unknown,
+            Self::Database(_) => MatrixErrorCode::Unknown,
+            Self::Cache(_) => MatrixErrorCode::Unknown,
+            Self::Authentication(_) => MatrixErrorCode::UnknownToken,
+            Self::Validation(_) => MatrixErrorCode::InvalidParam,
+            Self::InvalidInput(_) => MatrixErrorCode::InvalidParam,
+            Self::DecryptionError(_) => MatrixErrorCode::Unknown,
+            Self::EncryptionError(_) => MatrixErrorCode::Unknown,
+            Self::Crypto(_) => MatrixErrorCode::Unknown,
+            Self::Gone(_) => MatrixErrorCode::NotFound,
+            Self::MissingToken => MatrixErrorCode::MissingToken,
+            Self::NotJson(_) => MatrixErrorCode::NotJson,
+            Self::UserDeactivated(_) => MatrixErrorCode::UserDeactivated,
+            Self::InvalidUsername(_) => MatrixErrorCode::InvalidUsername,
+            Self::RoomInUse(_) => MatrixErrorCode::RoomInUse,
+            Self::UserInUse(_) => MatrixErrorCode::UserInUse,
+            Self::InvalidRoomState(_) => MatrixErrorCode::InvalidRoomState,
+            Self::ThreepidInUse(_) => MatrixErrorCode::ThreepidInUse,
+            Self::ThreepidNotFound(_) => MatrixErrorCode::ThreepidNotFound,
+            Self::ThreepidAuthFailed(_) => MatrixErrorCode::ThreepidAuthFailed,
+            Self::ThreepidDenied(_) => MatrixErrorCode::ThreepidDenied,
+            Self::ServerNotTrusted(_) => MatrixErrorCode::ServerNotTrusted,
+            Self::UnsupportedRoomVersion(_) => MatrixErrorCode::UnsupportedRoomVersion,
+            Self::IncompatibleRoomVersion(_) => MatrixErrorCode::IncompatibleRoomVersion,
+            Self::BadState(_) => MatrixErrorCode::BadState,
+            Self::GuestAccessForbidden(_) => MatrixErrorCode::GuestAccessForbidden,
+            Self::CaptchaNeeded(_) => MatrixErrorCode::CaptchaNeeded,
+            Self::CaptchaInvalid(_) => MatrixErrorCode::CaptchaInvalid,
+            Self::MissingParam(_) => MatrixErrorCode::MissingParam,
+            Self::TooLarge(_) => MatrixErrorCode::TooLarge,
+            Self::Exclusive(_) => MatrixErrorCode::Exclusive,
+            Self::ResourceLimitExceeded(_) => MatrixErrorCode::ResourceLimitExceeded,
+            Self::CannotLeaveServerNoticeRoom(_) => {
                 MatrixErrorCode::CannotLeaveServerNoticeRoom
             }
-            ApiError::Unknown(_) => MatrixErrorCode::Unknown,
-            ApiError::Unrecognized(_) => MatrixErrorCode::Unrecognized,
+            Self::Unknown(_) => MatrixErrorCode::Unknown,
+            Self::Unrecognized(_) => MatrixErrorCode::Unrecognized,
+            Self::RequestTimeout(_) => MatrixErrorCode::RequestTimeout,
         }
     }
 
@@ -642,54 +676,56 @@ impl ApiError {
 
     pub fn message(&self) -> String {
         match self {
-            ApiError::BadRequest(msg) => msg.clone(),
-            ApiError::Unauthorized(msg) => msg.clone(),
-            ApiError::Forbidden(msg) => msg.clone(),
-            ApiError::NotFound(msg) => msg.clone(),
-            ApiError::Conflict(msg) => msg.clone(),
-            ApiError::RateLimited => "Rate limited".to_string(),
-            ApiError::RateLimitedWithRetry(_) => "Rate limited".to_string(),
-            ApiError::Internal(msg) => {
+            Self::BadRequest(msg) => msg.clone(),
+            Self::Unauthorized(msg) => msg.clone(),
+            Self::Forbidden(msg) => msg.clone(),
+            Self::NotFound(msg) => msg.clone(),
+            Self::NotImplemented(msg) => msg.clone(),
+            Self::Conflict(msg) => msg.clone(),
+            Self::RateLimited => "Rate limited".to_string(),
+            Self::RateLimitedWithRetry(_) => "Rate limited".to_string(),
+            Self::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
                 "An internal error occurred".to_string()
             }
-            ApiError::Database(msg) => {
+            Self::Database(msg) => {
                 tracing::error!("Database error: {}", msg);
                 "A database error occurred".to_string()
             }
-            ApiError::Cache(msg) => format!("Cache error: {msg}"),
-            ApiError::Authentication(msg) => msg.clone(),
-            ApiError::Validation(msg) => msg.clone(),
-            ApiError::InvalidInput(msg) => msg.clone(),
-            ApiError::DecryptionError(msg) => msg.clone(),
-            ApiError::EncryptionError(msg) => msg.clone(),
-            ApiError::Crypto(msg) => msg.clone(),
-            ApiError::Gone(msg) => msg.clone(),
-            ApiError::MissingToken => "Missing access token".to_string(),
-            ApiError::NotJson(msg) => msg.clone(),
-            ApiError::UserDeactivated(msg) => msg.clone(),
-            ApiError::InvalidUsername(msg) => msg.clone(),
-            ApiError::RoomInUse(msg) => msg.clone(),
-            ApiError::UserInUse(msg) => msg.clone(),
-            ApiError::InvalidRoomState(msg) => msg.clone(),
-            ApiError::ThreepidInUse(msg) => msg.clone(),
-            ApiError::ThreepidNotFound(msg) => msg.clone(),
-            ApiError::ThreepidAuthFailed(msg) => msg.clone(),
-            ApiError::ThreepidDenied(msg) => msg.clone(),
-            ApiError::ServerNotTrusted(msg) => msg.clone(),
-            ApiError::UnsupportedRoomVersion(msg) => msg.clone(),
-            ApiError::IncompatibleRoomVersion(msg) => msg.clone(),
-            ApiError::BadState(msg) => msg.clone(),
-            ApiError::GuestAccessForbidden(msg) => msg.clone(),
-            ApiError::CaptchaNeeded(msg) => msg.clone(),
-            ApiError::CaptchaInvalid(msg) => msg.clone(),
-            ApiError::MissingParam(msg) => msg.clone(),
-            ApiError::TooLarge(msg) => msg.clone(),
-            ApiError::Exclusive(msg) => msg.clone(),
-            ApiError::ResourceLimitExceeded(msg) => msg.clone(),
-            ApiError::CannotLeaveServerNoticeRoom(msg) => msg.clone(),
-            ApiError::Unknown(msg) => msg.clone(),
-            ApiError::Unrecognized(msg) => msg.clone(),
+            Self::Cache(msg) => format!("Cache error: {msg}"),
+            Self::Authentication(msg) => msg.clone(),
+            Self::Validation(msg) => msg.clone(),
+            Self::InvalidInput(msg) => msg.clone(),
+            Self::DecryptionError(msg) => msg.clone(),
+            Self::EncryptionError(msg) => msg.clone(),
+            Self::Crypto(msg) => msg.clone(),
+            Self::Gone(msg) => msg.clone(),
+            Self::MissingToken => "Missing access token".to_string(),
+            Self::NotJson(msg) => msg.clone(),
+            Self::UserDeactivated(msg) => msg.clone(),
+            Self::InvalidUsername(msg) => msg.clone(),
+            Self::RoomInUse(msg) => msg.clone(),
+            Self::UserInUse(msg) => msg.clone(),
+            Self::InvalidRoomState(msg) => msg.clone(),
+            Self::ThreepidInUse(msg) => msg.clone(),
+            Self::ThreepidNotFound(msg) => msg.clone(),
+            Self::ThreepidAuthFailed(msg) => msg.clone(),
+            Self::ThreepidDenied(msg) => msg.clone(),
+            Self::ServerNotTrusted(msg) => msg.clone(),
+            Self::UnsupportedRoomVersion(msg) => msg.clone(),
+            Self::IncompatibleRoomVersion(msg) => msg.clone(),
+            Self::BadState(msg) => msg.clone(),
+            Self::GuestAccessForbidden(msg) => msg.clone(),
+            Self::CaptchaNeeded(msg) => msg.clone(),
+            Self::CaptchaInvalid(msg) => msg.clone(),
+            Self::MissingParam(msg) => msg.clone(),
+            Self::TooLarge(msg) => msg.clone(),
+            Self::Exclusive(msg) => msg.clone(),
+            Self::ResourceLimitExceeded(msg) => msg.clone(),
+            Self::CannotLeaveServerNoticeRoom(msg) => msg.clone(),
+            Self::Unknown(msg) => msg.clone(),
+            Self::Unrecognized(msg) => msg.clone(),
+            Self::RequestTimeout(msg) => msg.clone(),
         }
     }
 
@@ -700,7 +736,7 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        if matches!(self, ApiError::Gone(_)) {
+        if matches!(self, Self::Gone(_)) {
             let status_code = StatusCode::GONE;
             return (
                 status_code,
@@ -717,9 +753,22 @@ impl IntoResponse for ApiError {
         let errcode = matrix_code.as_str().to_string();
         let error_msg = self.message();
         let status_code = matrix_code.http_status();
+
+        if let Some(collector) = ERROR_METRICS.get() {
+            let metric_name = format!("http_errors_total_{}", errcode);
+            if let Some(counter) = collector.get_counter(&metric_name) {
+                counter.inc();
+            } else {
+                let mut labels = std::collections::HashMap::new();
+                labels.insert("errcode".to_string(), errcode.clone());
+                let counter = collector.register_counter_with_labels(metric_name, labels);
+                counter.inc();
+            }
+        }
+
         let retry_after_ms = match &self {
-            ApiError::RateLimited => Some(5000),
-            ApiError::RateLimitedWithRetry(ms) => Some(*ms),
+            Self::RateLimited => Some(5000),
+            Self::RateLimitedWithRetry(ms) => Some(*ms),
             _ => None,
         };
 
@@ -746,21 +795,21 @@ pub trait ErrorContext {
 impl ErrorContext for ApiError {
     fn with_context(self, module: &str, operation: &str) -> Self {
         match self {
-            ApiError::Internal(msg) => {
-                ApiError::Internal(format!("[{module}::{operation}] {msg}"))
+            Self::Internal(msg) => {
+                Self::Internal(format!("[{module}::{operation}] {msg}"))
             }
-            ApiError::Database(msg) => {
-                ApiError::Database(format!("[{module}::{operation}] {msg}"))
+            Self::Database(msg) => {
+                Self::Database(format!("[{module}::{operation}] {msg}"))
             }
-            ApiError::Cache(msg) => ApiError::Cache(format!("[{module}::{operation}] {msg}")),
-            ApiError::Authentication(msg) => {
-                ApiError::Authentication(format!("[{module}::{operation}] {msg}"))
+            Self::Cache(msg) => Self::Cache(format!("[{module}::{operation}] {msg}")),
+            Self::Authentication(msg) => {
+                Self::Authentication(format!("[{module}::{operation}] {msg}"))
             }
-            ApiError::Validation(msg) => {
-                ApiError::Validation(format!("[{module}::{operation}] {msg}"))
+            Self::Validation(msg) => {
+                Self::Validation(format!("[{module}::{operation}] {msg}"))
             }
-            ApiError::Crypto(msg) => {
-                ApiError::Crypto(format!("[{module}::{operation}] {msg}"))
+            Self::Crypto(msg) => {
+                Self::Crypto(format!("[{module}::{operation}] {msg}"))
             }
             _ => self,
         }
@@ -881,52 +930,52 @@ impl From<sqlx::Error> for ApiError {
             || error_msg.contains("23505")
             || error_msg.contains("violates unique constraint")
         {
-            ApiError::BadRequest(format!("Duplicate entry: {err}"))
+            Self::BadRequest(format!("Duplicate entry: {err}"))
         } else {
-            ApiError::Database(err.to_string())
+            Self::Database(err.to_string())
         }
     }
 }
 
 impl From<redis::RedisError> for ApiError {
     fn from(err: redis::RedisError) -> Self {
-        ApiError::Cache(err.to_string())
+        Self::Cache(err.to_string())
     }
 }
 
 impl From<jsonwebtoken::errors::Error> for ApiError {
     fn from(err: jsonwebtoken::errors::Error) -> Self {
-        ApiError::Authentication(err.to_string())
+        Self::Authentication(err.to_string())
     }
 }
 
 impl From<serde_json::Error> for ApiError {
     fn from(err: serde_json::Error) -> Self {
-        ApiError::not_json(err.to_string())
+        Self::not_json(err.to_string())
     }
 }
 
 impl From<std::string::FromUtf8Error> for ApiError {
     fn from(_err: std::string::FromUtf8Error) -> Self {
-        ApiError::Validation("Invalid UTF-8 encoding".to_string())
+        Self::Validation("Invalid UTF-8 encoding".to_string())
     }
 }
 
 impl From<std::num::ParseIntError> for ApiError {
     fn from(_err: std::num::ParseIntError) -> Self {
-        ApiError::Validation("Invalid number format".to_string())
+        Self::Validation("Invalid number format".to_string())
     }
 }
 
 impl From<std::io::Error> for ApiError {
     fn from(err: std::io::Error) -> Self {
-        ApiError::Internal(err.to_string())
+        Self::Internal(err.to_string())
     }
 }
 
 impl From<ed25519_dalek::ed25519::Error> for ApiError {
     fn from(err: ed25519_dalek::ed25519::Error) -> Self {
-        ApiError::Crypto(format!("Ed25519 error: {err}"))
+        Self::Crypto(format!("Ed25519 error: {err}"))
     }
 }
 
@@ -934,12 +983,12 @@ impl From<crate::e2ee::crypto::CryptoError> for ApiError {
     fn from(err: crate::e2ee::crypto::CryptoError) -> Self {
         match err {
             crate::e2ee::crypto::CryptoError::EncryptionError(msg) => {
-                ApiError::EncryptionError(msg)
+                Self::EncryptionError(msg)
             }
             crate::e2ee::crypto::CryptoError::DecryptionError(msg) => {
-                ApiError::DecryptionError(msg)
+                Self::DecryptionError(msg)
             }
-            _ => ApiError::Crypto(err.to_string()),
+            _ => Self::Crypto(err.to_string()),
         }
     }
 }

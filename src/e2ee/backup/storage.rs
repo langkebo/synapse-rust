@@ -28,7 +28,7 @@ impl KeyBackupStorage {
     pub async fn create_backup(&self, backup: &KeyBackup) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             INSERT INTO key_backups (
                 user_id,
                 backup_id_text,
@@ -50,7 +50,7 @@ impl KeyBackupStorage {
                 etag = EXCLUDED.etag,
                 backup_id_text = EXCLUDED.backup_id_text,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(&backup.user_id)
         .bind(&backup.backup_id)
@@ -69,7 +69,7 @@ impl KeyBackupStorage {
 
     pub async fn get_backup(&self, user_id: &str) -> Result<Option<KeyBackup>, ApiError> {
         let row = sqlx::query_as::<_, KeyBackup>(
-            r#"
+            r"
             SELECT
                 user_id,
                 COALESCE(backup_id_text, version::text) AS backup_id,
@@ -83,7 +83,7 @@ impl KeyBackupStorage {
             WHERE user_id = $1
             ORDER BY version DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -94,7 +94,7 @@ impl KeyBackupStorage {
 
     pub async fn get_all_backup_versions(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
         let rows = sqlx::query_as::<_, KeyBackup>(
-            r#"
+            r"
             SELECT
                 user_id,
                 COALESCE(backup_id_text, version::text) AS backup_id,
@@ -107,7 +107,7 @@ impl KeyBackupStorage {
             FROM key_backups
             WHERE user_id = $1
             ORDER BY version DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -123,7 +123,7 @@ impl KeyBackupStorage {
     ) -> Result<Option<KeyBackup>, ApiError> {
         let version_int: i64 = version.parse().unwrap_or(0);
         let row = sqlx::query_as::<_, KeyBackup>(
-            r#"
+            r"
             SELECT
                 user_id,
                 COALESCE(backup_id_text, version::text) AS backup_id,
@@ -135,7 +135,7 @@ impl KeyBackupStorage {
                 etag
             FROM key_backups
             WHERE user_id = $1 AND version = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version_int)
@@ -148,10 +148,10 @@ impl KeyBackupStorage {
     pub async fn delete_backup(&self, user_id: &str, version: &str) -> Result<(), ApiError> {
         let version_int: i64 = version.parse().unwrap_or(0);
         sqlx::query(
-            r#"
+            r"
             DELETE FROM key_backups
             WHERE user_id = $1 AND version = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version_int)
@@ -176,7 +176,7 @@ impl BackupKeyStorage {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            r#"
+            r"
             DELETE FROM backup_keys
             WHERE backup_id IN (
                 SELECT kb.backup_id
@@ -186,7 +186,7 @@ impl BackupKeyStorage {
             )
               AND room_id = $3
               AND session_id = $4
-            "#,
+            ",
         )
         .bind(&params.user_id)
         .bind(&params.backup_id)
@@ -196,7 +196,7 @@ impl BackupKeyStorage {
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO backup_keys (
                 backup_id, room_id, session_id, session_data, created_ts,
                 first_message_index, forwarded_count, is_verified
@@ -205,7 +205,7 @@ impl BackupKeyStorage {
             FROM key_backups kb
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            "#,
+            ",
         )
         .bind(&params.user_id)
         .bind(&params.backup_id)
@@ -230,7 +230,7 @@ impl BackupKeyStorage {
         room_id: &str,
     ) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -243,7 +243,7 @@ impl BackupKeyStorage {
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1 AND bk.room_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -260,7 +260,7 @@ impl BackupKeyStorage {
         room_id: &str,
     ) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -275,7 +275,7 @@ impl BackupKeyStorage {
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
               AND bk.room_id = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -286,6 +286,52 @@ impl BackupKeyStorage {
         Ok(rows)
     }
 
+    pub async fn get_backup_keys_by_rooms(
+        &self,
+        user_id: &str,
+        backup_id: &str,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<BackupKeyInfo>>, ApiError> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<BackupKeyInfo> = sqlx::query_as(
+            r"
+            SELECT
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
+                bk.session_data
+            FROM backup_keys bk
+            JOIN key_backups kb ON kb.backup_id = bk.backup_id
+            WHERE kb.user_id = $1
+              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
+              AND bk.room_id = ANY($3)
+            ",
+        )
+        .bind(user_id)
+        .bind(backup_id)
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<BackupKeyInfo>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for key in rows {
+            if let Some(room_keys) = result.get_mut(&key.room_id) {
+                room_keys.push(key);
+            }
+        }
+
+        Ok(result)
+    }
+
     pub async fn get_backup_key(
         &self,
         user_id: &str,
@@ -293,7 +339,7 @@ impl BackupKeyStorage {
         session_id: &str,
     ) -> Result<Option<BackupKeyInfo>, ApiError> {
         let row = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -306,7 +352,7 @@ impl BackupKeyStorage {
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1 AND bk.room_id = $2 AND bk.session_id = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -325,7 +371,7 @@ impl BackupKeyStorage {
         session_id: &str,
     ) -> Result<Option<BackupKeyInfo>, ApiError> {
         let row = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -341,7 +387,7 @@ impl BackupKeyStorage {
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
               AND bk.room_id = $3
               AND bk.session_id = $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -360,14 +406,14 @@ impl BackupKeyStorage {
         session_id: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM backup_keys bk
             USING key_backups kb
             WHERE kb.backup_id = bk.backup_id
               AND kb.user_id = $1
               AND bk.room_id = $2
               AND bk.session_id = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -387,7 +433,7 @@ impl BackupKeyStorage {
         session_id: &str,
     ) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM backup_keys bk
             USING key_backups kb
             WHERE kb.backup_id = bk.backup_id
@@ -395,7 +441,7 @@ impl BackupKeyStorage {
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
               AND bk.room_id = $3
               AND bk.session_id = $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version)
@@ -414,14 +460,14 @@ impl BackupKeyStorage {
         room_id: &str,
     ) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM backup_keys bk
             USING key_backups kb
             WHERE kb.backup_id = bk.backup_id
               AND kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
               AND bk.room_id = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version)
@@ -438,13 +484,13 @@ impl BackupKeyStorage {
         version: &str,
     ) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM backup_keys bk
             USING key_backups kb
             WHERE kb.backup_id = bk.backup_id
               AND kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version)

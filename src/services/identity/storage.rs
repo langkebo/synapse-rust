@@ -88,13 +88,13 @@ impl IdentityStorage {
         &self,
     ) -> Result<Vec<serde_json::Value>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT address, medium, user_id, validated_ts, added_ts
             FROM user_threepids
             WHERE validated_ts < added_ts
             ORDER BY added_ts DESC
             LIMIT 100
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await

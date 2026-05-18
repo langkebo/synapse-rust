@@ -178,14 +178,14 @@ impl Argon2Config {
             .map_err(|e| Argon2ConfigError::InvalidParams(e.to_string()))
     }
 
-    pub fn initialize_global(config: Argon2Config) -> Result<(), Argon2ConfigError> {
+    pub fn initialize_global(config: Self) -> Result<(), Argon2ConfigError> {
         config.validate()?;
 
         let _ = GLOBAL_ARGON2_CONFIG.set(config);
         Ok(())
     }
 
-    pub fn initialize_global_owasp(config: Argon2Config) -> Result<(), Argon2ConfigError> {
+    pub fn initialize_global_owasp(config: Self) -> Result<(), Argon2ConfigError> {
         config.validate()?;
         config.validate_owasp()?;
 
@@ -193,7 +193,7 @@ impl Argon2Config {
         Ok(())
     }
 
-    pub fn get_global() -> Argon2Config {
+    pub fn get_global() -> Self {
         GLOBAL_ARGON2_CONFIG.get().copied().unwrap_or_default()
     }
 

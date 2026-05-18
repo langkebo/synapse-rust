@@ -14,7 +14,7 @@ pub struct FilesystemBackend {
 }
 
 impl FilesystemBackend {
-    pub fn new(config: FilesystemConfig) -> Result<Self, ApiError> {
+    pub fn new(config: &FilesystemConfig) -> Result<Self, ApiError> {
         let base_path = PathBuf::from(&config.storage_path);
         let thumbnail_path = base_path.join("thumbnails");
 

@@ -186,14 +186,14 @@ impl ApplicationServiceStorage {
         let config = request.config.unwrap_or(serde_json::json!({}));
 
         let service = sqlx::query_as::<_, ApplicationService>(
-            r#"
+            r"
             INSERT INTO application_services (
                 as_id, url, as_token, hs_token, sender_localpart, is_enabled,
                 rate_limited, protocols, namespaces, created_ts, description, api_key, config
             )
             VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.as_id)
         .bind(&request.url)
@@ -225,10 +225,10 @@ impl ApplicationServiceStorage {
                     rule.get("exclusive").and_then(|e| e.as_bool()),
                 ) {
                     sqlx::query(
-                        r#"
+                        r"
                         INSERT INTO application_service_user_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        "#,
+                        ",
                     )
                     .bind(&service.as_id)
                     .bind(regex)
@@ -247,10 +247,10 @@ impl ApplicationServiceStorage {
                     rule.get("exclusive").and_then(|e| e.as_bool()),
                 ) {
                     sqlx::query(
-                        r#"
+                        r"
                         INSERT INTO application_service_room_alias_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        "#,
+                        ",
                     )
                     .bind(&service.as_id)
                     .bind(regex)
@@ -269,10 +269,10 @@ impl ApplicationServiceStorage {
                     rule.get("exclusive").and_then(|e| e.as_bool()),
                 ) {
                     sqlx::query(
-                        r#"
+                        r"
                         INSERT INTO application_service_room_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        "#,
+                        ",
                     )
                     .bind(&service.as_id)
                     .bind(regex)
@@ -289,7 +289,7 @@ impl ApplicationServiceStorage {
 
     pub async fn get_by_id(&self, as_id: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE as_id = $1"#,
+            r"SELECT * FROM application_services WHERE as_id = $1",
         )
         .bind(as_id)
         .fetch_optional(&*self.pool)
@@ -301,7 +301,7 @@ impl ApplicationServiceStorage {
         as_token: &str,
     ) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE"#,
+            r"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE",
         )
         .bind(as_token)
         .fetch_optional(&*self.pool)
@@ -313,7 +313,7 @@ impl ApplicationServiceStorage {
         hs_token: &str,
     ) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE"#,
+            r"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE",
         )
         .bind(hs_token)
         .fetch_optional(&*self.pool)
@@ -322,7 +322,7 @@ impl ApplicationServiceStorage {
 
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r#"SELECT * FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC"#
+            r"SELECT * FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC"
         )
         .fetch_all(&*self.pool)
         .await
@@ -336,7 +336,7 @@ impl ApplicationServiceStorage {
         let protocols = request.protocols.clone();
         let config = request.config.clone();
         sqlx::query_as::<_, ApplicationService>(
-            r#"
+            r"
             UPDATE application_services SET
                 url = COALESCE($2, url),
                 description = COALESCE($3, description),
@@ -348,7 +348,7 @@ impl ApplicationServiceStorage {
                 updated_ts = $9
             WHERE as_id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(&request.url)
@@ -365,7 +365,7 @@ impl ApplicationServiceStorage {
 
     pub async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(r#"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1"#)
+        sqlx::query(r"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1")
             .bind(as_id)
             .bind(now)
             .execute(&*self.pool)
@@ -374,7 +374,7 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn unregister(&self, as_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM application_services WHERE as_id = $1"#)
+        sqlx::query(r"DELETE FROM application_services WHERE as_id = $1")
             .bind(as_id)
             .execute(&*self.pool)
             .await?;
@@ -389,14 +389,14 @@ impl ApplicationServiceStorage {
     ) -> Result<ApplicationServiceState, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceState>(
-            r#"
+            r"
             INSERT INTO application_service_state (as_id, state_key, state_value, updated_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (as_id, state_key) DO UPDATE SET
                 state_value = EXCLUDED.state_value,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(state_key)
@@ -412,7 +412,7 @@ impl ApplicationServiceStorage {
         state_key: &str,
     ) -> Result<Option<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r#"SELECT * FROM application_service_state WHERE as_id = $1 AND state_key = $2"#,
+            r"SELECT * FROM application_service_state WHERE as_id = $1 AND state_key = $2",
         )
         .bind(as_id)
         .bind(state_key)
@@ -425,7 +425,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r#"SELECT * FROM application_service_state WHERE as_id = $1"#,
+            r"SELECT * FROM application_service_state WHERE as_id = $1",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -445,7 +445,7 @@ impl ApplicationServiceStorage {
     ) -> Result<ApplicationServiceEvent, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceEvent>(
-            r#"
+            r"
             INSERT INTO application_service_events (
                 event_id, as_id, room_id, event_type, processed, processed_ts, created_ts
             )
@@ -461,7 +461,7 @@ impl ApplicationServiceStorage {
                 created_ts AS origin_server_ts,
                 processed_ts,
                 NULL::text AS transaction_id
-            "#,
+            ",
         )
         .bind(event_id)
         .bind(as_id)
@@ -478,7 +478,7 @@ impl ApplicationServiceStorage {
         limit: i64,
     ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceEvent>(
-            r#"
+            r"
             SELECT
                 event_id,
                 as_id,
@@ -494,7 +494,7 @@ impl ApplicationServiceStorage {
             WHERE as_id = $1 AND processed_ts IS NULL
             ORDER BY created_ts ASC
             LIMIT $2
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(limit)
@@ -509,7 +509,7 @@ impl ApplicationServiceStorage {
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r#"UPDATE application_service_events SET processed_ts = $2, transaction_id = $3 WHERE event_id = $1"#
+            r"UPDATE application_service_events SET processed_ts = $2, transaction_id = $3 WHERE event_id = $1"
         )
         .bind(event_id)
         .bind(now)
@@ -527,11 +527,11 @@ impl ApplicationServiceStorage {
     ) -> Result<ApplicationServiceTransaction, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r#"
+            r"
             INSERT INTO application_service_transactions (as_id, transaction_id, events, sent_ts)
             VALUES ($1, $2, $3, $4)
             RETURNING *
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(transaction_id)
@@ -548,7 +548,7 @@ impl ApplicationServiceStorage {
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r#"UPDATE application_service_transactions SET completed_ts = $3 WHERE as_id = $1 AND transaction_id = $2"#
+            r"UPDATE application_service_transactions SET completed_ts = $3 WHERE as_id = $1 AND transaction_id = $2"
         )
         .bind(as_id)
         .bind(transaction_id)
@@ -565,7 +565,7 @@ impl ApplicationServiceStorage {
         error: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"UPDATE application_service_transactions SET retry_count = retry_count + 1, last_error = $3 WHERE as_id = $1 AND transaction_id = $2"#
+            r"UPDATE application_service_transactions SET retry_count = retry_count + 1, last_error = $3 WHERE as_id = $1 AND transaction_id = $2"
         )
         .bind(as_id)
         .bind(transaction_id)
@@ -580,7 +580,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r#"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"#
+            r"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -596,14 +596,14 @@ impl ApplicationServiceStorage {
     ) -> Result<ApplicationServiceUser, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceUser>(
-            r#"
+            r"
             INSERT INTO application_service_users (as_id, user_id, displayname, avatar_url, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (as_id, user_id) DO UPDATE SET
                 displayname = COALESCE(EXCLUDED.displayname, application_service_users.displayname),
                 avatar_url = COALESCE(EXCLUDED.avatar_url, application_service_users.avatar_url)
             RETURNING *
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(user_id)
@@ -619,7 +619,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceUser>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceUser>(
-            r#"SELECT * FROM application_service_users WHERE as_id = $1"#,
+            r"SELECT * FROM application_service_users WHERE as_id = $1",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -628,7 +628,7 @@ impl ApplicationServiceStorage {
 
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ namespace"#,
+            r"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ namespace",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -642,7 +642,7 @@ impl ApplicationServiceStorage {
         alias: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ namespace"#,
+            r"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ namespace",
         )
         .bind(alias)
         .fetch_optional(&*self.pool)
@@ -656,7 +656,7 @@ impl ApplicationServiceStorage {
         room_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ namespace"#,
+            r"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ namespace",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -670,7 +670,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"
+            r"
             SELECT
                 id,
                 as_id,
@@ -680,7 +680,7 @@ impl ApplicationServiceStorage {
                 created_ts
             FROM application_service_user_namespaces
             WHERE as_id = $1
-            "#,
+            ",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -692,7 +692,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"
+            r"
             SELECT
                 id,
                 as_id,
@@ -702,7 +702,7 @@ impl ApplicationServiceStorage {
                 created_ts
             FROM application_service_room_alias_namespaces
             WHERE as_id = $1
-            "#,
+            ",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -714,7 +714,7 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r#"
+            r"
             SELECT
                 id,
                 as_id,
@@ -724,7 +724,7 @@ impl ApplicationServiceStorage {
                 created_ts
             FROM application_service_room_namespaces
             WHERE as_id = $1
-            "#,
+            ",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -732,7 +732,7 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r#"SELECT * FROM application_service_statistics"#)
+        sqlx::query(r"SELECT * FROM application_service_statistics")
             .fetch_all(&*self.pool)
             .await
             .map(|rows| {
@@ -759,11 +759,11 @@ impl ApplicationServiceStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE application_service_statistics
             SET last_seen_ts = $2
             WHERE as_id = $1
-            "#,
+            ",
         )
         .bind(as_id)
         .bind(now)

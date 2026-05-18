@@ -21,8 +21,7 @@ fn derive_activity(presence: &str, last_active_ts: Option<i64>) -> (Option<i64>,
     let currently_active = match presence {
         "online" => Some(
             last_active_ts
-                .map(|ts| (now - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS)
-                .unwrap_or(false),
+                .is_some_and(|ts| (now - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS),
         ),
         _ => Some(false),
     };

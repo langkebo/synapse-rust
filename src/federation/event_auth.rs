@@ -1,12 +1,12 @@
-use lru::LruCache;
+use moka::sync::Cache;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration;
 
-const AUTH_CHAIN_CACHE_SIZE: usize = 1000;
-const DEPTH_CACHE_SIZE: usize = 2000;
+const AUTH_CHAIN_CACHE_SIZE: u64 = 1000;
+const DEPTH_CACHE_SIZE: u64 = 2000;
+const AUTH_CHAIN_CACHE_TTL_SECS: u64 = 3600;
+const DEPTH_CACHE_TTL_SECS: u64 = 3600;
 const STATE_RESOLUTION_MAX_HOPS: usize = 100;
 
 type StateKey = String;
@@ -15,8 +15,8 @@ type StateByKey = HashMap<StateKey, Vec<StateEntry>>;
 
 #[derive(Debug, Clone)]
 pub struct EventAuthChain {
-    auth_chain_cache: Arc<RwLock<LruCache<String, bool>>>,
-    depth_cache: Arc<RwLock<LruCache<String, i64>>>,
+    auth_chain_cache: Cache<String, bool>,
+    depth_cache: Cache<String, i64>,
 }
 
 impl Default for EventAuthChain {
@@ -26,37 +26,33 @@ impl Default for EventAuthChain {
 }
 
 impl EventAuthChain {
-    #[allow(clippy::expect_used)]
     pub fn new() -> Self {
         Self {
-            auth_chain_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(AUTH_CHAIN_CACHE_SIZE)
-                    .expect("AUTH_CHAIN_CACHE_SIZE is non-zero"),
-            ))),
-            depth_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(DEPTH_CACHE_SIZE).expect("DEPTH_CACHE_SIZE is non-zero"),
-            ))),
+            auth_chain_cache: Cache::builder()
+                .max_capacity(AUTH_CHAIN_CACHE_SIZE)
+                .time_to_live(Duration::from_secs(AUTH_CHAIN_CACHE_TTL_SECS))
+                .build(),
+            depth_cache: Cache::builder()
+                .max_capacity(DEPTH_CACHE_SIZE)
+                .time_to_live(Duration::from_secs(DEPTH_CACHE_TTL_SECS))
+                .build(),
         }
     }
 
-    pub async fn get_cached_auth_chain(&self, event_id: &str) -> Option<bool> {
-        let mut cache = self.auth_chain_cache.write().await;
-        cache.get(event_id).copied()
+    pub fn get_cached_auth_chain(&self, event_id: &str) -> Option<bool> {
+        self.auth_chain_cache.get(event_id)
     }
 
-    pub async fn cache_auth_chain_result(&self, event_id: &str, result: bool) {
-        let mut cache = self.auth_chain_cache.write().await;
-        cache.put(event_id.to_string(), result);
+    pub fn cache_auth_chain_result(&self, event_id: &str, result: bool) {
+        self.auth_chain_cache.insert(event_id.to_string(), result);
     }
 
-    pub async fn get_cached_depth(&self, event_id: &str) -> Option<i64> {
-        let mut cache = self.depth_cache.write().await;
-        cache.get(event_id).copied()
+    pub fn get_cached_depth(&self, event_id: &str) -> Option<i64> {
+        self.depth_cache.get(event_id)
     }
 
-    pub async fn cache_depth(&self, event_id: &str, depth: i64) {
-        let mut cache = self.depth_cache.write().await;
-        cache.put(event_id.to_string(), depth);
+    pub fn cache_depth(&self, event_id: &str, depth: i64) {
+        self.depth_cache.insert(event_id.to_string(), depth);
     }
 
     pub fn is_auth_event(event_type: &str) -> bool {
@@ -75,11 +71,7 @@ impl EventAuthChain {
         )
     }
 
-    pub fn build_auth_chain_from_events(
-        &self,
-        events: &HashMap<String, EventData>,
-        event_id: &str,
-    ) -> Vec<String> {
+    pub fn build_auth_chain_from_events(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {
         let mut visited = HashSet::new();
         let mut auth_chain = Vec::new();
         let mut queue = VecDeque::new();
@@ -109,12 +101,7 @@ impl EventAuthChain {
         auth_chain
     }
 
-    pub fn verify_auth_chain(
-        &self,
-        events: &HashMap<String, EventData>,
-        room_id: &str,
-        auth_chain: &[String],
-    ) -> bool {
+    pub fn verify_auth_chain(&self, events: &HashMap<String, EventData>, room_id: &str, auth_chain: &[String]) -> bool {
         if auth_chain.is_empty() {
             return false;
         }
@@ -159,10 +146,7 @@ impl EventAuthChain {
                         if let Some(inner_array) = prev_entry.as_array() {
                             if let Some(prev_id) = inner_array.first().and_then(|v| v.as_str()) {
                                 if event_map.contains_key(prev_id) {
-                                    graph
-                                        .entry(prev_id.to_string())
-                                        .or_default()
-                                        .push(event.event_id.clone());
+                                    graph.entry(prev_id.to_string()).or_default().push(event.event_id.clone());
 
                                     *in_degree.entry(event.event_id.clone()).or_default() += 1;
                                 }
@@ -208,25 +192,16 @@ impl EventAuthChain {
 
         for event in state_events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let state_key = event
-                .get("state_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let state_key = event.get("state_key").and_then(|v| v.as_str()).unwrap_or("");
             let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
-            let origin_server_ts = event
-                .get("origin_server_ts")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let origin_server_ts = event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
             if state_key.is_empty() {
                 continue;
             }
 
             let key = format!("{event_type}:{state_key}");
-            state_by_key
-                .entry(key.clone())
-                .or_default()
-                .push((origin_server_ts, event_id.to_string()));
+            state_by_key.entry(key.clone()).or_default().push((origin_server_ts, event_id.to_string()));
         }
 
         for (key, events) in &state_by_key {
@@ -243,17 +218,13 @@ impl EventAuthChain {
                 });
 
                 let winner = &sorted_events[0];
-                let losers: Vec<String> = sorted_events[1..]
-                    .iter()
-                    .map(|(_, eid)| eid.clone())
-                    .collect();
+                let losers: Vec<String> = sorted_events[1..].iter().map(|(_, eid)| eid.clone()).collect();
 
                 conflicts.push(ConflictInfo {
                     state_key: key.clone(),
                     winning_event: winner.1.clone(),
                     losing_events: losers,
-                    resolution_reason: "Timestamp-based resolution: selected most recent event"
-                        .to_string(),
+                    resolution_reason: "Timestamp-based resolution: selected most recent event".to_string(),
                 });
             }
         }
@@ -271,15 +242,9 @@ impl EventAuthChain {
 
         for event in state_events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let state_key = event
-                .get("state_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let state_key = event.get("state_key").and_then(|v| v.as_str()).unwrap_or("");
             let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
-            let origin_server_ts = event
-                .get("origin_server_ts")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let origin_server_ts = event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
             let sender = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
 
             if state_key.is_empty() {
@@ -288,11 +253,7 @@ impl EventAuthChain {
 
             let sender_power = power_levels.get(sender).copied().unwrap_or(0);
             let key = format!("{event_type}:{state_key}");
-            state_by_key.entry(key.clone()).or_default().push((
-                origin_server_ts,
-                event_id.to_string(),
-                sender_power,
-            ));
+            state_by_key.entry(key.clone()).or_default().push((origin_server_ts, event_id.to_string(), sender_power));
         }
 
         for (key, events) in &state_by_key {
@@ -301,10 +262,7 @@ impl EventAuthChain {
                 sorted_events.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.0.cmp(&a.0)));
 
                 let winner = &sorted_events[0];
-                let losers: Vec<String> = sorted_events[1..]
-                    .iter()
-                    .map(|(_, eid, _)| eid.clone())
-                    .collect();
+                let losers: Vec<String> = sorted_events[1..].iter().map(|(_, eid, _)| eid.clone()).collect();
 
                 let reason = if winner.2 > 0 {
                     format!("Power-based resolution: sender power={}", winner.2)
@@ -324,35 +282,27 @@ impl EventAuthChain {
         conflicts
     }
 
-    pub async fn calculate_event_depth_with_cache(
-        &self,
-        events: &[EventInfo],
-        event_id: &str,
-    ) -> Option<i64> {
+    pub fn calculate_event_depth_with_cache(&self, events: &[EventInfo], event_id: &str) -> Option<i64> {
         let cache_key = format!("depth:{event_id}");
 
-        if let Some(cached) = self.get_cached_depth(&cache_key).await {
+        if let Some(cached) = self.get_cached_depth(&cache_key) {
             return Some(cached);
         }
 
         let depth_map = self.calculate_event_depth(events);
 
         if let Some(&depth) = depth_map.get(event_id) {
-            self.cache_depth(&cache_key, depth).await;
+            self.cache_depth(&cache_key, depth);
             Some(depth)
         } else {
             None
         }
     }
 
-    pub async fn build_auth_chain_with_cache(
-        &self,
-        events: &HashMap<String, EventData>,
-        event_id: &str,
-    ) -> Vec<String> {
+    pub fn build_auth_chain_with_cache(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {
         let cache_key = format!("auth_chain:{event_id}");
 
-        let cached_result: Option<bool> = self.get_cached_auth_chain(&cache_key).await;
+        let cached_result: Option<bool> = self.get_cached_auth_chain(&cache_key);
 
         if cached_result.is_some() {
             tracing::debug!("Auth chain cache hit for {}", event_id);
@@ -360,8 +310,7 @@ impl EventAuthChain {
 
         let result = self.build_auth_chain_from_events(events, event_id);
 
-        self.cache_auth_chain_result(&cache_key, !result.is_empty())
-            .await;
+        self.cache_auth_chain_result(&cache_key, !result.is_empty());
 
         result
     }
@@ -403,9 +352,7 @@ impl EventAuthChain {
                     }
 
                     for auth_eid in &current_event.auth_events {
-                        if expected_auth_events.contains(&auth_eid.as_str())
-                            && !auth_set.contains(auth_eid.as_str())
-                        {
+                        if expected_auth_events.contains(&auth_eid.as_str()) && !auth_set.contains(auth_eid.as_str()) {
                             auth_set.insert(auth_eid.clone());
                             queue.push_back(auth_eid.clone());
                         }
@@ -508,24 +455,16 @@ impl EventAuthChain {
 
         for event in state_events {
             let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let state_key = event
-                .get("state_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let state_key = event.get("state_key").and_then(|v| v.as_str()).unwrap_or("");
             let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
-            let origin_server_ts = event
-                .get("origin_server_ts")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let origin_server_ts = event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
             let sender = event.get("sender").and_then(|v| v.as_str()).unwrap_or("");
 
             if state_key.is_empty() {
                 continue;
             }
 
-            let sender_power = power_levels
-                .and_then(|pl| pl.get(sender).copied())
-                .unwrap_or(0);
+            let sender_power = power_levels.and_then(|pl| pl.get(sender).copied()).unwrap_or(0);
             let content_json = serde_json::to_string(&event).ok();
 
             let key = format!("{event_type}:{state_key}");
@@ -550,16 +489,10 @@ impl EventAuthChain {
 
                 let winner = &sorted_events[0];
                 let winners_clone = winner.1.clone();
-                let losers: Vec<String> = sorted_events[1..]
-                    .iter()
-                    .map(|(_, eid, _, _)| eid.clone())
-                    .collect();
+                let losers: Vec<String> = sorted_events[1..].iter().map(|(_, eid, _, _)| eid.clone()).collect();
 
                 let reason = if winner.2 > 0 {
-                    format!(
-                        "Power-based resolution: sender={}, power={}, ts={}",
-                        winner.1, winner.2, winner.0
-                    )
+                    format!("Power-based resolution: sender={}, power={}, ts={}", winner.1, winner.2, winner.0)
                 } else if winner.0 > 0 {
                     format!("Timestamp-based resolution: ts={}", winner.0)
                 } else {
@@ -574,10 +507,7 @@ impl EventAuthChain {
                         let mut detail = serde_json::Map::new();
                         detail.insert("event_id".to_string(), json!(eid));
                         detail.insert("power".to_string(), json!(power));
-                        detail.insert(
-                            "timestamp".to_string(),
-                            json!(winner.0 == sorted_events[i].0),
-                        );
+                        detail.insert("timestamp".to_string(), json!(winner.0 == sorted_events[i].0));
                         if let Some(c) = content {
                             if let Ok(v) = serde_json::from_str(c) {
                                 detail.insert("content".to_string(), v);
@@ -617,10 +547,7 @@ impl EventAuthChain {
         let set_a: HashSet<&str> = chain_a.iter().map(|s| s.as_str()).collect();
         let set_b: HashSet<&str> = chain_b.iter().map(|s| s.as_str()).collect();
 
-        let diff_events: Vec<String> = set_a
-            .symmetric_difference(&set_b)
-            .map(|s| s.to_string())
-            .collect();
+        let diff_events: Vec<String> = set_a.symmetric_difference(&set_b).map(|s| s.to_string()).collect();
         let mut auth_diff: HashSet<String> = diff_events.into_iter().collect();
 
         let additional: Vec<String> = auth_diff
@@ -638,11 +565,7 @@ impl EventAuthChain {
         auth_diff
     }
 
-    pub fn compute_mainline(
-        &self,
-        events: &HashMap<String, EventData>,
-        room_create_event_id: &str,
-    ) -> Vec<String> {
+    pub fn compute_mainline(&self, events: &HashMap<String, EventData>, room_create_event_id: &str) -> Vec<String> {
         let mut mainline = Vec::new();
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
@@ -665,12 +588,7 @@ impl EventAuthChain {
 
                 descendants.sort_by_key(|eid| {
                     if let Some(ev) = events.get(eid) {
-                        if let Some(depth) = ev
-                            .content
-                            .as_ref()
-                            .and_then(|c| c.get("depth"))
-                            .and_then(|d| d.as_i64())
-                        {
+                        if let Some(depth) = ev.content.as_ref().and_then(|c| c.get("depth")).and_then(|d| d.as_i64()) {
                             return std::cmp::Reverse(depth);
                         }
                     }
@@ -699,23 +617,16 @@ impl EventAuthChain {
         power_levels: &HashMap<String, i64>,
     ) -> Vec<String> {
         let mut sorted = event_ids.to_vec();
-        let mainline_map: HashMap<&str, usize> = mainline
-            .iter()
-            .enumerate()
-            .map(|(i, eid)| (eid.as_str(), i))
-            .collect();
+        let mainline_map: HashMap<&str, usize> =
+            mainline.iter().enumerate().map(|(i, eid)| (eid.as_str(), i)).collect();
 
         let power_event = |eid: &str| -> i64 {
             if let Some(event) = events.get(eid) {
                 if let Some(content) = &event.content {
                     if let Some(users) = content.get("users") {
-                        if let Some(user_power) = users.get(
-                            event
-                                .state_key
-                                .as_ref()
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(""),
-                        ) {
+                        if let Some(user_power) =
+                            users.get(event.state_key.as_ref().and_then(|v| v.as_str()).unwrap_or(""))
+                        {
                             return user_power.as_i64().unwrap_or(0);
                         }
                     }
@@ -733,14 +644,10 @@ impl EventAuthChain {
             power_b
                 .cmp(&power_a)
                 .then_with(|| {
-                    let ts_a = events
-                        .get(a)
-                        .and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64())
-                        .unwrap_or(0);
-                    let ts_b = events
-                        .get(b)
-                        .and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64())
-                        .unwrap_or(0);
+                    let ts_a =
+                        events.get(a).and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64()).unwrap_or(0);
+                    let ts_b =
+                        events.get(b).and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64()).unwrap_or(0);
                     ts_a.cmp(&ts_b)
                 })
                 .then_with(|| {
@@ -756,7 +663,7 @@ impl EventAuthChain {
 
     pub fn resolve_state_v2(
         &self,
-        state_sets: Vec<&HashMap<String, &Value>>,
+        state_sets: &[&HashMap<String, &Value>],
         events: &HashMap<String, EventData>,
     ) -> HashMap<String, Value> {
         let mut resolved: HashMap<String, Value> = HashMap::new();
@@ -791,7 +698,7 @@ impl EventAuthChain {
 
         for key in &conflicted_keys {
             let mut candidates: Vec<String> = Vec::new();
-            for state_set in &state_sets {
+            for state_set in state_sets {
                 if let Some(val) = state_set.get(key) {
                     if let Some(event_id) = val.get("event_id").and_then(|v| v.as_str()) {
                         candidates.push(event_id.to_string());
@@ -812,23 +719,12 @@ impl EventAuthChain {
                 .map(|(eid, _)| (eid.clone(), 0))
                 .collect();
 
-            let room_create = events
-                .iter()
-                .find(|(_, e)| e.event_type == "m.room.create")
-                .map(|(eid, _)| eid.clone());
+            let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
 
-            let mainline = if let Some(create_id) = &room_create {
-                self.compute_mainline(events, create_id)
-            } else {
-                Vec::new()
-            };
+            let mainline =
+                if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
 
-            let sorted = self.sort_by_reverse_topological_power(
-                events,
-                &candidates,
-                &mainline,
-                &power_levels,
-            );
+            let sorted = self.sort_by_reverse_topological_power(events, &candidates, &mainline, &power_levels);
 
             if let Some(winner) = sorted.first() {
                 if let Some(event) = events.get(winner) {
@@ -894,18 +790,9 @@ mod tests {
     #[test]
     fn test_calculate_event_depth_basic() {
         let events = vec![
-            EventInfo {
-                event_id: "$1".to_string(),
-                prev_events: None,
-            },
-            EventInfo {
-                event_id: "$2".to_string(),
-                prev_events: Some(serde_json::json!([["$1", None::<bool>]])),
-            },
-            EventInfo {
-                event_id: "$3".to_string(),
-                prev_events: Some(serde_json::json!([["$2", None::<bool>]])),
-            },
+            EventInfo { event_id: "$1".to_string(), prev_events: None },
+            EventInfo { event_id: "$2".to_string(), prev_events: Some(serde_json::json!([["$1", None::<bool>]])) },
+            EventInfo { event_id: "$3".to_string(), prev_events: Some(serde_json::json!([["$2", None::<bool>]])) },
         ];
 
         let depth_map = EventAuthChain::new().calculate_event_depth(&events);
@@ -1013,11 +900,7 @@ mod tests {
             },
         );
 
-        let result = EventAuthChain::new().verify_auth_chain(
-            &events,
-            "!room:test",
-            &["$create".to_string()],
-        );
+        let result = EventAuthChain::new().verify_auth_chain(&events, "!room:test", &["$create".to_string()]);
 
         assert!(result);
     }
@@ -1038,11 +921,7 @@ mod tests {
             },
         );
 
-        let result = EventAuthChain::new().verify_auth_chain(
-            &events,
-            "!room:test",
-            &["$create".to_string()],
-        );
+        let result = EventAuthChain::new().verify_auth_chain(&events, "!room:test", &["$create".to_string()]);
 
         assert!(!result);
     }
@@ -1066,35 +945,31 @@ mod tests {
     #[test]
     fn test_event_auth_chain_new() {
         let chain = EventAuthChain::new();
-        assert!(chain.auth_chain_cache.try_read().is_ok());
-        assert!(chain.depth_cache.try_read().is_ok());
+        assert_eq!(chain.auth_chain_cache.entry_count(), 0);
+        assert_eq!(chain.depth_cache.entry_count(), 0);
     }
 
-    #[tokio::test]
-    async fn test_cache_auth_chain() {
+    #[test]
+    fn test_cache_auth_chain() {
         let chain = EventAuthChain::new();
 
-        // Test cache miss
-        let result = chain.get_cached_auth_chain("$test").await;
+        let result = chain.get_cached_auth_chain("$test");
         assert!(result.is_none());
 
-        // Test cache set and hit
-        chain.cache_auth_chain_result("$test", true).await;
-        let result = chain.get_cached_auth_chain("$test").await;
+        chain.cache_auth_chain_result("$test", true);
+        let result = chain.get_cached_auth_chain("$test");
         assert_eq!(result, Some(true));
     }
 
-    #[tokio::test]
-    async fn test_cache_depth() {
+    #[test]
+    fn test_cache_depth() {
         let chain = EventAuthChain::new();
 
-        // Test cache miss
-        let result = chain.get_cached_depth("$test").await;
+        let result = chain.get_cached_depth("$test");
         assert!(result.is_none());
 
-        // Test cache set and hit
-        chain.cache_depth("$test", 42).await;
-        let result = chain.get_cached_depth("$test").await;
+        chain.cache_depth("$test", 42);
+        let result = chain.get_cached_depth("$test");
         assert_eq!(result, Some(42));
     }
 
@@ -1136,8 +1011,7 @@ mod tests {
     #[test]
     fn test_build_auth_chain_empty() {
         let events: HashMap<String, EventData> = HashMap::new();
-        let auth_chain =
-            EventAuthChain::new().build_auth_chain_from_events(&events, "$nonexistent");
+        let auth_chain = EventAuthChain::new().build_auth_chain_from_events(&events, "$nonexistent");
         assert!(auth_chain.is_empty());
     }
 
@@ -1180,25 +1054,15 @@ mod tests {
         let events: HashMap<String, EventData> = HashMap::new();
 
         // First event in chain not in events map - should still work
-        let result = EventAuthChain::new().verify_auth_chain(
-            &events,
-            "!room:test",
-            &["$create".to_string()],
-        );
+        let result = EventAuthChain::new().verify_auth_chain(&events, "!room:test", &["$create".to_string()]);
         assert!(result);
     }
 
     #[test]
     fn test_calculate_event_depth_multiple_roots() {
         let events = vec![
-            EventInfo {
-                event_id: "$1".to_string(),
-                prev_events: None,
-            },
-            EventInfo {
-                event_id: "$2".to_string(),
-                prev_events: None,
-            },
+            EventInfo { event_id: "$1".to_string(), prev_events: None },
+            EventInfo { event_id: "$2".to_string(), prev_events: None },
             EventInfo {
                 event_id: "$3".to_string(),
                 prev_events: Some(serde_json::json!([["$1", null], ["$2", null]])),
@@ -1214,10 +1078,8 @@ mod tests {
 
     #[test]
     fn test_calculate_event_depth_invalid_prev_format() {
-        let events = vec![EventInfo {
-            event_id: "$1".to_string(),
-            prev_events: Some(serde_json::json!({"invalid": "format"})),
-        }];
+        let events =
+            vec![EventInfo { event_id: "$1".to_string(), prev_events: Some(serde_json::json!({"invalid": "format"})) }];
 
         let depth_map = EventAuthChain::new().calculate_event_depth(&events);
 
@@ -1318,8 +1180,7 @@ mod tests {
         power_levels.insert("@alice:test".to_string(), 100);
         power_levels.insert("@bob:test".to_string(), 50);
 
-        let conflicts =
-            EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
 
         assert_eq!(conflicts.len(), 1);
         // Alice has higher power, should win despite lower timestamp
@@ -1349,8 +1210,7 @@ mod tests {
         power_levels.insert("@alice:test".to_string(), 50);
         power_levels.insert("@bob:test".to_string(), 50);
 
-        let conflicts =
-            EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
 
         assert_eq!(conflicts.len(), 1);
         // Equal power, higher timestamp should win
@@ -1378,8 +1238,7 @@ mod tests {
 
         let power_levels: HashMap<String, i64> = HashMap::new();
 
-        let conflicts =
-            EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
+        let conflicts = EventAuthChain::new().resolve_conflicts_power_based(&state_events, &power_levels);
 
         assert_eq!(conflicts.len(), 1);
         // No power levels, should use timestamp
@@ -1404,10 +1263,7 @@ mod tests {
 
     #[test]
     fn test_event_info_clone() {
-        let info = EventInfo {
-            event_id: "$1".to_string(),
-            prev_events: None,
-        };
+        let info = EventInfo { event_id: "$1".to_string(), prev_events: None };
 
         let cloned = info.clone();
         assert_eq!(info.event_id, cloned.event_id);
@@ -1426,34 +1282,29 @@ mod tests {
         assert_eq!(info.state_key, cloned.state_key);
     }
 
-    #[tokio::test]
-    async fn test_calculate_event_depth_with_cache() {
+    #[test]
+    fn test_calculate_event_depth_with_cache() {
         let chain = EventAuthChain::new();
 
-        let events = vec![EventInfo {
-            event_id: "$1".to_string(),
-            prev_events: None,
-        }];
+        let events = vec![EventInfo { event_id: "$1".to_string(), prev_events: None }];
 
-        let result = chain.calculate_event_depth_with_cache(&events, "$1").await;
+        let result = chain.calculate_event_depth_with_cache(&events, "$1");
         assert!(result.is_some());
         assert_eq!(result.unwrap(), 1);
     }
 
-    #[tokio::test]
-    async fn test_calculate_event_depth_with_cache_miss() {
+    #[test]
+    fn test_calculate_event_depth_with_cache_miss() {
         let chain = EventAuthChain::new();
 
         let events: Vec<EventInfo> = vec![];
 
-        let result = chain
-            .calculate_event_depth_with_cache(&events, "$nonexistent")
-            .await;
+        let result = chain.calculate_event_depth_with_cache(&events, "$nonexistent");
         assert!(result.is_none());
     }
 
-    #[tokio::test]
-    async fn test_build_auth_chain_with_cache() {
+    #[test]
+    fn test_build_auth_chain_with_cache() {
         let chain = EventAuthChain::new();
 
         let mut events = HashMap::new();
@@ -1470,14 +1321,13 @@ mod tests {
             },
         );
 
-        let result = chain.build_auth_chain_with_cache(&events, "$create").await;
+        let result = chain.build_auth_chain_with_cache(&events, "$create");
 
-        // Should return auth chain (includes $create as it's auth event)
         assert!(!result.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_verify_event_auth_chain_complete_empty_chain() {
+    #[test]
+    fn test_verify_event_auth_chain_complete_empty_chain() {
         let chain = EventAuthChain::new();
         let events: HashMap<String, EventData> = HashMap::new();
 
@@ -1485,22 +1335,17 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_verify_event_auth_chain_complete_event_not_found() {
+    #[test]
+    fn test_verify_event_auth_chain_complete_event_not_found() {
         let chain = EventAuthChain::new();
         let events: HashMap<String, EventData> = HashMap::new();
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$1",
-            &["$1".to_string()],
-        );
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()]);
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_verify_event_auth_chain_complete_room_mismatch() {
+    #[test]
+    fn test_verify_event_auth_chain_complete_room_mismatch() {
         let chain = EventAuthChain::new();
         let mut events = HashMap::new();
         events.insert(
@@ -1516,17 +1361,12 @@ mod tests {
             },
         );
 
-        let result = chain.verify_event_auth_chain_complete(
-            &events,
-            "!room:test",
-            "$1",
-            &["$1".to_string()],
-        );
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$1", &["$1".to_string()]);
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_verify_event_auth_chain_complete_success() {
+    #[test]
+    fn test_verify_event_auth_chain_complete_success() {
         let chain = EventAuthChain::new();
         let mut events = HashMap::new();
         events.insert(
@@ -1631,8 +1471,8 @@ mod tests {
         assert!(!id.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_detect_state_conflicts_advanced_no_power_levels() {
+    #[test]
+    fn test_detect_state_conflicts_advanced_no_power_levels() {
         let chain = EventAuthChain::new();
         let state_events = vec![
             json!({
@@ -1656,8 +1496,8 @@ mod tests {
         assert_eq!(conflicts.len(), 1);
     }
 
-    #[tokio::test]
-    async fn test_detect_state_conflicts_advanced_with_power_levels() {
+    #[test]
+    fn test_detect_state_conflicts_advanced_with_power_levels() {
         let chain = EventAuthChain::new();
         let state_events = vec![
             json!({
@@ -1687,8 +1527,8 @@ mod tests {
         assert_eq!(conflicts[0].winning_event, "$1");
     }
 
-    #[tokio::test]
-    async fn test_detect_state_conflicts_advanced_no_conflicts() {
+    #[test]
+    fn test_detect_state_conflicts_advanced_no_conflicts() {
         let chain = EventAuthChain::new();
         let state_events = vec![json!({
             "event_id": "$1",

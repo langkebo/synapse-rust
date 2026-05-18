@@ -14,7 +14,7 @@ impl SecretStorage {
 
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO e2ee_secret_storage_keys 
                 (key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -23,7 +23,7 @@ impl SecretStorage {
                 encrypted_key = EXCLUDED.encrypted_key,
                 public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures
-            "#,
+            ",
         )
         .bind(&key.key_id)
         .bind(&key.user_id)
@@ -45,11 +45,11 @@ impl SecretStorage {
         key_id: &str,
     ) -> Result<Option<SecretStorageKey>, ApiError> {
         let row: Option<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND key_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(key_id)
@@ -72,11 +72,11 @@ impl SecretStorage {
 
     pub async fn get_all_keys(&self, user_id: &str) -> Result<Vec<SecretStorageKey>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -101,10 +101,10 @@ impl SecretStorage {
 
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND key_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(key_id)
@@ -117,14 +117,14 @@ impl SecretStorage {
 
     pub async fn store_secret(&self, user_id: &str, secret: &StoredSecret) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO e2ee_stored_secrets 
                 (user_id, secret_name, encrypted_secret, key_id)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, secret_name) DO UPDATE SET
                 encrypted_secret = EXCLUDED.encrypted_secret,
                 key_id = EXCLUDED.key_id
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(&secret.secret_name)
@@ -143,11 +143,11 @@ impl SecretStorage {
         secret_name: &str,
     ) -> Result<Option<StoredSecret>, ApiError> {
         let row: Option<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT user_id, secret_name, encrypted_secret, key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(secret_name)
@@ -172,11 +172,11 @@ impl SecretStorage {
         }
 
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT user_id, secret_name, encrypted_secret, key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(secret_names)
@@ -196,10 +196,10 @@ impl SecretStorage {
 
     pub async fn delete_secret(&self, user_id: &str, secret_name: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(secret_name)
@@ -220,10 +220,10 @@ impl SecretStorage {
         }
 
         sqlx::query(
-            r#"
+            r"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(secret_names)
@@ -236,9 +236,9 @@ impl SecretStorage {
 
     pub async fn has_secrets(&self, user_id: &str) -> Result<bool, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT COUNT(*) as count FROM e2ee_secret_storage_keys WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(&self.pool)

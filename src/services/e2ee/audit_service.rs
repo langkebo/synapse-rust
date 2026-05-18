@@ -62,11 +62,11 @@ impl E2eeAuditService {
 
     pub async fn log_key_operation(&self, event: KeyEvent) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO e2ee_audit_log 
             (user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
+            ",
         )
         .bind(&event.user_id)
         .bind(&event.device_id)
@@ -89,12 +89,12 @@ impl E2eeAuditService {
 
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
-            r#"
+            r"
             SELECT * FROM e2ee_audit_log 
             WHERE user_id = $1 
             ORDER BY created_ts DESC
             LIMIT 100
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -108,12 +108,12 @@ impl E2eeAuditService {
         limit: i64,
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
-            r#"
+            r"
             SELECT * FROM e2ee_audit_log 
             WHERE operation = $1 
             ORDER BY created_ts DESC
             LIMIT $2
-            "#,
+            ",
         )
         .bind(operation)
         .bind(limit)
@@ -128,12 +128,12 @@ impl E2eeAuditService {
         device_id: &str,
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
-            r#"
+            r"
             SELECT * FROM e2ee_audit_log 
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts DESC
             LIMIT 50
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -269,13 +269,13 @@ impl CrossSigningVerificationService {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE devices 
             SET verified = TRUE,
                 verified_ts = $3,
                 verification_method = $4
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -316,13 +316,13 @@ impl CrossSigningVerificationService {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE devices 
             SET verified = FALSE,
                 verified_ts = NULL,
                 verification_method = NULL
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -354,11 +354,11 @@ impl CrossSigningVerificationService {
 
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT device_id, user_id, display_name, verified, verified_ts, verification_method
             FROM devices 
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -379,12 +379,12 @@ impl CrossSigningVerificationService {
 
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
         let result: Option<Option<bool>> = sqlx::query_scalar(
-            r#"
+            r"
             SELECT signature_valid FROM device_signatures 
             WHERE device_id = $1
             ORDER BY created_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(&device.device_id)
         .fetch_optional(&*self.pool)
@@ -396,10 +396,10 @@ impl CrossSigningVerificationService {
 
     async fn check_cross_signing(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
         let result: Option<Option<bool>> = sqlx::query_scalar(
-            r#"
+            r"
             SELECT cross_signed FROM cross_signing_keys 
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(&device.user_id)
         .bind(&device.device_id)

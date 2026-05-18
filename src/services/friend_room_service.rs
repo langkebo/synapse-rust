@@ -34,7 +34,8 @@ impl Default for FriendListRequest {
 pub struct FriendListEntry {
     pub user_id: String,
     pub username: Option<String>,
-    pub displayname: Option<String>,
+    #[serde(rename = "displayname")]
+    pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub note: Option<String>,
     pub status: String,
@@ -901,7 +902,7 @@ impl FriendRoomService {
         }
 
         if suggestion
-            .get("display_name")
+            .get("displayname")
             .and_then(|d| d.as_str())
             .is_some()
         {
@@ -1151,8 +1152,7 @@ impl FriendRoomService {
                         group
                             .get("members")
                             .and_then(|m| m.as_array())
-                            .map(|members| members.iter().any(|m| m.as_str() == Some(friend_id)))
-                            .unwrap_or(false)
+                            .is_some_and(|members| members.iter().any(|m| m.as_str() == Some(friend_id)))
                     })
                     .cloned()
                     .collect());
@@ -1389,8 +1389,7 @@ impl FriendRoomService {
                     .unwrap_or_else(|| user_id.clone());
                 let presence = presence_map
                     .get(&user_id)
-                    .map(|snapshot| snapshot.presence.clone())
-                    .unwrap_or_else(|| "offline".to_string());
+                    .map_or_else(|| "offline".to_string(), |snapshot| snapshot.presence.clone());
                 let last_active_ts = presence_map
                     .get(&user_id)
                     .and_then(|snapshot| snapshot.last_active_ts);
@@ -1398,7 +1397,7 @@ impl FriendRoomService {
                 Some(FriendListEntry {
                     user_id,
                     username,
-                    displayname,
+                    display_name: displayname,
                     avatar_url: profile.and_then(|value| value.avatar_url.clone()),
                     note: friend
                         .get("note")
@@ -1468,13 +1467,13 @@ impl FriendRoomService {
                 left.sort_letter
                     .cmp(&right.sort_letter)
                     .then_with(|| {
-                        left.displayname
+                        left.display_name
                             .as_deref()
                             .or(left.username.as_deref())
                             .unwrap_or(left.user_id.as_str())
                             .cmp(
                                 right
-                                    .displayname
+                                    .display_name
                                     .as_deref()
                                     .or(right.username.as_deref())
                                     .unwrap_or(right.user_id.as_str()),
@@ -1490,14 +1489,13 @@ fn sort_letter_for(value: &str) -> String {
     value
         .chars()
         .find(|ch| !ch.is_whitespace())
-        .map(|ch| {
+        .map_or_else(|| "#".to_string(), |ch| {
             if ch.is_ascii_alphabetic() {
                 ch.to_ascii_uppercase().to_string()
             } else {
                 "#".to_string()
             }
         })
-        .unwrap_or_else(|| "#".to_string())
 }
 
 #[cfg(test)]

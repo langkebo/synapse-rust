@@ -65,8 +65,7 @@ async fn sliding_sync(
         .map(|manager| manager.get_config());
     let sync_rate_limit_enabled = file_config
         .as_ref()
-        .map(|config| config.sync.enabled)
-        .unwrap_or(state.services.config.rate_limit.sync.enabled);
+        .map_or(state.services.config.rate_limit.sync.enabled, |config| config.sync.enabled);
 
     if sync_rate_limit_enabled {
         let (per_second, burst_size) =
@@ -150,7 +149,7 @@ mod tests {
 
         let state = AppState::new(
             services,
-            Arc::new(crate::cache::CacheManager::new(CacheConfig::default())),
+            Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())),
         );
 
         let mut file_config = RateLimitConfigFile::default();
@@ -181,7 +180,7 @@ mod tests {
 
         let state = AppState::new(
             services,
-            Arc::new(crate::cache::CacheManager::new(CacheConfig::default())),
+            Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())),
         );
 
         let mut file_config = RateLimitConfigFile::default();

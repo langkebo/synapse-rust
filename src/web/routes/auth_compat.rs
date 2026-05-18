@@ -41,9 +41,9 @@ pub(crate) async fn register(
         .map_err(|e| ApiError::internal(format!("Failed to create guest user: {e}")))?;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE users SET is_guest = TRUE WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(&user.user_id)
         .execute(&*state.services.user_storage.pool)

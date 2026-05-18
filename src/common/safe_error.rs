@@ -146,20 +146,20 @@ impl<T> From<SafeResult<T>> for SafeError {
     }
 }
 
+#[cfg(test)]
 pub trait Safeunwrap<T> {
     fn safe_unwrap(self, context: &str) -> T;
     fn safe_expect(self, context: &str) -> T;
 }
 
+#[cfg(test)]
 impl<T, E> Safeunwrap<T> for Result<T, E>
 where
     E: fmt::Display,
 {
     #[allow(clippy::expect_used)]
     fn safe_unwrap(self, context: &str) -> T {
-        self.unwrap_or_else(|e| {
-            panic!("{}: {}", context, e)
-        })
+        self.unwrap_or_else(|e| panic!("{}: {}", context, e))
     }
 
     #[allow(clippy::expect_used)]
@@ -168,12 +168,11 @@ where
     }
 }
 
+#[cfg(test)]
 impl<T> Safeunwrap<T> for Option<T> {
     #[allow(clippy::expect_used)]
     fn safe_unwrap(self, context: &str) -> T {
-        self.unwrap_or_else(|| {
-            panic!("{}: Expected Some(_) but got None", context)
-        })
+        self.unwrap_or_else(|| panic!("{}: Expected Some(_) but got None", context))
     }
 
     #[allow(clippy::expect_used)]
@@ -209,12 +208,9 @@ macro_rules! try_safe {
 }
 
 #[inline]
-pub fn safe_lock<R, F, M: std::ops::Deref<Target = parking_lot::RwLock<R>>>>(
-    guard: &M,
-    context: &str,
-    f: F,
-) -> SafeResult<R>
+pub fn safe_lock<R, F, M>(guard: &M, context: &str, f: F) -> SafeResult<R>
 where
+    M: std::ops::Deref<Target = parking_lot::RwLock<R>>,
     F: FnOnce(&R) -> R,
 {
     match guard.read() {
@@ -224,12 +220,9 @@ where
 }
 
 #[inline]
-pub fn safe_write_lock<R, F, M: std::ops::Deref<Target = parking_lot::RwLock<R>>>>(
-    guard: &M,
-    context: &str,
-    f: F,
-) -> SafeResult<R>
+pub fn safe_write_lock<R, F, M>(guard: &M, context: &str, f: F) -> SafeResult<R>
 where
+    M: std::ops::Deref<Target = parking_lot::RwLock<R>>,
     F: FnOnce(&mut R) -> R,
 {
     match guard.write() {
@@ -239,12 +232,9 @@ where
 }
 
 #[inline]
-pub fn safe_mutex_lock<R, F, M: std::ops::Deref<Target = std::sync::Mutex<R>>>>(
-    guard: &M,
-    context: &str,
-    f: F,
-) -> SafeResult<R>
+pub fn safe_mutex_lock<R, F, M>(guard: &M, context: &str, f: F) -> SafeResult<R>
 where
+    M: std::ops::Deref<Target = std::sync::Mutex<R>>,
     F: FnOnce(&R) -> R,
 {
     match guard.lock() {
@@ -268,7 +258,8 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.ok(), Some(42));
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("test".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("test".to_string())));
         assert!(result.is_err());
     }
 
@@ -295,7 +286,8 @@ mod tests {
         let result: SafeResult<i32> = SafeResult::new(Ok(42));
         assert_eq!(result.unwrap_or(0), 42);
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("test".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("test".to_string())));
         assert_eq!(result.unwrap_or(0), 0);
     }
 
@@ -344,7 +336,8 @@ mod tests {
         let handled = result.or_else(|_| SafeResult::new(Ok(0)));
         assert_eq!(handled.ok(), Some(42));
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("error".to_string())));
         let handled = result.or_else(|_| SafeResult::new(Ok(100)));
         assert_eq!(handled.ok(), Some(100));
     }
@@ -355,7 +348,8 @@ mod tests {
         let value = result.unwrap_or_else(|e| panic!("Should not be called: {}", e));
         assert_eq!(value, 42);
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("error".to_string())));
         let value = result.unwrap_or_else(|e| e.to_string().len() as i32);
         assert_eq!(value, 18); // "Parse error: error".len() = 18
     }
@@ -366,7 +360,8 @@ mod tests {
         let ref_result = result.as_ref();
         assert_eq!(ref_result.ok(), Some(&42));
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("error".to_string())));
         let ref_result = result.as_ref();
         assert!(ref_result.is_err());
     }
@@ -386,7 +381,8 @@ mod tests {
         let result: SafeResult<i32> = SafeResult::new(Ok(42));
         assert!(result.err().is_none());
 
-        let result: SafeResult<i32> = SafeResult::new(Err(SafeError::ParseError("error".to_string())));
+        let result: SafeResult<i32> =
+            SafeResult::new(Err(SafeError::ParseError("error".to_string())));
         assert!(result.err().is_some());
     }
 

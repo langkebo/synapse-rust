@@ -173,13 +173,13 @@ impl WorkerStorage {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, WorkerRow>(
-            r#"
+            r"
             INSERT INTO workers (
                 worker_id, worker_name, worker_type, host, port, status, started_ts, config, metadata, version
             )
             VALUES ($1, $2, $3, $4, $5, 'starting', $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.worker_id)
         .bind(&request.worker_name)
@@ -197,7 +197,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<WorkerInfo>, sqlx::Error> {
-        let row = sqlx::query_as::<_, WorkerRow>(r#"SELECT * FROM workers WHERE worker_id = $1"#)
+        let row = sqlx::query_as::<_, WorkerRow>(r"SELECT * FROM workers WHERE worker_id = $1")
             .bind(worker_id)
             .fetch_optional(&*self.pool)
             .await?;
@@ -210,7 +210,7 @@ impl WorkerStorage {
         worker_type: &str,
     ) -> Result<Vec<WorkerInfo>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerRow>(
-            r#"SELECT * FROM workers WHERE worker_type = $1 ORDER BY started_ts DESC"#,
+            r"SELECT * FROM workers WHERE worker_type = $1 ORDER BY started_ts DESC",
         )
         .bind(worker_type)
         .fetch_all(&*self.pool)
@@ -220,7 +220,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, WorkerRow>(r#"SELECT * FROM active_workers"#)
+        let rows = sqlx::query_as::<_, WorkerRow>(r"SELECT * FROM active_workers")
             .fetch_all(&*self.pool)
             .await?;
 
@@ -235,10 +235,10 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE workers SET status = $2, last_heartbeat_ts = $3 
             WHERE worker_id = $1
-            "#,
+            ",
         )
         .bind(worker_id)
         .bind(status)
@@ -253,7 +253,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE workers SET last_heartbeat_ts = $2, status = 'running' WHERE worker_id = $1"#,
+            r"UPDATE workers SET last_heartbeat_ts = $2, status = 'running' WHERE worker_id = $1",
         )
         .bind(worker_id)
         .bind(now)
@@ -267,7 +267,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE workers SET status = 'stopped', stopped_ts = $2 WHERE worker_id = $1"#,
+            r"UPDATE workers SET status = 'stopped', stopped_ts = $2 WHERE worker_id = $1",
         )
         .bind(worker_id)
         .bind(now)
@@ -285,13 +285,13 @@ impl WorkerStorage {
         let command_id = uuid::Uuid::new_v4().to_string();
 
         let row = sqlx::query_as::<_, WorkerCommandRow>(
-            r#"
+            r"
             INSERT INTO worker_commands (
                 command_id, target_worker_id, command_type, command_data, priority, status, created_ts, max_retries
             )
             VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&command_id)
         .bind(&request.target_worker_id)
@@ -312,12 +312,12 @@ impl WorkerStorage {
         limit: i64,
     ) -> Result<Vec<WorkerCommand>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerCommandRow>(
-            r#"
+            r"
             SELECT * FROM worker_commands 
             WHERE target_worker_id = $1 AND status = 'pending' 
             ORDER BY priority DESC, created_ts ASC 
             LIMIT $2
-            "#,
+            ",
         )
         .bind(worker_id)
         .bind(limit)
@@ -331,7 +331,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE worker_commands SET status = 'sent', sent_ts = $2 WHERE command_id = $1"#,
+            r"UPDATE worker_commands SET status = 'sent', sent_ts = $2 WHERE command_id = $1",
         )
         .bind(command_id)
         .bind(now)
@@ -345,7 +345,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE worker_commands SET status = 'completed', completed_ts = $2 WHERE command_id = $1"#
+            r"UPDATE worker_commands SET status = 'completed', completed_ts = $2 WHERE command_id = $1"
         )
         .bind(command_id)
         .bind(now)
@@ -359,14 +359,14 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE worker_commands SET 
                 status = CASE WHEN retry_count >= max_retries THEN 'failed' ELSE 'pending' END,
                 retry_count = retry_count + 1,
                 error_message = $2,
                 completed_ts = CASE WHEN retry_count >= max_retries THEN $3 ELSE NULL END
             WHERE command_id = $1
-            "#,
+            ",
         )
         .bind(command_id)
         .bind(error)
@@ -393,13 +393,13 @@ impl WorkerStorage {
             .get(0);
 
         let row = sqlx::query_as::<_, WorkerEventRow>(
-            r#"
+            r"
             INSERT INTO worker_events (
                 event_id, stream_id, event_type, room_id, sender, event_data, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(event_id)
         .bind(stream_id)
@@ -420,7 +420,7 @@ impl WorkerStorage {
         limit: i64,
     ) -> Result<Vec<WorkerEvent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerEventRow>(
-            r#"SELECT * FROM worker_events WHERE stream_id > $1 ORDER BY stream_id ASC LIMIT $2"#,
+            r"SELECT * FROM worker_events WHERE stream_id > $1 ORDER BY stream_id ASC LIMIT $2",
         )
         .bind(stream_id)
         .bind(limit)
@@ -436,10 +436,10 @@ impl WorkerStorage {
         worker_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE worker_events SET processed_by = array_append(COALESCE(processed_by, '{}'), $2)
             WHERE event_id = $1
-            "#,
+            ",
         )
         .bind(event_id)
         .bind(worker_id)
@@ -458,13 +458,13 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO replication_positions (worker_id, stream_name, stream_position, updated_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (worker_id, stream_name) DO UPDATE SET
                 stream_position = EXCLUDED.stream_position,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(worker_id)
         .bind(stream_name)
@@ -482,7 +482,7 @@ impl WorkerStorage {
         stream_name: &str,
     ) -> Result<Option<i64>, sqlx::Error> {
         let result = sqlx::query(
-            r#"SELECT stream_position FROM replication_positions WHERE worker_id = $1 AND stream_name = $2"#
+            r"SELECT stream_position FROM replication_positions WHERE worker_id = $1 AND stream_name = $2"
         )
         .bind(worker_id)
         .bind(stream_name)
@@ -492,7 +492,7 @@ impl WorkerStorage {
         Ok(result.map(|row| row.get("stream_position")))
     }
 
-    pub async fn record_load_stats(
+    pub fn record_load_stats(
         &self,
         worker_id: &str,
         stats: &WorkerLoadStatsUpdate,
@@ -518,13 +518,13 @@ impl WorkerStorage {
         let task_id = uuid::Uuid::new_v4().to_string();
 
         let row = sqlx::query_as::<_, WorkerTaskAssignment>(
-            r#"
+            r"
             INSERT INTO worker_task_assignments (
                 task_id, task_type, task_data, priority, status, created_ts
             )
             VALUES ($1, $2, $3, $4, 'pending', $5)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&task_id)
         .bind(&request.task_type)
@@ -542,12 +542,12 @@ impl WorkerStorage {
         limit: i64,
     ) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerTaskAssignment>(
-            r#"
+            r"
             SELECT * FROM worker_task_assignments 
             WHERE status = 'pending' 
             ORDER BY priority DESC, created_ts ASC 
             LIMIT $1
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&*self.pool)
@@ -563,7 +563,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, WorkerTaskAssignment>(
-            r#"
+            r"
             UPDATE worker_task_assignments
             SET assigned_worker_id = $1, assigned_ts = $2, status = 'running'
             WHERE id = (
@@ -576,7 +576,7 @@ impl WorkerStorage {
                 FOR UPDATE SKIP LOCKED
             )
             RETURNING *
-            "#,
+            ",
         )
         .bind(worker_id)
         .bind(now)
@@ -592,13 +592,13 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE worker_task_assignments
             SET assigned_worker_id = $2, assigned_ts = $3, status = 'running'
             WHERE task_id = $1
               AND status = 'pending'
               AND assigned_worker_id IS NULL
-            "#,
+            ",
         )
         .bind(task_id)
         .bind(worker_id)
@@ -617,7 +617,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE worker_task_assignments SET status = 'completed', completed_ts = $2, result = $3 WHERE task_id = $1"#
+            r"UPDATE worker_task_assignments SET status = 'completed', completed_ts = $2, result = $3 WHERE task_id = $1"
         )
         .bind(task_id)
         .bind(now)
@@ -632,7 +632,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE worker_task_assignments SET status = 'failed', completed_ts = $2, error_message = $3 WHERE task_id = $1"#
+            r"UPDATE worker_task_assignments SET status = 'failed', completed_ts = $2, error_message = $3 WHERE task_id = $1"
         )
         .bind(task_id)
         .bind(now)
@@ -643,7 +643,7 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn record_connection(
+    pub fn record_connection(
         &self,
         source_worker_id: &str,
         target_worker_id: &str,
@@ -658,7 +658,7 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn update_connection_stats(
+    pub fn update_connection_stats(
         &self,
         request: &UpdateConnectionStatsRequest,
     ) -> Result<(), sqlx::Error> {
@@ -674,7 +674,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(r#"SELECT * FROM worker_statistics"#)
+        let rows = sqlx::query(r"SELECT * FROM worker_statistics")
             .fetch_all(&*self.pool)
             .await?;
 
@@ -705,7 +705,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_type_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(r#"SELECT * FROM worker_type_statistics"#)
+        let rows = sqlx::query(r"SELECT * FROM worker_type_statistics")
             .fetch_all(&*self.pool)
             .await?;
 

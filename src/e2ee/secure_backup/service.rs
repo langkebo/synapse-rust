@@ -51,14 +51,14 @@ impl SecureBackupService {
 
         // 5. Store backup metadata
         sqlx::query(
-            r#"
+            r"
             INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
             VALUES ($1, $2, $3, $4, $5, 0)
             ON CONFLICT (user_id, backup_id) DO UPDATE SET
                 version = EXCLUDED.version,
                 auth_data = EXCLUDED.auth_data,
                 updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
-            "#
+            "
         )
         .bind(user_id)
         .bind(&backup_id)
@@ -117,12 +117,12 @@ impl SecureBackupService {
 
             // Store encrypted key
             sqlx::query(
-                r#"
+                r"
                 INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET
                     encrypted_key = EXCLUDED.encrypted_key
-                "#
+                "
             )
             .bind(user_id)
             .bind(backup_id)

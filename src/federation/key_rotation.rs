@@ -39,10 +39,12 @@ pub struct SigningKey {
     pub ts_valid_until_ms: i64,
 }
 
+type CachedKeyEntry = (String, i64);
+
 #[derive(Debug, Clone)]
 pub struct KeyRotationManager {
     pool: Arc<Pool<Postgres>>,
-    memory_cache: Arc<RwLock<HashMap<String, (String, i64)>>>,
+    memory_cache: Arc<RwLock<HashMap<String, CachedKeyEntry>>>,
     current_key: Arc<RwLock<Option<SigningKey>>>,
     historical_keys: Arc<RwLock<HashMap<String, SigningKey>>>,
     server_name: String,
@@ -79,21 +81,21 @@ impl KeyRotationManager {
         }
 
         let table_exists: bool = sqlx::query_scalar(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                   AND table_name = 'federation_signing_keys'
             )
-            "#,
+            ",
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !table_exists {
             sqlx::query(
-                r#"
+                r"
                 CREATE TABLE federation_signing_keys (
                     server_name TEXT NOT NULL,
                     key_id TEXT NOT NULL,
@@ -106,55 +108,55 @@ impl KeyRotationManager {
                     ts_valid_until_ms BIGINT NOT NULL,
                     PRIMARY KEY (server_name, key_id)
                 )
-                "#,
+                ",
             )
             .execute(&*self.pool)
             .await?;
         }
 
         let server_created_index_exists: bool = sqlx::query_scalar(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND indexname = 'idx_federation_signing_keys_server_created'
             )
-            "#,
+            ",
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !server_created_index_exists {
             sqlx::query(
-                r#"
+                r"
                 CREATE INDEX idx_federation_signing_keys_server_created
                 ON federation_signing_keys(server_name, created_ts DESC)
-                "#,
+                ",
             )
             .execute(&*self.pool)
             .await?;
         }
 
         let key_id_index_exists: bool = sqlx::query_scalar(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND indexname = 'idx_federation_signing_keys_key_id'
             )
-            "#,
+            ",
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !key_id_index_exists {
             sqlx::query(
-                r#"
+                r"
                 CREATE INDEX idx_federation_signing_keys_key_id
                 ON federation_signing_keys(key_id)
-                "#,
+                ",
             )
             .execute(&*self.pool)
             .await?;
@@ -195,7 +197,7 @@ impl KeyRotationManager {
         self.ensure_signing_keys_table().await?;
 
         let existing_key = sqlx::query_as::<_, SigningKey>(
-            r#"
+            r"
             SELECT
                 server_name,
                 key_id,
@@ -210,7 +212,7 @@ impl KeyRotationManager {
             WHERE server_name = $1 AND (expires_at = 0 OR expires_at > $2)
             ORDER BY created_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(&self.server_name)
         .bind(Utc::now().timestamp_millis())
@@ -298,7 +300,7 @@ impl KeyRotationManager {
         });
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_ts, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (server_name, key_id) DO UPDATE SET
@@ -309,7 +311,7 @@ impl KeyRotationManager {
                 key_json = EXCLUDED.key_json,
                 ts_added_ms = EXCLUDED.ts_added_ms,
                 ts_valid_until_ms = EXCLUDED.ts_valid_until_ms
-            "#,
+            ",
         )
         .bind(&self.server_name)
         .bind(&signing_key.key_id)
@@ -461,9 +463,9 @@ impl KeyRotationManager {
         self.ensure_signing_keys_table().await?;
 
         let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1
-            "#,
+            ",
         )
         .bind(key_id)
         .fetch_optional(&*self.pool)

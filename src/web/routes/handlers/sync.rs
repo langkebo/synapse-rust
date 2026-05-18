@@ -41,12 +41,10 @@ pub(crate) async fn sync(
         .map(|m| m.get_config());
     let fail_open_on_error = file_config
         .as_ref()
-        .map(|c| c.fail_open_on_error)
-        .unwrap_or(state.services.config.rate_limit.fail_open_on_error);
+        .map_or(state.services.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
     let sync_rate_limit_enabled = file_config
         .as_ref()
-        .map(|c| c.sync.enabled)
-        .unwrap_or(state.services.config.rate_limit.sync.enabled);
+        .map_or(state.services.config.rate_limit.sync.enabled, |c| c.sync.enabled);
     if sync_rate_limit_enabled {
         let is_initial = since.is_none();
         let (per_second, burst_size) = match &file_config {

@@ -27,12 +27,12 @@ impl StickyEventStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO room_sticky_events (room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (room_id, user_id, event_type) 
             DO UPDATE SET event_id = EXCLUDED.event_id, sticky = EXCLUDED.sticky, updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -55,11 +55,11 @@ impl StickyEventStorage {
         event_type: &str,
     ) -> Result<Option<StickyEvent>, sqlx::Error> {
         let result = sqlx::query_as::<_, (String, String, String, String, bool, i64, i64)>(
-            r#"
+            r"
             SELECT room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts
             FROM room_sticky_events 
             WHERE room_id = $1 AND user_id = $2 AND event_type = $3 AND sticky = true
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -89,12 +89,12 @@ impl StickyEventStorage {
         user_id: &str,
     ) -> Result<Vec<StickyEvent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, String, String, bool, i64, i64)>(
-            r#"
+            r"
             SELECT room_id, user_id, event_id, event_type, sticky, created_ts, updated_ts
             FROM room_sticky_events 
             WHERE room_id = $1 AND user_id = $2 AND sticky = true
             ORDER BY event_type
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -129,11 +129,11 @@ impl StickyEventStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE room_sticky_events 
             SET sticky = false, updated_ts = $4
             WHERE room_id = $1 AND user_id = $2 AND event_type = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -151,10 +151,10 @@ impl StickyEventStorage {
         user_id: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT DISTINCT room_id FROM room_sticky_events 
             WHERE user_id = $1 AND sticky = true
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

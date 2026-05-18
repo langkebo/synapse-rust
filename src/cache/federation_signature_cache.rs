@@ -175,7 +175,7 @@ impl FederationSignatureCache {
         self.key_rotation_listeners.write().push(callback);
     }
 
-    pub fn notify_key_rotation(&self, event: KeyRotationEvent) {
+    pub fn notify_key_rotation(&self, event: &KeyRotationEvent) {
         let cache_key = format!(
             "federation:verify_key:{}:{}",
             event.origin, event.old_key_id
@@ -245,7 +245,7 @@ mod tests {
         let config = SignatureCacheConfig::default();
         assert_eq!(config.signature_ttl, 3600);
         assert_eq!(config.key_ttl, 3600);
-        assert_eq!(config.key_rotation_grace_period_ms, 600000);
+        assert_eq!(config.key_rotation_grace_period_ms, 60_0000);
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        cache.notify_key_rotation(event);
+        cache.notify_key_rotation(&event);
 
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
@@ -388,7 +388,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        cache.notify_key_rotation(event);
+        cache.notify_key_rotation(&event);
 
         assert!(cache.get_signature(&key).is_none());
         assert!(cache.is_key_invalidated("example.com", "ed25519:1"));

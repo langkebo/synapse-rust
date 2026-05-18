@@ -3,7 +3,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
-use std::path::PathBuf;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -29,15 +29,15 @@ pub struct StreamingResponse {
 }
 
 impl StreamingResponse {
-    pub fn file(
-        path: PathBuf,
+    pub async fn file(
+        path: &Path,
         filename: Option<String>,
         content_type: Option<&str>,
     ) -> Result<Self, StreamingError> {
         let data =
-            std::fs::read(&path).map_err(|e| StreamingError::FileReadError(e.to_string()))?;
+            tokio::fs::read(path).await.map_err(|e| StreamingError::FileReadError(e.to_string()))?;
         let metadata =
-            std::fs::metadata(&path).map_err(|e| StreamingError::MetadataError(e.to_string()))?;
+            tokio::fs::metadata(path).await.map_err(|e| StreamingError::MetadataError(e.to_string()))?;
 
         let mut headers = HeaderMap::new();
         let content_type_value = content_type
@@ -104,7 +104,7 @@ impl StreamingResponse {
         })
     }
 
-    pub fn sse(event_name: String, data: String, id: Option<u64>) -> Result<Self, StreamingError> {
+    pub fn sse(event_name: &str, data: &str, id: Option<u64>) -> Result<Self, StreamingError> {
         let mut sse_data = String::new();
         if let Some(event_id) = id {
             sse_data.push_str(&format!("id: {event_id}\n"));
@@ -138,7 +138,7 @@ impl StreamingResponse {
         })
     }
 
-    pub fn chunked(items: Vec<String>, content_type: &str) -> Result<Self, StreamingError> {
+    pub fn chunked(items: &[String], content_type: &str) -> Result<Self, StreamingError> {
         let combined = items.join("\n");
 
         let mut headers = HeaderMap::new();
@@ -169,22 +169,22 @@ impl IntoResponse for StreamingResponse {
 }
 
 pub async fn stream_file(
-    path: PathBuf,
+    path: &Path,
     filename: Option<String>,
     content_type: Option<&str>,
 ) -> Result<StreamingResponse, StreamingError> {
-    StreamingResponse::file(path, filename, content_type)
+    StreamingResponse::file(path, filename, content_type).await
 }
 
-pub async fn stream_sse(
-    event_name: String,
-    data: String,
+pub fn stream_sse(
+    event_name: &str,
+    data: &str,
     id: Option<u64>,
 ) -> Result<StreamingResponse, StreamingError> {
     StreamingResponse::sse(event_name, data, id)
 }
 
-pub async fn stream_json_chunked(
+pub fn stream_json_chunked(
     items: Vec<serde_json::Value>,
 ) -> Result<StreamingResponse, StreamingError> {
     let json_strings: Vec<String> = items
@@ -193,7 +193,7 @@ pub async fn stream_json_chunked(
             serde_json::to_string(&item).map_err(|e| StreamingError::SseError(e.to_string()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    StreamingResponse::chunked(json_strings, "application/json")
+    StreamingResponse::chunked(&json_strings, "application/json")
 }
 
 #[cfg(test)]
@@ -204,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn test_sse_response() {
         let response_result =
-            StreamingResponse::sse("test_event".to_string(), "test data".to_string(), Some(1));
+            StreamingResponse::sse("test_event", "test data", Some(1));
         assert!(response_result.is_ok(), "SSE response should succeed");
         let response = response_result.unwrap();
 
@@ -238,7 +238,7 @@ mod tests {
     #[tokio::test]
     async fn test_chunked_response() {
         let items = vec!["item1".to_string(), "item2".to_string()];
-        let response_result = StreamingResponse::chunked(items, "text/plain");
+        let response_result = StreamingResponse::chunked(&items, "text/plain");
         assert!(response_result.is_ok(), "Chunked response should succeed");
         let response = response_result.unwrap();
 

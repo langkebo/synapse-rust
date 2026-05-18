@@ -16,11 +16,7 @@ use validator::Validate;
 /// Nest prefixes under which `create_key_backup_router` mounts its internal
 /// router. Kept as a module-level constant so both the [`Router`] assembly
 /// below and [`key_backup_route_manifest`] cannot drift apart.
-const NEST_PREFIXES: &[&str] = &[
-    "/_matrix/client/v1",
-    "/_matrix/client/r0",
-    "/_matrix/client/v3",
-];
+const NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
 
 /// Manifest entry for every `(method, relative_path)` registered by
 /// `create_key_backup_router`. Mirrors the `.route(...)` calls in
@@ -51,33 +47,32 @@ fn relative_routes() -> Vec<(Method, &'static str)> {
         (Method::GET, "/room_keys/{version}/keys/{room_id}"),
         (Method::PUT, "/room_keys/{version}/keys/{room_id}"),
         (Method::DELETE, "/room_keys/{version}/keys/{room_id}"),
-        (
-            Method::GET,
-            "/room_keys/{version}/keys/{room_id}/{session_id}",
-        ),
-        (
-            Method::PUT,
-            "/room_keys/{version}/keys/{room_id}/{session_id}",
-        ),
-        (
-            Method::DELETE,
-            "/room_keys/{version}/keys/{room_id}/{session_id}",
-        ),
+        (Method::GET, "/room_keys/{version}/keys/{room_id}/{session_id}"),
+        (Method::PUT, "/room_keys/{version}/keys/{room_id}/{session_id}"),
+        (Method::DELETE, "/room_keys/{version}/keys/{room_id}/{session_id}"),
         // Recovery / verify helpers.
         (Method::POST, "/room_keys/recover"),
         (Method::GET, "/room_keys/recovery/{version}/progress"),
         (Method::GET, "/room_keys/verify/{version}"),
         (Method::POST, "/room_keys/batch_recover"),
         (Method::GET, "/room_keys/recover/{version}/{room_id}"),
-        (
-            Method::GET,
-            "/room_keys/recover/{version}/{room_id}/{session_id}",
-        ),
+        (Method::GET, "/room_keys/recover/{version}/{room_id}/{session_id}"),
         // Export / import.
         (Method::GET, "/room_keys/export"),
         (Method::GET, "/room_keys/export/{version}"),
         (Method::POST, "/room_keys/import"),
         (Method::POST, "/room_keys/import/{version}"),
+        (Method::GET, "/secure_backup"),
+        (Method::POST, "/secure_backup"),
+        (Method::GET, "/secure_backup/{backup_id}"),
+        (Method::DELETE, "/secure_backup/{backup_id}"),
+        (Method::POST, "/secure_backup/{backup_id}/keys"),
+        (Method::POST, "/secure_backup/{backup_id}/restore"),
+        (Method::POST, "/secure_backup/{backup_id}/verify"),
+        (Method::GET, "/room_keys/recover"),
+        (Method::PUT, "/room_keys/recover"),
+        (Method::POST, "/room_keys/export"),
+        (Method::PUT, "/room_keys/export"),
     ]
 }
 
@@ -134,7 +129,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
                 .put(put_room_key_legacy)
                 .delete(delete_room_key_legacy),
         )
-        .route("/room_keys/recover", post(recover_keys))
+        .route("/room_keys/recover", post(recover_keys).get(stub_room_keys_recover_get).put(stub_room_keys_recover_put))
         .route(
             "/room_keys/recovery/{version}/progress",
             get(get_recovery_progress),
@@ -150,10 +145,30 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
             get(recover_session_key),
         )
         // Key Export/Import (E2EE 100%)
-        .route("/room_keys/export", get(export_keys))
+        .route("/room_keys/export", get(export_keys).post(stub_room_keys_export_post).put(stub_room_keys_export_put))
         .route("/room_keys/export/{version}", get(export_keys_by_version))
         .route("/room_keys/import", post(import_keys))
-        .route("/room_keys/import/{version}", post(import_keys_by_version));
+        .route("/room_keys/import/{version}", post(import_keys_by_version))
+        .route(
+            "/secure_backup",
+            get(stub_secure_backup_list).post(stub_secure_backup_create),
+        )
+        .route(
+            "/secure_backup/{backup_id}",
+            get(stub_secure_backup_get).delete(stub_secure_backup_delete),
+        )
+        .route(
+            "/secure_backup/{backup_id}/keys",
+            post(stub_secure_backup_keys),
+        )
+        .route(
+            "/secure_backup/{backup_id}/restore",
+            post(stub_secure_backup_restore),
+        )
+        .route(
+            "/secure_backup/{backup_id}/verify",
+            post(stub_secure_backup_verify),
+        );
 
     Router::new()
         .nest("/_matrix/client/v1", router.clone())
@@ -189,11 +204,8 @@ async fn create_backup_version(
 
     match auth {
         None => {
-            let session = state
-                .services
-                .uia_service
-                .create_session(&auth_user.user_id, UiaService::get_default_flows())
-                .await;
+            let session =
+                state.services.uia_service.create_session(&auth_user.user_id, UiaService::get_default_flows()).await;
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 Json(state.services.uia_service.build_uia_response(
@@ -208,11 +220,7 @@ async fn create_backup_version(
             let result = state
                 .services
                 .uia_service
-                .validate_auth(
-                    auth_val,
-                    &auth_user.user_id,
-                    UiaService::get_default_flows(),
-                )
+                .validate_auth(auth_val, &auth_user.user_id, UiaService::get_default_flows())
                 .await;
 
             match result {
@@ -228,11 +236,7 @@ async fn create_backup_version(
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(
-                            auth_val,
-                            &auth_user.user_id,
-                            &state.services.auth_service,
-                        )
+                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
                         .await
                     {
                         let session = state
@@ -272,25 +276,16 @@ async fn create_backup_version(
         }
     }
 
-    let algorithm = body
-        .get("algorithm")
-        .and_then(|v| v.as_str())
-        .unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
+    let algorithm = body.get("algorithm").and_then(|v| v.as_str()).unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
     let auth_data = body.get("auth_data").cloned();
 
     if let Some(ref data) = auth_data {
         if data.get("public_key").is_none() {
-            return Err(ApiError::bad_request(
-                "auth_data must contain public_key".to_string(),
-            ));
+            return Err(ApiError::bad_request("auth_data must contain public_key".to_string()));
         }
     }
 
-    let version = state
-        .services
-        .backup_service
-        .create_backup(&auth_user.user_id, algorithm, auth_data)
-        .await?;
+    let version = state.services.backup_service.create_backup(&auth_user.user_id, algorithm, auth_data).await?;
 
     Ok(Json(json!({
         "version": version
@@ -303,25 +298,16 @@ async fn get_all_backup_versions(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backups = state
-        .services
-        .backup_service
-        .get_all_backups(&auth_user.user_id)
-        .await?;
+    let backups = state.services.backup_service.get_all_backups(&auth_user.user_id).await?;
 
     let latest = backups
         .into_iter()
         .max_by_key(|b| b.version)
-        .ok_or_else(|| {
-            crate::error::ApiError::not_found("No current backup version".to_string())
-        })?;
+        .ok_or_else(|| crate::error::ApiError::not_found("No current backup version".to_string()))?;
 
     let version_str = latest.version.to_string();
-    let count = state
-        .services
-        .backup_service
-        .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
-        .await?;
+    let count =
+        state.services.backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
 
     Ok(Json(serde_json::json!({
         "algorithm": latest.algorithm,
@@ -338,11 +324,7 @@ async fn get_backup_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state
-        .services
-        .backup_service
-        .get_backup(&auth_user.user_id, &version)
-        .await?;
+    let backup = state.services.backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     match backup {
         Some(b) => {
@@ -360,9 +342,7 @@ async fn get_backup_version(
                 "version": version_str
             })))
         }
-        None => Err(crate::error::ApiError::not_found(format!(
-            "Backup version '{version}' not found"
-        ))),
+        None => Err(crate::error::ApiError::not_found(format!("Backup version '{version}' not found"))),
     }
 }
 
@@ -379,11 +359,7 @@ async fn update_backup_version(
 
     let auth_data = body.auth_data;
 
-    state
-        .services
-        .backup_service
-        .update_backup_auth_data(&auth_user.user_id, &version, auth_data)
-        .await?;
+    state.services.backup_service.update_backup_auth_data(&auth_user.user_id, &version, auth_data).await?;
 
     Ok(Json(serde_json::json!({
         "version": version
@@ -396,23 +372,13 @@ async fn delete_backup_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state
-        .services
-        .backup_service
-        .get_backup(&auth_user.user_id, &version)
-        .await?;
+    let backup = state.services.backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     if backup.is_none() {
-        return Err(crate::error::ApiError::not_found(format!(
-            "Backup version '{version}' not found"
-        )));
+        return Err(crate::error::ApiError::not_found(format!("Backup version '{version}' not found")));
     }
 
-    state
-        .services
-        .backup_service
-        .delete_backup(&auth_user.user_id, &version)
-        .await?;
+    state.services.backup_service.delete_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::json!({
         "deleted": true,
@@ -447,19 +413,13 @@ fn write_response(version: &str, count: u64) -> Json<Value> {
     }))
 }
 
-async fn ensure_backup_exists(
-    state: &AppState,
-    user_id: &str,
-    version: &str,
-) -> Result<(), crate::error::ApiError> {
+async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) -> Result<(), crate::error::ApiError> {
     state
         .services
         .backup_service
         .get_backup(user_id, version)
         .await?
-        .ok_or_else(|| {
-            crate::error::ApiError::not_found(format!("Backup version '{version}' not found"))
-        })
+        .ok_or_else(|| crate::error::ApiError::not_found(format!("Backup version '{version}' not found")))
         .map(|_| ())
 }
 
@@ -467,23 +427,13 @@ async fn ensure_backup_exists(
 // GET /room_keys/keys?version=...
 // Returns {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
 // ----------------------------------------------------------------------------
-async fn read_all_rooms(
-    state: &AppState,
-    user_id: &str,
-    version: &str,
-) -> Result<Json<Value>, crate::error::ApiError> {
+async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let keys = state
-        .services
-        .backup_service
-        .get_keys_for_version(user_id, version)
-        .await?;
+    let keys = state.services.backup_service.get_keys_for_version(user_id, version).await?;
 
     let mut rooms = serde_json::Map::<String, Value>::new();
     for k in keys {
-        let entry = rooms
-            .entry(k.room_id.clone())
-            .or_insert_with(|| serde_json::json!({"sessions": {}}));
+        let entry = rooms.entry(k.room_id.clone()).or_insert_with(|| serde_json::json!({"sessions": {}}));
         if let Some(sessions) = entry.get_mut("sessions").and_then(|v| v.as_object_mut()) {
             sessions.insert(k.session_id.clone(), k.session_data.clone());
         }
@@ -521,11 +471,7 @@ async fn read_room(
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let keys = state
-        .services
-        .backup_service
-        .get_room_backup_keys(user_id, room_id, version)
-        .await?;
+    let keys = state.services.backup_service.get_room_backup_keys(user_id, room_id, version).await?;
 
     let mut sessions = serde_json::Map::<String, Value>::new();
     for k in keys {
@@ -565,16 +511,9 @@ async fn read_session(
     room_id: &str,
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let key = state
-        .services
-        .backup_service
-        .get_backup_key(user_id, room_id, session_id, version)
-        .await?
-        .ok_or_else(|| {
-            crate::error::ApiError::not_found(format!(
-                "Session '{session_id}' in room '{room_id}' not found"
-            ))
-        })?;
+    let key = state.services.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
+        || crate::error::ApiError::not_found(format!("Session '{session_id}' in room '{room_id}' not found")),
+    )?;
 
     Ok(Json(key.session_data))
 }
@@ -586,14 +525,7 @@ async fn get_room_key(
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_session(
-        &state,
-        &auth_user.user_id,
-        &q.version,
-        &room_id,
-        &session_id,
-    )
-    .await
+    read_session(&state, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
 
 #[axum::debug_handler]
@@ -619,17 +551,9 @@ async fn write_all_rooms(
 
     let mut count: u64 = 0;
     for (room_id, room_payload) in body.rooms {
-        let sessions = room_payload
-            .get("sessions")
-            .and_then(|v| v.as_object())
-            .cloned()
-            .unwrap_or_default();
+        let sessions = room_payload.get("sessions").and_then(|v| v.as_object()).cloned().unwrap_or_default();
         for (session_id, key_data) in sessions {
-            state
-                .services
-                .backup_service
-                .upload_session(user_id, version, &room_id, &session_id, key_data)
-                .await?;
+            state.services.backup_service.upload_session(user_id, version, &room_id, &session_id, key_data).await?;
             count += 1;
         }
     }
@@ -672,11 +596,7 @@ async fn write_room(
 
     let mut count: u64 = 0;
     for (session_id, key_data) in body.sessions {
-        state
-            .services
-            .backup_service
-            .upload_session(user_id, version, room_id, &session_id, key_data)
-            .await?;
+        state.services.backup_service.upload_session(user_id, version, room_id, &session_id, key_data).await?;
         count += 1;
     }
 
@@ -717,11 +637,7 @@ async fn write_session(
     key_data: Value,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    state
-        .services
-        .backup_service
-        .upload_session(user_id, version, room_id, session_id, key_data)
-        .await?;
+    state.services.backup_service.upload_session(user_id, version, room_id, session_id, key_data).await?;
     Ok(write_response(version, 1))
 }
 
@@ -733,15 +649,7 @@ async fn put_room_key(
     Query(q): Query<VersionQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_session(
-        &state,
-        &auth_user.user_id,
-        &q.version,
-        &room_id,
-        &session_id,
-        body,
-    )
-    .await
+    write_session(&state, &auth_user.user_id, &q.version, &room_id, &session_id, body).await
 }
 
 #[axum::debug_handler]
@@ -751,15 +659,7 @@ async fn put_room_key_legacy(
     Path((version, room_id, session_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_session(
-        &state,
-        &auth_user.user_id,
-        &version,
-        &room_id,
-        &session_id,
-        body,
-    )
-    .await
+    write_session(&state, &auth_user.user_id, &version, &room_id, &session_id, body).await
 }
 
 // ----------------------------------------------------------------------------
@@ -771,11 +671,7 @@ async fn delete_all_rooms_impl(
     version: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state
-        .services
-        .backup_service
-        .delete_all_for_version(user_id, version)
-        .await?;
+    let count = state.services.backup_service.delete_all_for_version(user_id, version).await?;
     Ok(write_response(version, count))
 }
 
@@ -804,11 +700,7 @@ async fn delete_room_impl(
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state
-        .services
-        .backup_service
-        .delete_room_for_version(user_id, version, room_id)
-        .await?;
+    let count = state.services.backup_service.delete_room_for_version(user_id, version, room_id).await?;
     Ok(write_response(version, count))
 }
 
@@ -839,11 +731,7 @@ async fn delete_session_impl(
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state
-        .services
-        .backup_service
-        .delete_session_for_version(user_id, version, room_id, session_id)
-        .await?;
+    let count = state.services.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
     Ok(write_response(version, count))
 }
 
@@ -854,14 +742,7 @@ async fn delete_room_key(
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_session_impl(
-        &state,
-        &auth_user.user_id,
-        &q.version,
-        &room_id,
-        &session_id,
-    )
-    .await
+    delete_session_impl(&state, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
 
 #[axum::debug_handler]
@@ -896,11 +777,7 @@ async fn recover_keys(
         return Err(crate::error::ApiError::bad_request(e.to_string()));
     }
 
-    let response = state
-        .services
-        .backup_service
-        .recover_keys(&auth_user.user_id, &body.version, body.rooms)
-        .await?;
+    let response = state.services.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
 
     Ok(Json(serde_json::to_value(response)?))
 }
@@ -911,11 +788,7 @@ async fn get_recovery_progress(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let progress = state
-        .services
-        .backup_service
-        .get_recovery_progress(&auth_user.user_id, &version)
-        .await?;
+    let progress = state.services.backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(progress)?))
 }
@@ -926,11 +799,7 @@ async fn verify_backup(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let verification = state
-        .services
-        .backup_service
-        .verify_backup(&auth_user.user_id, &version)
-        .await?;
+    let verification = state.services.backup_service.verify_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(verification)?))
 }
@@ -967,11 +836,7 @@ async fn recover_room_keys(
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let keys = state
-        .services
-        .backup_service
-        .recover_room_keys(&auth_user.user_id, &version, &room_id)
-        .await?;
+    let keys = state.services.backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -985,11 +850,8 @@ async fn recover_session_key(
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let key = state
-        .services
-        .backup_service
-        .recover_session_key(&auth_user.user_id, &version, &room_id, &session_id)
-        .await?;
+    let key =
+        state.services.backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
 
     match key {
         Some(k) => Ok(Json(serde_json::json!({
@@ -997,9 +859,7 @@ async fn recover_session_key(
             "session_id": session_id,
             "session_data": k
         }))),
-        None => Err(crate::error::ApiError::not_found(format!(
-            "Session '{session_id}' not found in room '{room_id}'"
-        ))),
+        None => Err(crate::error::ApiError::not_found(format!("Session '{session_id}' not found in room '{room_id}'"))),
     }
 }
 
@@ -1014,11 +874,7 @@ async fn export_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state
-        .services
-        .backup_service
-        .get_all_backup_keys(&auth_user.user_id)
-        .await?;
+    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -1048,11 +904,7 @@ async fn export_keys_by_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state
-        .services
-        .backup_service
-        .get_keys_for_version(&auth_user.user_id, &version)
-        .await?;
+    let backup_keys = state.services.backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -1093,18 +945,9 @@ async fn import_keys(
     let mut failed_count = 0;
 
     for key_data in room_keys.iter() {
-        let room_id = key_data
-            .get("room_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_id = key_data
-            .get("session_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_data = key_data
-            .get("session_data")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let room_id = key_data.get("room_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_id = key_data.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_data = key_data.get("session_data").and_then(|v| v.as_str()).unwrap_or("");
 
         if !room_id.is_empty() && !session_id.is_empty() {
             let params = crate::e2ee::backup::BackupKeyUploadParams {
@@ -1113,27 +956,12 @@ async fn import_keys(
                 session_id: session_id.to_string(),
                 session_data: session_data.to_string(),
                 version: version.to_string(),
-                is_verified: key_data
-                    .get("is_verified")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                first_message_index: key_data
-                    .get("first_message_index")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0),
-                forwarded_count: key_data
-                    .get("forwarded_count")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0),
+                is_verified: key_data.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                first_message_index: key_data.get("first_message_index").and_then(|v| v.as_i64()).unwrap_or(0),
+                forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state
-                .services
-                .backup_service
-                .upload_backup_key(params)
-                .await
-                .is_ok()
-            {
+            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;
@@ -1148,6 +976,61 @@ async fn import_keys(
         "failed": failed_count,
         "total": room_keys.len()
     })))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_list() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_create() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_get() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_delete() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_keys() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_restore() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_secure_backup_verify() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_room_keys_recover_get() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_room_keys_recover_put() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_room_keys_export_post() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_room_keys_export_put() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
 }
 
 /// Import keys by version
@@ -1168,18 +1051,9 @@ async fn import_keys_by_version(
     let mut failed_count = 0;
 
     for key_data in room_keys.iter() {
-        let room_id = key_data
-            .get("room_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_id = key_data
-            .get("session_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let session_data = key_data
-            .get("session_data")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let room_id = key_data.get("room_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_id = key_data.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_data = key_data.get("session_data").and_then(|v| v.as_str()).unwrap_or("");
 
         if !room_id.is_empty() && !session_id.is_empty() {
             let params = crate::e2ee::backup::BackupKeyUploadParams {
@@ -1188,27 +1062,12 @@ async fn import_keys_by_version(
                 session_id: session_id.to_string(),
                 session_data: session_data.to_string(),
                 version: version.clone(),
-                is_verified: key_data
-                    .get("is_verified")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                first_message_index: key_data
-                    .get("first_message_index")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0),
-                forwarded_count: key_data
-                    .get("forwarded_count")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0),
+                is_verified: key_data.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                first_message_index: key_data.get("first_message_index").and_then(|v| v.as_i64()).unwrap_or(0),
+                forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state
-                .services
-                .backup_service
-                .upload_backup_key(params)
-                .await
-                .is_ok()
-            {
+            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;

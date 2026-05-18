@@ -260,7 +260,7 @@ pub async fn process_queue(
     _admin: AdminUser,
     Query(query): Query<ProcessQueueQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let batch_size = query.batch_size.unwrap_or(100);
+    let batch_size = query.batch_size.unwrap_or(100).clamp(1, 500);
 
     let processed = state
         .services
@@ -279,7 +279,7 @@ pub async fn cleanup_logs(
     _admin: AdminUser,
     Query(query): Query<CleanupQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let days = query.days.unwrap_or(30);
+    let days = query.days.unwrap_or(30).clamp(1, 200);
 
     let cleaned = state
         .services

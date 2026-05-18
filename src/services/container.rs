@@ -2,14 +2,19 @@ use crate::auth::*;
 use crate::cache::*;
 #[cfg(feature = "voip-tracking")]
 use crate::call_service::CallService;
+use crate::common::config::Config;
+#[cfg(any(test, feature = "test-utils"))]
 use crate::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
+    AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig,
     RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
 use crate::common::metrics::MetricsCollector;
+
+const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 use crate::common::server_metrics::ServerMetrics;
 use crate::common::task_queue::RedisTaskQueue;
-use crate::common::*;
+#[cfg(any(test, feature = "test-utils"))]
+use crate::common::config::PostgresFtsConfig;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
@@ -224,7 +229,7 @@ fn assemble_e2ee(
         .with_dehydrated_device_service(Arc::new(dehydrated_device_service.clone()));
 
     let key_backup_storage = crate::e2ee::backup::KeyBackupStorage::new(pool);
-    let backup_service = KeyBackupService::new(key_backup_storage)
+    let backup_service = KeyBackupService::new(&key_backup_storage)
         .with_device_key_storage(backup_device_key_storage);
 
     let secure_backup_service = crate::e2ee::secure_backup::SecureBackupService::new(pool);
@@ -556,7 +561,7 @@ fn assemble_admin_support(
     let retention_service = Arc::new(crate::services::retention_service::RetentionService::new(
         Arc::new(retention_storage.clone()),
         pool.clone(),
-        metrics.clone(),
+        metrics,
         Arc::new(audit_storage.clone()),
     ));
 
@@ -564,7 +569,7 @@ fn assemble_admin_support(
     let refresh_token_service = Arc::new(
         crate::services::refresh_token_service::RefreshTokenService::new(
             Arc::new(refresh_token_storage.clone()),
-            604800000,
+            DEFAULT_REFRESH_TOKEN_TTL_MS,
         ),
     );
 
@@ -692,6 +697,7 @@ impl ServiceContainer {
 
         // Shared infrastructure — metrics and server_metrics
         let metrics = Arc::new(MetricsCollector::new());
+        crate::common::error::init_error_metrics(metrics.clone());
         let server_metrics = Arc::new(ServerMetrics::new(metrics.clone()));
 
         // Auth — must be initialized first; downstream services depend on it
@@ -756,8 +762,12 @@ impl ServiceContainer {
         );
 
         #[cfg(feature = "voice-extended")]
+        let voice_storage = crate::storage::voice::VoiceStorage::new(pool.clone());
+
+        #[cfg(feature = "voice-extended")]
         let voice_service = crate::services::voice_service::VoiceService::new(
             media_service.clone(),
+            voice_storage,
             &config.server.name,
         );
 
@@ -773,7 +783,7 @@ impl ServiceContainer {
                 user_storage.clone(),
                 auth_service.clone(),
                 metrics.clone(),
-                config.server.name.clone(),
+                &config.server.name,
                 config.server.enable_registration,
                 task_queue.clone(),
             ),
@@ -1053,6 +1063,7 @@ impl ServiceContainer {
         container
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test() -> Self {
         let _ = crate::common::argon2_config::Argon2Config::initialize_global_owasp(
             crate::common::argon2_config::Argon2Config::default(),
@@ -1075,18 +1086,21 @@ impl ServiceContainer {
         Self::new_test_with_pool(pool).await
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let config = build_test_config();
         Self::new(&pool, cache, config, None).await
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = build_test_config();
         Self::new(&pool, cache, config, None).await
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 fn build_test_config() -> Config {
     let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port: u16 = std::env::var("DATABASE_PORT")
@@ -1182,7 +1196,7 @@ fn build_test_config() -> Config {
             suppress_key_server_warning: false,
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
-            key_rotation_grace_period_ms: 600000,
+            key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
             process_inbound_edus: false,

@@ -31,7 +31,7 @@ mod auth_service_unit_tests {
     #[test]
     fn test_token_expiry() {
         // Test token expiry calculations
-        let token_lifetime = 3600000i64; // 1 hour in ms
+        let token_lifetime = 3_600_000i64; // 1 hour in ms
         
         // Add to current time
         let now = 1700000000000i64;

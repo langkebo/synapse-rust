@@ -4,7 +4,7 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
@@ -19,7 +19,7 @@ async fn setup_test_app_with_rate_limit_rule(rule: RateLimitEndpointRule) -> Opt
     container.config.rate_limit.exempt_path_prefixes = Vec::new();
     container.config.rate_limit.endpoints = vec![rule];
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }
@@ -35,7 +35,7 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
     container.config.rate_limit.sync.initial = initial;
     container.config.rate_limit.sync.incremental = incremental;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }

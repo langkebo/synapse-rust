@@ -73,7 +73,7 @@ pub(super) async fn get_space_hierarchy(
     Query(query): Query<HierarchyQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let max_depth = query.max_depth.unwrap_or(1);
+    let max_depth = query.max_depth.unwrap_or(1).clamp(1, 10);
 
     with_visible_space(
         state,
@@ -358,7 +358,7 @@ pub(crate) async fn get_room_hierarchy_msc2946(
                             .and_then(|e| e.content.get("join_rule"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("invite");
-                        let child_mc = child_room.map(|r| r.member_count).unwrap_or(0);
+                        let child_mc = child_room.map_or(0, |r| r.member_count);
                         let child_wr = child_state.iter().any(|e| {
                             e.event_type.as_deref() == Some("m.room.history_visibility")
                                 && e.content.get("history_visibility").and_then(|v| v.as_str())

@@ -215,7 +215,7 @@ impl PushNotificationStorage {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, PushDevice>(
-            r#"
+            r"
             INSERT INTO push_device (
                 user_id, device_id, push_token, push_type, app_id, platform,
                 platform_version, app_version, locale, timezone, created_ts, updated_ts, metadata
@@ -234,7 +234,7 @@ impl PushNotificationStorage {
                 is_enabled = true,
                 metadata = $12
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.device_id)
@@ -333,11 +333,11 @@ impl PushNotificationStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE push_device 
             SET last_error = $1, error_count = error_count + 1, updated_ts = $4
             WHERE user_id = $2 AND device_id = $3
-            "#,
+            ",
         )
         .bind(error)
         .bind(user_id)
@@ -357,7 +357,7 @@ impl PushNotificationStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, PushRule>(
-            r#"
+            r"
             INSERT INTO push_rules (
                 user_id, rule_id, scope, kind, priority, priority_class, conditions, actions, is_enabled, created_ts, updated_ts
             )
@@ -369,7 +369,7 @@ impl PushNotificationStorage {
                 is_enabled = $8,
                 updated_ts = $9
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.rule_id)
@@ -393,11 +393,11 @@ impl PushNotificationStorage {
 
     pub async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
         let rows = sqlx::query_as::<_, PushRule>(
-            r#"
+            r"
             SELECT * FROM push_rules 
             WHERE (user_id = $1 OR user_id = '.default') AND is_enabled = true
             ORDER BY priority ASC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -435,13 +435,13 @@ impl PushNotificationStorage {
         let now = chrono::Utc::now();
 
         let row = sqlx::query_as::<_, PushNotificationQueue>(
-            r#"
+            r"
             INSERT INTO push_notification_queue (
                 user_id, device_id, event_id, room_id, notification_type, content, priority, status, next_attempt_at, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.device_id)
@@ -466,13 +466,13 @@ impl PushNotificationStorage {
         let now = chrono::Utc::now();
 
         let rows = sqlx::query_as::<_, PushNotificationQueue>(
-            r#"
+            r"
             SELECT * FROM push_notification_queue 
             WHERE status = 'pending' AND next_attempt_at <= $1
             ORDER BY priority DESC, created_ts ASC
             LIMIT $2
             FOR UPDATE SKIP LOCKED
-            "#,
+            ",
         )
         .bind(now)
         .bind(limit)
@@ -508,11 +508,11 @@ impl PushNotificationStorage {
 
         if retry {
             sqlx::query(
-                r#"
+                r"
                 UPDATE push_notification_queue 
                 SET status = 'pending', attempts = attempts + 1, error_message = $1, next_attempt_at = $2
                 WHERE id = $3 AND attempts < max_attempts
-                "#
+                "
             )
             .bind(error)
             .bind(now + chrono::Duration::seconds(60))
@@ -539,14 +539,14 @@ impl PushNotificationStorage {
         request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError> {
         let row = sqlx::query_as::<_, PushNotificationLog>(
-            r#"
+            r"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
                 success, error_message, provider_response, response_time_ms
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.device_id)

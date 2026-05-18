@@ -404,8 +404,7 @@ async fn list_visible_threads(
 
     let start = from
         .and_then(|token| threads.iter().position(|thread| thread.thread_id == token))
-        .map(|idx| idx + 1)
-        .unwrap_or(0);
+        .map_or(0, |idx| idx + 1);
 
     let total = threads.len() as i32;
     let page_size = limit.unwrap_or(20).max(1) as usize;

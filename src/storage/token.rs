@@ -35,11 +35,11 @@ impl AccessTokenStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let token_hash = Self::hash_token(token);
         let row = sqlx::query_as::<_, AccessToken>(
-            r#"
+            r"
             INSERT INTO access_tokens (token_hash, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked)
             VALUES ($1, NULL, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)
             RETURNING id, token_hash, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
-            "#,
+            ",
         )
         .bind(&token_hash)
         .bind(user_id)
@@ -54,10 +54,10 @@ impl AccessTokenStorage {
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let row = sqlx::query_as::<_, AccessToken>(
-            r#"
+            r"
             SELECT id, token_hash, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(&token_hash)
         .fetch_optional(&*self.pool)
@@ -67,10 +67,10 @@ impl AccessTokenStorage {
         }
         let legacy_hash = Self::hash_token_legacy(token);
         let row = sqlx::query_as::<_, AccessToken>(
-            r#"
+            r"
             SELECT id, token_hash, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(&legacy_hash)
         .fetch_optional(&*self.pool)
@@ -80,10 +80,10 @@ impl AccessTokenStorage {
 
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccessToken>(
-            r#"
+            r"
             SELECT id, token_hash, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked
             FROM access_tokens WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -95,9 +95,9 @@ impl AccessTokenStorage {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
         sqlx::query(
-            r#"
+            r"
             UPDATE access_tokens SET is_revoked = TRUE WHERE token_hash IN ($1, $2)
-            "#,
+            ",
         )
         .bind(&token_hash)
         .bind(&legacy_hash)
@@ -108,9 +108,9 @@ impl AccessTokenStorage {
 
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE access_tokens SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&*self.pool)
@@ -120,9 +120,9 @@ impl AccessTokenStorage {
 
     pub async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE access_tokens SET is_revoked = TRUE WHERE device_id = $1 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(device_id)
         .execute(&*self.pool)
@@ -136,10 +136,10 @@ impl AccessTokenStorage {
         device_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE access_tokens SET is_revoked = TRUE
             WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -154,10 +154,10 @@ impl AccessTokenStorage {
         device_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE access_tokens SET is_revoked = TRUE
             WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -185,9 +185,9 @@ impl AccessTokenStorage {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
         let result = sqlx::query_scalar::<_, i32>(
-            r#"
+            r"
             SELECT 1 FROM access_tokens WHERE token_hash IN ($1, $2) AND is_revoked = TRUE LIMIT 1
-            "#,
+            ",
         )
         .bind(&token_hash)
         .bind(&legacy_hash)
@@ -217,11 +217,11 @@ impl AccessTokenStorage {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO token_blacklist (token_hash, token, token_type, user_id, is_revoked, reason)
             VALUES ($1, NULL, 'access', $2, TRUE, $3)
             ON CONFLICT (token_hash) DO NOTHING
-            "#,
+            ",
         )
         .bind(token_hash)
         .bind(user_id)
@@ -236,12 +236,12 @@ impl AccessTokenStorage {
         let legacy_hash = Self::hash_token_legacy(token);
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query_scalar::<_, i32>(
-            r#"
+            r"
             SELECT 1 FROM token_blacklist
             WHERE token_hash IN ($1, $2)
               AND (expires_at IS NULL OR expires_at = 0 OR expires_at > $3)
             LIMIT 1
-            "#,
+            ",
         )
         .bind(&token_hash)
         .bind(&legacy_hash)
@@ -261,9 +261,9 @@ impl AccessTokenStorage {
     ) -> Result<u64, sqlx::Error> {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM token_blacklist WHERE expires_at > 0 AND expires_at < $1
-            "#,
+            ",
         )
         .bind(cutoff)
         .execute(&*self.pool)
@@ -274,9 +274,9 @@ impl AccessTokenStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM access_tokens WHERE expires_at IS NOT NULL AND expires_at < $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -305,7 +305,7 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             device_id: Some("DEVICE123".to_string()),
             created_ts: 1234567890000,
-            expires_at: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3_600_000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
@@ -348,7 +348,7 @@ mod tests {
             user_id: "@charlie:example.com".to_string(),
             device_id: Some("DEVICE456".to_string()),
             created_ts: 1234567890000,
-            expires_at: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3_600_000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
@@ -367,7 +367,7 @@ mod tests {
             user_id: "@user:example.com".to_string(),
             device_id: None,
             created_ts: now,
-            expires_at: Some(now + 86400000),
+            expires_at: Some(now + 86_400_000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
@@ -375,7 +375,7 @@ mod tests {
         };
 
         assert!(token.expires_at.unwrap() > token.created_ts);
-        assert!(token.expires_at.unwrap() - token.created_ts == 86400000);
+        assert!(token.expires_at.unwrap() - token.created_ts == 86_400_000);
     }
 
     #[test]
@@ -386,7 +386,7 @@ mod tests {
             user_id: "@test:example.com".to_string(),
             device_id: None,
             created_ts: 1234567890000,
-            expires_at: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3_600_000),
             last_used_ts: None,
             user_agent: None,
             ip_address: None,
@@ -417,7 +417,7 @@ mod tests {
             user_id: "@test:matrix.org".to_string(),
             device_id: Some("WEBCLIENT".to_string()),
             created_ts: 1234567890000,
-            expires_at: Some(1234567890000 + 3600000),
+            expires_at: Some(1234567890000 + 3_600_000),
             last_used_ts: Some(1234567895000),
             user_agent: Some("Mozilla/5.0".to_string()),
             ip_address: Some("10.0.0.1".to_string()),

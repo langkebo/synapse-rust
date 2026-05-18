@@ -4,7 +4,7 @@ use crate::storage::CreateEventParams;
 use crate::web::routes::{
     extract_token_from_headers,
     is_joined_room_member, is_joined_room_member_or_creator,
-    validate_room_id, validate_user_id, AppState, AuthenticatedUser,
+    validate_membership, validate_room_id, validate_user_id, AppState, AuthenticatedUser,
 };
 use super::ensure_room_view_access;
 use axum::{
@@ -292,6 +292,13 @@ pub(crate) async fn get_room_members(
     let membership_filter = params.get("membership").map(|s| s.as_str());
     let not_membership_filter = params.get("not_membership").map(|s| s.as_str());
 
+    if let Some(mf) = membership_filter {
+        validate_membership(mf)?;
+    }
+    if let Some(nmf) = not_membership_filter {
+        validate_membership(nmf)?;
+    }
+
     let members = state
         .services
         .room_service
@@ -366,7 +373,8 @@ pub(crate) async fn get_room_members_recent(
     let limit = params
         .get("limit")
         .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(100);
+        .unwrap_or(100)
+        .min(1000);
 
     let chunk = members
         .get("chunk")
@@ -470,8 +478,7 @@ pub(crate) async fn get_room_membership(
         .get_member(&room_id, &target_user_id)
         .await
         .map_err(map_internal!("Database error"))?
-        .map(|m| m.membership)
-        .unwrap_or_else(|| "leave".to_string());
+        .map_or_else(|| "leave".to_string(), |m| m.membership);
 
     Ok(Json(json!({
         "membership": membership
@@ -488,7 +495,7 @@ pub(crate) async fn get_membership_events(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as i64;
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100).min(1000) as i64;
 
     let memberships = state
         .services

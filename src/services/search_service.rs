@@ -181,7 +181,7 @@ impl SearchService {
 
         let rows = if let Some(cursor) = cursor {
             sqlx::query(
-                r#"
+                r"
                 SELECT
                     e.event_id,
                     e.room_id,
@@ -211,7 +211,7 @@ impl SearchService {
                     )
                 ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $7
-                "#,
+                ",
             )
             .bind(user_id)
             .bind(&search_query)
@@ -224,7 +224,7 @@ impl SearchService {
             .await
         } else {
             sqlx::query(
-                r#"
+                r"
                 SELECT
                     e.event_id,
                     e.room_id,
@@ -242,7 +242,7 @@ impl SearchService {
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
                 ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $4
-                "#,
+                ",
             )
             .bind(user_id)
             .bind(&search_query)
@@ -317,12 +317,12 @@ impl SearchService {
             .ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
 
         // 创建 GIN 索引（如果不存在）
-        let sql = r#"
+        let sql = r"
             CREATE INDEX IF NOT EXISTS events_fts_idx 
             ON events 
             USING GIN (to_tsvector('english', content))
             WHERE event_type = 'm.room.message' AND stream_ordering > 0
-        "#;
+        ";
 
         sqlx::query(sql)
             .execute(pool)

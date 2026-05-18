@@ -153,7 +153,7 @@ pub struct SpaceHierarchy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceHierarchyNode {
     pub space: Space,
-    pub children: Vec<SpaceHierarchyNode>,
+    pub children: Vec<Self>,
     pub depth: i32,
 }
 
@@ -219,14 +219,14 @@ impl SpaceStorage {
         );
 
         let space = sqlx::query_as::<_, Space>(
-            r#"
+            r"
             INSERT INTO spaces (
                 space_id, room_id, name, topic, avatar_url, creator,
                 join_rule, visibility, is_public, created_ts, parent_space_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
-            "#,
+            ",
         )
         .bind(&space_id)
         .bind(&request.room_id)
@@ -249,14 +249,14 @@ impl SpaceStorage {
     }
 
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1"#)
+        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1")
             .bind(space_id)
             .fetch_optional(&*self.pool)
             .await
     }
 
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = $1"#)
+        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = $1")
             .bind(room_id)
             .fetch_optional(&*self.pool)
             .await
@@ -270,7 +270,7 @@ impl SpaceStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, Space>(
-            r#"
+            r"
             UPDATE spaces SET
                 name = COALESCE($2, name),
                 topic = COALESCE($3, topic),
@@ -281,7 +281,7 @@ impl SpaceStorage {
                 updated_ts = $8
             WHERE space_id = $1
             RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
-            "#,
+            ",
         )
         .bind(space_id)
         .bind(&request.name)
@@ -296,7 +296,7 @@ impl SpaceStorage {
     }
 
     pub async fn delete_space(&self, space_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM spaces WHERE space_id = $1"#)
+        sqlx::query(r"DELETE FROM spaces WHERE space_id = $1")
             .bind(space_id)
             .execute(&*self.pool)
             .await?;
@@ -350,7 +350,7 @@ impl SpaceStorage {
     }
 
     pub async fn remove_child(&self, space_id: &str, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM space_children WHERE space_id = $1 AND room_id = $2"#)
+        sqlx::query(r"DELETE FROM space_children WHERE space_id = $1 AND room_id = $2")
             .bind(space_id)
             .bind(room_id)
             .execute(&*self.pool)
@@ -418,7 +418,7 @@ impl SpaceStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, SpaceMember>(
-            r#"
+            r"
             INSERT INTO space_members (space_id, user_id, membership, joined_ts, inviter)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (space_id, user_id) DO UPDATE SET
@@ -428,7 +428,7 @@ impl SpaceStorage {
                 left_ts = NULL,
                 updated_ts = $4
             RETURNING space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
-            "#,
+            ",
         )
         .bind(space_id)
         .bind(user_id)
@@ -447,7 +447,7 @@ impl SpaceStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"UPDATE space_members SET membership = 'leave', left_ts = $3, updated_ts = $3 WHERE space_id = $1 AND user_id = $2"#
+            r"UPDATE space_members SET membership = 'leave', left_ts = $3, updated_ts = $3 WHERE space_id = $1 AND user_id = $2"
         )
         .bind(space_id)
         .bind(user_id)
@@ -460,7 +460,7 @@ impl SpaceStorage {
 
     pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, sqlx::Error> {
         sqlx::query_as::<_, SpaceMember>(
-            r#"SELECT * FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            r"SELECT * FROM space_members WHERE space_id = $1 AND membership = 'join'",
         )
         .bind(space_id)
         .fetch_all(&*self.pool)
@@ -473,7 +473,7 @@ impl SpaceStorage {
         user_id: &str,
     ) -> Result<Option<SpaceMember>, sqlx::Error> {
         sqlx::query_as::<_, SpaceMember>(
-            r#"SELECT * FROM space_members WHERE space_id = $1 AND user_id = $2"#,
+            r"SELECT * FROM space_members WHERE space_id = $1 AND user_id = $2",
         )
         .bind(space_id)
         .bind(user_id)
@@ -483,12 +483,12 @@ impl SpaceStorage {
 
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
-            r#"
+            r"
             SELECT s.space_id, s.room_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rule, s.visibility, s.created_ts, s.updated_ts, s.is_public, s.parent_space_id, s.room_type FROM spaces s
             JOIN space_members sm ON s.space_id = sm.space_id
             WHERE sm.user_id = $1 AND sm.membership = 'join'
             ORDER BY s.created_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -501,14 +501,14 @@ impl SpaceStorage {
         cursor_created_ts: Option<i64>,
         cursor_space_id: Option<&str>,
     ) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
+        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
             FROM spaces
             WHERE is_public = TRUE
               AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL)
                 OR created_ts < $2
                 OR (created_ts = $2 AND space_id < $3))
             ORDER BY created_ts DESC, space_id DESC
-            LIMIT $1"#)
+            LIMIT $1")
         .bind(limit)
         .bind(cursor_created_ts)
         .bind(cursor_space_id)
@@ -540,7 +540,7 @@ impl SpaceStorage {
         &self,
         space_id: &str,
     ) -> Result<Option<SpaceSummary>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceSummary>(r#"SELECT * FROM space_summaries WHERE space_id = $1"#)
+        sqlx::query_as::<_, SpaceSummary>(r"SELECT * FROM space_summaries WHERE space_id = $1")
             .bind(space_id)
             .fetch_optional(&*self.pool)
             .await
@@ -550,13 +550,13 @@ impl SpaceStorage {
         let now = Utc::now().timestamp_millis();
 
         let children_count: i64 =
-            sqlx::query_scalar(r#"SELECT COUNT(*) FROM space_children WHERE space_id = $1"#)
+            sqlx::query_scalar(r"SELECT COUNT(*) FROM space_children WHERE space_id = $1")
                 .bind(space_id)
                 .fetch_one(&*self.pool)
                 .await?;
 
         let member_count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
         )
         .bind(space_id)
         .fetch_one(&*self.pool)
@@ -568,7 +568,7 @@ impl SpaceStorage {
         });
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO space_summaries (space_id, summary, children_count, member_count, updated_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (space_id) DO UPDATE SET
@@ -576,7 +576,7 @@ impl SpaceStorage {
                 children_count = EXCLUDED.children_count,
                 member_count = EXCLUDED.member_count,
                 updated_ts = EXCLUDED.updated_ts
-            "#
+            "
         )
         .bind(space_id)
         .bind(&summary)
@@ -601,11 +601,11 @@ impl SpaceStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, SpaceEvent>(
-            r#"
+            r"
             INSERT INTO space_events (event_id, space_id, event_type, sender, content, state_key, origin_server_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts
-            "#,
+            ",
         )
         .bind(event_id)
         .bind(space_id)
@@ -627,7 +627,7 @@ impl SpaceStorage {
         match event_type {
             Some(et) => {
                 sqlx::query_as::<_, SpaceEvent>(
-                    r#"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3"#
+                    r"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3"
                 )
                 .bind(space_id)
                 .bind(et)
@@ -637,7 +637,7 @@ impl SpaceStorage {
             }
             None => {
                 sqlx::query_as::<_, SpaceEvent>(
-                    r#"SELECT * FROM space_events WHERE space_id = $1 ORDER BY origin_server_ts DESC LIMIT $2"#
+                    r"SELECT * FROM space_events WHERE space_id = $1 ORDER BY origin_server_ts DESC LIMIT $2"
                 )
                 .bind(space_id)
                 .bind(limit)
@@ -666,7 +666,7 @@ impl SpaceStorage {
         match user_id {
             Some(uid) => {
                 sqlx::query_as::<_, Space>(
-                    r#"
+                    r"
                     WITH visible_spaces AS (
                         SELECT DISTINCT s.space_id
                         FROM spaces s
@@ -743,7 +743,7 @@ impl SpaceStorage {
                         cm.match_similarity DESC,
                         s.created_ts DESC
                     LIMIT $6
-                    "#,
+                    ",
                 )
                 .bind(&exact_pattern)
                 .bind(&prefix_pattern)
@@ -756,7 +756,7 @@ impl SpaceStorage {
             }
             None => {
                 sqlx::query_as::<_, Space>(
-                    r#"
+                    r"
                     WITH candidate_matches AS (
                         SELECT
                             space_id,
@@ -826,7 +826,7 @@ impl SpaceStorage {
                         cm.match_similarity DESC,
                         s.created_ts DESC
                     LIMIT $5
-                    "#,
+                    ",
                 )
                 .bind(&exact_pattern)
                 .bind(&prefix_pattern)
@@ -845,7 +845,7 @@ impl SpaceStorage {
         user_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND user_id = $2 AND membership = 'join'"#
+            r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND user_id = $2 AND membership = 'join'"
         )
         .bind(space_id)
         .bind(user_id)
@@ -856,7 +856,7 @@ impl SpaceStorage {
     }
 
     pub async fn get_space_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r#"SELECT * FROM space_statistics ORDER BY member_count DESC"#)
+        sqlx::query(r"SELECT * FROM space_statistics ORDER BY member_count DESC")
             .fetch_all(&*self.pool)
             .await
             .map(|rows| {
@@ -1081,7 +1081,7 @@ impl SpaceStorage {
 
     async fn get_space_member_count(&self, space_id: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
-            r#"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
         )
         .bind(space_id)
         .fetch_one(&*self.pool)

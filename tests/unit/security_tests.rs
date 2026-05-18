@@ -176,7 +176,7 @@ fn test_jwt_secret_validation_low_entropy() {
 #[test]
 fn test_federation_timestamp_validation_current() {
     let now = chrono::Utc::now().timestamp_millis();
-    let tolerance_ms = 60000i64;
+    let tolerance_ms = 60_000i64;
 
     assert!(
         SecurityValidator::validate_federation_timestamp(now, tolerance_ms).is_ok(),
@@ -187,7 +187,7 @@ fn test_federation_timestamp_validation_current() {
 #[test]
 fn test_federation_timestamp_validation_within_tolerance() {
     let now = chrono::Utc::now().timestamp_millis();
-    let tolerance_ms = 60000i64;
+    let tolerance_ms = 60_000i64;
 
     let within_tolerance = now - 30000;
     assert!(
@@ -205,7 +205,7 @@ fn test_federation_timestamp_validation_within_tolerance() {
 #[test]
 fn test_federation_timestamp_validation_expired() {
     let now = chrono::Utc::now().timestamp_millis();
-    let tolerance_ms = 60000i64;
+    let tolerance_ms = 60_000i64;
 
     let expired = now - 120000;
     assert!(

@@ -494,7 +494,7 @@ mod tests {
             state_key: "@alice:example.com".to_string(),
             sender: "@alice:example.com".to_string(),
             description: Some("Alice's location".to_string()),
-            timeout: 3600000,
+            timeout: 3_600_000,
             is_live: true,
             asset_type: "m.self".to_string(),
             created_ts: 1234567890000,
@@ -503,7 +503,7 @@ mod tests {
         };
 
         assert_eq!(beacon.room_id, "!room:example.com");
-        assert_eq!(beacon.timeout, 3600000);
+        assert_eq!(beacon.timeout, 3_600_000);
         assert!(beacon.is_live);
     }
 
@@ -534,13 +534,13 @@ mod tests {
             state_key: "@alice:example.com".to_string(),
             sender: "@alice:example.com".to_string(),
             description: Some("Alice's location".to_string()),
-            timeout: 3600000,
+            timeout: 3_600_000,
             is_live: true,
             asset_type: "m.self".to_string(),
             created_ts: 1234567890000,
         };
 
-        assert_eq!(params.timeout, 3600000);
+        assert_eq!(params.timeout, 3_600_000);
         assert_eq!(params.asset_type, "m.self");
     }
 
