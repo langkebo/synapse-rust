@@ -142,9 +142,21 @@ impl StateGroupStorage {
         state_group_id: i64,
         prev_state_group_ids: &[i64],
     ) -> Result<(), sqlx::Error> {
-        for prev_id in prev_state_group_ids {
-            self.add_state_group_edge(state_group_id, *prev_id).await?;
+        if prev_state_group_ids.is_empty() {
+            return Ok(());
         }
+        sqlx::query(
+            r#"
+            INSERT INTO state_group_edges (state_group_id, prev_state_group_id)
+            SELECT $1, unnest($2::bigint[])
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(state_group_id)
+        .bind(prev_state_group_ids)
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 

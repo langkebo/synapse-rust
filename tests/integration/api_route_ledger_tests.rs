@@ -35,9 +35,11 @@ type TestFixture = Option<(axum::Router, AppState)>;
 
 static DEFAULT_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static WORKER_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
-static OPENCLAW_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static DEFAULT_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 static WORKER_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
+#[cfg(feature = "openclaw-routes")]
+static OPENCLAW_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
+#[cfg(feature = "openclaw-routes")]
 static OPENCLAW_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 
 async fn default_fixture() -> TestFixture {
@@ -64,6 +66,7 @@ async fn worker_enabled_fixture() -> TestFixture {
         .clone()
 }
 
+#[cfg(feature = "openclaw-routes")]
 async fn openclaw_enabled_fixture() -> TestFixture {
     OPENCLAW_ENABLED_FIXTURE
         .get_or_init(|| async {
@@ -101,6 +104,7 @@ async fn worker_enabled_ledger() -> Option<RouteLedger> {
         .clone()
 }
 
+#[cfg(feature = "openclaw-routes")]
 async fn openclaw_enabled_ledger() -> Option<RouteLedger> {
     OPENCLAW_ENABLED_LEDGER
         .get_or_init(|| async {

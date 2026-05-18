@@ -205,17 +205,19 @@ async fn upload_keys(
                 algorithms: inner_device_keys
                     .get("algorithms")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_else(|| {
-                        vec![
-                            "m.olm.v1.curve25519-aes-sha2".to_string(),
-                            "m.megolm.v1.aes-sha2".to_string(),
-                        ]
-                    }),
+                    .map_or_else(
+                        || {
+                            vec![
+                                "m.olm.v1.curve25519-aes-sha2".to_string(),
+                                "m.megolm.v1.aes-sha2".to_string(),
+                            ]
+                        },
+                        |arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        },
+                    ),
                 keys: inner_device_keys
                     .get("keys")
                     .cloned()
@@ -364,15 +366,11 @@ async fn claim_keys(
         one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
     }
 
-    let requested_device_count: usize = request
-        .one_time_keys
-        .as_object()
-        .map(|map| {
-            map.values()
-                .map(|v| v.as_object().map(|o| o.len()).unwrap_or(0))
-                .sum()
-        })
-        .unwrap_or(0);
+    let requested_device_count: usize = request.one_time_keys.as_object().map_or(0, |map| {
+        map.values()
+            .map(|v| v.as_object().map_or(0, |o| o.len()))
+            .sum()
+    });
 
     if requested_device_count == 0 {
         return Ok(Json(serde_json::json!({
@@ -389,15 +387,11 @@ async fn claim_keys(
         .claim_keys(request)
         .await?;
 
-    let claimed_device_count: usize = response
-        .one_time_keys
-        .as_object()
-        .map(|map| {
-            map.values()
-                .map(|v| v.as_object().map(|o| o.len()).unwrap_or(0))
-                .sum()
-        })
-        .unwrap_or(0);
+    let claimed_device_count: usize = response.one_time_keys.as_object().map_or(0, |map| {
+        map.values()
+            .map(|v| v.as_object().map_or(0, |o| o.len()))
+            .sum()
+    });
 
     let mut failures = if let serde_json::Value::Object(failures_map) = response.failures {
         failures_map
@@ -432,9 +426,9 @@ async fn key_changes(
     let to = params.get("to").and_then(parse_stream_id);
 
     let max_stream_id: i64 = sqlx::query_scalar(
-        r#"
+        r"
         SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        "#,
+        ",
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
@@ -443,7 +437,7 @@ async fn key_changes(
     let to = to.unwrap_or(max_stream_id);
 
     let changed_rows = sqlx::query(
-        r#"
+        r"
         SELECT DISTINCT user_id
         FROM device_lists_stream
         WHERE stream_id > $1
@@ -451,7 +445,7 @@ async fn key_changes(
           AND user_id != $3
         ORDER BY user_id
         LIMIT 100
-        "#,
+        ",
     )
     .bind(from)
     .bind(to)
@@ -474,7 +468,7 @@ async fn key_changes(
         .collect::<Vec<_>>();
 
     let left_rows = sqlx::query(
-        r#"
+        r"
         SELECT DISTINCT dl.user_id
         FROM device_lists_stream dl
         LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
@@ -484,7 +478,7 @@ async fn key_changes(
           AND rm.user_id IS NULL
         ORDER BY dl.user_id
         LIMIT 100
-        "#,
+        ",
     )
     .bind(from)
     .bind(to)
@@ -575,9 +569,9 @@ async fn device_list_update(
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
     let max_stream_id: i64 = sqlx::query_scalar(
-        r#"
+        r"
         SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        "#,
+        ",
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
@@ -586,14 +580,14 @@ async fn device_list_update(
     let to = if to > 0 { to } else { max_stream_id };
 
     let change_rows = sqlx::query_as::<_, (String, Option<String>, String, i64)>(
-        r#"
+        r"
         SELECT user_id, device_id, change_type, stream_id
         FROM device_lists_changes
         WHERE stream_id > $1
           AND stream_id <= $2
           AND user_id = ANY($3)
         ORDER BY stream_id ASC
-        "#,
+        ",
     )
     .bind(since)
     .bind(to)
@@ -621,11 +615,11 @@ async fn device_list_update(
         }
 
         let row = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
-            r#"
+            r"
             SELECT display_name, last_seen_ts
             FROM devices
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(&user_id)
         .bind(&device_id)
@@ -667,7 +661,7 @@ async fn device_list_update(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 async fn room_key_distribution(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,

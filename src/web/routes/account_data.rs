@@ -144,11 +144,11 @@ async fn set_account_data(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
-        "#,
+        ",
     )
     .bind(&user_id)
     .bind(&data_type)
@@ -233,11 +233,11 @@ async fn set_room_account_data(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
         ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_ts = $5
-        "#,
+        ",
     )
     .bind(&user_id)
     .bind(&room_id)
@@ -298,10 +298,10 @@ async fn create_filter(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO filters (filter_id, user_id, content, created_ts)
         VALUES ($1, $2, $3, $4)
-        "#,
+        ",
     )
     .bind(&filter_id)
     .bind(&user_id)
@@ -438,10 +438,10 @@ async fn get_openid_token(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO openid_tokens (token, user_id, created_ts, expires_at, is_valid)
         VALUES ($1, $2, $3, $4, TRUE)
-        "#,
+        ",
     )
     .bind(&token)
     .bind(&user_id)

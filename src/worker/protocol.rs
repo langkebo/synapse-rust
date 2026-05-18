@@ -164,44 +164,44 @@ pub enum PresenceState {
 impl fmt::Display for ReplicationCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReplicationCommand::Ping { timestamp } => write!(f, "PING {timestamp}"),
-            ReplicationCommand::Pong {
+            Self::Ping { timestamp } => write!(f, "PING {timestamp}"),
+            Self::Pong {
                 timestamp,
                 server_name,
             } => {
                 write!(f, "PONG {timestamp} {server_name}")
             }
-            ReplicationCommand::Name { name } => write!(f, "NAME {name}"),
-            ReplicationCommand::Replicate {
+            Self::Name { name } => write!(f, "NAME {name}"),
+            Self::Replicate {
                 stream_name, token, ..
             } => {
                 write!(f, "REPLICATE {stream_name} {token}")
             }
-            ReplicationCommand::Rdata {
+            Self::Rdata {
                 stream_name, token, ..
             } => {
                 write!(f, "RDATA {stream_name} {token}")
             }
-            ReplicationCommand::Position {
+            Self::Position {
                 stream_name,
                 position,
             } => {
                 write!(f, "POSITION {stream_name} {position}")
             }
-            ReplicationCommand::Error { message } => write!(f, "ERROR {message}"),
-            ReplicationCommand::Sync {
+            Self::Error { message } => write!(f, "ERROR {message}"),
+            Self::Sync {
                 stream_name,
                 position,
             } => {
                 write!(f, "SYNC {stream_name} {position}")
             }
-            ReplicationCommand::UserSync { user_id, state } => {
+            Self::UserSync { user_id, state } => {
                 write!(f, "USER_SYNC {user_id} {state:?}")
             }
-            ReplicationCommand::FederationAck { origin } => {
+            Self::FederationAck { origin } => {
                 write!(f, "FEDERATION_ACK {origin}")
             }
-            ReplicationCommand::RemovePushers { app_id, push_key } => {
+            Self::RemovePushers { app_id, push_key } => {
                 write!(f, "REMOVE_PUSHERS {app_id} {push_key}")
             }
         }
@@ -224,7 +224,7 @@ impl ReplicationCommand {
                     .ok_or_else(|| ReplicationError::MissingField("timestamp".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                Ok(ReplicationCommand::Ping { timestamp })
+                Ok(Self::Ping { timestamp })
             }
             "PONG" => {
                 let timestamp = parts
@@ -236,7 +236,7 @@ impl ReplicationCommand {
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("server_name".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::Pong {
+                Ok(Self::Pong {
                     timestamp,
                     server_name,
                 })
@@ -246,7 +246,7 @@ impl ReplicationCommand {
                     .get(1)
                     .ok_or_else(|| ReplicationError::MissingField("name".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::Name { name })
+                Ok(Self::Name { name })
             }
             "REPLICATE" => {
                 let stream_name = parts
@@ -257,7 +257,7 @@ impl ReplicationCommand {
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("token".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::Replicate {
+                Ok(Self::Replicate {
                     stream_name,
                     token,
                     data: serde_json::json!({}),
@@ -272,7 +272,7 @@ impl ReplicationCommand {
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("token".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::Rdata {
+                Ok(Self::Rdata {
                     stream_name,
                     token,
                     rows: vec![],
@@ -288,7 +288,7 @@ impl ReplicationCommand {
                     .ok_or_else(|| ReplicationError::MissingField("position".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                Ok(ReplicationCommand::Position {
+                Ok(Self::Position {
                     stream_name,
                     position,
                 })
@@ -299,7 +299,7 @@ impl ReplicationCommand {
                 } else {
                     "Unknown error".to_string()
                 };
-                Ok(ReplicationCommand::Error { message })
+                Ok(Self::Error { message })
             }
             "SYNC" => {
                 let stream_name = parts
@@ -311,7 +311,7 @@ impl ReplicationCommand {
                     .ok_or_else(|| ReplicationError::MissingField("position".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                Ok(ReplicationCommand::Sync {
+                Ok(Self::Sync {
                     stream_name,
                     position,
                 })
@@ -333,14 +333,14 @@ impl ReplicationCommand {
                         )))
                     }
                 };
-                Ok(ReplicationCommand::UserSync { user_id, state })
+                Ok(Self::UserSync { user_id, state })
             }
             "FEDERATION_ACK" => {
                 let origin = parts
                     .get(1)
                     .ok_or_else(|| ReplicationError::MissingField("origin".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::FederationAck { origin })
+                Ok(Self::FederationAck { origin })
             }
             "REMOVE_PUSHERS" => {
                 let app_id = parts
@@ -351,7 +351,7 @@ impl ReplicationCommand {
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("push_key".to_string()))?
                     .to_string();
-                Ok(ReplicationCommand::RemovePushers { app_id, push_key })
+                Ok(Self::RemovePushers { app_id, push_key })
             }
             _ => Err(ReplicationError::UnknownCommand(parts[0].to_string())),
         }

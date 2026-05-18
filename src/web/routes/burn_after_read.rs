@@ -111,7 +111,7 @@ pub async fn enable_burn(
     let burn_after_ms = body
         .get("burn_after_ms")
         .and_then(|v| v.as_i64())
-        .unwrap_or(60000); // Default 1 minute
+        .unwrap_or(60_000); // Default 1 minute
 
     state
         .services
@@ -147,7 +147,7 @@ pub async fn get_burn_settings(
         }))),
         None => Ok(Json(json!({
             "enabled": false,
-            "burn_after_ms": 60000,
+            "burn_after_ms": 60_000,
         }))),
     }
 }
@@ -255,7 +255,7 @@ pub async fn set_global_burn_config(
     let default_burn_ms = body
         .get("default_burn_ms")
         .and_then(|v| v.as_i64())
-        .unwrap_or(60000);
+        .unwrap_or(60_000);
 
     state
         .services

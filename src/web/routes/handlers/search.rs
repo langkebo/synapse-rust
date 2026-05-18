@@ -1,6 +1,7 @@
 use crate::common::ApiError;
+use crate::storage::event::StateEvent;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester, ensure_room_member_strict, AppState,
+    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, AppState,
     AuthenticatedUser,
 };
 use axum::{
@@ -20,7 +21,9 @@ const MAX_FILTER_ROOMS: usize = 50;
 const MAX_FILTER_TYPES: usize = 20;
 const MAX_FILTER_SENDERS: usize = 50;
 const MAX_SEARCH_LIMIT: u32 = 100;
+const DEFAULT_SEARCH_LIMIT: u32 = 10;
 const SEARCH_TIMEOUT_SECS: u64 = 30;
+const SEARCH_CACHE_TTL_SECS: u64 = 30;
 
 fn create_search_compat_router() -> Router<AppState> {
     Router::new()
@@ -326,6 +329,17 @@ async fn search_room_events(
         return Err(ApiError::bad_request("Invalid next_batch cursor"));
     }
 
+    let cache_key = format!(
+        "search:room_events:{}:{}:{}:{}",
+        user_id,
+        search.search_term.to_lowercase(),
+        limit,
+        next_batch.unwrap_or("")
+    );
+    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+        return Ok(cached);
+    }
+
     let joined_rooms = state
         .services
         .member_storage
@@ -360,8 +374,7 @@ async fn search_room_events(
         .filter
         .as_ref()
         .and_then(|f| f.types.as_ref())
-        .map(|t| !t.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|t| !t.is_empty());
 
     if !has_explicit_types {
         query_builder.push(" AND event_type = 'm.room.message'");
@@ -471,7 +484,7 @@ async fn search_room_events(
 
     let count = results.len() as i64;
 
-    Ok(json!({
+    let result = json!({
         "results": results,
         "count": count,
         "highlights": [],
@@ -483,7 +496,11 @@ async fn search_room_events(
             "sender": {}
         },
         "next_batch": next_batch
-    }))
+    });
+
+    let _ = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await;
+
+    Ok(result)
 }
 
 async fn search_users(
@@ -491,7 +508,18 @@ async fn search_users(
     user_id: &str,
     search: &UsersSearch,
 ) -> Result<Value, ApiError> {
-    let limit = search.limit.unwrap_or(10) as i64;
+    let limit = search.limit.unwrap_or(DEFAULT_SEARCH_LIMIT) as i64;
+
+    let cache_key = format!(
+        "search:users:{}:{}:{}",
+        user_id,
+        search.search_term.to_lowercase(),
+        limit
+    );
+    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+        return Ok(cached);
+    }
+
     let rate_limit_key = format!("ratelimit:search-users:{user_id}");
     let decision = state
         .cache
@@ -509,11 +537,14 @@ async fn search_users(
         .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let mut results = Vec::new();
+    let target_user_ids: Vec<String> = rows.iter().map(|r| r.user_id.clone()).collect();
+    let visibility = can_view_profile_for_requester_batch(state, Some(user_id), &target_user_ids).await?;
+
     for row in rows {
         let target_user_id = row.user_id;
         let presence = row.presence.unwrap_or_else(|| "offline".to_string());
 
-        if !can_view_profile_for_requester(state, Some(user_id), &target_user_id).await? {
+        if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
         }
 
@@ -528,10 +559,14 @@ async fn search_users(
         }));
     }
 
-    Ok(json!({
+    let result = json!({
         "results": results,
         "limited": results.len() as i64 == limit
-    }))
+    });
+
+    let _ = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await;
+
+    Ok(result)
 }
 
 async fn build_room_hierarchy_response(
@@ -576,16 +611,14 @@ async fn build_room_hierarchy_response(
             let rooms = obj
                 .get("rooms")
                 .and_then(|r| r.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0);
+                .map_or(0, |a| a.len());
             let has_space_self = obj
                 .get("rooms")
                 .and_then(|r| r.as_array())
-                .map(|a| {
+                .is_some_and(|a| {
                     a.iter()
                         .any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id))
-                })
-                .unwrap_or(false);
+                });
 
             if !has_space_self || rooms <= 1 {
                 let state_events = state
@@ -596,7 +629,7 @@ async fn build_room_hierarchy_response(
                     .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
 
                 let mut children_state = Vec::new();
-                let mut child_rooms = Vec::new();
+                let mut child_room_ids = Vec::new();
 
                 for ev in &state_events {
                     if ev.event_type.as_deref() == Some("m.space.child") {
@@ -619,62 +652,71 @@ async fn build_room_hierarchy_response(
                             }));
 
                             if max_depth > 0 {
-                                let child_room_id = match ev.state_key.as_deref() {
-                                    Some(sk) => sk.to_string(),
-                                    None => continue,
-                                };
-                                if let Some(child_room) = state
-                                    .services
-                                    .room_storage
-                                    .get_room(&child_room_id)
-                                    .await
-                                    .map_err(|e| {
-                                        ApiError::internal(format!(
-                                            "Failed to load child room: {e}"
-                                        ))
-                                    })?
-                                {
-                                    let child_state_events = state
-                                        .services
-                                        .event_storage
-                                        .get_state_events(&child_room_id)
-                                        .await
-                                        .unwrap_or_default();
-                                    let child_room_type = child_state_events
-                                        .iter()
-                                        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
-                                        .and_then(|e| e.content.get("type"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| Value::String(s.to_string()))
-                                        .unwrap_or(Value::Null);
-                                    child_rooms.push(json!({
-                                        "room_id": child_room.room_id,
-                                        "name": child_room.name,
-                                        "topic": child_room.topic,
-                                        "avatar_url": child_room.avatar_url,
-                                        "join_rule": child_room.join_rule,
-                                        "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
-                                        "guest_can_join": child_room.is_public,
-                                        "world_readable": child_room.history_visibility == "world_readable",
-                                        "num_joined_members": child_room.member_count,
-                                        "children": [],
-                                        "children_state": [],
-                                        "room_type": child_room_type,
-                                    }));
+                                if let Some(sk) = ev.state_key.as_deref() {
+                                    child_room_ids.push(sk.to_string());
                                 }
                             }
                         }
                     }
                 }
 
-                if !child_rooms.is_empty() || !has_space_self {
+                let child_rooms_map = if !child_room_ids.is_empty() {
+                    let rooms_batch = state
+                        .services
+                        .room_storage
+                        .get_rooms_batch(&child_room_ids)
+                        .await
+                        .map_err(|e| ApiError::internal(format!("Failed to load child rooms: {e}")))?;
+                    let mut map = HashMap::new();
+                    for room in rooms_batch {
+                        map.insert(room.room_id.clone(), room);
+                    }
+
+                    let state_batch = state
+                        .services
+                        .event_storage
+                        .get_state_events_batch(&child_room_ids)
+                        .await
+                        .unwrap_or_default();
+
+                    let mut child_rooms = Vec::new();
+                    for rid in &child_room_ids {
+                        if let Some(child_room) = map.get(rid) {
+                            let child_state_events: &[StateEvent] = state_batch.get(rid).map_or(&[], |v| v.as_slice());
+                            let child_room_type = child_state_events
+                                .iter()
+                                .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                                .and_then(|e| e.content.get("type"))
+                                .and_then(|v: &Value| v.as_str())
+                                .map_or(Value::Null, |s: &str| Value::String(s.to_string()));
+                            child_rooms.push(json!({
+                                "room_id": child_room.room_id,
+                                "name": child_room.name,
+                                "topic": child_room.topic,
+                                "avatar_url": child_room.avatar_url,
+                                "join_rule": child_room.join_rule,
+                                "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
+                                "guest_can_join": child_room.is_public,
+                                "world_readable": child_room.history_visibility == "world_readable",
+                                "num_joined_members": child_room.member_count,
+                                "children": [],
+                                "children_state": [],
+                                "room_type": child_room_type,
+                            }));
+                        }
+                    }
+                    child_rooms
+                } else {
+                    Vec::new()
+                };
+
+                if !child_rooms_map.is_empty() || !has_space_self {
                     let space_room_type = state_events
                         .iter()
                         .find(|e| e.event_type.as_deref() == Some("m.room.create"))
                         .and_then(|e| e.content.get("type"))
                         .and_then(|v| v.as_str())
-                        .map(|s| Value::String(s.to_string()))
-                        .unwrap_or(Value::Null);
+                        .map_or(Value::Null, |s| Value::String(s.to_string()));
 
                     if let Some(rooms_arr) = obj.get_mut("rooms").and_then(|r| r.as_array_mut()) {
                         if !has_space_self {
@@ -689,7 +731,7 @@ async fn build_room_hierarchy_response(
                                     "guest_can_join": r.is_public,
                                     "world_readable": r.history_visibility == "world_readable",
                                     "num_joined_members": r.member_count,
-                                    "children": child_rooms.iter().filter_map(|r| r.get("room_id").and_then(|v| v.as_str()).map(String::from)).collect::<Vec<_>>(),
+                                    "children": child_rooms_map.iter().filter_map(|r| r.get("room_id").and_then(|v| v.as_str()).map(String::from)).collect::<Vec<_>>(),
                                     "children_state": children_state,
                                     "room_type": space_room_type,
                                 }));
@@ -700,7 +742,7 @@ async fn build_room_hierarchy_response(
                                     .insert("children_state".to_string(), json!(children_state));
                                 first_obj.insert(
                                     "children".to_string(),
-                                    json!(child_rooms
+                                    json!(child_rooms_map
                                         .iter()
                                         .filter_map(|r| r
                                             .get("room_id")
@@ -710,7 +752,7 @@ async fn build_room_hierarchy_response(
                                 );
                             }
                         }
-                        rooms_arr.extend(child_rooms);
+                        rooms_arr.extend(child_rooms_map);
                     }
                 }
             }
@@ -735,11 +777,10 @@ async fn build_room_hierarchy_response(
         .find(|e| e.event_type.as_deref() == Some("m.room.create"))
         .and_then(|e| e.content.get("type"))
         .and_then(|v| v.as_str())
-        .map(|s| Value::String(s.to_string()))
-        .unwrap_or(Value::Null);
+        .map_or(Value::Null, |s| Value::String(s.to_string()));
 
     let mut children_state = Vec::new();
-    let mut child_rooms = Vec::new();
+    let mut child_room_ids = Vec::new();
 
     for ev in &state_events {
         if ev.event_type.as_deref() == Some("m.space.child") {
@@ -762,52 +803,64 @@ async fn build_room_hierarchy_response(
                 }));
 
                 if max_depth > 0 {
-                    let child_room_id = match ev.state_key.as_deref() {
-                        Some(sk) => sk.to_string(),
-                        None => continue,
-                    };
-                    if let Some(child_room) = state
-                        .services
-                        .room_storage
-                        .get_room(&child_room_id)
-                        .await
-                        .map_err(|e| {
-                            ApiError::internal(format!("Failed to load child room: {e}"))
-                        })?
-                    {
-                        let child_state_events = state
-                            .services
-                            .event_storage
-                            .get_state_events(&child_room_id)
-                            .await
-                            .unwrap_or_default();
-                        let child_room_type = child_state_events
-                            .iter()
-                            .find(|e| e.event_type.as_deref() == Some("m.room.create"))
-                            .and_then(|e| e.content.get("type"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| Value::String(s.to_string()))
-                            .unwrap_or(Value::Null);
-                        child_rooms.push(json!({
-                            "room_id": child_room.room_id,
-                            "name": child_room.name,
-                            "topic": child_room.topic,
-                            "avatar_url": child_room.avatar_url,
-                            "join_rule": child_room.join_rule,
-                            "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
-                            "guest_can_join": child_room.is_public,
-                            "world_readable": child_room.history_visibility == "world_readable",
-                            "num_joined_members": child_room.member_count,
-                            "children": [],
-                            "children_state": [],
-                            "room_type": child_room_type,
-                            "required_state_info": []
-                        }));
+                    if let Some(sk) = ev.state_key.as_deref() {
+                        child_room_ids.push(sk.to_string());
                     }
                 }
             }
         }
     }
+
+    let child_rooms = if !child_room_ids.is_empty() {
+        let rooms_batch = state
+            .services
+            .room_storage
+            .get_rooms_batch(&child_room_ids)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to load child rooms: {e}")))?;
+        let mut map = HashMap::new();
+        for room in rooms_batch {
+            map.insert(room.room_id.clone(), room);
+        }
+
+        let state_batch = state
+            .services
+            .event_storage
+            .get_state_events_batch(&child_room_ids)
+            .await
+            .unwrap_or_default();
+
+        let mut result = Vec::new();
+        for rid in &child_room_ids {
+            if let Some(child_room) = map.get(rid) {
+                let child_state_events: &[StateEvent] = state_batch.get(rid).map_or(&[], |v| v.as_slice());
+                let child_room_type = child_state_events
+                    .iter()
+                    .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                    .and_then(|e| e.content.get("type"))
+                    .and_then(|v: &Value| v.as_str())
+                    .map_or(Value::Null, |s: &str| Value::String(s.to_string()));
+                result.push(json!({
+                    "room_id": child_room.room_id,
+                    "name": child_room.name,
+                    "topic": child_room.topic,
+                    "avatar_url": child_room.avatar_url,
+                    "join_rule": child_room.join_rule,
+                    "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
+                    "guest_can_join": child_room.is_public,
+                    "world_readable": child_room.history_visibility == "world_readable",
+                    "num_joined_members": child_room.member_count,
+                    "children": [],
+                    "children_state": [],
+                    "room_type": child_room_type,
+                    "required_state_info": []
+                }));
+            }
+        }
+        result
+    } else {
+        Vec::new()
+    };
 
     let mut rooms = vec![json!({
         "room_id": room.room_id,
@@ -886,8 +939,7 @@ async fn get_room_hierarchy_v3(
 
     let suggested_only = params
         .get("suggested_only")
-        .map(|v| v == "true")
-        .unwrap_or(false);
+        .is_some_and(|v| v == "true");
 
     let mut response = build_room_hierarchy_response(
         &state,
@@ -918,7 +970,7 @@ async fn timestamp_to_event(
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| ApiError::bad_request("Missing ts parameter".to_string()))?;
 
-    let dir = params.get("dir").map(|v| v.as_str()).unwrap_or("f");
+    let dir = params.get("dir").map_or("f", |v| v.as_str());
 
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
@@ -967,7 +1019,8 @@ async fn get_event_context(
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(10);
+        .unwrap_or(10)
+        .clamp(1, 100);
 
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
@@ -1333,13 +1386,14 @@ async fn search_recipients(
         .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
 
     let mut results = Vec::new();
+    let target_user_ids: Vec<String> = users.iter().map(|r| r.user_id.clone()).collect();
+    let visibility = can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
+
     for row in users {
         let target_user_id = row.user_id;
         let presence = row.presence.unwrap_or_else(|| "offline".to_string());
         let online = presence == "online";
-        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &target_user_id)
-            .await?
-        {
+        if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
         }
 
@@ -1387,7 +1441,7 @@ async fn search_rooms(
     let search_pattern = format!("%{}%", search_term.to_lowercase());
 
     let rooms = sqlx::query(
-        r#"
+        r"
         SELECT room_id, name, topic, avatar_url, is_public
         FROM rooms
         WHERE
@@ -1404,7 +1458,7 @@ async fn search_rooms(
             )
         ORDER BY name
         LIMIT $3
-        "#,
+        ",
     )
     .bind(&search_pattern)
     .bind(&auth_user.user_id)

@@ -130,7 +130,7 @@ async fn create_widget_session(app: &axum::Router, token: &str, widget_id: &str)
         .body(Body::from(
             json!({
                 "device_id": "DEVICE123",
-                "expires_in_ms": 60000
+                "expires_in_ms": 60_000
             })
             .to_string(),
         ))
@@ -532,7 +532,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
         .body(Body::from(
             json!({
                 "device_id": "DEVICE456",
-                "expires_in_ms": 60000
+                "expires_in_ms": 60_000
             })
             .to_string(),
         ))
@@ -616,7 +616,7 @@ async fn test_create_widget_session_uses_path_widget_id() {
         .body(Body::from(
             json!({
                 "device_id": "DEVICE123",
-                "expires_in_ms": 60000
+                "expires_in_ms": 60_000
             })
             .to_string(),
         ))

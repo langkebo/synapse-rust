@@ -62,7 +62,7 @@ impl RelationsStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, EventRelation>(
-            r#"
+            r"
             INSERT INTO event_relations (
                 room_id, event_id, relates_to_event_id, relation_type,
                 sender, origin_server_ts, content, created_ts
@@ -74,7 +74,7 @@ impl RelationsStorage {
                 is_redacted = FALSE
             RETURNING id, room_id, event_id, relates_to_event_id, relation_type,
                       sender, origin_server_ts, content, is_redacted, created_ts
-            "#,
+            ",
         )
         .bind(&params.room_id)
         .bind(&params.event_id)
@@ -94,12 +94,12 @@ impl RelationsStorage {
         event_id: &str,
     ) -> Result<Option<EventRelation>, sqlx::Error> {
         sqlx::query_as::<_, EventRelation>(
-            r#"
+            r"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
             WHERE room_id = $1 AND event_id = $2 AND is_redacted = FALSE
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -114,13 +114,13 @@ impl RelationsStorage {
         relation_type: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
         let count: (i64,) = sqlx::query_as(
-            r#"
+            r"
             SELECT COUNT(*)
             FROM event_relations
             WHERE room_id = $1 AND relates_to_event_id = $2
               AND ($3::text IS NULL OR relation_type = $3)
               AND is_redacted = FALSE
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)
@@ -143,7 +143,7 @@ impl RelationsStorage {
                 let from = params.from.unwrap_or_default();
                 if let Some(ref rel_type) = params.relation_type {
                     sqlx::query_as::<_, EventRelation>(
-                        r#"
+                        r"
                         SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                                sender, origin_server_ts, content, is_redacted, created_ts
                         FROM event_relations
@@ -153,7 +153,7 @@ impl RelationsStorage {
                           AND is_redacted = FALSE
                         ORDER BY origin_server_ts DESC, event_id DESC
                         LIMIT $5
-                        "#,
+                        ",
                     )
                     .bind(&params.room_id)
                     .bind(&params.relates_to_event_id)
@@ -164,7 +164,7 @@ impl RelationsStorage {
                     .await
                 } else {
                     sqlx::query_as::<_, EventRelation>(
-                        r#"
+                        r"
                         SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                                sender, origin_server_ts, content, is_redacted, created_ts
                         FROM event_relations
@@ -173,7 +173,7 @@ impl RelationsStorage {
                           AND is_redacted = FALSE
                         ORDER BY origin_server_ts DESC, event_id DESC
                         LIMIT $4
-                        "#,
+                        ",
                     )
                     .bind(&params.room_id)
                     .bind(&params.relates_to_event_id)
@@ -187,7 +187,7 @@ impl RelationsStorage {
                 let from = params.from.unwrap_or_default();
                 if let Some(ref rel_type) = params.relation_type {
                     sqlx::query_as::<_, EventRelation>(
-                        r#"
+                        r"
                         SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                                sender, origin_server_ts, content, is_redacted, created_ts
                         FROM event_relations
@@ -197,7 +197,7 @@ impl RelationsStorage {
                           AND is_redacted = FALSE
                         ORDER BY origin_server_ts ASC, event_id ASC
                         LIMIT $5
-                        "#,
+                        ",
                     )
                     .bind(&params.room_id)
                     .bind(&params.relates_to_event_id)
@@ -208,7 +208,7 @@ impl RelationsStorage {
                     .await
                 } else {
                     sqlx::query_as::<_, EventRelation>(
-                        r#"
+                        r"
                         SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                                sender, origin_server_ts, content, is_redacted, created_ts
                         FROM event_relations
@@ -217,7 +217,7 @@ impl RelationsStorage {
                           AND is_redacted = FALSE
                         ORDER BY origin_server_ts ASC, event_id ASC
                         LIMIT $4
-                        "#,
+                        ",
                     )
                     .bind(&params.room_id)
                     .bind(&params.relates_to_event_id)
@@ -241,7 +241,7 @@ impl RelationsStorage {
         let limit = limit.unwrap_or(50).min(100);
 
         sqlx::query_as::<_, EventRelation>(
-            r#"
+            r"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -250,7 +250,7 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)
@@ -268,7 +268,7 @@ impl RelationsStorage {
         let limit = limit.unwrap_or(50).min(100);
 
         sqlx::query_as::<_, EventRelation>(
-            r#"
+            r"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -277,7 +277,7 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)
@@ -293,7 +293,7 @@ impl RelationsStorage {
         sender: &str,
     ) -> Result<Option<EventRelation>, sqlx::Error> {
         sqlx::query_as::<_, EventRelation>(
-            r#"
+            r"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -303,7 +303,7 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)
@@ -318,7 +318,7 @@ impl RelationsStorage {
         relates_to_event_id: &str,
     ) -> Result<Vec<AggregationResult>, sqlx::Error> {
         sqlx::query_as::<_, AggregationResult>(
-            r#"
+            r"
             SELECT
                 relation_type,
                 content->>'body' as key,
@@ -330,7 +330,7 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             GROUP BY relation_type, content->>'body'
             ORDER BY count DESC
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)
@@ -340,11 +340,11 @@ impl RelationsStorage {
 
     pub async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE event_relations
             SET is_redacted = TRUE, content = '{}'
             WHERE room_id = $1 AND event_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -361,10 +361,10 @@ impl RelationsStorage {
         sender: &str,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM event_relations
             WHERE room_id = $1 AND event_id = $2 AND sender = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -383,13 +383,13 @@ impl RelationsStorage {
         sender: &str,
     ) -> Result<bool, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(
-            r#"
+            r"
             SELECT 1 FROM event_relations
             WHERE room_id = $1 AND relates_to_event_id = $2
               AND relation_type = $3 AND sender = $4
               AND is_redacted = FALSE
             LIMIT 1
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(relates_to_event_id)

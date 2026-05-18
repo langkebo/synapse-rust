@@ -42,14 +42,14 @@ pub async fn get_ephemeral_events(
 
     // Get ephemeral events (typing, receipts, etc.)
     let rows = sqlx::query(
-        r#"
+        r"
         SELECT event_type, user_id, content, stream_id, created_ts
         FROM room_ephemeral
         WHERE room_id = $1
         AND (expires_at IS NULL OR expires_at > $2)
         ORDER BY stream_id DESC
         LIMIT $3
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(now)

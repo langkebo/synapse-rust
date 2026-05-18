@@ -441,9 +441,9 @@ pub async fn get_device_list_updates(
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
     let max_stream_id: i64 = sqlx::query_scalar(
-        r#"
+        r"
         SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        "#,
+        ",
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
@@ -452,14 +452,14 @@ pub async fn get_device_list_updates(
     let to = if to > 0 { to } else { max_stream_id };
 
     let change_rows = sqlx::query_as::<_, (String, Option<String>, String, i64)>(
-        r#"
+        r"
         SELECT user_id, device_id, change_type, stream_id
         FROM device_lists_changes
         WHERE stream_id > $1
           AND stream_id <= $2
           AND user_id = ANY($3)
         ORDER BY stream_id ASC
-        "#,
+        ",
     )
     .bind(since)
     .bind(to)
@@ -487,11 +487,11 @@ pub async fn get_device_list_updates(
         }
 
         let row = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
-            r#"
+            r"
             SELECT display_name, last_seen_ts
             FROM devices
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(&user_id)
         .bind(&device_id)

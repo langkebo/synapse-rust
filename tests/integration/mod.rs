@@ -66,6 +66,8 @@ mod coverage_tests;
 
 use std::sync::Arc;
 
+static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
+
 pub fn with_local_connect_info(
     mut request: hyper::Request<axum::body::Body>,
 ) -> hyper::Request<axum::body::Body> {
@@ -87,41 +89,46 @@ fn integration_tests_required() -> bool {
 }
 
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
-    let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+    TEST_POOL
+        .get_or_init(|| async {
+            let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
 
-    let result = if use_isolated {
-        synapse_rust::test_utils::prepare_isolated_test_pool().await
-    } else {
-        match synapse_rust::test_utils::prepare_shared_test_pool().await {
-            Ok(pool) => Ok(pool),
-            Err(error) if should_fallback_to_isolated_pool(&error) => {
-                eprintln!(
-                    "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
-                );
+            let result = if use_isolated {
                 synapse_rust::test_utils::prepare_isolated_test_pool().await
-            }
-            Err(error) => Err(error),
-        }
-    };
+            } else {
+                match synapse_rust::test_utils::prepare_shared_test_pool().await {
+                    Ok(pool) => Ok(pool),
+                    Err(error) if should_fallback_to_isolated_pool(&error) => {
+                        eprintln!(
+                            "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
+                        );
+                        synapse_rust::test_utils::prepare_isolated_test_pool().await
+                    }
+                    Err(error) => Err(error),
+                }
+            };
 
-    match result {
-        Ok(pool) => Some(pool),
-        Err(error) => {
-            eprintln!(
-                "Skipping integration tests because schema setup failed: {}",
-                error
-            );
-            if integration_tests_required() {
-                panic!(
-                    "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
-                    error
-                );
+            match result {
+                Ok(pool) => Some(pool),
+                Err(error) => {
+                    eprintln!(
+                        "Skipping integration tests because schema setup failed: {}",
+                        error
+                    );
+                    if integration_tests_required() {
+                        panic!(
+                            "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
+                            error
+                        );
+                    }
+                    None
+                }
             }
-            None
-        }
-    }
+        })
+        .await
+        .clone()
 }
 
 fn should_fallback_to_isolated_pool(error: &str) -> bool {
@@ -141,11 +148,44 @@ pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
 
 pub fn clear_test_cache() {}
 
+static DEFAULT_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust::web::routes::state::AppState)>> =
+    tokio::sync::OnceCell::const_new();
+
+static FEDERATION_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust::web::routes::state::AppState)>> =
+    tokio::sync::OnceCell::const_new();
+
 pub async fn setup_test_app() -> Option<axum::Router> {
-    setup_test_app_with_config(|_| {}).await.map(|(app, _)| app)
+    let cached = DEFAULT_APP
+        .get_or_init(|| async { build_test_app(|_| {}).await })
+        .await;
+    cached.as_ref().map(|(app, _)| app.clone())
 }
 
 pub async fn setup_test_app_with_config<F>(
+    configure: F,
+) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+where
+    F: FnOnce(&mut synapse_rust::services::ServiceContainer),
+{
+    build_test_app(configure).await
+}
+
+pub async fn setup_test_app_with_state(
+) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+    let cached = FEDERATION_APP
+        .get_or_init(|| async {
+            build_test_app(|container| {
+                container.config.federation.allow_ingress = true;
+            })
+            .await
+        })
+        .await;
+    cached
+        .as_ref()
+        .map(|(app, state)| (app.clone(), state.clone()))
+}
+
+async fn build_test_app<F>(
     configure: F,
 ) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
 where
@@ -156,7 +196,7 @@ where
     use synapse_rust::web::routes::state::AppState;
 
     let pool = get_test_pool().await?;
-    let cache = std::sync::Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);
     let state = AppState::new(container, cache);
@@ -165,12 +205,16 @@ where
     Some((app, state))
 }
 
-pub async fn setup_test_app_with_state(
-) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
-    setup_test_app_with_config(|container| {
-        container.config.federation.allow_ingress = true;
+pub async fn setup_test_app_with_pool(
+) -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<synapse_rust::cache::CacheManager>)> {
+    let cached = DEFAULT_APP
+        .get_or_init(|| async { build_test_app(|_| {}).await })
+        .await;
+    cached.as_ref().map(|(app, state)| {
+        let pool = state.services.user_storage.pool.clone();
+        let cache = state.cache.clone();
+        (app.clone(), pool, cache)
     })
-    .await
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {

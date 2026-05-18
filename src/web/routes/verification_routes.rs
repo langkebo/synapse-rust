@@ -36,6 +36,18 @@ fn create_verification_compat_router() -> Router<AppState> {
         )
         .route("/keys/qr_code/show", get(show_qr_code))
         .route("/keys/qr_code/scan", post(scan_qr_code))
+        .route(
+            "/keys/verification/request",
+            post(stub_verification_request),
+        )
+        .route(
+            "/keys/verification/{transaction_id}",
+            get(stub_verification_status),
+        )
+        .route(
+            "/keys/verification/{transaction_id}/cancel",
+            post(stub_verification_cancel),
+        )
 }
 
 pub fn create_verification_router(_state: AppState) -> Router<AppState> {
@@ -43,13 +55,15 @@ pub fn create_verification_router(_state: AppState) -> Router<AppState> {
 
     Router::new()
         .nest("/_matrix/client/v1", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
+        .nest("/_matrix/client/r0", compat_router.clone())
+        .nest("/_matrix/client/v3", compat_router)
 }
 
-/// Nest prefixes used by `create_verification_router`. v3 is intentionally
-/// excluded — the spec endpoints under `/_matrix/client/v3/keys/device_signing/*`
-/// are owned by `e2ee_routes`, not this module.
-const VERIFICATION_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0"];
+const VERIFICATION_NEST_PREFIXES: &[&str] = &[
+    "/_matrix/client/v1",
+    "/_matrix/client/r0",
+    "/_matrix/client/v3",
+];
 
 fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -63,6 +77,12 @@ fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static st
         (Method::GET, "/keys/device_signing/requests"),
         (Method::GET, "/keys/qr_code/show"),
         (Method::POST, "/keys/qr_code/scan"),
+        (Method::POST, "/keys/verification/request"),
+        (Method::GET, "/keys/verification/{transaction_id}"),
+        (
+            Method::POST,
+            "/keys/verification/{transaction_id}/cancel",
+        ),
     ]
 }
 
@@ -115,12 +135,16 @@ async fn verification_start(
         .or(body.methods.as_ref().and_then(|m| m.first().map(|s| s.as_str())))
         .unwrap_or("m.sas.v1");
 
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
+
     let sas_data = state
         .services
         .verification_service
         .start_sas_verification(
             &auth_user.user_id,
-            &auth_user.device_id.unwrap_or_default(),
+            &device_id,
             &to_user,
             if to_device.is_empty() {
                 None
@@ -159,7 +183,9 @@ async fn verification_accept(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.unwrap_or_default();
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -209,7 +235,9 @@ async fn verification_key_agreement(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.unwrap_or_default();
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -280,7 +308,9 @@ async fn verification_mac(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.unwrap_or_default();
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -330,7 +360,9 @@ async fn verification_done(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.unwrap_or_default();
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -378,7 +410,9 @@ async fn verification_cancel(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.unwrap_or_default();
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -415,7 +449,7 @@ async fn list_verification_requests(
         .await?;
 
     Ok(Json(json!({
-        "requests": requests.into_iter().map(serialize_verification_request).collect::<Vec<_>>()
+        "requests": requests.iter().map(serialize_verification_request).collect::<Vec<_>>()
     })))
 }
 
@@ -497,7 +531,7 @@ fn generate_decimal_from_emoji(emojis: &[String]) -> u32 {
 }
 
 fn serialize_verification_request(
-    request: crate::e2ee::verification::VerificationRequest,
+    request: &crate::e2ee::verification::VerificationRequest,
 ) -> Value {
     json!({
         "transaction_id": request.transaction_id,
@@ -518,6 +552,21 @@ const SAS_EMOJIS: &[&str; 64] = &[
     "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
     "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
+
+#[allow(clippy::unused_async)]
+async fn stub_verification_request() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_verification_status() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
+
+#[allow(clippy::unused_async)]
+async fn stub_verification_cancel() -> Result<Json<Value>, ApiError> {
+    Err(ApiError::unrecognized("This endpoint is not supported"))
+}
 
 #[cfg(test)]
 mod tests {
@@ -547,9 +596,12 @@ mod tests {
             "/keys/device_signing/requests",
             "/keys/qr_code/show",
             "/keys/qr_code/scan",
+            "/keys/verification/request",
+            "/keys/verification/{transaction_id}",
+            "/keys/verification/{transaction_id}/cancel",
         ];
 
-        assert_eq!(shared_paths.len(), 9);
+        assert_eq!(shared_paths.len(), 12);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
     }
 
@@ -567,7 +619,7 @@ mod tests {
             updated_ts: Some(2),
         };
 
-        let json = super::serialize_verification_request(request);
+        let json = super::serialize_verification_request(&request);
         assert_eq!(json["transaction_id"], "txn-1");
         assert_eq!(json["method"], "sas");
         assert_eq!(json["state"], "requested");

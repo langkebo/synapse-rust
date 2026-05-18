@@ -150,7 +150,7 @@ impl FederationBlacklistStorage {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            r#"
+            r"
             INSERT INTO federation_blacklist (
                 server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata
             )
@@ -164,7 +164,7 @@ impl FederationBlacklistStorage {
                 is_enabled = true,
                 metadata = $7
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.server_name)
         .bind(&request.block_type)
@@ -189,11 +189,11 @@ impl FederationBlacklistStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE federation_blacklist 
             SET is_enabled = false, updated_ts = $1
             WHERE server_name = $2
-            "#,
+            ",
         )
         .bind(now)
         .bind(server_name)
@@ -223,7 +223,7 @@ impl FederationBlacklistStorage {
         server_name: &str,
     ) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            r#"
+            r"
             SELECT
                 id,
                 server_name,
@@ -237,7 +237,7 @@ impl FederationBlacklistStorage {
                 '{}'::jsonb AS metadata
             FROM federation_blacklist
             WHERE server_name = $1
-            "#,
+            ",
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)
@@ -265,10 +265,10 @@ impl FederationBlacklistStorage {
 
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
-            r#"
+            r"
             SELECT * FROM federation_blacklist 
             WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
-            "#,
+            ",
         )
         .bind(server_name)
         .fetch_optional(&*self.pool)
@@ -285,7 +285,7 @@ impl FederationBlacklistStorage {
     ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
         let rows = if let Some(cursor) = from {
             sqlx::query_as::<_, FederationBlacklist>(
-                r#"
+                r"
                 SELECT
                     id,
                     server_name,
@@ -301,7 +301,7 @@ impl FederationBlacklistStorage {
                 WHERE (added_ts, server_name) < ($1, $2)
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $3
-                "#,
+                ",
             )
             .bind(cursor.created_ts)
             .bind(cursor.server_name)
@@ -311,7 +311,7 @@ impl FederationBlacklistStorage {
             .map_err(|e| ApiError::internal(format!("Failed to get blacklist: {e}")))?
         } else {
             sqlx::query_as::<_, FederationBlacklist>(
-                r#"
+                r"
                 SELECT
                     id,
                     server_name,
@@ -326,7 +326,7 @@ impl FederationBlacklistStorage {
                 FROM federation_blacklist
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
-                "#,
+                ",
             )
             .bind(limit + 1)
             .fetch_all(&*self.pool)
@@ -355,13 +355,13 @@ impl FederationBlacklistStorage {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklistLog>(
-            r#"
+            r"
             INSERT INTO federation_blacklist_log (
                 server_name, action, old_status, new_status, reason, performed_by, ip_address, user_agent, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.server_name)
         .bind(&request.action)
@@ -386,7 +386,7 @@ impl FederationBlacklistStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationAccessStats>(
-            r#"
+            r"
             INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests, 
                 last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
             VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
@@ -404,7 +404,7 @@ impl FederationBlacklistStorage {
                 error_rate = CAST(federation_access_stats.failed_requests AS FLOAT) / NULLIF(federation_access_stats.total_requests, 0),
                 updated_ts = $4
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.server_name)
         .bind(if request.is_success { 1 } else { 0 })
@@ -443,13 +443,13 @@ impl FederationBlacklistStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistRule>(
-            r#"
+            r"
             INSERT INTO federation_blacklist_rule (
                 rule_name, rule_type, pattern, action, priority, description, created_ts, updated_ts, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.rule_name)
         .bind(&request.rule_type)

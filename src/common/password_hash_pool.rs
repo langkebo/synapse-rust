@@ -114,11 +114,11 @@ impl PasswordHashPool {
         let _ = PASSWORD_HASH_POOL.set(pool);
     }
 
-    pub fn get_global() -> Option<&'static PasswordHashPool> {
+    pub fn get_global() -> Option<&'static Self> {
         PASSWORD_HASH_POOL.get()
     }
 
-    pub fn get_or_init_default() -> &'static PasswordHashPool {
+    pub fn get_or_init_default() -> &'static Self {
         PASSWORD_HASH_POOL
             .get_or_init(|| Self::new(PasswordHashPoolConfig::default(), Argon2Config::default()))
     }

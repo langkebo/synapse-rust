@@ -18,8 +18,8 @@ impl FromStr for ThumbnailMethod {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "crop" => Ok(ThumbnailMethod::Crop),
-            "scale" => Ok(ThumbnailMethod::Scale),
+            "crop" => Ok(Self::Crop),
+            "scale" => Ok(Self::Scale),
             _ => Err(format!("Invalid thumbnail method: {s}")),
         }
     }
@@ -267,11 +267,11 @@ impl MediaService {
         if let Some(pool) = &self.pool {
             let now = chrono::Utc::now().timestamp_millis();
             if let Err(e) = sqlx::query(
-                r#"
+                r"
                 INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (media_id) DO UPDATE SET content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name, size = EXCLUDED.size
-                "#,
+                ",
             )
             .bind(media_id)
             .bind(&self.server_name)
@@ -521,7 +521,7 @@ impl MediaService {
                 _,
                 (String, Option<String>, i64),
             >(
-                r#"SELECT content_type, file_name, size FROM media_metadata WHERE media_id = $1"#,
+                r"SELECT content_type, file_name, size FROM media_metadata WHERE media_id = $1",
             )
             .bind(media_id)
             .fetch_optional(pool.as_ref())

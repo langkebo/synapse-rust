@@ -1,12 +1,12 @@
 use super::{
     extract_origin_candidate, is_origin_allowed, is_safe_http_method, same_origin,
 };
+use crate::common::error::ApiError;
 use crate::web::routes::AppState;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
-use axum::response::Response;
+use axum::http::{HeaderMap, HeaderValue, Request};
+use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
-use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const ADMIN_TOKEN_TTL_SECS: u64 = 24 * 3600;
@@ -71,21 +71,6 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn csrf_forbidden_response(message: &str) -> Response {
-    let mut response = Response::new(Body::from(
-        json!({
-            "errcode": "M_FORBIDDEN",
-            "error": message
-        })
-        .to_string(),
-    ));
-    *response.status_mut() = StatusCode::FORBIDDEN;
-    response
-        .headers_mut()
-        .insert("content-type", HeaderValue::from_static("application/json"));
-    response
-}
-
 pub async fn csrf_middleware(
     State(state): State<AppState>,
     request: Request<Body>,
@@ -102,7 +87,7 @@ pub async fn csrf_middleware(
         let origin = request_origin.unwrap_or_default();
         if !same_origin(&origin, &headers) && !is_origin_allowed(&origin) {
             tracing::warn!("CSRF origin rejected: {}", origin);
-            return csrf_forbidden_response("Cross-site requests are not allowed");
+            return ApiError::Forbidden("Cross-site requests are not allowed".to_string()).into_response();
         }
 
         let csrf_token = headers
@@ -111,7 +96,7 @@ pub async fn csrf_middleware(
 
         match (session_id.as_deref(), csrf_token) {
             (Some(session), Some(token)) if csrf_manager.validate_token(token, session) => {}
-            _ => return csrf_forbidden_response("Missing or invalid CSRF token"),
+            _ => return ApiError::Forbidden("Missing or invalid CSRF token".to_string()).into_response(),
         }
     }
 
@@ -134,6 +119,7 @@ mod tests {
     use crate::cache::{CacheConfig, CacheManager};
     use crate::services::ServiceContainer;
     use crate::web::routes::AppState;
+    use axum::http::StatusCode;
     use axum::{middleware, routing::post, Router};
     use std::sync::Arc;
     use std::time::Duration;
@@ -211,7 +197,7 @@ mod tests {
         let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let app = Router::new()
@@ -252,7 +238,7 @@ mod tests {
         let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let app = Router::new()
@@ -297,7 +283,7 @@ mod tests {
         let session_id = "sid=session-cookie";
         let csrf_token = csrf_manager.generate_token(session_id);
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let app = Router::new()

@@ -881,7 +881,7 @@ pub async fn create_or_update_user_v2(
 
     if let Some(_user) = existing_user {
         sqlx::query(
-            r#"
+            r"
             UPDATE users SET
                 displayname = COALESCE($2, displayname),
                 avatar_url = COALESCE($3, avatar_url),
@@ -890,7 +890,7 @@ pub async fn create_or_update_user_v2(
                 user_type = COALESCE($6, user_type),
                 updated_ts = $7
             WHERE username = $1 OR user_id = $1
-            "#,
+            ",
         )
         .bind(&user_id)
         .bind(&body.displayname)
@@ -926,10 +926,10 @@ pub async fn create_or_update_user_v2(
         };
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, created_ts, updated_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
-            "#,
+            ",
         )
         .bind(&user_id_full)
         .bind(&username)
@@ -955,7 +955,7 @@ pub async fn get_user_stats(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
     let stats = sqlx::query(
-        r#"
+        r"
         SELECT
             COUNT(*)::BIGINT AS total_users,
             COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE)::BIGINT AS active_users,
@@ -963,7 +963,7 @@ pub async fn get_user_stats(
             COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE)::BIGINT AS deactivated_users,
             COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE)::BIGINT AS guest_users
         FROM users
-        "#,
+        ",
     )
     .fetch_one(&*state.services.user_storage.pool)
     .await
@@ -1087,11 +1087,11 @@ pub async fn batch_create_users(
             .map_err(|e| ApiError::internal(format!("Failed to hash password: {e}")))?;
 
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (username) DO NOTHING
-            "#
+            "
         )
         .bind(format!("@{}:{}", username, state.services.config.server.name))
         .bind(&username)

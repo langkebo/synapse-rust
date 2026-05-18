@@ -24,10 +24,10 @@ pub enum KeyRequestAction {
 impl KeyRequestAction {
     pub fn as_str(&self) -> &'static str {
         match self {
-            KeyRequestAction::Request => "request",
-            KeyRequestAction::Cancellation => "cancellation",
-            KeyRequestAction::Requested => "requested",
-            KeyRequestAction::Cancelled => "cancelled",
+            Self::Request => "request",
+            Self::Cancellation => "cancellation",
+            Self::Requested => "requested",
+            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -37,10 +37,10 @@ impl std::str::FromStr for KeyRequestAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "request" => Ok(KeyRequestAction::Request),
-            "cancellation" => Ok(KeyRequestAction::Cancellation),
-            "requested" => Ok(KeyRequestAction::Requested),
-            "cancelled" => Ok(KeyRequestAction::Cancelled),
+            "request" => Ok(Self::Request),
+            "cancellation" => Ok(Self::Cancellation),
+            "requested" => Ok(Self::Requested),
+            "cancelled" => Ok(Self::Cancelled),
             _ => Err(format!("Unknown action: {s}")),
         }
     }

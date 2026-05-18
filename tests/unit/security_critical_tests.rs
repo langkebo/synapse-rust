@@ -142,7 +142,7 @@ fn test_expired_refresh_token_rejected() {
     let now = chrono::Utc::now().timestamp_millis();
     let token_data = json!({
         "is_revoked": false,
-        "expires_at": now - 3600000
+        "expires_at": now - 3_600_000
     });
 
     let expires_at = token_data.get("expires_at").and_then(|v| v.as_i64());
@@ -317,7 +317,7 @@ fn test_refresh_token_expiry_boundary() {
     });
     let valid_token = json!({
         "is_revoked": false,
-        "expires_at": now + 3600000
+        "expires_at": now + 3_600_000
     });
     let no_expiry_token = json!({
         "is_revoked": false,
@@ -354,7 +354,7 @@ fn test_revoked_token_always_rejected() {
 
     let revoked_token = json!({
         "is_revoked": true,
-        "expires_at": now + 3600000
+        "expires_at": now + 3_600_000
     });
 
     let is_revoked = revoked_token

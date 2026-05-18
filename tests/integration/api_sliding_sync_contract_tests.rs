@@ -6,7 +6,7 @@ use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::RateLimitRule;
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::sliding_sync::SlidingSyncStorage;
@@ -14,11 +14,8 @@ use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache = Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    Some((app, pool))
 }
 
 async fn setup_test_app_with_sliding_sync_rate_limit(
@@ -32,25 +29,15 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
     container.config.rate_limit.sync.initial = initial;
     container.config.rate_limit.sync.incremental = incremental;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
 }
 
 async fn setup_two_test_apps_with_shared_pool(
 ) -> Option<((axum::Router, axum::Router), Arc<sqlx::PgPool>)> {
-    let pool = super::get_test_pool().await?;
-
-    let container_a = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache_a = Arc::new(CacheManager::new(Default::default()));
-    let state_a = AppState::new(container_a, cache_a);
-    let app_a = synapse_rust::web::create_router(state_a);
-
-    let container_b = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache_b = Arc::new(CacheManager::new(Default::default()));
-    let state_b = AppState::new(container_b, cache_b);
-    let app_b = synapse_rust::web::create_router(state_b);
-
+    let (app_a, pool, _) = super::setup_test_app_with_pool().await?;
+    let (app_b, _, _) = super::setup_test_app_with_pool().await?;
     Some(((app_a, app_b), pool))
 }
 
@@ -347,7 +334,7 @@ async fn put_beacon_info(
             json!({
                 "m.beacon_info": {
                     "description": "Beacon in sliding sync",
-                    "timeout": 60000,
+                    "timeout": 60_000,
                     "live": true
                 },
                 "m.ts": chrono::Utc::now().timestamp_millis(),

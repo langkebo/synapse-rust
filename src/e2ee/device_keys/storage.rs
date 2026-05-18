@@ -21,11 +21,11 @@ impl DeviceKeyStorage {
     ) {
         let now = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query(
-            r#"
+            r"
             INSERT INTO device_lists_stream (user_id, device_id, created_ts)
             VALUES ($1, $2, $3)
             RETURNING stream_id
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -39,10 +39,10 @@ impl DeviceKeyStorage {
 
         let stream_id: i64 = row.get("stream_id");
         let _ = sqlx::query(
-            r#"
+            r"
             INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
             VALUES ($1, $2, $3, $4, $5)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -55,7 +55,7 @@ impl DeviceKeyStorage {
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS device_keys (
                 id BIGSERIAL,
                 user_id TEXT NOT NULL,
@@ -76,31 +76,31 @@ impl DeviceKeyStorage {
                 CONSTRAINT pk_device_keys PRIMARY KEY (id),
                 CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
             )
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_user_id ON device_keys(user_id)
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_device_id ON device_keys(device_id)
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_algorithm ON device_keys(algorithm)
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;
@@ -120,7 +120,7 @@ impl DeviceKeyStorage {
         .to_string();
 
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
@@ -130,7 +130,7 @@ impl DeviceKeyStorage {
                 updated_ts = EXCLUDED.updated_ts,
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data
-            "#
+            "
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
@@ -167,7 +167,7 @@ impl DeviceKeyStorage {
         .to_string();
 
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms, is_fallback)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9, TRUE)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
@@ -178,7 +178,7 @@ impl DeviceKeyStorage {
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data,
                 is_fallback = TRUE
-            "#
+            "
         )
         .bind(&key.user_id)
         .bind(&key.device_id)
@@ -209,10 +209,10 @@ impl DeviceKeyStorage {
         device_id: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -229,11 +229,11 @@ impl DeviceKeyStorage {
         device_id: &str,
     ) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT algorithm
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -295,12 +295,12 @@ impl DeviceKeyStorage {
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             LIMIT 1
-            "#
+            "
         )
         .bind(user_id)
         .bind(device_id)
@@ -317,11 +317,11 @@ impl DeviceKeyStorage {
         device_ids: &[String],
     ) -> Result<Vec<DeviceKey>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND device_id = ANY($2)
-            "#
+            "
         )
         .bind(user_id)
         .bind(device_ids)
@@ -334,12 +334,12 @@ impl DeviceKeyStorage {
 
     pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r#"
+            r"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
               AND algorithm NOT IN ('signed_curve25519')
-            "#
+            "
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -356,10 +356,10 @@ impl DeviceKeyStorage {
         algorithm: &str,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -372,11 +372,11 @@ impl DeviceKeyStorage {
 
     pub async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
         let count: i64 = sqlx::query_scalar(
-            r#"
+            r"
             SELECT COUNT(DISTINCT device_id)
             FROM device_keys
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
@@ -388,10 +388,10 @@ impl DeviceKeyStorage {
 
     pub async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -407,11 +407,11 @@ impl DeviceKeyStorage {
         device_id: &str,
     ) -> Result<i64, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT COUNT(*) as count
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm LIKE 'signed_curve25519%'
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -427,14 +427,14 @@ impl DeviceKeyStorage {
         device_id: &str,
     ) -> Result<std::collections::HashMap<String, i64>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT algorithm, COUNT(*) as count
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2
               AND (is_fallback = FALSE OR is_fallback IS NULL)
               AND algorithm NOT IN ('ed25519', 'curve25519')
             GROUP BY algorithm
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -472,7 +472,7 @@ impl DeviceKeyStorage {
             .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {e}")))?;
 
         let row = sqlx::query(
-            r#"
+            r"
             WITH target AS (
                 SELECT id FROM device_keys
                 WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)
@@ -481,7 +481,7 @@ impl DeviceKeyStorage {
             DELETE FROM device_keys
             WHERE id IN (SELECT id FROM target)
             RETURNING user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data, is_fallback
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -508,12 +508,12 @@ impl DeviceKeyStorage {
         }
 
         let fallback_row = sqlx::query(
-            r#"
+            r"
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data, is_fallback
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE
             LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -539,11 +539,11 @@ impl DeviceKeyStorage {
 
     pub async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT user_id
             FROM device_keys
             WHERE ts_updated_ms > $1 AND ts_updated_ms <= $2
-            "#,
+            ",
         )
         .bind(from_ts)
         .bind(to_ts)
@@ -560,7 +560,7 @@ impl DeviceKeyStorage {
         current_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), ApiError> {
         let changed_rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT user_id
             FROM device_lists_stream
             WHERE stream_id > $1
@@ -568,7 +568,7 @@ impl DeviceKeyStorage {
               AND user_id != $3
             ORDER BY user_id
             LIMIT 100
-            "#,
+            ",
         )
         .bind(from_ts)
         .bind(to_ts)
@@ -580,7 +580,7 @@ impl DeviceKeyStorage {
         let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
 
         let left_rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT dl.user_id
             FROM device_lists_stream dl
             LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
@@ -590,7 +590,7 @@ impl DeviceKeyStorage {
               AND rm.user_id IS NULL
             ORDER BY dl.user_id
             LIMIT 100
-            "#,
+            ",
         )
         .bind(from_ts)
         .bind(to_ts)
@@ -615,14 +615,14 @@ impl DeviceKeyStorage {
         let now_ms = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO key_signatures (
                 target_user_id, target_key_id, signing_user_id, signing_key_id, signature, added_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (target_user_id, target_key_id, signing_user_id, signing_key_id) 
             DO UPDATE SET signature = EXCLUDED.signature, added_ts = EXCLUDED.added_ts
-            "#,
+            ",
         )
         .bind(target_user_id)
         .bind(target_key_id)

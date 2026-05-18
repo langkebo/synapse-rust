@@ -120,7 +120,7 @@ impl RetentionStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r#"
+            r"
             INSERT INTO room_retention_policies (
                 room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts
             )
@@ -131,7 +131,7 @@ impl RetentionStorage {
                 expire_on_clients = EXCLUDED.expire_on_clients,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(&request.room_id)
         .bind(request.max_lifetime)
@@ -164,14 +164,14 @@ impl RetentionStorage {
         request: UpdateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r#"
+            r"
             UPDATE room_retention_policies SET
                 max_lifetime = COALESCE($2, max_lifetime),
                 min_lifetime = COALESCE($3, min_lifetime),
                 expire_on_clients = COALESCE($4, expire_on_clients)
             WHERE room_id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(request.max_lifetime)
@@ -207,14 +207,14 @@ impl RetentionStorage {
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            r#"
+            r"
             UPDATE server_retention_policy SET
                 max_lifetime = COALESCE($1, max_lifetime),
                 min_lifetime = COALESCE($2, min_lifetime),
                 expire_on_clients = COALESCE($3, expire_on_clients)
             WHERE id = (SELECT MIN(id) FROM server_retention_policy)
             RETURNING id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(request.max_lifetime)
         .bind(request.min_lifetime)
@@ -239,12 +239,10 @@ impl RetentionStorage {
                 .or(server_policy.max_lifetime),
             min_lifetime: room_policy
                 .as_ref()
-                .map(|p| p.min_lifetime)
-                .unwrap_or(server_policy.min_lifetime),
+                .map_or(server_policy.min_lifetime, |p| p.min_lifetime),
             expire_on_clients: room_policy
                 .as_ref()
-                .map(|p| p.expire_on_clients)
-                .unwrap_or(server_policy.expire_on_clients),
+                .map_or(server_policy.expire_on_clients, |p| p.expire_on_clients),
         })
     }
 
@@ -254,13 +252,13 @@ impl RetentionStorage {
         cutoff_ts: i64,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM events 
             WHERE room_id = $1 
             AND origin_server_ts < $2
             AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
             AND state_key IS NULL
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(cutoff_ts)
@@ -290,7 +288,7 @@ mod tests {
         let policy = RoomRetentionPolicy {
             id: 1,
             room_id: "!room:example.com".to_string(),
-            max_lifetime: Some(86400000),
+            max_lifetime: Some(86_400_000),
             min_lifetime: 0,
             expire_on_clients: true,
             is_server_default: false,
@@ -351,7 +349,7 @@ mod tests {
     fn test_create_room_retention_policy_request() {
         let request = CreateRoomRetentionPolicyRequest {
             room_id: "!room:example.com".to_string(),
-            max_lifetime: Some(86400000),
+            max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
             expire_on_clients: Some(true),
         };
@@ -361,11 +359,11 @@ mod tests {
     #[test]
     fn test_effective_retention_policy() {
         let policy = EffectiveRetentionPolicy {
-            max_lifetime: Some(86400000),
+            max_lifetime: Some(86_400_000),
             min_lifetime: 0,
             expire_on_clients: true,
         };
-        assert_eq!(policy.max_lifetime, Some(86400000));
+        assert_eq!(policy.max_lifetime, Some(86_400_000));
         assert!(policy.expire_on_clients);
     }
 

@@ -82,11 +82,11 @@ impl AuditEventStorage {
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
         sqlx::query_as::<_, AuditEvent>(
-            r#"
+            r"
             SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
             FROM audit_events
             WHERE event_id = $1
-            "#,
+            ",
         )
         .bind(event_id)
         .fetch_optional(&*self.pool)
@@ -186,10 +186,10 @@ impl AuditEventStorage {
 
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM audit_events
             WHERE created_ts < $1
-            "#,
+            ",
         )
         .bind(cutoff_ts)
         .execute(&*self.pool)
@@ -209,7 +209,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query_as::<_, AuditEvent>(
-        r#"
+        r"
         INSERT INTO audit_events (
             event_id,
             actor_id,
@@ -223,7 +223,7 @@ where
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
-        "#,
+        ",
     )
     .bind(event_id)
     .bind(&request.actor_id)

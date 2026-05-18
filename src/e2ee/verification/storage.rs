@@ -19,12 +19,12 @@ impl VerificationStorage {
     /// Create a new verification request
     pub async fn create_request(&self, request: &VerificationRequest) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO verification_requests 
             (transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (transaction_id) DO NOTHING
-            "#,
+            ",
         )
         .bind(&request.transaction_id)
         .bind(&request.from_user)
@@ -109,13 +109,13 @@ impl VerificationStorage {
     /// Store SAS state
     pub async fn store_sas_state(&self, sas: &SasState) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO verification_sas 
             (tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (tx_id) DO UPDATE SET 
                 to_device = $3, state = $5, exchange_hashes = $6, commitment = $7, pubkey = $8, sas_bytes = $9, mac = $10
-            "#,
+            ",
         )
         .bind(&sas.tx_id)
         .bind(&sas.from_device)
@@ -137,13 +137,13 @@ impl VerificationStorage {
     /// Store QR state
     pub async fn store_qr_state(&self, qr: &QrState) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO verification_qr 
             (tx_id, from_device, to_device, state, qr_code_data, scanned_data)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (tx_id) DO UPDATE SET 
                 to_device = $3, state = $4, qr_code_data = $5, scanned_data = $6
-            "#,
+            ",
         )
         .bind(&qr.tx_id)
         .bind(&qr.from_device)

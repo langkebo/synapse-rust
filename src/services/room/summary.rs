@@ -165,20 +165,21 @@ impl RoomSummaryService {
 
             info!("Syncing {} members for room {}", all_members.len(), room_id);
 
-            for member in all_members {
-                let request = CreateSummaryMemberRequest {
+            let requests: Vec<CreateSummaryMemberRequest> = all_members
+                .into_iter()
+                .map(|member| CreateSummaryMemberRequest {
                     room_id: room_id.to_string(),
-                    user_id: member.user_id.clone(),
-                    display_name: member.display_name.clone(),
-                    avatar_url: member.avatar_url.clone(),
-                    membership: member.membership.clone(),
+                    user_id: member.user_id,
+                    display_name: member.display_name,
+                    avatar_url: member.avatar_url,
+                    membership: member.membership,
                     is_hero: Some(false),
                     last_active_ts: member.joined_ts.or(member.updated_ts),
-                };
+                })
+                .collect();
 
-                if let Err(e) = self.storage.add_member(request).await {
-                    warn!("Failed to add member during sync: {}", e);
-                }
+            if let Err(e) = self.storage.add_members_batch(room_id, requests).await {
+                warn!("Failed to batch add members during sync: {}", e);
             }
         }
 
@@ -462,13 +463,12 @@ impl RoomSummaryService {
                     && e.content
                         .get("msgtype")
                         .and_then(|v| v.as_str())
-                        .map(|t| {
+                        .is_some_and(|t| {
                             t.starts_with("m.image")
                                 || t.starts_with("m.video")
                                 || t.starts_with("m.file")
                                 || t.starts_with("m.audio")
                         })
-                        .unwrap_or(false)
             })
             .count() as i64;
 

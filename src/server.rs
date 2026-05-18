@@ -18,8 +18,9 @@ use crate::storage::schema_health_check::run_schema_health_check;
 use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
-    check_cors_security, log_cors_security_report, panic_catcher_middleware,
-    request_timeout_middleware, set_config_allowed_origins, validate_bind_address_for_dev_mode,
+    check_cors_security, log_cors_security_report, request_debug_middleware,
+    request_timeout_middleware, set_bind_address, set_config_allowed_origins,
+    validate_bind_address_for_dev_mode,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
@@ -52,6 +53,7 @@ impl SynapseServer {
         // BEFORE we run validation, so operators don't have to also set
         // ALLOWED_ORIGINS env var when they have already configured the file.
         set_config_allowed_origins(config.cors.allowed_origins.clone());
+        set_bind_address(config.server.host.clone());
 
         let cors_report = check_cors_security();
         log_cors_security_report(&cors_report);
@@ -192,11 +194,11 @@ impl SynapseServer {
 
             let cache = Arc::new(CacheManager::with_redis_pool_and_url(
                 redis_pool,
-                CacheConfig::default(),
+                &CacheConfig::default(),
                 &conn_str,
             ));
 
-            if let Err(e) = cache.start_invalidation_subscriber().await {
+            if let Err(e) = cache.start_invalidation_subscriber() {
                 ::tracing::warn!("Failed to start cache invalidation subscriber: {}", e);
             } else {
                 ::tracing::info!("Cache invalidation subscriber started successfully");
@@ -205,7 +207,7 @@ impl SynapseServer {
             cache
         } else {
             ::tracing::info!("Redis disabled. Using local in-memory cache.");
-            Arc::new(CacheManager::new(CacheConfig::default()))
+            Arc::new(CacheManager::new(&CacheConfig::default()))
         };
 
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
@@ -279,7 +281,7 @@ impl SynapseServer {
             .layer(RequestBodyLimitLayer::new(
                 config.server.max_upload_size as usize,
             ))
-            .layer(axum::middleware::from_fn(panic_catcher_middleware))
+            .layer(axum::middleware::from_fn(request_debug_middleware))
             .layer(axum::middleware::from_fn(request_timeout_middleware))
             .layer(TraceLayer::new_for_http());
 
@@ -322,7 +324,7 @@ impl SynapseServer {
             .await;
 
         ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
-        self.scheduled_tasks.start_all().await;
+        self.scheduled_tasks.start_all();
 
         #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.beacon_service.clone();

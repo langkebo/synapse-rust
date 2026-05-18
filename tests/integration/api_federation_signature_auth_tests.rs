@@ -35,7 +35,7 @@ where
     container.config.federation.key_id = Some(key_id.to_string());
     container.config.federation.signing_key = Some(signing_key_b64.to_string());
     configure(&mut container);
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state.clone());
     Some((app, state))

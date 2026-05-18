@@ -20,7 +20,7 @@ impl RegistrationService {
         user_storage: crate::storage::UserStorage,
         auth_service: crate::auth::AuthService,
         metrics: Arc<MetricsCollector>,
-        server_name: String,
+        server_name: &str,
         enable_registration: bool,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
@@ -273,7 +273,7 @@ mod tests {
             services.user_storage.clone(),
             services.auth_service.clone(),
             services.metrics.clone(),
-            services.server_name.clone(),
+            &services.server_name,
             services.config.server.enable_registration,
             None,
         );
@@ -307,8 +307,8 @@ mod tests {
             services.user_storage.clone(),
             services.auth_service.clone(),
             services.metrics.clone(),
-            services.server_name.clone(),
-            false, // disabled
+            &services.server_name,
+            false,
             None,
         );
 

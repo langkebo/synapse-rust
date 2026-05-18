@@ -21,10 +21,7 @@ pub struct TelemetryService {
 
 impl TelemetryService {
     pub fn new(config: Arc<OpenTelemetryConfig>, prometheus_config: Arc<PrometheusConfig>) -> Self {
-        Self {
-            config,
-            prometheus_config,
-        }
+        Self { config, prometheus_config }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -54,11 +51,7 @@ impl TelemetryService {
     pub fn get_export_config(&self) -> ExportConfig {
         ExportConfig {
             otlp_endpoint: self.config.otlp_endpoint.clone(),
-            prometheus_port: if self.prometheus_config.enabled {
-                Some(self.prometheus_config.port)
-            } else {
-                None
-            },
+            prometheus_port: if self.prometheus_config.enabled { Some(self.prometheus_config.port) } else { None },
             prometheus_path: if self.prometheus_config.enabled {
                 Some(self.prometheus_config.path.clone())
             } else {
@@ -76,9 +69,7 @@ impl TelemetryService {
         self.config.get_resource_attributes()
     }
 
-    pub fn initialize(
-        &self,
-    ) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn initialize(&self) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
         if !self.is_enabled() {
             info!("Telemetry is disabled");
             return Ok(None);
@@ -91,11 +82,7 @@ impl TelemetryService {
             self.is_metrics_enabled()
         );
 
-        let provider = if self.config.is_trace_enabled() {
-            Some(self.initialize_tracing()?)
-        } else {
-            None
-        };
+        let provider = if self.config.is_trace_enabled() { Some(self.initialize_tracing()?) } else { None };
 
         if self.config.is_metrics_enabled() || self.prometheus_config.enabled {
             self.initialize_metrics()?;
@@ -105,14 +92,11 @@ impl TelemetryService {
         Ok(provider)
     }
 
-    fn initialize_tracing(
-        &self,
-    ) -> Result<SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
-        let endpoint = self
-            .config
-            .otlp_endpoint
-            .as_deref()
-            .unwrap_or("http://localhost:4317");
+    fn initialize_tracing(&self) -> Result<SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
+        let Some(endpoint) = self.config.otlp_endpoint.as_deref() else {
+            tracing::warn!("OTLP endpoint is not configured; tracing will not be initialized. Set the otlp_endpoint config to enable OTLP tracing.");
+            return Err("OTLP endpoint not configured".into());
+        };
 
         info!(
             "Initializing OTLP tracing with endpoint: {} and sampling ratio: {}",
@@ -128,16 +112,11 @@ impl TelemetryService {
             ])
             .build();
 
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_tonic()
-            .with_endpoint(endpoint)
-            .build()?;
+        let exporter = opentelemetry_otlp::SpanExporter::builder().with_tonic().with_endpoint(endpoint).build()?;
 
         let provider = SdkTracerProvider::builder()
             .with_batch_exporter(exporter)
-            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                self.get_sampling_ratio(),
-            ))))
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(self.get_sampling_ratio()))))
             .with_resource(resource)
             .build();
 
@@ -186,10 +165,7 @@ pub struct TelemetryBuilder {
 
 impl TelemetryBuilder {
     pub fn new() -> Self {
-        Self {
-            config: OpenTelemetryConfig::default(),
-            prometheus_config: PrometheusConfig::default(),
-        }
+        Self { config: OpenTelemetryConfig::default(), prometheus_config: PrometheusConfig::default() }
     }
 
     pub fn with_service_name(mut self, name: impl Into<String>) -> Self {
@@ -294,20 +270,15 @@ pub struct TelemetryAlertService {
 
 impl TelemetryAlertService {
     pub fn new(pool: Arc<PgPool>, max_connections: u32) -> Self {
-        Self {
-            pool,
-            max_connections,
-            alerts: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { pool, max_connections, alerts: Arc::new(RwLock::new(HashMap::new())) }
     }
 
-    pub async fn sync_with_health(
-        &self,
-    ) -> Result<(DatabaseHealthStatus, Vec<TelemetryAlert>), ApiError> {
+    pub async fn sync_with_health(&self) -> Result<(DatabaseHealthStatus, Vec<TelemetryAlert>), ApiError> {
         let monitor = DatabaseMonitor::new((*self.pool).clone(), None, self.max_connections);
-        let health = monitor.get_full_health_status().await.map_err(|error| {
-            ApiError::internal(format!("failed to collect telemetry health: {error}"))
-        })?;
+        let health = monitor
+            .get_full_health_status()
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to collect telemetry health: {error}")))?;
 
         let now = chrono::Utc::now().timestamp_millis();
         let mut active_rules: HashMap<&str, TelemetryAlert> = HashMap::new();
@@ -315,10 +286,10 @@ impl TelemetryAlertService {
         if !health.is_healthy {
             active_rules.insert(
                 "db_health",
-                TelemetryAlertService::build_alert(
+                Self::build_alert(
                     "db_health",
                     "Database health",
-                    TelemetryAlertSeverity::Critical,
+                    &TelemetryAlertSeverity::Critical,
                     "database",
                     "database health check returned unhealthy".to_string(),
                     json!({ "is_healthy": false }),
@@ -330,10 +301,10 @@ impl TelemetryAlertService {
         if util >= 90.0 {
             active_rules.insert(
                 "db_pool_utilization",
-                TelemetryAlertService::build_alert(
+                Self::build_alert(
                     "db_pool_utilization",
                     "Connection pool utilization",
-                    TelemetryAlertSeverity::Critical,
+                    &TelemetryAlertSeverity::Critical,
                     "database",
                     format!("connection pool utilization is {util:.1}%"),
                     json!({ "connection_utilization": util }),
@@ -358,8 +329,7 @@ impl TelemetryAlertService {
                     existing.recovered_at = None;
                     existing.trigger_count += 1;
                     if existing.status != TelemetryAlertStatus::Acknowledged {
-                        existing.status =
-                            TelemetryAlertService::status_from_severity(&candidate.severity);
+                        existing.status = Self::status_from_severity(&candidate.severity);
                     }
                 }
                 None => {
@@ -371,9 +341,7 @@ impl TelemetryAlertService {
             if !active_rules.contains_key(key.as_str())
                 && matches!(
                     alert.status,
-                    TelemetryAlertStatus::Warning
-                        | TelemetryAlertStatus::Critical
-                        | TelemetryAlertStatus::Acknowledged
+                    TelemetryAlertStatus::Warning | TelemetryAlertStatus::Critical | TelemetryAlertStatus::Acknowledged
                 )
             {
                 alert.status = TelemetryAlertStatus::Recovered;
@@ -391,7 +359,7 @@ impl TelemetryAlertService {
         &self,
         alert_key: &str,
         rule_name: &str,
-        severity: TelemetryAlertSeverity,
+        severity: &TelemetryAlertSeverity,
         owner: &str,
         message: &str,
         metrics: serde_json::Value,
@@ -400,29 +368,15 @@ impl TelemetryAlertService {
             Ok(guard) => guard,
             Err(e) => {
                 tracing::error!("Failed to acquire alerts write lock: {}", e);
-                return Self::build_alert(
-                    alert_key,
-                    rule_name,
-                    severity,
-                    owner,
-                    message.to_string(),
-                    metrics,
-                );
+                return Self::build_alert(alert_key, rule_name, severity, owner, message.to_string(), metrics);
             }
         };
         let now = chrono::Utc::now().timestamp_millis();
         let entry = alerts.entry(alert_key.to_string()).or_insert_with(|| {
-            Self::build_alert(
-                alert_key,
-                rule_name,
-                severity.clone(),
-                owner,
-                message.to_string(),
-                metrics.clone(),
-            )
+            Self::build_alert(alert_key, rule_name, severity, owner, message.to_string(), metrics.clone())
         });
         entry.severity = severity.clone();
-        entry.status = Self::status_from_severity(&severity);
+        entry.status = Self::status_from_severity(severity);
         entry.message = message.to_string();
         entry.metrics = metrics;
         entry.last_seen_ts = now;
@@ -431,11 +385,8 @@ impl TelemetryAlertService {
         entry.clone()
     }
 
-    pub fn list_alerts(
-        &self,
-        filters: TelemetryAlertFilters,
-    ) -> Result<Vec<TelemetryAlert>, ApiError> {
-        Self::validate_filters(&filters)?;
+    pub fn list_alerts(&self, filters: &TelemetryAlertFilters) -> Result<Vec<TelemetryAlert>, ApiError> {
+        Self::validate_filters(filters)?;
         let alerts = match self.alerts.read() {
             Ok(guard) => guard,
             Err(e) => {
@@ -445,29 +396,15 @@ impl TelemetryAlertService {
         };
         let mut entries: Vec<TelemetryAlert> = alerts
             .values()
-            .filter(|a| {
-                filters
-                    .status
-                    .as_deref()
-                    .is_none_or(|s| TelemetryAlertService::matches_status(a, s))
-            })
-            .filter(|a| {
-                filters
-                    .severity
-                    .as_deref()
-                    .is_none_or(|s| TelemetryAlertService::matches_severity(a, s))
-            })
+            .filter(|a| filters.status.as_deref().is_none_or(|s| Self::matches_status(a, s)))
+            .filter(|a| filters.severity.as_deref().is_none_or(|s| Self::matches_severity(a, s)))
             .cloned()
             .collect();
         entries.sort_by(|l, r| r.last_seen_ts.cmp(&l.last_seen_ts));
         Ok(entries)
     }
 
-    pub fn acknowledge_alert(
-        &self,
-        alert_id: &str,
-        acknowledged_by: &str,
-    ) -> Result<TelemetryAlert, ApiError> {
+    pub fn acknowledge_alert(&self, alert_id: &str, acknowledged_by: &str) -> Result<TelemetryAlert, ApiError> {
         let mut alerts = match self.alerts.write() {
             Ok(guard) => guard,
             Err(e) => {
@@ -481,9 +418,7 @@ impl TelemetryAlertService {
             .find(|a| a.alert_id == alert_id)
             .ok_or_else(|| ApiError::not_found(format!("alert not found: {alert_id}")))?;
         if alert.status == TelemetryAlertStatus::Recovered {
-            return Err(ApiError::bad_request(
-                "ALERT_ACK_FORBIDDEN: recovered alerts cannot be acknowledged",
-            ));
+            return Err(ApiError::bad_request("ALERT_ACK_FORBIDDEN: recovered alerts cannot be acknowledged"));
         }
         alert.status = TelemetryAlertStatus::Acknowledged;
         alert.acknowledged_at = Some(now);
@@ -495,7 +430,7 @@ impl TelemetryAlertService {
     fn build_alert(
         key: &str,
         rule: &str,
-        severity: TelemetryAlertSeverity,
+        severity: &TelemetryAlertSeverity,
         owner: &str,
         message: String,
         metrics: serde_json::Value,
@@ -506,7 +441,7 @@ impl TelemetryAlertService {
             alert_key: key.to_string(),
             rule_name: rule.to_string(),
             severity: severity.clone(),
-            status: Self::status_from_severity(&severity),
+            status: Self::status_from_severity(severity),
             owner: owner.to_string(),
             message,
             trigger_count: 1,
@@ -531,21 +466,13 @@ impl TelemetryAlertService {
         if let Some(ref s) = filters.status {
             match s.as_str() {
                 "warning" | "critical" | "acknowledged" | "recovered" | "closed" => {}
-                _ => {
-                    return Err(ApiError::bad_request(
-                        "ALERT_RULE_NOT_FOUND: unsupported alert status filter",
-                    ))
-                }
+                _ => return Err(ApiError::bad_request("ALERT_RULE_NOT_FOUND: unsupported alert status filter")),
             }
         }
         if let Some(ref s) = filters.severity {
             match s.as_str() {
                 "warning" | "critical" => {}
-                _ => {
-                    return Err(ApiError::bad_request(
-                        "ALERT_RULE_NOT_FOUND: unsupported alert severity filter",
-                    ))
-                }
+                _ => return Err(ApiError::bad_request("ALERT_RULE_NOT_FOUND: unsupported alert severity filter")),
             }
         }
         Ok(())
@@ -565,8 +492,7 @@ impl TelemetryAlertService {
     fn matches_severity(alert: &TelemetryAlert, severity: &str) -> bool {
         matches!(
             (&alert.severity, severity),
-            (TelemetryAlertSeverity::Warning, "warning")
-                | (TelemetryAlertSeverity::Critical, "critical")
+            (TelemetryAlertSeverity::Warning, "warning") | (TelemetryAlertSeverity::Critical, "critical")
         )
     }
 }

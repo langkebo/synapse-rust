@@ -68,7 +68,8 @@ pub async fn get_invite_blocklist(
         .map_err(|e| ApiError::internal(format!("Failed to get blocklist: {e}")))?;
 
     Ok(Json(json!({
-        "blocklist": blocklist
+        "blocklist": blocklist,
+        "blocked_users": blocklist
     })))
 }
 
@@ -101,7 +102,8 @@ pub async fn set_invite_blocklist(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "blocklist": user_ids,
+        "blocklist": user_ids.clone(),
+        "blocked_users": user_ids,
         "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }
@@ -123,7 +125,8 @@ pub async fn get_invite_allowlist(
         .map_err(|e| ApiError::internal(format!("Failed to get allowlist: {e}")))?;
 
     Ok(Json(json!({
-        "allowlist": allowlist
+        "allowlist": allowlist,
+        "allowed_users": allowlist
     })))
 }
 
@@ -156,7 +159,8 @@ pub async fn set_invite_allowlist(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "allowlist": user_ids,
+        "allowlist": user_ids.clone(),
+        "allowed_users": user_ids,
         "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }

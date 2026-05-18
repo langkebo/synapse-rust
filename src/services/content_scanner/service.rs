@@ -158,14 +158,13 @@ impl ContentScanner {
                     "Webhook scan failed with status: {}",
                     response.status()
                 )));
-            } else {
-                return Ok(ContentScanResult {
-                    safe: true,
-                    threat_type: None,
-                    threat_message: Some("Scan service unavailable".to_string()),
-                    scan_timestamp: chrono::Utc::now().timestamp_millis(),
-                });
             }
+            return Ok(ContentScanResult {
+                safe: true,
+                threat_type: None,
+                threat_message: Some("Scan service unavailable".to_string()),
+                scan_timestamp: chrono::Utc::now().timestamp_millis(),
+            });
         }
 
         let scan_response: WebhookScanResponse = response

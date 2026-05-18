@@ -32,7 +32,7 @@ impl std::fmt::Display for ValidationError {
 
 impl From<ValidationError> for ApiError {
     fn from(err: ValidationError) -> Self {
-        ApiError::bad_request(format!("{}: {}", err.field, err.message))
+        Self::bad_request(format!("{}: {}", err.field, err.message))
     }
 }
 

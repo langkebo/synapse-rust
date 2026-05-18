@@ -1,11 +1,11 @@
 //! 增强的内容净化模块 - 使用 ammonia 防止 XSS 攻击
 
 use ammonia::{Builder, UrlRelative};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::collections::HashSet;
 
 /// Matrix 消息的默认净化器配置
-static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
+static DEFAULT_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
     let mut builder = Builder::default();
 
     // 允许的标签（Matrix 富文本格式）
@@ -87,7 +87,7 @@ static DEFAULT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
 });
 
 /// 严格的净化器配置（用于用户名、房间名等）
-static STRICT_SANITIZER: Lazy<Builder<'static>> = Lazy::new(|| {
+static STRICT_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
     let mut builder = Builder::default();
 
     // 只允许纯文本，移除所有 HTML

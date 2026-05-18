@@ -709,8 +709,7 @@ async fn oidc_token(
                 .get_user_by_username(&localpart)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?
-                .map(|u| u.is_admin)
-                .unwrap_or(false);
+                .is_some_and(|u| u.is_admin);
 
             let matrix_token = state
                 .services
@@ -950,6 +949,7 @@ pub struct OpenIdDiscovery {
 }
 
 /// OpenID Connect Server Discovery
+#[allow(clippy::unused_async)]
 pub async fn openid_discovery(
     State(state): State<AppState>,
 ) -> Result<Json<OpenIdDiscovery>, ApiError> {

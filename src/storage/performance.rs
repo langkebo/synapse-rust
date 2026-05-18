@@ -218,7 +218,7 @@ impl PerformanceMonitor {
     }
 
     /// Checks pool health and returns warnings if issues detected.
-    pub async fn check_pool_health(&self) -> Vec<String> {
+    pub fn check_pool_health(&self) -> Vec<String> {
         let mut warnings = Vec::new();
         let stats = self.get_pool_stats();
 

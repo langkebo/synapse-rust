@@ -3,6 +3,8 @@ use crate::storage::{AuditEvent, AuditEventFilters, AuditEventStorage, CreateAud
 use std::sync::Arc;
 use tracing::{error, instrument};
 
+type AuditListResult = Result<(Vec<AuditEvent>, i64, Option<String>), ApiError>;
+
 pub struct AdminAuditService {
     storage: Arc<AuditEventStorage>,
 }
@@ -43,7 +45,7 @@ impl AdminAuditService {
     pub async fn list_events(
         &self,
         filters: AuditEventFilters,
-    ) -> Result<(Vec<AuditEvent>, i64, Option<String>), ApiError> {
+    ) -> AuditListResult {
         self.storage
             .list_events(&filters)
             .await

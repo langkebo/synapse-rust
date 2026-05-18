@@ -4,7 +4,7 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
@@ -17,7 +17,7 @@ async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, Strin
     container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
     container.config.worker.replication.http.secret_path = None;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state);
 
@@ -135,7 +135,7 @@ async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled()
     container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
     container.config.worker.replication.http.secret_path = None;
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state);
 

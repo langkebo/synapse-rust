@@ -356,8 +356,10 @@ impl CrossSigningService {
             .key_json
             .as_ref()
             .and_then(|value| Self::extract_ed25519_key(value, "master_key").ok())
-            .map(|(key_id, _)| key_id)
-            .unwrap_or_else(|| format!("ed25519:{}", master_key.public_key));
+            .map_or_else(
+                || format!("ed25519:{}", master_key.public_key),
+                |(key_id, _)| key_id,
+            );
         let signatures = match key_json.get("signatures").and_then(|v| v.as_object()) {
             Some(s) => s,
             None => return false,
@@ -819,8 +821,7 @@ impl CrossSigningService {
                         mk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
                         "master_key",
                     )
-                    .map(|(kid, _)| kid)
-                    .unwrap_or_else(|_| format!("ed25519:{}", mk.public_key));
+                    .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
 
                     sig.signing_key_id == signing_key_id
                         || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
@@ -842,8 +843,7 @@ impl CrossSigningService {
                 ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
                 "self_signing_key",
             )
-            .map(|(kid, _)| kid)
-            .unwrap_or_else(|_| format!("ed25519:{}", ssk.public_key));
+            .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
 
             let ssk_sig = signatures.iter().find(|s| {
                 s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:")

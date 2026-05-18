@@ -53,7 +53,7 @@ impl CallSessionStorage {
         params: CreateCallSessionParams,
     ) -> Result<CallSession, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let lifetime = params.lifetime.unwrap_or(60000); // Default 60 seconds
+        let lifetime = params.lifetime.unwrap_or(60_000); // Default 60 seconds
 
         let session = sqlx::query_as::<_, CallSession>(
             r#"

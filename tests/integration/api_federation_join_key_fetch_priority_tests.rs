@@ -118,7 +118,7 @@ async fn setup_ingress_app(
     container.config.federation.signing_key = None;
     container.config.federation.key_id = None;
 
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }

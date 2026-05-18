@@ -73,13 +73,13 @@ impl SearchIndexStorage {
     /// 索引单个事件
     pub async fn index_event(&self, entry: &SearchIndexEntry) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO search_index (event_id, room_id, user_id, event_type, type, content, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (event_id) DO UPDATE SET
                 content = EXCLUDED.content,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(&entry.event_id)
         .bind(&entry.room_id)
@@ -203,12 +203,12 @@ impl SearchIndexStorage {
 
         // 从 events 表重新导入
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT event_id, room_id, sender as user_id, event_type, 
                    event_type as type, content::text as content, origin_server_ts as created_ts
             FROM events 
             WHERE room_id = $1 AND event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&self.pool)

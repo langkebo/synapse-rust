@@ -232,11 +232,10 @@ impl QueryCache {
                     *hot_keys.entry(key.to_string()).or_insert(0) += 1;
                 }
                 return Some(entry.value.clone());
-            } else {
-                cache.remove(key);
-                let mut stats = self.stats.write().await;
-                stats.evictions += 1;
             }
+            cache.remove(key);
+            let mut stats = self.stats.write().await;
+            stats.evictions += 1;
         } else {
             let mut stats = self.stats.write().await;
             stats.misses += 1;

@@ -190,7 +190,7 @@ impl CacheInvalidationSubscriber {
         self.sender.subscribe()
     }
 
-    pub async fn start(&self) -> Result<(), ApiError> {
+    pub fn start(&self) -> Result<(), ApiError> {
         if *self.running.read() {
             return Ok(());
         }
@@ -366,9 +366,9 @@ impl CacheInvalidationManager {
         &self.config
     }
 
-    pub async fn start_subscriber(&self) -> Result<(), ApiError> {
+    pub fn start_subscriber(&self) -> Result<(), ApiError> {
         if let Some(subscriber) = &self.subscriber {
-            subscriber.start().await?;
+            subscriber.start()?;
         }
         Ok(())
     }

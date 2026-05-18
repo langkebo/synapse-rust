@@ -30,7 +30,7 @@ async fn test_feature_flag_create_get_list_and_update() {
                 "rollout_percent": 25,
                 "reason": "enable staged rollout",
                 "status": "active",
-                "expires_at": chrono::Utc::now().timestamp_millis() + 600000,
+                "expires_at": chrono::Utc::now().timestamp_millis() + 60_0000,
                 "targets": [
                     { "subject_type": "room", "subject_id": "!room123:localhost" },
                     { "subject_type": "user", "subject_id": "@tester:localhost" }

@@ -59,7 +59,7 @@ impl RoomMemberStorage {
         let event_id = format!("${}", generate_event_id(&self.server_name));
         let sender = user_id;
 
-        let query = r#"
+        let query = r"
             INSERT INTO room_memberships (room_id, user_id, sender, membership, event_id, event_type, display_name, join_reason, updated_ts, joined_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (room_id, user_id) DO UPDATE SET
@@ -68,7 +68,7 @@ impl RoomMemberStorage {
                 join_reason = EXCLUDED.join_reason,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
-            "#;
+            ";
 
         if let Some(tx) = tx {
             sqlx::query_as::<_, RoomMember>(query)
@@ -107,10 +107,10 @@ impl RoomMemberStorage {
         user_id: &str,
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -124,10 +124,10 @@ impl RoomMemberStorage {
         membership_type: &str,
     ) -> Result<Vec<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND membership = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(membership_type)
@@ -137,9 +137,9 @@ impl RoomMemberStorage {
 
     pub async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
-            r#"
+            r"
             SELECT COALESCE(COUNT(*), 0) FROM room_memberships WHERE room_id = $1 AND membership = 'join'
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_one(&*self.pool)
@@ -150,14 +150,14 @@ impl RoomMemberStorage {
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE room_memberships 
             SET membership = 'leave', 
                 left_ts = $3,
                 updated_ts = $3,
                 is_banned = false
             WHERE room_id = $1 AND user_id = $2 AND membership IN ('join', 'ban')
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -170,13 +170,13 @@ impl RoomMemberStorage {
     pub async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE room_memberships 
             SET membership = 'forget', 
                 left_ts = $3,
                 updated_ts = $3
             WHERE room_id = $1 AND user_id = $2 AND membership IN ('leave', 'invite')
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -203,14 +203,14 @@ impl RoomMemberStorage {
 
     pub async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar::<_, String>(
-            r#"
+            r"
             SELECT DISTINCT m2.user_id
             FROM room_memberships m1
             JOIN room_memberships m2 ON m1.room_id = m2.room_id
             WHERE m1.user_id = $1 AND m1.membership = 'join'
               AND m2.membership = 'join'
               AND m2.user_id != $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -219,9 +219,9 @@ impl RoomMemberStorage {
 
     pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM room_memberships WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .execute(&*self.pool)
@@ -236,13 +236,13 @@ impl RoomMemberStorage {
         banned_by: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO room_memberships (room_id, user_id, membership, banned_by)
             VALUES ($1, $2, 'ban', $3)
             ON CONFLICT (room_id, user_id) DO UPDATE SET
                 membership = 'ban',
                 banned_by = EXCLUDED.banned_by
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -254,10 +254,10 @@ impl RoomMemberStorage {
 
     pub async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE room_memberships SET membership = 'leave', banned_by = NULL
             WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -268,9 +268,9 @@ impl RoomMemberStorage {
 
     pub async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<String> = sqlx::query_scalar::<_, String>(
-            r#"
+            r"
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -286,24 +286,24 @@ impl RoomMemberStorage {
     ) -> Result<Vec<UserRoomMembership>, sqlx::Error> {
         let memberships = if include_leave {
             sqlx::query_as::<_, UserRoomMembership>(
-                r#"
+                r"
                 SELECT room_id, membership
                 FROM room_memberships
                 WHERE user_id = $1 AND membership IN ('join', 'leave')
                 ORDER BY updated_ts DESC NULLS LAST, room_id ASC
-                "#,
+                ",
             )
             .bind(user_id)
             .fetch_all(&*self.pool)
             .await?
         } else {
             sqlx::query_as::<_, UserRoomMembership>(
-                r#"
+                r"
                 SELECT room_id, membership
                 FROM room_memberships
                 WHERE user_id = $1 AND membership = 'join'
                 ORDER BY updated_ts DESC NULLS LAST, room_id ASC
-                "#,
+                ",
             )
             .bind(user_id)
             .fetch_all(&*self.pool)
@@ -319,9 +319,9 @@ impl RoomMemberStorage {
         user_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
-            r#"
+            r"
             SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -332,9 +332,9 @@ impl RoomMemberStorage {
 
     pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
-            r#"
+            r"
             SELECT COUNT(*) FROM room_memberships WHERE user_id = $1 AND membership = 'join'
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
@@ -361,10 +361,10 @@ impl RoomMemberStorage {
         user_id: &str,
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -375,10 +375,10 @@ impl RoomMemberStorage {
 
     pub async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         let members = sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND membership = 'join'
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -392,10 +392,10 @@ impl RoomMemberStorage {
         user_id: &str,
     ) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -410,13 +410,13 @@ impl RoomMemberStorage {
         user_id_2: &str,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
-            r#"
+            r"
             SELECT 1 FROM room_memberships m1
             JOIN room_memberships m2 ON m1.room_id = m2.room_id
             WHERE m1.user_id = $1 AND m1.membership = 'join'
               AND m2.user_id = $2 AND m2.membership = 'join'
             LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id_1)
         .bind(user_id_2)
@@ -432,12 +432,12 @@ impl RoomMemberStorage {
         limit: i64,
     ) -> Result<Vec<RoomMember>, sqlx::Error> {
         let memberships = sqlx::query_as::<_, RoomMember>(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships WHERE room_id = $1
             ORDER BY updated_ts DESC
             LIMIT $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(limit)
@@ -451,13 +451,13 @@ impl RoomMemberStorage {
         user_id: &str,
     ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
-            r#"
+            r"
             SELECT r.room_id, r.name, r.topic, r.avatar_url
             FROM room_memberships rm
             JOIN rooms r ON rm.room_id = r.room_id
             WHERE rm.user_id = $1 AND rm.membership = 'join'
             ORDER BY r.created_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -471,7 +471,7 @@ impl RoomMemberStorage {
         membership_type: &str,
     ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type, 
                    rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts, 
                    rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,
@@ -479,7 +479,7 @@ impl RoomMemberStorage {
             FROM room_memberships rm
             LEFT JOIN users u ON rm.user_id = u.user_id
             WHERE rm.room_id = $1 AND rm.membership = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(membership_type)
@@ -527,11 +527,11 @@ impl RoomMemberStorage {
         }
 
         let rows: Vec<RoomMember> = sqlx::query_as(
-            r#"
+            r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             FROM room_memberships 
             WHERE room_id = ANY($1) AND membership = $2
-            "#,
+            ",
         )
         .bind(room_ids)
         .bind(membership_type)
@@ -568,10 +568,10 @@ impl RoomMemberStorage {
         }
 
         let rows: Vec<String> = sqlx::query_scalar(
-            r#"
+            r"
             SELECT user_id FROM room_memberships 
             WHERE room_id = $1 AND user_id = ANY($2) AND membership = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_ids)

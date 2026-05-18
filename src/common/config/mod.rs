@@ -912,7 +912,7 @@ impl Default for ExperimentalConfig {
     fn default() -> Self {
         Self {
             #[cfg(feature = "openclaw-routes")]
-            openclaw_routes_enabled: false,
+            openclaw_routes_enabled: true,
             msc3814_enabled: false,
         }
     }
@@ -1540,7 +1540,7 @@ fn default_success_threshold() -> u32 {
 }
 
 fn default_timeout_ms() -> u64 {
-    60000 // 60 seconds (was 30s) - give more time before half-open
+    60_000 // 60 seconds (was 30s) - give more time before half-open
 }
 
 fn default_window_size_seconds() -> u64 {
@@ -2056,7 +2056,7 @@ impl Config {
             .add_source(config::Environment::with_prefix("SYNAPSE").separator("__"))
             .build()?;
 
-        let mut config_values: Config = config.try_deserialize()?;
+        let mut config_values: Self = config.try_deserialize()?;
 
         tracing::info!("Configuration loaded, resolving environment variables...");
         tracing::debug!(
@@ -2565,7 +2565,7 @@ mod tests {
                 suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
-                key_rotation_grace_period_ms: 600000,
+                key_rotation_grace_period_ms: 60_0000,
                 key_fetch_max_concurrency: 32,
                 key_fetch_timeout_ms: 5000,
                 process_inbound_edus: false,
@@ -2716,7 +2716,7 @@ mod tests {
                 suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
-                key_rotation_grace_period_ms: 600000,
+                key_rotation_grace_period_ms: 60_0000,
                 key_fetch_max_concurrency: 32,
                 key_fetch_timeout_ms: 5000,
                 process_inbound_edus: false,
@@ -2982,7 +2982,7 @@ mod tests {
                 suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
-                key_rotation_grace_period_ms: 600000,
+                key_rotation_grace_period_ms: 60_0000,
                 key_fetch_max_concurrency: 32,
                 key_fetch_timeout_ms: 5000,
                 process_inbound_edus: false,
@@ -3060,7 +3060,7 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.failure_threshold, 10);
         assert_eq!(config.success_threshold, 3);
-        assert_eq!(config.timeout_ms, 60000);
+        assert_eq!(config.timeout_ms, 60_000);
         assert_eq!(config.window_size_seconds, 120);
     }
 
@@ -3096,7 +3096,7 @@ mod tests {
             suppress_key_server_warning: false,
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
-            key_rotation_grace_period_ms: 600000,
+            key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
             process_inbound_edus: false,

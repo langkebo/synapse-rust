@@ -31,12 +31,12 @@ pub async fn get_rotation_history(
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let rows = sqlx::query(
-        r#"
+        r"
         SELECT new_key_id AS key_id, rotated_at AS rotated_ts FROM key_rotation_log
         WHERE user_id = $1 AND device_id = $2
         ORDER BY rotated_at DESC
         LIMIT 10
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .bind(&device_id)
@@ -88,10 +88,10 @@ pub async fn check_needs_rotation(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let last_rotation: Option<i64> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT MAX(rotated_at) FROM key_rotation_log
         WHERE user_id = $1
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .fetch_one(&*state.services.user_storage.pool)

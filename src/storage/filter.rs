@@ -33,11 +33,11 @@ impl FilterStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let filter = sqlx::query_as::<_, Filter>(
-            r#"
+            r"
             INSERT INTO filters (user_id, filter_id, content, created_ts)
             VALUES ($1, $2, $3, $4)
             RETURNING id, user_id, filter_id, content, created_ts
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.filter_id)
@@ -56,11 +56,11 @@ impl FilterStorage {
         filter_id: &str,
     ) -> Result<Option<Filter>, ApiError> {
         let filter = sqlx::query_as::<_, Filter>(
-            r#"
+            r"
             SELECT id, user_id, filter_id, content, created_ts
             FROM filters
             WHERE user_id = $1 AND filter_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(filter_id)
@@ -73,12 +73,12 @@ impl FilterStorage {
 
     pub async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError> {
         let filters = sqlx::query_as::<_, Filter>(
-            r#"
+            r"
             SELECT id, user_id, filter_id, content, created_ts
             FROM filters
             WHERE user_id = $1
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -90,10 +90,10 @@ impl FilterStorage {
 
     pub async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM filters
             WHERE user_id = $1 AND filter_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(filter_id)
@@ -106,10 +106,10 @@ impl FilterStorage {
 
     pub async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM filters
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&*self.pool)

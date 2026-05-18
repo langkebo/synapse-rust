@@ -40,14 +40,14 @@ impl DehydratedDeviceStorage {
         user_id: &str,
     ) -> Result<Option<DehydratedDevice>, sqlx::Error> {
         sqlx::query_as::<_, DehydratedDevice>(
-            r#"
+            r"
             SELECT id, user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at
             FROM dehydrated_devices
             WHERE user_id = $1
               AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY updated_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(chrono::Utc::now().timestamp_millis())
@@ -63,17 +63,17 @@ impl DehydratedDeviceStorage {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            r#"
+            r"
             DELETE FROM dehydrated_devices
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(&params.user_id)
         .execute(&mut *tx)
         .await?;
 
         let record = sqlx::query_as::<_, DehydratedDevice>(
-            r#"
+            r"
             INSERT INTO dehydrated_devices (
                 user_id,
                 device_id,
@@ -86,7 +86,7 @@ impl DehydratedDeviceStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
             RETURNING id, user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at
-            "#,
+            ",
         )
         .bind(&params.user_id)
         .bind(&params.device_id)
@@ -109,23 +109,23 @@ impl DehydratedDeviceStorage {
         // dehydrated device for this user. We don't know the device_id ahead
         // of time, so we join via dehydrated_devices in a single statement.
         sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_messages
             WHERE recipient_user_id = $1
               AND recipient_device_id IN (
                   SELECT device_id FROM dehydrated_devices WHERE user_id = $1
               )
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
         let rows = sqlx::query(
-            r#"
+            r"
             DELETE FROM dehydrated_devices
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .execute(&mut *tx)
@@ -146,23 +146,23 @@ impl DehydratedDeviceStorage {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_messages
             WHERE (recipient_user_id, recipient_device_id) IN (
                 SELECT user_id, device_id FROM dehydrated_devices
                 WHERE expires_at IS NOT NULL AND expires_at <= $1
             )
-            "#,
+            ",
         )
         .bind(now)
         .execute(&mut *tx)
         .await?;
 
         let rows = sqlx::query(
-            r#"
+            r"
             DELETE FROM dehydrated_devices
             WHERE expires_at IS NOT NULL AND expires_at <= $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&mut *tx)
@@ -189,7 +189,7 @@ impl DehydratedDeviceStorage {
         use sqlx::Row;
 
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT stream_id, sender_user_id, event_type, content, message_id
             FROM to_device_messages
             WHERE recipient_user_id = $1
@@ -197,7 +197,7 @@ impl DehydratedDeviceStorage {
               AND stream_id > $3
             ORDER BY stream_id ASC
             LIMIT $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -253,12 +253,12 @@ impl DehydratedDeviceStorage {
         let mut tx = self.pool.begin().await?;
 
         let row = sqlx::query(
-            r#"
+            r"
             SELECT id, device_data
             FROM dehydrated_devices
             WHERE user_id = $1 AND device_id = $2
             FOR UPDATE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)

@@ -43,7 +43,7 @@ pub struct TaskResultValue {
 }
 
 pub struct TaskQueue {
-    sender: mpsc::UnboundedSender<Box<dyn TaskHandler>>,
+    sender: mpsc::Sender<Box<dyn TaskHandler>>,
     _handle: JoinHandle<()>,
 }
 
@@ -63,7 +63,7 @@ where
 
 impl TaskQueue {
     pub fn new(max_concurrent: usize) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(1000);
         let handle = tokio::spawn(Self::worker(receiver, max_concurrent));
 
         Self {
@@ -73,7 +73,7 @@ impl TaskQueue {
     }
 
     async fn worker(
-        mut receiver: mpsc::UnboundedReceiver<Box<dyn TaskHandler>>,
+        mut receiver: mpsc::Receiver<Box<dyn TaskHandler>>,
         max_concurrent: usize,
     ) {
         let semaphore = Arc::new(Semaphore::new(max_concurrent));
@@ -103,7 +103,7 @@ impl TaskQueue {
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
         self.sender
-            .send(Box::new(task))
+            .try_send(Box::new(task))
             .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
@@ -113,7 +113,7 @@ impl TaskQueue {
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
         self.sender
-            .send(Box::new(task))
+            .try_send(Box::new(task))
             .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
@@ -130,7 +130,7 @@ impl TaskQueue {
         let sender = self.sender.clone();
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
-            let _ = sender.send(Box::new(task));
+            let _ = sender.send(Box::new(task)).await;
         });
         Ok(())
     }

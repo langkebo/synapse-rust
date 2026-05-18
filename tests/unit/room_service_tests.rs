@@ -210,7 +210,7 @@ fn test_room_service_creation() {
             None => return,
         };
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache);
 
         assert_eq!(room_service.server_name, "localhost");
@@ -230,7 +230,7 @@ fn test_create_room_success() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig {
@@ -270,7 +270,7 @@ fn test_join_room_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig {
@@ -305,7 +305,7 @@ fn test_send_message_success() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -347,7 +347,7 @@ fn test_get_room_messages_supports_sync_prev_batch_token() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -410,7 +410,7 @@ fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -476,7 +476,7 @@ fn test_invite_user_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -512,7 +512,7 @@ fn test_ban_user_success() {
         create_test_user(&pool, &alice_id, &alice_name).await;
         create_test_user(&pool, &bob_id, &bob_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -548,7 +548,7 @@ fn test_upgrade_room_success() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let config = CreateRoomConfig::default();
@@ -579,7 +579,7 @@ fn test_upgrade_room_not_found() {
         let alice_name = format!("alice_{id}");
         create_test_user(&pool, &alice_id, &alice_name).await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
         let result = room_service

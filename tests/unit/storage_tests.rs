@@ -193,10 +193,10 @@ mod token_storage_tests {
     #[test]
     fn test_token_expiry_calculation() {
         let created_at = 1700000000000i64;
-        let expires_in = 3600000i64;
+        let expires_in = 3_600_000i64;
         let expires_at = created_at + expires_in;
         
-        assert_eq!(expires_at, 1700003600000i64);
+        assert_eq!(expires_at, 1_700_003_600_000i64);
     }
 
     #[test]

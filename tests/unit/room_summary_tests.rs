@@ -148,7 +148,7 @@ mod tests {
             unread_notifications: 5,
             unread_highlight: 1,
             updated_ts: Some(1234567890),
-            created_ts: Some(1234560000),
+            created_ts: Some(1234560_000),
         };
 
         let heroes = vec![RoomSummaryHero {
@@ -176,7 +176,7 @@ mod tests {
             is_hero: true,
             last_active_ts: Some(1234567890),
             updated_ts: 1234567890,
-            created_ts: 1234560000,
+            created_ts: 1234560_000,
         };
 
         let hero: RoomSummaryHero = member.into();

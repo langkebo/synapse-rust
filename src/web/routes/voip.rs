@@ -23,7 +23,7 @@ pub struct VoipConfigResponse {
     pub stun_servers: Option<Vec<String>>,
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_turn_server(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -49,7 +49,7 @@ pub async fn get_turn_server(
     }))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_voip_config(
     State(state): State<AppState>,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
@@ -88,7 +88,7 @@ pub async fn get_voip_config(
     }))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_turn_credentials_guest(
     State(state): State<AppState>,
 ) -> Result<Json<TurnServerResponse>, ApiError> {

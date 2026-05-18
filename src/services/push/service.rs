@@ -573,7 +573,7 @@ impl PushNotificationService {
             .unwrap_or("");
 
         let value = Self::get_event_value(event, key);
-        value.map(|v| v.contains(pattern)).unwrap_or(false)
+        value.is_some_and(|v| v.contains(pattern))
     }
 
     fn matches_contains_display_name(_event: &JsonValue) -> bool {

@@ -21,9 +21,9 @@ pub enum SpamCheckResultType {
 impl SpamCheckResultType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            SpamCheckResultType::Allow => "allow",
-            SpamCheckResultType::Block => "block",
-            SpamCheckResultType::ShadowBan => "shadow_ban",
+            Self::Allow => "allow",
+            Self::Block => "block",
+            Self::ShadowBan => "shadow_ban",
         }
     }
 }
@@ -33,9 +33,9 @@ impl FromStr for SpamCheckResultType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "allow" => Ok(SpamCheckResultType::Allow),
-            "block" => Ok(SpamCheckResultType::Block),
-            "shadow_ban" => Ok(SpamCheckResultType::ShadowBan),
+            "allow" => Ok(Self::Allow),
+            "block" => Ok(Self::Block),
+            "shadow_ban" => Ok(Self::ShadowBan),
             _ => Err(format!("Invalid spam check result type: {s}")),
         }
     }

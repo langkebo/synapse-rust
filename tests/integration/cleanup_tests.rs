@@ -3,20 +3,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
-    let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache = Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state);
+    let (app, pool, _cache) = super::setup_test_app_with_pool().await?;
 
-    // 1. Register and login as admin
     let username = format!(
         "admin_{}",
         &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]
@@ -46,14 +37,12 @@ async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
     let reg_json: Value = serde_json::from_slice(&body).unwrap();
     let user_id = reg_json["user_id"].as_str().unwrap();
 
-    // 2. Make user admin in DB
     sqlx::query("UPDATE users SET is_admin = TRUE, user_type = 'super_admin' WHERE user_id = $1")
         .bind(user_id)
         .execute(&*pool)
         .await
         .unwrap();
 
-    // 3. Login again to get admin token
     let login_req = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/login")
@@ -117,14 +106,10 @@ async fn test_cleanup_api() {
 
 #[tokio::test]
 async fn test_cleanup_api_unauthorized() {
-    let Some(pool) = super::get_test_pool().await else {
+    let Some(app) = super::setup_test_app().await else {
         eprintln!("Skipping test because test database is unavailable");
         return;
     };
-    let container = ServiceContainer::new_test_with_pool(pool).await;
-    let cache = Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state);
 
     let req = Request::builder()
         .method("POST")

@@ -32,7 +32,7 @@ use std::sync::Arc;
                     return;
                 }
             };
-            let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+            let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
             let metrics = Arc::new(MetricsCollector::new());
             let security_config = SecurityConfig {
                 secret: "test_secret".to_string(),

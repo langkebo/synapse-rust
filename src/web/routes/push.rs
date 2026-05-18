@@ -148,13 +148,13 @@ async fn get_pushers(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let pushers = sqlx::query(
-        r#"
+        r"
         SELECT pushkey, kind, app_id, app_display_name, device_display_name, 
                profile_tag, lang, data, device_id
         FROM pushers 
         WHERE user_id = $1
         ORDER BY created_ts DESC
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .fetch_all(&*state.services.user_storage.pool)
@@ -199,14 +199,14 @@ async fn set_pusher(
 
     if kind != "null" {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name,
                                  device_display_name, profile_tag, lang, data, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
                 pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
                 device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
-            "#
+            "
         )
         .bind(&auth_user.user_id)
         .bind(&auth_user.device_id)
@@ -376,12 +376,12 @@ async fn set_push_rule(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
-        "#
+        "
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -432,12 +432,12 @@ async fn create_push_rule(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
-        "#
+        "
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -581,13 +581,13 @@ async fn get_notifications(
     let _only = params.get("only").cloned();
 
     let notifications = sqlx::query(
-        r#"
+        r"
         SELECT event_id, room_id, ts, notification_type, is_read
         FROM notifications
         WHERE user_id = $1
         ORDER BY ts DESC
         LIMIT $2
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .bind(limit as i64)
@@ -647,12 +647,12 @@ async fn get_user_push_rules(
     kind: &str,
 ) -> Result<Vec<Value>, ApiError> {
     let rules = sqlx::query(
-        r#"
+        r"
         SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
         ORDER BY priority DESC, created_ts ASC
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(scope)

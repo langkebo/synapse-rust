@@ -1,7 +1,11 @@
 #![cfg(test)]
 #![cfg(feature = "voice-extended")]
 
+use std::sync::Arc;
+
+use sqlx::postgres::PgPoolOptions;
 use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService};
+use synapse_rust::storage::voice::VoiceStorage;
 
 #[test]
 fn test_voice_upload_params_creation() {
@@ -64,5 +68,11 @@ fn test_voice_service_new() {
     let media_path = temp_dir.path().to_str().unwrap();
     let media_service =
         synapse_rust::services::media_service::MediaService::new(media_path, None, "test.server");
-    let _voice_service = VoiceService::new(media_service, "test.server");
+    let voice_storage = VoiceStorage::new(Arc::new(
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://localhost/test")
+            .unwrap(),
+    ));
+    let _voice_service = VoiceService::new(media_service, voice_storage, "test.server");
 }

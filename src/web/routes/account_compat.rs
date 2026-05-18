@@ -28,35 +28,49 @@ pub(crate) async fn can_view_profile_for_requester(
     requester_id: Option<&str>,
     user_id: &str,
 ) -> Result<bool, ApiError> {
-    let privacy_settings = sqlx::query("SELECT * FROM user_privacy_settings WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
+    let results = can_view_profile_for_requester_batch(state, requester_id, &[user_id.to_string()]).await?;
+    Ok(results.get(user_id).copied().unwrap_or(true))
+}
+
+pub(crate) async fn can_view_profile_for_requester_batch(
+    state: &AppState,
+    requester_id: Option<&str>,
+    user_ids: &[String],
+) -> Result<std::collections::HashMap<String, bool>, ApiError> {
+    let mut result = std::collections::HashMap::with_capacity(user_ids.len());
+    if user_ids.is_empty() {
+        return Ok(result);
+    }
+
+    for uid in user_ids {
+        result.insert(uid.clone(), true);
+    }
+
+    let rows = sqlx::query("SELECT user_id, profile_visibility, allow_profile_lookup FROM user_privacy_settings WHERE user_id = ANY($1)")
+        .bind(user_ids)
+        .fetch_all(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
-    if let Some(settings) = privacy_settings {
-        if let Ok(visibility) = settings.try_get::<String, _>("profile_visibility") {
+    for row in rows {
+        let uid: String = row.try_get("user_id").unwrap_or_default();
+        let is_self = requester_id == Some(uid.as_str());
+
+        let visible = if let Ok(visibility) = row.try_get::<String, _>("profile_visibility") {
             match visibility.as_str() {
-                "private" => {
-                    if requester_id != Some(user_id) {
-                        return Ok(false);
-                    }
-                }
-                "contacts" => {
-                    if requester_id != Some(user_id) {
-                        return Ok(false);
-                    }
-                }
-                _ => {}
+                "private" | "contacts" => is_self,
+                _ => true,
             }
-        } else if let Ok(allow_lookup) = settings.try_get::<bool, _>("allow_profile_lookup") {
-            if !allow_lookup && requester_id != Some(user_id) {
-                return Ok(false);
-            }
-        }
+        } else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup") {
+            allow_lookup || is_self
+        } else {
+            true
+        };
+
+        result.insert(uid, visible);
     }
 
-    Ok(true)
+    Ok(result)
 }
 
 pub(crate) async fn enforce_profile_visibility(
@@ -567,11 +581,11 @@ pub(crate) async fn get_threepids(
     let user_id = &auth_user.user_id;
 
     let threepids = sqlx::query(
-        r#"
+        r"
         SELECT medium, address, validated_ts, added_ts
         FROM user_threepids
         WHERE user_id = $1
-        "#,
+        ",
     )
     .bind(user_id)
     .fetch_all(&*state.services.user_storage.pool)
@@ -683,14 +697,14 @@ pub(crate) async fn add_threepid(
     // ON CONFLICT 上的 WHERE 谓词保证：地址若已被另一个账户占用，UPDATE 不会
     // 命中——rows_affected == 0，路由抛 409。本账户重复绑定则幂等更新时间戳。
     let result = sqlx::query(
-        r#"
+        r"
         INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts, is_verified)
         VALUES ($1, $2, $3, $4, $5, TRUE)
         ON CONFLICT (medium, address) DO UPDATE
         SET validated_ts = EXCLUDED.validated_ts,
             is_verified = TRUE
         WHERE user_threepids.user_id = EXCLUDED.user_id
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(medium)
@@ -772,10 +786,10 @@ pub(crate) async fn delete_threepid(
     let user_id = &auth_user.user_id;
 
     sqlx::query(
-        r#"
+        r"
         DELETE FROM user_threepids
         WHERE user_id = $1 AND medium = $2 AND address = $3
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(&body.medium)
@@ -795,10 +809,10 @@ pub(crate) async fn unbind_threepid(
     let user_id = &auth_user.user_id;
 
     sqlx::query(
-        r#"
+        r"
         DELETE FROM user_threepids
         WHERE user_id = $1 AND medium = $2 AND address = $3
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(&body.medium)

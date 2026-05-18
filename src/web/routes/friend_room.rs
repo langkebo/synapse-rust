@@ -1,14 +1,17 @@
 use crate::common::ApiError;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester, validate_user_id, AppState, AuthenticatedUser,
+    account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
 use axum::{
     extract::{Path, Query, State},
+    response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 
 pub fn create_friend_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -100,6 +103,10 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v1/friends/check/{user_id}",
+            get(check_friendship),
+        )
+        .route(
+            "/_matrix/client/v3/friends/check/{user_id}",
             get(check_friendship),
         )
         .route(
@@ -252,32 +259,14 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_matrix/client/r0/friends/search"),
         (Method::POST, "/_matrix/client/v1/friends/request"),
         (Method::GET, "/_matrix/client/v1/friends/request/received"),
-        (
-            Method::POST,
-            "/_matrix/client/v1/friends/request/{user_id}/accept",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/friends/request/{user_id}/reject",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/friends/request/{user_id}/cancel",
-        ),
+        (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/accept"),
+        (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/reject"),
+        (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/cancel"),
         (Method::POST, "/_matrix/client/r0/friends/request"),
         (Method::GET, "/_matrix/client/r0/friends/request/received"),
-        (
-            Method::POST,
-            "/_matrix/client/r0/friends/request/{user_id}/accept",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/r0/friends/request/{user_id}/reject",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/r0/friends/request/{user_id}/cancel",
-        ),
+        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/accept"),
+        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/reject"),
+        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/cancel"),
         (Method::GET, "/_matrix/client/v1/friends/requests/incoming"),
         (Method::GET, "/_matrix/client/v1/friends/requests/outgoing"),
         (Method::GET, "/_matrix/client/r0/friends/requests/incoming"),
@@ -296,58 +285,22 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::PUT, "/_matrix/client/r0/friends/{user_id}/status"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/info"),
         (Method::GET, "/_matrix/client/r0/friends/{user_id}/info"),
-        (
-            Method::PUT,
-            "/_matrix/client/v1/friends/{user_id}/displayname",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/r0/friends/{user_id}/displayname",
-        ),
+        (Method::PUT, "/_matrix/client/v1/friends/{user_id}/displayname"),
+        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/displayname"),
         (Method::GET, "/_matrix/client/v1/friends/groups"),
         (Method::POST, "/_matrix/client/v1/friends/groups"),
         (Method::GET, "/_matrix/client/r0/friends/groups"),
         (Method::POST, "/_matrix/client/r0/friends/groups"),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/friends/groups/{group_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/r0/friends/groups/{group_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/v1/friends/groups/{group_id}/name",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/r0/friends/groups/{group_id}/name",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v1/friends/groups/{group_id}/friends",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/r0/friends/groups/{group_id}/friends",
-        ),
+        (Method::DELETE, "/_matrix/client/v1/friends/groups/{group_id}"),
+        (Method::DELETE, "/_matrix/client/r0/friends/groups/{group_id}"),
+        (Method::PUT, "/_matrix/client/v1/friends/groups/{group_id}/name"),
+        (Method::PUT, "/_matrix/client/r0/friends/groups/{group_id}/name"),
+        (Method::POST, "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}"),
+        (Method::POST, "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}"),
+        (Method::DELETE, "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}"),
+        (Method::DELETE, "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}"),
+        (Method::GET, "/_matrix/client/v1/friends/groups/{group_id}/friends"),
+        (Method::GET, "/_matrix/client/r0/friends/groups/{group_id}/friends"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/groups"),
         (Method::GET, "/_matrix/client/r0/friends/{user_id}/groups"),
     ]
@@ -375,7 +328,8 @@ pub struct UpdateStatusRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateDisplaynameRequest {
-    pub displayname: String,
+    #[serde(rename = "displayname")]
+    pub display_name: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -415,6 +369,7 @@ fn resolve_friend_search_term(query: &FriendSearchQuery, body: Option<&Value>) -
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FriendRequest {
     pub user_id: String,
+    #[serde(rename = "displayname")]
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub message: Option<String>,
@@ -442,8 +397,8 @@ async fn get_friends(
         .get_friends_page(
             &auth_user.user_id,
             crate::services::friend_room_service::FriendListRequest {
-                limit: params.limit.unwrap_or(50),
-                offset: params.offset.unwrap_or(0),
+                limit: params.limit.unwrap_or(50).clamp(1, 200),
+                offset: params.offset.unwrap_or(0).clamp(0, 10000),
                 sort_by: params.sort_by.unwrap_or_else(|| "alphabet".to_string()),
             },
         )
@@ -480,17 +435,13 @@ async fn search_friend_directory(
     let exact_only = body
         .as_ref()
         .and_then(|Json(b)| b.get("mode").and_then(|v| v.as_str()))
-        .map(|m: &str| m == "exact")
-        .unwrap_or_else(|| matches!(query.mode.as_deref(), Some("exact")));
+        .map_or_else(|| matches!(query.mode.as_deref(), Some("exact")), |m: &str| m == "exact");
     let search_limit = body
         .as_ref()
         .and_then(|Json(b)| b.get("limit").and_then(|v| v.as_i64()))
-        .unwrap_or_else(|| query.limit.unwrap_or(20) as i64) as usize;
+        .unwrap_or_else(|| query.limit.unwrap_or(DEFAULT_FRIEND_LIST_LIMIT) as i64) as usize;
     let rate_limit_key = format!("ratelimit:friend-search:{}", auth_user.user_id);
-    let decision = state
-        .cache
-        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
-        .await?;
+    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many friend search requests"));
     }
@@ -502,14 +453,16 @@ async fn search_friend_directory(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to search users: {e}")))?;
 
+    let target_user_ids: Vec<String> =
+        results.iter().filter(|r| r.user_id != auth_user.user_id).map(|r| r.user_id.clone()).collect();
+    let visibility = can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
+
     let mut visible = Vec::new();
     for result in results.drain(..) {
         if result.user_id == auth_user.user_id {
             continue;
         }
-        if !can_view_profile_for_requester(&state, Some(&auth_user.user_id), &result.user_id)
-            .await?
-        {
+        if !visibility.get(&result.user_id).copied().unwrap_or(true) {
             continue;
         }
         let presence = result.presence.unwrap_or_else(|| "offline".to_string());
@@ -549,9 +502,7 @@ async fn send_friend_request(
     validate_user_id(&body.user_id)?;
 
     if body.user_id == auth_user.user_id {
-        return Err(ApiError::bad_request(
-            "Cannot send friend request to yourself".to_string(),
-        ));
+        return Err(ApiError::bad_request("Cannot send friend request to yourself".to_string()));
     }
 
     let request_id = state
@@ -573,11 +524,7 @@ async fn accept_friend_request(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
-    let room_id = state
-        .services
-        .friend_room_service
-        .accept_friend_request(&auth_user.user_id, &requester_id)
-        .await?;
+    let room_id = state.services.friend_room_service.accept_friend_request(&auth_user.user_id, &requester_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -592,11 +539,7 @@ async fn reject_friend_request(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
-    state
-        .services
-        .friend_room_service
-        .reject_friend_request(&auth_user.user_id, &requester_id)
-        .await?;
+    state.services.friend_room_service.reject_friend_request(&auth_user.user_id, &requester_id).await?;
 
     Ok(Json(json!({ "status": "rejected" })))
 }
@@ -608,11 +551,7 @@ async fn cancel_friend_request(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    state
-        .services
-        .friend_room_service
-        .cancel_friend_request(&auth_user.user_id, &target_id)
-        .await?;
+    state.services.friend_room_service.cancel_friend_request(&auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({ "status": "cancelled" })))
 }
@@ -621,11 +560,7 @@ async fn get_incoming_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests = state
-        .services
-        .friend_room_service
-        .get_incoming_requests(&auth_user.user_id)
-        .await?;
+    let requests = state.services.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
 
     Ok(Json(json!({ "requests": requests })))
 }
@@ -634,11 +569,7 @@ async fn get_outgoing_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests = state
-        .services
-        .friend_room_service
-        .get_outgoing_requests(&auth_user.user_id)
-        .await?;
+    let requests = state.services.friend_room_service.get_outgoing_requests(&auth_user.user_id).await?;
 
     Ok(Json(json!({ "requests": requests })))
 }
@@ -650,11 +581,7 @@ async fn remove_friend(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    state
-        .services
-        .friend_room_service
-        .remove_friend(&auth_user.user_id, &friend_id)
-        .await?;
+    state.services.friend_room_service.remove_friend(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(json!({
         "removed": true,
@@ -672,16 +599,10 @@ async fn update_friend_note(
     validate_user_id(&friend_id)?;
 
     if body.note.len() > 1000 {
-        return Err(ApiError::bad_request(
-            "Note exceeds maximum length of 1000 characters".to_string(),
-        ));
+        return Err(ApiError::bad_request("Note exceeds maximum length of 1000 characters".to_string()));
     }
 
-    state
-        .services
-        .friend_room_service
-        .update_friend_note(&auth_user.user_id, &friend_id, &body.note)
-        .await?;
+    state.services.friend_room_service.update_friend_note(&auth_user.user_id, &friend_id, &body.note).await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
@@ -700,17 +621,10 @@ async fn update_friend_status(
 
     let valid_statuses = ["favorite", "normal", "blocked", "hidden"];
     if !valid_statuses.contains(&body.status.as_str()) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid status. Valid values: {}",
-            valid_statuses.join(", ")
-        )));
+        return Err(ApiError::bad_request(format!("Invalid status. Valid values: {}", valid_statuses.join(", "))));
     }
 
-    state
-        .services
-        .friend_room_service
-        .update_friend_status(&auth_user.user_id, &friend_id, &body.status)
-        .await?;
+    state.services.friend_room_service.update_friend_status(&auth_user.user_id, &friend_id, &body.status).await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
@@ -744,21 +658,19 @@ async fn update_friend_displayname(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    if body.displayname.is_empty() || body.displayname.len() > 256 {
-        return Err(ApiError::bad_request(
-            "Display name must be between 1 and 256 characters".to_string(),
-        ));
+    if body.display_name.is_empty() || body.display_name.len() > 256 {
+        return Err(ApiError::bad_request("Display name must be between 1 and 256 characters".to_string()));
     }
 
     state
         .services
         .friend_room_service
-        .update_friend_displayname(&auth_user.user_id, &friend_id, &body.displayname)
+        .update_friend_displayname(&auth_user.user_id, &friend_id, &body.display_name)
         .await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
-        "displayname": body.displayname,
+        "displayname": body.display_name,
         "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }
@@ -766,14 +678,26 @@ async fn update_friend_displayname(
 async fn get_received_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let requests = state
-        .services
-        .friend_room_service
-        .get_incoming_requests(&auth_user.user_id)
-        .await?;
+) -> Result<axum::http::Response<axum::body::Body>, ApiError> {
+    let requests = state.services.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
 
-    Ok(Json(json!({ "requests": requests })))
+    let body = Json(json!({ "requests": requests }));
+    let mut response = body.into_response();
+    response.headers_mut().insert(
+        axum::http::header::HeaderName::from_static("deprecation"),
+        axum::http::HeaderValue::from_static("true"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::HeaderName::from_static("link"),
+        axum::http::HeaderValue::from_static(
+            "</_matrix/client/v3/friends/requests/incoming>; rel=\"successor-version\"",
+        ),
+    );
+    response.headers_mut().insert(
+        axum::http::header::HeaderName::from_static("sunset"),
+        axum::http::HeaderValue::from_static("2027-01-01"),
+    );
+    Ok(response)
 }
 
 async fn get_friend_status(
@@ -783,11 +707,7 @@ async fn get_friend_status(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    let status = state
-        .services
-        .friend_room_service
-        .get_friend_status(&auth_user.user_id, &friend_id)
-        .await?;
+    let status = state.services.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(status))
 }
@@ -799,15 +719,12 @@ async fn check_friendship(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    let is_friend = state
-        .services
-        .friend_room_service
-        .check_friendship(&auth_user.user_id, &target_id)
-        .await?;
+    let is_friend = state.services.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({
         "user_id": target_id,
-        "is_friend": is_friend
+        "is_friend": is_friend,
+        "are_friends": is_friend
     })))
 }
 
@@ -821,11 +738,8 @@ async fn get_friend_suggestions(
     auth_user: AuthenticatedUser,
     Query(query): Query<FriendSuggestionsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let suggestions = state
-        .services
-        .friend_room_service
-        .get_friend_suggestions(&auth_user.user_id, query.limit)
-        .await?;
+    let suggestions =
+        state.services.friend_room_service.get_friend_suggestions(&auth_user.user_id, query.limit).await?;
 
     Ok(Json(json!({
         "suggestions": suggestions
@@ -848,11 +762,7 @@ async fn get_friend_groups(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let groups = state
-        .services
-        .friend_room_service
-        .get_friend_groups(&auth_user.user_id)
-        .await?;
+    let groups = state.services.friend_room_service.get_friend_groups(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -865,16 +775,10 @@ async fn create_friend_group(
     Json(body): Json<CreateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
-        return Err(ApiError::bad_request(
-            "Group name must be between 1 and 50 characters".to_string(),
-        ));
+        return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    let group = state
-        .services
-        .friend_room_service
-        .create_friend_group(&auth_user.user_id, &body.name)
-        .await?;
+    let group = state.services.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
 
     Ok(Json(group))
 }
@@ -884,11 +788,7 @@ async fn delete_friend_group(
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .friend_room_service
-        .delete_friend_group(&auth_user.user_id, &group_id)
-        .await?;
+    state.services.friend_room_service.delete_friend_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "deleted": true,
@@ -904,16 +804,10 @@ async fn rename_friend_group(
     Json(body): Json<RenameGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
-        return Err(ApiError::bad_request(
-            "Group name must be between 1 and 50 characters".to_string(),
-        ));
+        return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    state
-        .services
-        .friend_room_service
-        .rename_friend_group(&auth_user.user_id, &group_id, &body.name)
-        .await?;
+    state.services.friend_room_service.rename_friend_group(&auth_user.user_id, &group_id, &body.name).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -929,11 +823,7 @@ async fn add_friend_to_group(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state
-        .services
-        .friend_room_service
-        .add_friend_to_group(&auth_user.user_id, &group_id, &user_id)
-        .await?;
+    state.services.friend_room_service.add_friend_to_group(&auth_user.user_id, &group_id, &user_id).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -949,11 +839,7 @@ async fn remove_friend_from_group(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state
-        .services
-        .friend_room_service
-        .remove_friend_from_group(&auth_user.user_id, &group_id, &user_id)
-        .await?;
+    state.services.friend_room_service.remove_friend_from_group(&auth_user.user_id, &group_id, &user_id).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -967,11 +853,7 @@ async fn get_friends_in_group(
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let friends = state
-        .services
-        .friend_room_service
-        .get_friends_in_group(&auth_user.user_id, &group_id)
-        .await?;
+    let friends = state.services.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "friends": friends
@@ -985,11 +867,7 @@ async fn get_groups_for_user(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let groups = state
-        .services
-        .friend_room_service
-        .get_groups_for_user(&auth_user.user_id, &user_id)
-        .await?;
+    let groups = state.services.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -1051,19 +929,14 @@ mod tests {
 
     #[test]
     fn test_add_friend_request_serialization() {
-        let req = AddFriendRequest {
-            user_id: "@test:example.com".to_string(),
-            message: Some("Hello!".to_string()),
-        };
+        let req = AddFriendRequest { user_id: "@test:example.com".to_string(), message: Some("Hello!".to_string()) };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("@test:example.com"));
     }
 
     #[test]
     fn test_update_note_request_serialization() {
-        let req = UpdateNoteRequest {
-            note: "Best friend".to_string(),
-        };
+        let req = UpdateNoteRequest { note: "Best friend".to_string() };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("Best friend"));
     }
@@ -1092,18 +965,11 @@ mod tests {
 
     #[test]
     fn test_resolve_friend_search_term_prefers_body_query_alias() {
-        let query = FriendSearchQuery {
-            q: Some("from_query".to_string()),
-            mode: None,
-            limit: None,
-        };
+        let query = FriendSearchQuery { q: Some("from_query".to_string()), mode: None, limit: None };
         let body = serde_json::json!({
             "query": "from_body"
         });
 
-        assert_eq!(
-            resolve_friend_search_term(&query, Some(&body)),
-            Some("from_body".to_string())
-        );
+        assert_eq!(resolve_friend_search_term(&query, Some(&body)), Some("from_body".to_string()));
     }
 }

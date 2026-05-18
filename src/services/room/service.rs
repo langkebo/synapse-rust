@@ -298,13 +298,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.member event: {e}"))
-                })
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to create m.room.member event: {e}")));
         }
 
         // m.room.power_levels with Matrix spec defaults for a new room.
@@ -354,13 +350,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.power_levels event: {e}"))
-                })
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to create m.room.power_levels event: {e}")));
         }
 
         // m.room.join_rules so clients know who can join.
@@ -379,13 +371,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.join_rules event: {e}"))
-                })
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to create m.room.join_rules event: {e}")));
         }
 
         // m.room.history_visibility — default "shared" matches Element's expectations.
@@ -412,15 +400,11 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| {
-                    ApiError::internal(format!(
-                        "Failed to create m.room.history_visibility event: {e}"
-                    ))
-                })
-                .unwrap_err());
+            return Err(ApiError::internal(format!(
+                "Failed to create m.room.history_visibility event: {e}"
+            )));
         }
 
         // m.room.guest_access defaults to "can_join" for public rooms, "forbidden" otherwise.
@@ -440,13 +424,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to create m.room.guest_access event: {e}"))
-                })
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to create m.room.guest_access event: {e}")));
         }
 
         let result = self
@@ -459,11 +439,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| ApiError::internal(format!("Failed to set room metadata: {e}")))
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to set room metadata: {e}")));
         }
 
         let result = self
@@ -475,11 +453,9 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if result.is_err() {
+        if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(result
-                .map_err(|e| ApiError::internal(format!("Failed to process invites: {e}")))
-                .unwrap_err());
+            return Err(ApiError::internal(format!("Failed to process invites: {e}")));
         }
 
         // Replay any client-supplied `initial_state` events (e.g. Element's
@@ -545,11 +521,9 @@ impl RoomService {
                     Some(&mut tx),
                 )
                 .await;
-            if result.is_err() {
+            if let Err(e) = result {
                 let _ = tx.rollback().await;
-                return Err(result
-                    .map_err(|e| ApiError::internal(format!("Failed to set privacy marker: {e}")))
-                    .unwrap_err());
+                return Err(ApiError::internal(format!("Failed to set privacy marker: {e}")));
             }
         }
 
@@ -593,7 +567,7 @@ impl RoomService {
         }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
-        Ok(Self::build_room_response(&room_id, room_alias))
+        Ok(Self::build_room_response(&room_id, room_alias.as_deref()))
     }
 
     fn generate_room_id(&self) -> String {
@@ -834,7 +808,7 @@ impl RoomService {
         room_alias_name.map(|a| format!("#{}:{}", a, self.server_name))
     }
 
-    fn build_room_response(room_id: &str, room_alias: Option<String>) -> serde_json::Value {
+    fn build_room_response(room_id: &str, room_alias: Option<&str>) -> serde_json::Value {
         json!({
             "room_id": room_id,
             "room_alias": room_alias
@@ -1428,7 +1402,7 @@ impl RoomService {
                 .get_room(room_id)
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?;
-            let is_public = room.as_ref().map(|r| r.is_public).unwrap_or(false);
+            let is_public = room.as_ref().is_some_and(|r| r.is_public);
             if !is_public {
                 return Err(ApiError::forbidden(
                     "You are not a member of this room".to_string(),
@@ -1476,8 +1450,7 @@ impl RoomService {
 
         let end_token = events
             .last()
-            .map(|event| generate_stream_token_from_ts(Some(event.origin_server_ts)))
-            .unwrap_or_else(|| start_token.clone());
+            .map_or_else(|| start_token.clone(), |event| generate_stream_token_from_ts(Some(event.origin_server_ts)));
 
         Ok(json!({
             "chunk": event_list,
@@ -2005,8 +1978,7 @@ impl RoomService {
         let delay_secs = content
             .get("burn_after_read_delay_seconds")
             .and_then(|v| v.as_i64())
-            .map(|v| v as u64)
-            .unwrap_or(BURN_AFTER_READ_DELAY_SECS);
+            .map_or(BURN_AFTER_READ_DELAY_SECS, |v| v as u64);
 
         let rid = room_id.to_string();
         let eid = event_id.to_string();

@@ -4,17 +4,11 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
-use synapse_rust::services::ServiceContainer;
-use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let pool = super::get_test_pool().await?;
-    let container = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    let cache = Arc::new(CacheManager::new(Default::default()));
-    let state = AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    Some((app, pool))
 }
 
 async fn whoami(app: &axum::Router, token: &str) -> String {
@@ -519,7 +513,7 @@ async fn test_beacon_info_state_key_must_match_sender() {
         .body(Body::from(
             json!({
                 "m.beacon_info": {
-                    "timeout": 60000,
+                    "timeout": 60_000,
                     "live": true
                 },
                 "m.ts": chrono::Utc::now().timestamp_millis(),

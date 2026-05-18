@@ -54,6 +54,25 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
             "room_id too long (max 255 characters)".to_string(),
         ));
     }
+
+    let Some((localpart, server_name)) = room_id[1..].rsplit_once(':') else {
+        return Err(ApiError::invalid_input(
+            "Invalid room_id format: must be !roomid:server".to_string(),
+        ));
+    };
+
+    if localpart.is_empty() {
+        return Err(ApiError::invalid_input(
+            "Invalid room_id format: room id cannot be empty".to_string(),
+        ));
+    }
+
+    if server_name.is_empty() {
+        return Err(ApiError::invalid_input(
+            "Invalid room_id format: server cannot be empty".to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -130,6 +149,17 @@ pub fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+pub fn validate_membership(membership: &str) -> Result<(), ApiError> {
+    let valid_memberships = ["join", "leave", "invite", "ban", "knock"];
+    if !valid_memberships.contains(&membership) {
+        return Err(ApiError::invalid_input(format!(
+            "Invalid membership value. Must be one of: {}",
+            valid_memberships.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +190,9 @@ mod tests {
     fn test_validate_room_id_invalid() {
         assert!(validate_room_id("").is_err());
         assert!(validate_room_id("room:example.com").is_err());
+        assert!(validate_room_id("!anything").is_err());
+        assert!(validate_room_id("!:example.com").is_err());
+        assert!(validate_room_id("!room:").is_err());
     }
 
     #[test]
@@ -203,5 +236,22 @@ mod tests {
         assert!(validate_receipt_type("m.read").is_ok());
         assert!(validate_receipt_type("m.read.private").is_ok());
         assert!(validate_receipt_type("m.read.core").is_err());
+    }
+
+    #[test]
+    fn test_validate_membership_valid() {
+        assert!(validate_membership("join").is_ok());
+        assert!(validate_membership("leave").is_ok());
+        assert!(validate_membership("invite").is_ok());
+        assert!(validate_membership("ban").is_ok());
+        assert!(validate_membership("knock").is_ok());
+    }
+
+    #[test]
+    fn test_validate_membership_invalid() {
+        assert!(validate_membership("kicked").is_err());
+        assert!(validate_membership("banned").is_err());
+        assert!(validate_membership("").is_err());
+        assert!(validate_membership("pending").is_err());
     }
 }

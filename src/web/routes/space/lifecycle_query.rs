@@ -130,7 +130,7 @@ pub(super) async fn get_public_spaces(
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = decode_public_space_cursor(query.from.as_deref());
     if query.from.is_some() && cursor.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
@@ -170,7 +170,7 @@ pub(super) async fn search_spaces(
     Query(query): Query<SearchQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(10);
+    let limit = query.limit.unwrap_or(10).clamp(1, 100);
 
     let spaces = state
         .services

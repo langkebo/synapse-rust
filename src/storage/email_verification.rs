@@ -37,11 +37,11 @@ impl EmailVerificationStorage {
         let created_ts = now;
 
         let row = sqlx::query_as::<_, TokenIdRow>(
-            r#"
+            r"
             INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, used, user_id, session_data)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING id
-            "#,
+            ",
         )
         .bind(email)
         .bind(token)
@@ -63,11 +63,11 @@ impl EmailVerificationStorage {
         let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r#"
+            r"
             SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
             WHERE email = $1 AND token = $2 AND used = FALSE AND expires_at > $3
-            "#,
+            ",
         )
         .bind(email)
         .bind(token)
@@ -80,9 +80,9 @@ impl EmailVerificationStorage {
 
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE email_verification_tokens SET used = TRUE WHERE id = $1
-            "#,
+            ",
         )
         .bind(token_id)
         .execute(&*self.pool)
@@ -95,11 +95,11 @@ impl EmailVerificationStorage {
         token_id: i64,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r#"
+            r"
             SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(token_id)
         .fetch_optional(&*self.pool)
@@ -110,9 +110,9 @@ impl EmailVerificationStorage {
 
     pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM email_verification_tokens WHERE id = $1
-            "#,
+            ",
         )
         .bind(token_id)
         .execute(&*self.pool)
@@ -134,11 +134,11 @@ impl EmailVerificationStorage {
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = Utc::now();
         let row = sqlx::query_as::<_, EmailVerificationToken>(
-            r#"
+            r"
             DELETE FROM email_verification_tokens
             WHERE id = $1 AND used = TRUE AND expires_at > $2
             RETURNING id, user_id, email, token, expires_at, created_ts, used, session_data
-            "#,
+            ",
         )
         .bind(token_id)
         .bind(now)
@@ -151,9 +151,9 @@ impl EmailVerificationStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now();
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM email_verification_tokens WHERE expires_at < $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -168,13 +168,13 @@ impl EmailVerificationStorage {
         let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r#"
+            r"
             SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
             FROM email_verification_tokens
             WHERE email = $1 AND used = FALSE AND expires_at > $2
             ORDER BY created_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(email)
         .bind(now)

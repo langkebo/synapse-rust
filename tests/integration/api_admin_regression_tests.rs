@@ -6,10 +6,15 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::{Arc, OnceLock};
-use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::cache::CacheManager;
+#[cfg(feature = "saml-sso")]
+use synapse_rust::cache::CacheConfig;
+#[cfg(feature = "saml-sso")]
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::sliding_sync::SlidingSyncStorage;
+#[cfg(feature = "saml-sso")]
 use synapse_rust::web::routes::create_router;
+#[cfg(feature = "saml-sso")]
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
 
@@ -20,13 +25,7 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
-    let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
-        .await
-        .ok()?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
-    let state = AppState::new(container, cache.clone());
-    Some((create_router(state), pool, cache))
+    super::setup_test_app_with_pool().await
 }
 
 #[cfg(feature = "saml-sso")]
@@ -35,7 +34,7 @@ async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
         .await
         .ok()?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     container.config.saml.enabled = true;
     container.config.saml.metadata_url = None;

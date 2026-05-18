@@ -26,7 +26,7 @@ mod p0_1_key_rotation_tests {
             "device_id": "DEVICE123",
             "rotation_enabled": true,
             "last_rotation_ts": 1700000000000_i64,
-            "next_rotation_ts": 1700086400000_i64
+            "next_rotation_ts": 1700086_400_000_i64
         });
 
         assert!(response["rotation_enabled"].is_boolean());

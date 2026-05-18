@@ -164,8 +164,7 @@ impl DatabaseMonitor {
         let total_transactions = db_stats.0 + db_stats.1;
         let stats_window_seconds = db_stats
             .5
-            .map(|stats_reset| (Utc::now() - stats_reset).num_seconds().max(1) as f64)
-            .unwrap_or(60.0);
+            .map_or(60.0, |stats_reset| (Utc::now() - stats_reset).num_seconds().max(1) as f64);
 
         let pg_stat_statements_enabled = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
@@ -240,12 +239,12 @@ impl DatabaseMonitor {
 
         // 1. 检查核心外键约束 (示例：events -> rooms)
         let orphans = sqlx::query_as::<_, (String, String, i64, String)>(
-            r#"
+            r"
             SELECT 'events' as table_name, 'room_id' as column_name, 0 as violating_row_id, 'rooms' as referenced_table
             FROM events e
             WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
             LIMIT 10
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await?;

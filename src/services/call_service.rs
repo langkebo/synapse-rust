@@ -298,7 +298,7 @@ mod tests {
                 "sdp": "v=0..."
             },
             "invitee": "@alice:example.com",
-            "lifetime": 60000
+            "lifetime": 60_000
         }"#;
 
         let event: CallInviteEvent = serde_json::from_str(json).unwrap();
@@ -309,7 +309,7 @@ mod tests {
         assert_eq!(offer.offer_type, "offer");
         assert_eq!(offer.sdp, "v=0...");
         assert_eq!(event.invitee, Some(serde_json::json!("@alice:example.com")));
-        assert_eq!(event.lifetime, Some(60000));
+        assert_eq!(event.lifetime, Some(60_000));
     }
 
     #[test]

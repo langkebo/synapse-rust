@@ -150,6 +150,29 @@ impl TypingService {
         Ok(result)
     }
 
+    pub async fn get_typing_users_batch(&self, room_ids: &[String]) -> ApiResult<HashMap<String, Vec<String>>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut typing = self.typing.write().await;
+
+        typing.retain(|_, v| {
+            let expiry = v.started_ts + (v.timeout_ms as i64);
+            expiry > now
+        });
+
+        let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(room_ids.len());
+        for room_id in room_ids {
+            result.insert(room_id.clone(), Vec::new());
+        }
+
+        for (_, v) in typing.iter() {
+            if let Some(user_ids) = result.get_mut(&v.room_id) {
+                user_ids.push(v.user_id.clone());
+            }
+        }
+
+        Ok(result)
+    }
+
     pub async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
         let key = Self::make_key(room_id, user_id);
         let typing = self.typing.read().await;
@@ -380,7 +403,7 @@ mod tests {
             .await
             .unwrap();
         service
-            .set_typing("!room:example.com", "@user:example.com", 60000)
+            .set_typing("!room:example.com", "@user:example.com", 60_000)
             .await
             .unwrap();
 
@@ -388,7 +411,7 @@ mod tests {
             .get_user_typing("!room:example.com", "@user:example.com")
             .await
             .unwrap();
-        assert_eq!(timeout, Some(60000));
+        assert_eq!(timeout, Some(60_000));
 
         assert_eq!(service.get_typing_count().await, 1);
     }

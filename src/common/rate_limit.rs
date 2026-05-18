@@ -144,9 +144,8 @@ impl RateLimiter {
                     reset_seconds: config.window_seconds,
                     retry_after: Some(retry_after),
                 });
-            } else {
-                entry.blocked_until = None;
             }
+            entry.blocked_until = None;
         }
 
         if entry.try_consume(1) {

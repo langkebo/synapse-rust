@@ -121,7 +121,7 @@ impl WorkerBus {
         Ok(rx)
     }
 
-    pub async fn unsubscribe(&self, _channels: &[&str]) -> Result<(), ApiError> {
+    pub fn unsubscribe(&self, _channels: &[&str]) -> Result<(), ApiError> {
         debug!("Unsubscribed from channels");
         Ok(())
     }

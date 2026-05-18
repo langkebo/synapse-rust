@@ -1,11 +1,11 @@
 use crate::cache::*;
+use crate::common::error::ApiError;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
-use axum::http::{HeaderValue, Request, StatusCode};
-use axum::response::Response;
+use axum::http::{HeaderValue, Request};
+use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
-use serde_json::json;
 
 fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     matches!(
@@ -31,8 +31,7 @@ pub async fn rate_limit_middleware(
 
     let enabled = file_config
         .as_ref()
-        .map(|c| c.enabled)
-        .unwrap_or(config.enabled);
+        .map_or(config.enabled, |c| c.enabled);
     if !enabled {
         return next.run(request).await;
     }
@@ -40,12 +39,10 @@ pub async fn rate_limit_middleware(
     let path = request.uri().path();
     let exempt_paths = file_config
         .as_ref()
-        .map(|c| c.exempt_paths.as_slice())
-        .unwrap_or(&config.exempt_paths);
+        .map_or(&config.exempt_paths, |c| &c.exempt_paths);
     let exempt_path_prefixes = file_config
         .as_ref()
-        .map(|c| c.exempt_path_prefixes.as_slice())
-        .unwrap_or(&config.exempt_path_prefixes);
+        .map_or(&config.exempt_path_prefixes, |c| &c.exempt_path_prefixes);
 
     if is_sync_rate_limit_exempt_path(path)
         || exempt_paths.iter().any(|p: &String| p == path)
@@ -58,8 +55,7 @@ pub async fn rate_limit_middleware(
 
     let ip_header_priority = file_config
         .as_ref()
-        .map(|c| c.ip_header_priority.as_slice())
-        .unwrap_or(&config.ip_header_priority);
+        .map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
     let ip = extract_client_ip(request.headers(), ip_header_priority)
         .unwrap_or_else(|| "unknown".to_string());
 
@@ -84,12 +80,10 @@ pub async fn rate_limit_middleware(
 
     let fail_open = file_config
         .as_ref()
-        .map(|c| c.fail_open_on_error)
-        .unwrap_or(config.fail_open_on_error);
+        .map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
     let include_headers = file_config
         .as_ref()
-        .map(|c| c.include_headers)
-        .unwrap_or(config.include_headers);
+        .map_or(config.include_headers, |c| c.include_headers);
 
     let decision = match state
         .cache
@@ -101,37 +95,14 @@ pub async fn rate_limit_middleware(
             if fail_open {
                 tracing::warn!("Rate limiter error, allowing request: {}", e);
                 return next.run(request).await;
-            } else {
-                let mut response = Response::new(Body::from(
-                    json!({
-                        "errcode": "M_LIMIT_EXCEEDED",
-                        "error": "Rate limiter unavailable"
-                    })
-                    .to_string(),
-                ));
-                *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-                response
-                    .headers_mut()
-                    .insert("content-type", HeaderValue::from_static("application/json"));
-                return response;
             }
+            return ApiError::RateLimited.into_response();
         }
     };
 
     if !decision.allowed {
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
-        let mut response = Response::new(Body::from(
-            json!({
-                "errcode": "M_LIMIT_EXCEEDED",
-                "error": "Rate limited",
-                "retry_after_ms": retry_after_ms
-            })
-            .to_string(),
-        ));
-        *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-        response
-            .headers_mut()
-            .insert("content-type", HeaderValue::from_static("application/json"));
+        let mut response = ApiError::RateLimitedWithRetry(retry_after_ms).into_response();
         if let Ok(v) = decision.retry_after_seconds.to_string().parse() {
             response.headers_mut().insert("retry-after", v);
         }
@@ -177,6 +148,7 @@ mod tests {
     use crate::common::config::{
         RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
     };
+    use axum::http::StatusCode;
     use crate::services::ServiceContainer;
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
@@ -339,7 +311,7 @@ mod tests {
             ..RateLimitConfig::default()
         };
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let app = Router::new()
@@ -418,7 +390,7 @@ mod tests {
             ..RateLimitConfig::default()
         };
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let app = Router::new()

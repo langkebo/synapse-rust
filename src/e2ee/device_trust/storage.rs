@@ -434,7 +434,7 @@ struct SqlxDeviceTrustStatus {
 }
 impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
     fn from(row: SqlxDeviceTrustStatus) -> Self {
-        DeviceTrustStatus {
+        Self {
             id: row.id,
             user_id: row.user_id,
             device_id: row.device_id,
@@ -465,7 +465,7 @@ struct SqlxVerificationRequest {
 
 impl From<SqlxVerificationRequest> for DeviceVerificationRequest {
     fn from(row: SqlxVerificationRequest) -> Self {
-        DeviceVerificationRequest {
+        Self {
             id: row.id,
             user_id: row.user_id,
             new_device_id: row.new_device_id,
@@ -496,7 +496,7 @@ struct SqlxSecurityEvent {
 
 impl From<SqlxSecurityEvent> for E2eeSecurityEvent {
     fn from(row: SqlxSecurityEvent) -> Self {
-        E2eeSecurityEvent {
+        Self {
             id: row.id,
             user_id: row.user_id,
             device_id: row.device_id,

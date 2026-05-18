@@ -1,0 +1,5 @@
+[cargo]
+extraArgs = ["--features", "test-utils"]
+
+[check]
+extraArgs = ["--features", "test-utils"]

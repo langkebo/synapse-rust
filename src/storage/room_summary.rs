@@ -168,7 +168,7 @@ impl RoomSummaryStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummary>(
-            r#"
+            r"
             INSERT INTO room_summaries (
                 room_id, room_type, name, topic, avatar_url, canonical_alias,
                 join_rules, history_visibility, guest_access, is_direct, is_space,
@@ -177,7 +177,7 @@ impl RoomSummaryStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, 0, 0, 0, '[]'::jsonb, 0, 0, $12, $12)
             RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
-            "#,
+            ",
         )
         .bind(&request.room_id)
         .bind(&request.room_type)
@@ -222,7 +222,7 @@ impl RoomSummaryStorage {
     ) -> Result<RoomSummary, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummary>(
-            r#"
+            r"
             UPDATE room_summaries SET
                 name = COALESCE($2, name),
                 topic = COALESCE($3, topic),
@@ -241,7 +241,7 @@ impl RoomSummaryStorage {
                 updated_ts = $16
             WHERE room_id = $1
             RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(&request.name)
@@ -272,13 +272,13 @@ impl RoomSummaryStorage {
     ) -> Result<RoomSummary, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, RoomSummary>(
-            r#"
+            r"
             UPDATE room_summaries
             SET canonical_alias = $2,
                 updated_ts = $3
             WHERE room_id = $1
             RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(canonical_alias)
@@ -315,12 +315,12 @@ impl RoomSummaryStorage {
         user_id: &str,
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
-            r#"
+            r"
             SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_member_count, rs.invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, rs.created_ts FROM room_summaries rs
             INNER JOIN room_summary_members rsm ON rs.room_id = rsm.room_id
             WHERE rsm.user_id = $1 AND rsm.membership IN ('join', 'invite')
             ORDER BY rs.last_event_ts DESC NULLS LAST
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -336,7 +336,7 @@ impl RoomSummaryStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryMember>(
-            r#"
+            r"
             INSERT INTO room_summary_members (
                 room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
             )
@@ -349,7 +349,7 @@ impl RoomSummaryStorage {
                 last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
-            "#,
+            ",
         )
         .bind(&request.room_id)
         .bind(&request.user_id)
@@ -367,6 +367,67 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
+    pub async fn add_members_batch(
+        &self,
+        room_id: &str,
+        members: Vec<CreateSummaryMemberRequest>,
+    ) -> Result<usize, sqlx::Error> {
+        if members.is_empty() {
+            return Ok(0);
+        }
+
+        let now = Utc::now().timestamp_millis();
+        let mut user_ids: Vec<String> = Vec::with_capacity(members.len());
+        let mut display_names: Vec<Option<String>> = Vec::with_capacity(members.len());
+        let mut avatar_urls: Vec<Option<String>> = Vec::with_capacity(members.len());
+        let mut memberships: Vec<String> = Vec::with_capacity(members.len());
+        let mut is_heroes: Vec<bool> = Vec::with_capacity(members.len());
+        let mut last_active_tss: Vec<Option<i64>> = Vec::with_capacity(members.len());
+        let mut nows: Vec<i64> = Vec::with_capacity(members.len());
+
+        for m in &members {
+            user_ids.push(m.user_id.clone());
+            display_names.push(m.display_name.clone());
+            avatar_urls.push(m.avatar_url.clone());
+            memberships.push(m.membership.clone());
+            is_heroes.push(m.is_hero.unwrap_or(false));
+            last_active_tss.push(m.last_active_ts);
+            nows.push(now);
+        }
+
+        let result = sqlx::query(
+            r"
+            INSERT INTO room_summary_members (
+                room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            )
+            SELECT $1, u, d, a, m, h, l, n, n
+            FROM UNNEST($2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::BOOLEAN[], $7::BIGINT[], $8::BIGINT[])
+            AS t(u, d, a, m, h, l, n)
+            ON CONFLICT (room_id, user_id) DO UPDATE SET
+                display_name = COALESCE(EXCLUDED.display_name, room_summary_members.display_name),
+                avatar_url = COALESCE(EXCLUDED.avatar_url, room_summary_members.avatar_url),
+                membership = EXCLUDED.membership,
+                is_hero = COALESCE(EXCLUDED.is_hero, room_summary_members.is_hero),
+                last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
+                updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(&user_ids)
+        .bind(&display_names)
+        .bind(&avatar_urls)
+        .bind(&memberships)
+        .bind(&is_heroes)
+        .bind(&last_active_tss)
+        .bind(&nows)
+        .execute(&*self.pool)
+        .await?;
+
+        self.refresh_member_counts(room_id).await?;
+
+        Ok(result.rows_affected() as usize)
+    }
+
     pub async fn update_member(
         &self,
         room_id: &str,
@@ -375,7 +436,7 @@ impl RoomSummaryStorage {
     ) -> Result<RoomSummaryMember, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummaryMember>(
-            r#"
+            r"
             UPDATE room_summary_members SET
                 display_name = COALESCE($3, display_name),
                 avatar_url = COALESCE($4, avatar_url),
@@ -385,7 +446,7 @@ impl RoomSummaryStorage {
                 updated_ts = $8
             WHERE room_id = $1 AND user_id = $2
             RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -432,12 +493,12 @@ impl RoomSummaryStorage {
         limit: i64,
     ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
-            r#"
+            r"
             SELECT * FROM room_summary_members 
             WHERE room_id = $1 AND membership = 'join'
             ORDER BY is_hero DESC, last_active_ts DESC NULLS LAST
             LIMIT $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(limit)
@@ -453,13 +514,13 @@ impl RoomSummaryStorage {
         limit: i64,
     ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
-            r#"
+            r"
             SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
             FROM room_summary_members
             WHERE room_id = $1 AND membership = 'join'
             ORDER BY last_active_ts DESC NULLS LAST, updated_ts DESC, user_id ASC
             LIMIT $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(limit)
@@ -475,11 +536,11 @@ impl RoomSummaryStorage {
         hero_user_ids: &[String],
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE room_summary_members
             SET is_hero = user_id = ANY($2::text[])
             WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(hero_user_ids)
@@ -500,7 +561,7 @@ impl RoomSummaryStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryState>(
-            r#"
+            r"
             INSERT INTO room_summary_state (room_id, event_type, state_key, event_id, content, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (room_id, event_type, state_key) DO UPDATE SET
@@ -508,7 +569,7 @@ impl RoomSummaryStorage {
                 content = EXCLUDED.content,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_type)
@@ -574,7 +635,7 @@ impl RoomSummaryStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryStats>(
-            r#"
+            r"
             INSERT INTO room_summary_stats (room_id, total_events, total_state_events, total_messages, total_media, storage_size, last_updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (room_id) DO UPDATE SET
@@ -585,7 +646,7 @@ impl RoomSummaryStorage {
                 storage_size = EXCLUDED.storage_size,
                 last_updated_ts = EXCLUDED.last_updated_ts
             RETURNING id::BIGINT AS id, room_id, total_events::BIGINT AS total_events, total_state_events::BIGINT AS total_state_events, total_messages::BIGINT AS total_messages, total_media::BIGINT AS total_media, storage_size::BIGINT AS storage_size, last_updated_ts::BIGINT AS last_updated_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(total_events)
@@ -611,10 +672,10 @@ impl RoomSummaryStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO room_summary_update_queue (room_id, event_id, event_type, state_key, priority, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -633,14 +694,14 @@ impl RoomSummaryStorage {
         limit: i64,
     ) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryUpdateQueueItem>(
-            r#"
+            r"
             SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count
             FROM room_summary_update_queue
             WHERE status = 'pending'
             ORDER BY priority DESC, created_ts ASC, id ASC
             LIMIT $1
             FOR UPDATE SKIP LOCKED
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&*self.pool)
@@ -665,13 +726,13 @@ impl RoomSummaryStorage {
 
     pub async fn mark_update_failed(&self, id: i64, error: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE room_summary_update_queue SET
                 status = 'failed',
                 error_message = $2,
                 retry_count = retry_count + 1
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(id)
         .bind(error)
@@ -723,7 +784,7 @@ impl RoomSummaryStorage {
     async fn refresh_member_counts(&self, room_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE room_summaries
             SET
                 member_count = counts.member_count,
@@ -739,7 +800,7 @@ impl RoomSummaryStorage {
                 WHERE room_id = $1
             ) AS counts
             WHERE room_summaries.room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(now)

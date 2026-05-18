@@ -6,7 +6,7 @@ use futures::future::join_all;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
@@ -36,7 +36,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     };
 
     let container = ServiceContainer::new_test_with_pool(pool).await;
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))
 }
@@ -164,7 +164,7 @@ async fn put_beacon_info(
             json!({
                 "m.beacon_info": {
                     "description": "Beacon performance",
-                    "timeout": 60000,
+                    "timeout": 60_000,
                     "live": true
                 },
                 "m.ts": chrono::Utc::now().timestamp_millis(),
