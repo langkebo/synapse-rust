@@ -13,11 +13,11 @@ pub use rate_limit::*;
 pub use security::*;
 
 use axum::http::{HeaderMap, Method};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 use url::Url;
 
-static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
+static CORS_ORIGINS_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
     std::env::var("CORS_ORIGIN_PATTERN")
         .ok()
         .and_then(|pattern| match Regex::new(&pattern) {
@@ -30,6 +30,26 @@ static CORS_ORIGINS_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
 });
 
 static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+static BIND_ADDRESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn set_bind_address(addr: String) {
+    let _ = BIND_ADDRESS.set(addr);
+}
+
+pub(crate) fn is_localhost_bind() -> bool {
+    BIND_ADDRESS
+        .get()
+        .is_some_and(|addr| {
+            let host = addr.to_lowercase();
+            host == "127.0.0.1"
+                || host == "localhost"
+                || host == "::1"
+                || host == "0.0.0.0"
+                || host == "::"
+                || host == "[::]"
+                || host.starts_with("127.")
+        })
+}
 
 pub(crate) fn is_dev_mode() -> bool {
     std::env::var("RUST_ENV")
@@ -54,7 +74,7 @@ pub(crate) fn get_allowed_origins() -> Vec<String> {
 }
 
 pub(crate) fn is_origin_allowed(origin: &str) -> bool {
-    if is_dev_mode() {
+    if is_dev_mode() && is_localhost_bind() {
         return true;
     }
 
@@ -104,8 +124,7 @@ pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
 
 pub(crate) fn same_origin(request_origin: &str, headers: &HeaderMap) -> bool {
     extract_request_origin(headers)
-        .map(|server_origin| normalize_origin(request_origin) == server_origin)
-        .unwrap_or(false)
+        .is_some_and(|server_origin| normalize_origin(request_origin) == server_origin)
 }
 
 pub(crate) fn is_safe_http_method(method: &Method) -> bool {

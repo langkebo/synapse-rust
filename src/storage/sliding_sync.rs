@@ -287,14 +287,14 @@ impl SlidingSyncStorage {
         let token = uuid::Uuid::new_v4().to_string();
 
         sqlx::query_as::<_, SlidingSyncToken>(
-            r#"
+            r"
             INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6)
             ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''::text)) DO UPDATE SET
                 pos = nextval('sliding_sync_pos_seq'),
                 expires_at = EXCLUDED.expires_at
             RETURNING *
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -314,10 +314,10 @@ impl SlidingSyncStorage {
     ) -> Result<Option<SlidingSyncToken>, sqlx::Error> {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncToken>(
-            r#"
+            r"
             SELECT * FROM sliding_sync_tokens 
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -335,10 +335,10 @@ impl SlidingSyncStorage {
     ) -> Result<bool, sqlx::Error> {
         self.ensure_schema()?;
         let result: Option<(bool,)> = sqlx::query_as(
-            r#"
+            r"
             SELECT (pos = $4) FROM sliding_sync_tokens 
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -347,7 +347,7 @@ impl SlidingSyncStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(result.map(|r| r.0).unwrap_or(false))
+        Ok(result.is_some_and(|r| r.0))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -365,12 +365,13 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
-        let filters_json =
-            filters.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})));
+        let filters_json = filters
+            .map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})))
+            .unwrap_or(serde_json::json!({}));
         let ranges_json = serde_json::to_value(ranges).unwrap_or(serde_json::json!([]));
 
         sqlx::query_as::<_, SlidingSyncList>(
-            r#"
+            r"
             INSERT INTO sliding_sync_lists 
                 (user_id, device_id, conn_id, list_key, sort, filters, room_subscription, ranges, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
@@ -381,7 +382,7 @@ impl SlidingSyncStorage {
                 ranges = EXCLUDED.ranges,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -404,11 +405,11 @@ impl SlidingSyncStorage {
     ) -> Result<Vec<SlidingSyncList>, sqlx::Error> {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncList>(
-            r#"
+            r"
             SELECT * FROM sliding_sync_lists 
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
             ORDER BY created_ts ASC
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -426,10 +427,10 @@ impl SlidingSyncStorage {
     ) -> Result<(), sqlx::Error> {
         self.ensure_schema()?;
         sqlx::query(
-            r#"
+            r"
             DELETE FROM sliding_sync_lists 
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL)) AND list_key = $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -464,7 +465,7 @@ impl SlidingSyncStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, SlidingSyncRoom>(
-            r#"
+            r"
             INSERT INTO sliding_sync_rooms 
                 (user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count,
                  is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts)
@@ -483,7 +484,7 @@ impl SlidingSyncStorage {
                 timestamp = EXCLUDED.timestamp,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -520,9 +521,9 @@ impl SlidingSyncStorage {
         } = query_params;
         self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
-            r#"
+            r"
             SELECT * FROM sliding_sync_rooms
-            WHERE user_id = "#,
+            WHERE user_id = ",
         );
         query.push_bind(user_id);
         query.push(" AND device_id = ");
@@ -557,9 +558,9 @@ impl SlidingSyncStorage {
     ) -> Result<i64, sqlx::Error> {
         self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
-            r#"
+            r"
             SELECT COUNT(*) FROM sliding_sync_rooms
-            WHERE user_id = "#,
+            WHERE user_id = ",
         );
         query.push_bind(user_id);
         query.push(" AND device_id = ");
@@ -585,10 +586,10 @@ impl SlidingSyncStorage {
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncRoom>(
-            r#"
+            r"
             SELECT * FROM sliding_sync_rooms 
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -608,13 +609,13 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
 
         let is_member = sqlx::query_scalar::<_, bool>(
-            r#"
+            r"
             SELECT EXISTS(
                 SELECT 1
                 FROM room_memberships
                 WHERE room_id = $1 AND user_id = $2 AND membership = 'join'
             )
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -627,11 +628,11 @@ impl SlidingSyncStorage {
 
         let now = chrono::Utc::now().timestamp_millis();
         let bump_stamp = sqlx::query_scalar::<_, Option<i64>>(
-            r#"
+            r"
             SELECT MAX(origin_server_ts)
             FROM events
             WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_one(&*self.pool)
@@ -639,9 +640,9 @@ impl SlidingSyncStorage {
         .unwrap_or(now);
 
         let room_info = sqlx::query_scalar::<_, Option<String>>(
-            r#"
+            r"
             SELECT name FROM rooms WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -649,9 +650,9 @@ impl SlidingSyncStorage {
         .flatten();
 
         let avatar_info = sqlx::query_scalar::<_, Option<String>>(
-            r#"
+            r"
             SELECT avatar_url FROM rooms WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -720,10 +721,10 @@ impl SlidingSyncStorage {
     ) -> Result<(), sqlx::Error> {
         self.ensure_schema()?;
         sqlx::query(
-            r#"
+            r"
             DELETE FROM sliding_sync_rooms 
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -748,11 +749,11 @@ impl SlidingSyncStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE sliding_sync_rooms 
             SET highlight_count = $5, notification_count = $6, updated_ts = $7
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -779,11 +780,11 @@ impl SlidingSyncStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE sliding_sync_rooms 
             SET bump_stamp = GREATEST(bump_stamp, $5), updated_ts = $6
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -802,10 +803,10 @@ impl SlidingSyncStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM sliding_sync_tokens 
             WHERE expires_at IS NOT NULL AND expires_at < $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
@@ -826,7 +827,7 @@ impl SlidingSyncStorage {
 
         if let Some(cursor) = from {
             sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
-                r#"
+                r"
                 SELECT
                     rooms.user_id,
                     rooms.device_id,
@@ -866,7 +867,7 @@ impl SlidingSyncStorage {
                   )
                 ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, COALESCE(rooms.conn_id, '') ASC
                 LIMIT $7
-                "#,
+                ",
             )
             .bind(room_id)
             .bind(now)
@@ -879,7 +880,7 @@ impl SlidingSyncStorage {
             .await
         } else {
             sqlx::query_as::<_, AdminRoomTokenSyncEntry>(
-                r#"
+                r"
                 SELECT
                     rooms.user_id,
                     rooms.device_id,
@@ -908,7 +909,7 @@ impl SlidingSyncStorage {
                 WHERE rooms.room_id = $1
                 ORDER BY rooms.updated_ts DESC, rooms.user_id ASC, rooms.device_id ASC, COALESCE(rooms.conn_id, '') ASC
                 LIMIT $3
-                "#,
+                ",
             )
             .bind(room_id)
             .bind(now)
@@ -932,11 +933,11 @@ impl SlidingSyncStorage {
     ) -> Result<serde_json::Value, sqlx::Error> {
         self.ensure_schema()?;
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT data_type, content
             FROM account_data
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
@@ -962,11 +963,11 @@ impl SlidingSyncStorage {
         }
 
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT room_id, data_type, data
             FROM room_account_data
             WHERE user_id = $1 AND room_id = ANY($2::text[])
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_ids)
@@ -1001,11 +1002,11 @@ impl SlidingSyncStorage {
         }
 
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT room_id, event_id, user_id, receipt_type, ts, data
             FROM event_receipts
             WHERE room_id = ANY($1::text[])
-            "#,
+            ",
         )
         .bind(room_ids)
         .fetch_all(&*self.pool)

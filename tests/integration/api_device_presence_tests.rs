@@ -15,14 +15,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
 {
-    let pool = super::get_test_pool().await?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
-    let container = synapse_rust::services::ServiceContainer::new_test_with_pool_and_cache(
-        pool.clone(),
-        cache.clone(),
-    ).await;
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache.clone());
-    Some((synapse_rust::web::create_router(state), pool, cache))
+    super::setup_test_app_with_pool().await
 }
 
 async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
@@ -765,7 +758,7 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
 
     let presence = PresenceStorage::new(
         pool.clone(),
-        Arc::new(CacheManager::new(CacheConfig::default())),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
     presence
         .add_subscription(&alice_user_id, &bob_user_id)
@@ -821,7 +814,7 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
     let Some(pool) = super::get_test_pool().await else {
         return;
     };
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let presence = PresenceStorage::new(pool.clone(), cache);
     let suffix = rand::random::<u32>();
     let now = chrono::Utc::now().timestamp_millis();

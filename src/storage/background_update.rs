@@ -134,14 +134,14 @@ impl BackgroundUpdateStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r#"
+            r"
             INSERT INTO background_updates (
                 job_name, job_type, description, table_name, column_name, total_items,
                 batch_size, sleep_ms, depends_on, metadata, created_ts, status, max_retries
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 3)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.job_name)
         .bind(&request.job_type)
@@ -242,7 +242,7 @@ impl BackgroundUpdateStorage {
         };
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r#"
+            r"
             UPDATE background_updates SET
                 status = $2,
                 started_ts = COALESCE($3, started_ts),
@@ -250,7 +250,7 @@ impl BackgroundUpdateStorage {
                 last_updated_ts = $5
             WHERE update_name = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(job_name)
         .bind(status)
@@ -272,7 +272,7 @@ impl BackgroundUpdateStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r#"
+            r"
             UPDATE background_updates SET
                 processed_items = processed_items + $2,
                 total_items = COALESCE($3, total_items),
@@ -284,7 +284,7 @@ impl BackgroundUpdateStorage {
                 END
             WHERE update_name = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(job_name)
         .bind(items_processed)
@@ -304,7 +304,7 @@ impl BackgroundUpdateStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r#"
+            r"
             UPDATE background_updates SET
                 status = 'failed',
                 error_message = $2,
@@ -312,7 +312,7 @@ impl BackgroundUpdateStorage {
                 retry_count = retry_count + 1
             WHERE update_name = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(job_name)
         .bind(error_message)
@@ -342,7 +342,7 @@ impl BackgroundUpdateStorage {
         let expires = now + lock_duration_ms;
 
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO background_update_locks (lock_name, owner, acquired_ts, expires_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (lock_name) DO UPDATE SET
@@ -350,7 +350,7 @@ impl BackgroundUpdateStorage {
                 acquired_ts = $3,
                 expires_at = $4
             WHERE background_update_locks.expires_at < $3
-            "#,
+            ",
         )
         .bind(job_name)
         .bind(locked_by)
@@ -407,13 +407,13 @@ impl BackgroundUpdateStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdateHistory>(
-            r#"
+            r"
             INSERT INTO background_update_history (
                 job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(job_name)
         .bind(now)
@@ -446,13 +446,13 @@ impl BackgroundUpdateStorage {
 
     pub async fn retry_failed(&self) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE background_updates SET
                 status = 'pending',
                 error_message = NULL,
                 retry_count = retry_count + 1
             WHERE status = 'failed' AND retry_count < max_retries
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;

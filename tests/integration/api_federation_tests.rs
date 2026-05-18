@@ -31,7 +31,7 @@ async fn setup_federation_test_app_with_pool(
     container.config.federation.server_name = "localhost".to_string();
     container.config.federation.key_id = Some(key_id.to_string());
     container.config.federation.signing_key = Some(signing_key_b64.to_string());
-    let cache = std::sync::Arc::new(synapse_rust::cache::CacheManager::new(Default::default()));
+    let cache = std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
 }

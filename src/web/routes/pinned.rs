@@ -60,12 +60,12 @@ pub async fn get_pinned_events(
     .await?;
 
     let pinned: Option<String> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT content FROM events
         WHERE room_id = $1 AND event_type = 'm.room.pinned_events' AND state_key = ''
         ORDER BY origin_server_ts DESC
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
@@ -107,12 +107,12 @@ pub async fn pin_event(
     let event_id = format!("${}", uuid::Uuid::new_v4());
 
     let existing_pinned: Option<String> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT content FROM events
         WHERE room_id = $1 AND event_type = 'm.room.pinned_events' AND state_key = ''
         ORDER BY origin_server_ts DESC
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
@@ -129,11 +129,11 @@ pub async fn pin_event(
     }
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
         VALUES ($1, $2, $3, 'm.room.pinned_events', $4, $5, $6, '')
         ON CONFLICT (event_id) DO NOTHING
-        "#,
+        ",
     )
     .bind(&event_id)
     .bind(&room_id)
@@ -174,12 +174,12 @@ pub async fn unpin_event(
     let new_event_id = format!("${}", uuid::Uuid::new_v4());
 
     let existing_pinned: Option<String> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT content FROM events
         WHERE room_id = $1 AND event_type = 'm.room.pinned_events' AND state_key = ''
         ORDER BY origin_server_ts DESC
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_optional(&*state.services.event_storage.pool)
@@ -194,11 +194,11 @@ pub async fn unpin_event(
     pinned_list.retain(|e| e != &event_id);
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
         VALUES ($1, $2, $3, 'm.room.pinned_events', $4, $5, $6, '')
         ON CONFLICT (event_id) DO NOTHING
-        "#,
+        ",
     )
     .bind(&new_event_id)
     .bind(&room_id)

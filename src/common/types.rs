@@ -103,11 +103,11 @@ pub enum Membership {
 impl fmt::Display for Membership {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Membership::Join => write!(f, "join"),
-            Membership::Leave => write!(f, "leave"),
-            Membership::Invite => write!(f, "invite"),
-            Membership::Ban => write!(f, "ban"),
-            Membership::Knock => write!(f, "knock"),
+            Self::Join => write!(f, "join"),
+            Self::Leave => write!(f, "leave"),
+            Self::Invite => write!(f, "invite"),
+            Self::Ban => write!(f, "ban"),
+            Self::Knock => write!(f, "knock"),
         }
     }
 }
@@ -122,9 +122,9 @@ pub enum Presence {
 impl fmt::Display for Presence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Presence::Online => write!(f, "online"),
-            Presence::Offline => write!(f, "offline"),
-            Presence::Unavailable => write!(f, "unavailable"),
+            Self::Online => write!(f, "online"),
+            Self::Offline => write!(f, "offline"),
+            Self::Unavailable => write!(f, "unavailable"),
         }
     }
 }

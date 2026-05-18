@@ -10,27 +10,27 @@
 //! 它已通过 `pub use sanitizer_v2::*` 在 `crate::common` 顶层导出。
 #![allow(deprecated)]
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 
 /// 危险的 HTML 标签模式
 #[allow(clippy::expect_used)]
-static DANGEROUS_TAGS: Lazy<Regex> = Lazy::new(|| {
+static DANGEROUS_TAGS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)<(script|iframe|object|embed|form|input|button|meta|link|style)[^>]*>")
         .expect("DANGEROUS_TAGS regex is valid")
 });
 
 #[allow(clippy::expect_used)]
-static DANGEROUS_EVENTS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid"));
+static DANGEROUS_EVENTS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid"));
 
 #[allow(clippy::expect_used)]
-static JAVASCRIPT_URLS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid"));
+static JAVASCRIPT_URLS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid"));
 
 #[allow(clippy::expect_used)]
-static DATA_URLS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid"));
+static DATA_URLS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid"));
 
 /// 内容净化器配置
 #[derive(Debug, Clone)]

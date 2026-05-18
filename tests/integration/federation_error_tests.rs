@@ -51,8 +51,8 @@ mod federation_event_auth_error_tests {
         );
 
         let auth_chain = vec!["$event1".to_string()];
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result =
+            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("missing"));
@@ -77,8 +77,8 @@ mod federation_event_auth_error_tests {
         );
 
         let auth_chain = vec!["$event1".to_string()];
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result =
+            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -112,8 +112,8 @@ mod federation_event_auth_error_tests {
         }
 
         let auth_chain = vec!["$event_99".to_string()];
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain);
+        let result =
+            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -124,8 +124,8 @@ mod federation_event_auth_error_tests {
         let events: HashMap<String, EventData> = HashMap::new();
 
         let auth_chain = vec!["$event1".to_string()];
-        let result = chain
-            .verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result =
+            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -182,9 +182,7 @@ mod federation_event_auth_error_tests {
             ("@user2:test".to_string(), 50),
         ]));
 
-        let conflicts = chain
-            .detect_state_conflicts_advanced(&events, power_levels)
-            .await;
+        let conflicts = chain.detect_state_conflicts_advanced(&events, power_levels);
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].winning_event, "$1");
@@ -259,7 +257,7 @@ mod cache_error_tests {
     #[tokio::test]
     async fn test_cache_manager_get_nonexistent() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
 
         let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
         assert!(result.is_none());

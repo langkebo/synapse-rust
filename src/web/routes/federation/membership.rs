@@ -226,11 +226,11 @@ pub(super) async fn get_user_devices(
         .map_err(|e| ApiError::internal(format!("Failed to get user devices: {e}")))?;
 
     let stream_id: i64 = sqlx::query_scalar(
-        r#"
+        r"
         SELECT COALESCE(MAX(stream_id), 0)
         FROM device_lists_stream
         WHERE user_id = $1
-        "#,
+        ",
     )
     .bind(&user_id)
     .fetch_one(&*state.services.device_storage.pool)
@@ -238,12 +238,12 @@ pub(super) async fn get_user_devices(
     .map_err(|e| ApiError::internal(format!("Failed to get device stream id: {e}")))?;
 
     let master_key: Option<Value> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT key_data
         FROM cross_signing_keys
         WHERE user_id = $1 AND key_type = 'master'
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&user_id)
     .fetch_optional(&*state.services.device_storage.pool)
@@ -253,12 +253,12 @@ pub(super) async fn get_user_devices(
     .and_then(|raw: String| serde_json::from_str(&raw).ok());
 
     let self_signing_key: Option<Value> = sqlx::query_scalar(
-        r#"
+        r"
         SELECT key_data
         FROM cross_signing_keys
         WHERE user_id = $1 AND key_type = 'self_signing'
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&user_id)
     .fetch_optional(&*state.services.device_storage.pool)
@@ -387,8 +387,7 @@ pub(super) async fn make_join(
             .await
             .ok()
             .flatten()
-            .map(|r| r.room_version)
-            .unwrap_or_else(|| "10".to_string());
+            .map_or_else(|| "10".to_string(), |r| r.room_version);
 
         Ok(Json(json!({
             "room_version": room_version,
@@ -450,8 +449,7 @@ pub(super) async fn make_leave(
         .await
         .ok()
         .flatten()
-        .map(|r| r.room_version)
-        .unwrap_or_else(|| "10".to_string());
+        .map_or_else(|| "10".to_string(), |r| r.room_version);
 
     Ok(Json(json!({
         "room_version": room_version,

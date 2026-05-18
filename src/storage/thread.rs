@@ -161,7 +161,7 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadRoot>(
-            r#"
+            r"
             INSERT INTO thread_roots (
                 room_id, root_event_id, sender, thread_id, participants, created_ts
             )
@@ -169,7 +169,7 @@ impl ThreadStorage {
             RETURNING id, room_id, root_event_id, sender, thread_id, reply_count, 
                       last_reply_event_id, last_reply_sender, last_reply_ts, 
                       participants, is_fetched, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(&params.room_id)
         .bind(&params.root_event_id)
@@ -186,13 +186,13 @@ impl ThreadStorage {
         thread_id: &str,
     ) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
-            r#"
+            r"
             SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
                    last_reply_event_id, last_reply_sender, last_reply_ts, 
                    participants, is_fetched, created_ts, updated_ts
             FROM thread_roots
             WHERE room_id = $1 AND thread_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -206,13 +206,13 @@ impl ThreadStorage {
         root_event_id: &str,
     ) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
-            r#"
+            r"
             SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
                    last_reply_event_id, last_reply_sender, last_reply_ts, 
                    participants, is_fetched, created_ts, updated_ts
             FROM thread_roots
             WHERE room_id = $1 AND root_event_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(root_event_id)
@@ -228,7 +228,7 @@ impl ThreadStorage {
 
         if let Some(from) = params.from {
             sqlx::query_as::<_, ThreadRoot>(
-                r#"
+                r"
                 SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
                        last_reply_event_id, last_reply_sender, last_reply_ts, 
                        participants, is_fetched, created_ts, updated_ts
@@ -236,7 +236,7 @@ impl ThreadStorage {
                 WHERE room_id = $1 AND thread_id > $2
                 ORDER BY thread_id ASC
                 LIMIT $3
-                "#,
+                ",
             )
             .bind(&params.room_id)
             .bind(from)
@@ -245,7 +245,7 @@ impl ThreadStorage {
             .await
         } else {
             sqlx::query_as::<_, ThreadRoot>(
-                r#"
+                r"
                 SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
                        last_reply_event_id, last_reply_sender, last_reply_ts, 
                        participants, is_fetched, created_ts, updated_ts
@@ -253,7 +253,7 @@ impl ThreadStorage {
                 WHERE room_id = $1
                 ORDER BY last_reply_ts DESC NULLS LAST, created_ts DESC
                 LIMIT $2
-                "#,
+                ",
             )
             .bind(&params.room_id)
             .bind(limit)
@@ -271,7 +271,7 @@ impl ThreadStorage {
 
         if let Some(from) = from {
             sqlx::query_as::<_, ThreadRoot>(
-                r#"
+                r"
                 SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
                        last_reply_event_id, last_reply_sender, last_reply_ts,
                        participants, is_fetched, created_ts, updated_ts
@@ -279,7 +279,7 @@ impl ThreadStorage {
                 WHERE thread_id > $1
                 ORDER BY thread_id ASC
                 LIMIT $2
-                "#,
+                ",
             )
             .bind(from)
             .bind(limit)
@@ -287,14 +287,14 @@ impl ThreadStorage {
             .await
         } else {
             sqlx::query_as::<_, ThreadRoot>(
-                r#"
+                r"
                 SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
                        last_reply_event_id, last_reply_sender, last_reply_ts,
                        participants, is_fetched, created_ts, updated_ts
                 FROM thread_roots
                 ORDER BY last_reply_ts DESC NULLS LAST, created_ts DESC
                 LIMIT $1
-                "#,
+                ",
             )
             .bind(limit)
             .fetch_all(&*self.pool)
@@ -310,7 +310,7 @@ impl ThreadStorage {
         let mut tx = self.pool.begin().await?;
 
         let reply = sqlx::query_as::<_, ThreadReply>(
-            r#"
+            r"
             INSERT INTO thread_replies (
                 room_id, thread_id, event_id, root_event_id, sender,
                 in_reply_to_event_id, content, origin_server_ts, created_ts
@@ -318,7 +318,7 @@ impl ThreadStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id, room_id, thread_id, event_id, root_event_id, sender, 
                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
-            "#,
+            ",
         )
         .bind(&params.room_id)
         .bind(&params.thread_id)
@@ -333,7 +333,7 @@ impl ThreadStorage {
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE thread_roots
             SET reply_count = reply_count + 1,
                 last_reply_event_id = $3,
@@ -352,7 +352,7 @@ impl ThreadStorage {
                 ),
                 updated_ts = $6
             WHERE room_id = $1 AND thread_id = $2
-            "#,
+            ",
         )
         .bind(&params.room_id)
         .bind(&params.thread_id)
@@ -378,14 +378,14 @@ impl ThreadStorage {
 
         if let Some(from) = from {
             sqlx::query_as::<_, ThreadReply>(
-                r#"
+                r"
                 SELECT id, room_id, thread_id, event_id, root_event_id, sender, 
                        in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2 AND event_id > $3
                 ORDER BY origin_server_ts ASC
                 LIMIT $4
-                "#,
+                ",
             )
             .bind(room_id)
             .bind(thread_id)
@@ -395,14 +395,14 @@ impl ThreadStorage {
             .await
         } else {
             sqlx::query_as::<_, ThreadReply>(
-                r#"
+                r"
                 SELECT id, room_id, thread_id, event_id, root_event_id, sender, 
                        in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2
                 ORDER BY origin_server_ts ASC
                 LIMIT $3
-                "#,
+                ",
             )
             .bind(room_id)
             .bind(thread_id)
@@ -418,17 +418,17 @@ impl ThreadStorage {
         thread_id: &str,
     ) -> Result<i32, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(
-            r#"
+            r"
             SELECT COUNT(*) FROM thread_replies
             WHERE room_id = $1 AND thread_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(result.map(|r| r.0 as i32).unwrap_or(0))
+        Ok(result.map_or(0, |r| r.0 as i32))
     }
 
     pub async fn get_thread_participants(
@@ -437,13 +437,13 @@ impl ThreadStorage {
         thread_id: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
         let result: Vec<(String,)> = sqlx::query_as(
-            r#"
+            r"
             SELECT DISTINCT sender FROM (
                 SELECT sender FROM thread_roots WHERE room_id = $1 AND thread_id = $2
                 UNION
                 SELECT sender FROM thread_replies WHERE room_id = $1 AND thread_id = $2
             ) AS participants
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -463,7 +463,7 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadSubscription>(
-            r#"
+            r"
             INSERT INTO thread_subscriptions (
                 room_id, thread_id, user_id, notification_level, subscribed_ts, updated_ts
             )
@@ -473,7 +473,7 @@ impl ThreadStorage {
                 is_muted = FALSE,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -491,10 +491,10 @@ impl ThreadStorage {
         user_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM thread_subscriptions
             WHERE room_id = $1 AND thread_id = $2 AND user_id = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -514,7 +514,7 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadSubscription>(
-            r#"
+            r"
             INSERT INTO thread_subscriptions (
                 room_id, thread_id, user_id, notification_level, is_muted, subscribed_ts, updated_ts
             )
@@ -523,7 +523,7 @@ impl ThreadStorage {
                 is_muted = TRUE,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING *
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -540,11 +540,11 @@ impl ThreadStorage {
         user_id: &str,
     ) -> Result<Option<ThreadSubscription>, sqlx::Error> {
         sqlx::query_as::<_, ThreadSubscription>(
-            r#"
+            r"
             SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
             FROM thread_subscriptions
             WHERE room_id = $1 AND thread_id = $2 AND user_id = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -561,13 +561,13 @@ impl ThreadStorage {
         let limit = limit.unwrap_or(50);
 
         sqlx::query_as::<_, ThreadSubscription>(
-            r#"
+            r"
             SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
             FROM thread_subscriptions
             WHERE user_id = $1
             ORDER BY updated_ts DESC
             LIMIT $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(limit)
@@ -586,7 +586,7 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadReadReceipt>(
-            r#"
+            r"
             INSERT INTO thread_read_receipts (
                 room_id, thread_id, user_id, last_read_event_id, last_read_ts, updated_ts
             )
@@ -597,7 +597,7 @@ impl ThreadStorage {
                 unread_count = 0,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -616,11 +616,11 @@ impl ThreadStorage {
         user_id: &str,
     ) -> Result<Option<ThreadReadReceipt>, sqlx::Error> {
         sqlx::query_as::<_, ThreadReadReceipt>(
-            r#"
+            r"
             SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
             FROM thread_read_receipts
             WHERE room_id = $1 AND thread_id = $2 AND user_id = $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -638,7 +638,7 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO thread_read_receipts (
                 room_id, thread_id, user_id, last_read_ts, unread_count, updated_ts
             )
@@ -646,7 +646,7 @@ impl ThreadStorage {
             ON CONFLICT (room_id, thread_id, user_id) DO UPDATE SET
                 unread_count = thread_read_receipts.unread_count + 1,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -670,14 +670,14 @@ impl ThreadStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadRelation>(
-            r#"
+            r"
             INSERT INTO thread_relations (
                 room_id, event_id, relates_to_event_id, relation_type, 
                 thread_id, is_falling_back, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id, room_id, event_id, relates_to_event_id, relation_type, thread_id, is_falling_back, created_ts
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -696,11 +696,11 @@ impl ThreadStorage {
         event_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE thread_replies
             SET is_edited = TRUE
             WHERE room_id = $1 AND event_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -716,11 +716,11 @@ impl ThreadStorage {
         event_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE thread_replies
             SET is_redacted = TRUE, content = '{}'
             WHERE room_id = $1 AND event_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(event_id)
@@ -733,31 +733,31 @@ impl ThreadStorage {
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query(r#"DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2"#)
+        sqlx::query(r"DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2")
             .bind(room_id)
             .bind(thread_id)
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query(r#"DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2"#)
+        sqlx::query(r"DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2")
             .bind(room_id)
             .bind(thread_id)
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query(r#"DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2"#)
+        sqlx::query(r"DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2")
             .bind(room_id)
             .bind(thread_id)
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query(r#"DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2"#)
+        sqlx::query(r"DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2")
             .bind(room_id)
             .bind(thread_id)
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query(r#"DELETE FROM thread_read_receipts WHERE room_id = $1 AND thread_id = $2"#)
+        sqlx::query(r"DELETE FROM thread_read_receipts WHERE room_id = $1 AND thread_id = $2")
             .bind(room_id)
             .bind(thread_id)
             .execute(&mut *tx)
@@ -774,12 +774,12 @@ impl ThreadStorage {
     ) -> Result<Vec<ThreadReadReceipt>, sqlx::Error> {
         if let Some(room_id) = room_id {
             sqlx::query_as::<_, ThreadReadReceipt>(
-                r#"
+                r"
                 SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
                 FROM thread_read_receipts
                 WHERE user_id = $1 AND room_id = $2 AND unread_count > 0
                 ORDER BY updated_ts DESC
-                "#,
+                ",
             )
             .bind(user_id)
             .bind(room_id)
@@ -787,12 +787,12 @@ impl ThreadStorage {
             .await
         } else {
             sqlx::query_as::<_, ThreadReadReceipt>(
-                r#"
+                r"
                 SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts
                 FROM thread_read_receipts
                 WHERE user_id = $1 AND unread_count > 0
                 ORDER BY updated_ts DESC
-                "#,
+                ",
             )
             .bind(user_id)
             .fetch_all(&*self.pool)
@@ -806,7 +806,7 @@ impl ThreadStorage {
         thread_id: &str,
     ) -> Result<Option<ThreadSummary>, sqlx::Error> {
         sqlx::query_as::<_, ThreadSummary>(
-            r#"
+            r"
             WITH root AS (
                 SELECT
                     tr.id,
@@ -875,7 +875,7 @@ impl ThreadStorage {
             LEFT JOIN latest_reply ON TRUE
             CROSS JOIN reply_stats
             CROSS JOIN participants
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -889,7 +889,7 @@ impl ThreadStorage {
         thread_id: &str,
     ) -> Result<Option<ThreadStatistics>, sqlx::Error> {
         sqlx::query_as::<_, ThreadStatistics>(
-            r#"
+            r"
             SELECT
                 tr.id,
                 tr.room_id,
@@ -931,7 +931,7 @@ impl ThreadStorage {
                 ) AS participant_set
             ) AS participant_stats ON TRUE
             WHERE tr.room_id = $1 AND tr.thread_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -954,7 +954,7 @@ impl ThreadStorage {
             .replace('\'', r"''");
 
         sqlx::query_as::<_, ThreadSummary>(
-            r#"
+            r"
             SELECT
                 tr.id,
                 tr.room_id,
@@ -978,9 +978,9 @@ impl ThreadStorage {
                 -- Calculate relevance for ordering
                 GREATEST(
                     COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(e.content->>'body', '')), plainto_tsquery('english', $2)), 0.0),
-                    COALESCE(pg_trgm.similarity(COALESCE(e.content->>'body', ''), $2), 0.0),
+                    COALESCE(similarity(COALESCE(e.content->>'body', ''), $2), 0.0),
                     COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(latest_reply.latest_content->>'body', '')), plainto_tsquery('english', $2)), 0.0),
-                    COALESCE(pg_trgm.similarity(COALESCE(latest_reply.latest_content->>'body', ''), $2), 0.0)
+                    COALESCE(similarity(COALESCE(latest_reply.latest_content->>'body', ''), $2), 0.0)
                 ) AS search_relevance
             FROM thread_roots tr
             LEFT JOIN events e
@@ -1024,7 +1024,7 @@ impl ThreadStorage {
               )
             ORDER BY search_relevance DESC, COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) DESC NULLS LAST
             LIMIT $3
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(&escaped_query)
@@ -1036,11 +1036,11 @@ impl ThreadStorage {
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE thread_roots
             SET is_fetched = TRUE, updated_ts = $3
             WHERE room_id = $1 AND thread_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)
@@ -1054,11 +1054,11 @@ impl ThreadStorage {
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             UPDATE thread_roots
             SET is_fetched = FALSE, updated_ts = $3
             WHERE room_id = $1 AND thread_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(thread_id)

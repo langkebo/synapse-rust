@@ -665,11 +665,11 @@ pub async fn block_room(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by, reason)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2, reason = $4
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(now)
@@ -811,11 +811,11 @@ pub async fn make_room_admin(
     });
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
         VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
         ON CONFLICT (event_id) DO UPDATE SET content = $4
-        "#
+        "
     )
     .bind(&event_id)
     .bind(&room_id)
@@ -1423,8 +1423,7 @@ async fn ban_user_internal(
         .get_user_by_id(actor_user_id)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to check actor: {e}")))?
-        .map(|user| user.is_admin)
-        .unwrap_or(false);
+        .is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
         state
@@ -1452,11 +1451,11 @@ async fn ban_user_internal(
 
     if let Some(reason) = reason {
         sqlx::query(
-            r#"
+            r"
             UPDATE room_memberships
             SET ban_reason = $3
             WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -1573,13 +1572,13 @@ async fn kick_user_internal(
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
             sqlx::query(
-                r#"
+                r"
                 UPDATE room_memberships
                 SET membership = 'leave',
                     left_ts = $3,
                     updated_ts = $3
                 WHERE room_id = $1 AND user_id = $2
-                "#,
+                ",
             )
             .bind(room_id)
             .bind(user_id)
@@ -1833,13 +1832,13 @@ pub async fn get_event_context_admin(
     }
 
     let events_before: Vec<Value> = sqlx::query(
-        r#"
+        r"
         SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
         FROM events
         WHERE room_id = $1 AND origin_server_ts < $2
         ORDER BY origin_server_ts DESC
         LIMIT 5
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(event.origin_server_ts)
@@ -1859,13 +1858,13 @@ pub async fn get_event_context_admin(
     .collect();
 
     let events_after: Vec<Value> = sqlx::query(
-        r#"
+        r"
         SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
         FROM events
         WHERE room_id = $1 AND origin_server_ts > $2
         ORDER BY origin_server_ts ASC
         LIMIT 5
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(event.origin_server_ts)
@@ -2055,13 +2054,13 @@ pub async fn search_room_messages_admin(
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
     let events = sqlx::query(
-        r#"
+        r"
         SELECT event_id, event_type, sender, content, origin_server_ts
         FROM room_events
         WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
         ORDER BY origin_server_ts DESC
         LIMIT $3
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(&search_pattern)
@@ -2135,7 +2134,7 @@ pub async fn get_room_forward_extremities(
     }
 
     let count: i64 = sqlx::query_scalar(
-        r#"
+        r"
         SELECT COUNT(*) FROM room_events
         WHERE room_id = $1
         AND state_key IS NOT NULL
@@ -2143,7 +2142,7 @@ pub async fn get_room_forward_extremities(
             SELECT prev_event_id FROM room_events
             WHERE room_id = $1 AND prev_event_id IS NOT NULL
         )
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_one(&*state.services.room_storage.pool)
@@ -2213,7 +2212,7 @@ async fn search_all_rooms_impl(
     let search_pattern = body.search_term.as_ref().map(|term| format!("%{term}%"));
 
     let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-        r#"
+        r"
         SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts as creation_ts,
                COUNT(DISTINCT rm.user_id) as member_count,
                CASE WHEN COUNT(DISTINCT re.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
@@ -2221,7 +2220,7 @@ async fn search_all_rooms_impl(
         LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
         LEFT JOIN room_events re ON r.room_id = re.room_id AND re.event_type = 'm.room.encryption'
         WHERE 1=1
-        "#,
+        ",
     );
 
     if let Some(pattern) = &search_pattern {

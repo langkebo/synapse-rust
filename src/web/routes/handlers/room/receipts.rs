@@ -64,12 +64,12 @@ pub(crate) async fn send_receipt(
         }
     });
     let _ = sqlx::query(
-        r#"
+        r"
         INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
         VALUES ($1, 'm.receipt', $2, $3, $4, $5, NULL)
         ON CONFLICT (room_id, event_type, user_id) DO UPDATE
         SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(&auth_user.user_id)

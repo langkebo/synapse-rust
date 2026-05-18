@@ -60,11 +60,11 @@ async fn save_direct_map(
 ) -> Result<(), ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
     sqlx::query(
-        r#"
+        r"
         INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
         VALUES ($1, 'm.direct', $2, $3, $3)
         ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(Value::Object(direct_map.clone()))
@@ -342,8 +342,7 @@ pub async fn check_room_dm(
     let is_dm = direct_map.values().any(|value| {
         value
             .as_array()
-            .map(|rooms| rooms.iter().any(|room| room.as_str() == Some(&room_id)))
-            .unwrap_or(false)
+            .is_some_and(|rooms| rooms.iter().any(|room| room.as_str() == Some(&room_id)))
     });
 
     if is_dm {

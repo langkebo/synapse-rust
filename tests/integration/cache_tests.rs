@@ -27,7 +27,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let claims = create_test_claims();
             manager.set_token("test_token", &claims, 3600).await;
@@ -43,7 +43,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let claims = create_test_claims();
             manager.set_token("test_token", &claims, 3600).await;
@@ -59,7 +59,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let test_value = "test_value".to_string();
             manager.set("test_key", &test_value, 60).await.unwrap();
@@ -74,7 +74,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let result: Option<String> = manager.get("nonexistent").await.unwrap();
             assert!(result.is_none());
@@ -86,7 +86,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let test_value = "test_value".to_string();
             manager.set("test_key", &test_value, 60).await.unwrap();
@@ -177,8 +177,7 @@ mod cache_integration_tests {
                 circuit_breaker: CircuitBreakerConfig::default(),
             };
 
-            let manager = CacheManager::with_redis(&redis_config, CacheConfig::default())
-                .await
+            let manager = CacheManager::with_redis(&redis_config, &CacheConfig::default())
                 .expect("cache manager should build Redis-backed config lazily");
 
             let invalidation_manager = manager
@@ -196,7 +195,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let ttl = manager.local_cache_ttl();
             assert_eq!(
@@ -211,7 +210,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             let test_value = "test_value".to_string();
             manager.set("test_key", &test_value, 60).await.unwrap();
@@ -227,7 +226,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("user:1:profile", &"data1".to_string(), 60)
@@ -283,7 +282,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("key1", &"value1".to_string(), 60)
@@ -315,7 +314,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("test_key", &"value".to_string(), 60)
@@ -329,7 +328,7 @@ mod cache_integration_tests {
                 "other-instance".to_string(),
             );
 
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
             assert!(manager.get::<String>("test_key").await.unwrap().is_none());
         });
     }
@@ -339,7 +338,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("user:1:data", &"value1".to_string(), 60)
@@ -360,7 +359,7 @@ mod cache_integration_tests {
                 "other-instance".to_string(),
             );
 
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             assert!(manager
                 .get::<String>("user:1:data")
@@ -385,7 +384,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("key1", &"value1".to_string(), 60)
@@ -402,7 +401,7 @@ mod cache_integration_tests {
                 "other-instance".to_string(),
             );
 
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             assert!(manager.get::<String>("key1").await.unwrap().is_none());
             assert!(manager.get::<String>("key2").await.unwrap().is_none());
@@ -414,7 +413,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("user:profile:123", &"John Doe".to_string(), 60)
@@ -438,7 +437,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("session:abc", &"data1".to_string(), 60)
@@ -494,7 +493,7 @@ mod cache_integration_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             assert!(manager.invalidation_manager().is_none());
 
@@ -520,7 +519,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("key1", &"value1".to_string(), 60)
@@ -542,7 +541,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("shared_key", &"shared_value".to_string(), 60)
@@ -555,7 +554,7 @@ mod cache_consistency_tests {
                 "instance-2".to_string(),
             );
 
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             let result: Option<String> = manager.get("shared_key").await.unwrap();
             assert!(result.is_none());
@@ -567,7 +566,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             for i in 0..5 {
                 manager
@@ -586,7 +585,7 @@ mod cache_consistency_tests {
                 InvalidationType::Pattern,
                 "other-instance".to_string(),
             );
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             for i in 0..5 {
                 let result: Option<String> =
@@ -607,7 +606,7 @@ mod cache_consistency_tests {
                 max_capacity: 100,
                 time_to_live: 1,
             };
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("short_lived", &"value".to_string(), 1)
@@ -629,7 +628,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = std::sync::Arc::new(CacheManager::new(config));
+            let manager = std::sync::Arc::new(CacheManager::new(&config));
             let mut handles = vec![];
 
             for i in 0..10 {
@@ -660,7 +659,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("user_session", &"session_data".to_string(), 60)
@@ -674,7 +673,7 @@ mod cache_consistency_tests {
             )
             .with_reason("User logged out".to_string());
 
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             let result: Option<String> = manager.get("user_session").await.unwrap();
             assert!(result.is_none());
@@ -686,7 +685,7 @@ mod cache_consistency_tests {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let config = CacheConfig::default();
-            let manager = CacheManager::new(config);
+            let manager = CacheManager::new(&config);
 
             manager
                 .set("cache:user:1", &"data1".to_string(), 60)
@@ -710,7 +709,7 @@ mod cache_consistency_tests {
                 InvalidationType::Prefix,
                 "other-instance".to_string(),
             );
-            manager.handle_invalidation_message(&msg).await;
+            manager.handle_invalidation_message(&msg);
 
             assert!(manager
                 .get::<String>("cache:user:1")

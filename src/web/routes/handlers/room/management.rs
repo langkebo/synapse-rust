@@ -26,11 +26,11 @@ pub(crate) async fn get_room_info(
     let user_id = &auth_user.user_id;
 
     let membership = sqlx::query(
-        r#"
+        r"
         SELECT membership
         FROM room_memberships
         WHERE room_id = $1 AND user_id = $2
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(user_id)
@@ -66,11 +66,11 @@ pub(crate) async fn get_room_info(
         .flatten();
 
     let invited_members_count = sqlx::query_scalar::<_, i64>(
-        r#"
+        r"
         SELECT COUNT(*)
         FROM room_memberships
         WHERE room_id = $1 AND membership = 'invite'
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_one(&*state.services.room_storage.pool)
@@ -98,8 +98,7 @@ pub(crate) async fn get_room_info(
         .unwrap_or_else(|| {
             summary
                 .as_ref()
-                .map(|value| value.guest_access == "can_join")
-                .unwrap_or(false)
+                .is_some_and(|value| value.guest_access == "can_join")
         });
 
     Ok(Json(json!({
@@ -124,12 +123,12 @@ pub(crate) async fn get_room_version(
     validate_room_id(&room_id)?;
 
     let membership = sqlx::query(
-        r#"
+        r"
         SELECT 1
         FROM room_memberships
         WHERE room_id = $1 AND user_id = $2
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(&auth_user.user_id)
@@ -164,12 +163,12 @@ pub(crate) async fn get_joined_rooms(
     let user_id = &auth_user.user_id;
 
     let rooms = sqlx::query(
-        r#"
+        r"
         SELECT DISTINCT room_id
         FROM room_memberships
         WHERE user_id = $1 AND membership = 'join'
         ORDER BY room_id
-        "#,
+        ",
     )
     .bind(user_id)
     .fetch_all(&*state.services.room_storage.pool)
@@ -193,7 +192,7 @@ pub(crate) async fn get_my_rooms(
     let user_id = &auth_user.user_id;
 
     let rooms = sqlx::query(
-        r#"
+        r"
         SELECT rm.room_id, rm.membership,
                COALESCE(r.name, '') as name,
                COALESCE(r.avatar_url, '') as avatar_url,
@@ -202,7 +201,7 @@ pub(crate) async fn get_my_rooms(
         LEFT JOIN rooms r ON rm.room_id = r.room_id
         WHERE rm.user_id = $1
         ORDER BY rm.updated_ts DESC
-        "#,
+        ",
     )
     .bind(user_id)
     .fetch_all(&*state.services.room_storage.pool)
@@ -638,12 +637,12 @@ pub(crate) async fn get_room_capabilities(
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let is_encrypted = sqlx::query(
-        r#"
+        r"
         SELECT 1
         FROM room_events
         WHERE room_id = $1 AND event_type = 'm.room.encryption'
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_optional(&*state.services.room_storage.pool)
@@ -652,13 +651,13 @@ pub(crate) async fn get_room_capabilities(
     .is_some();
 
     let encryption_content = sqlx::query(
-        r#"
+        r"
         SELECT content
         FROM room_events
         WHERE room_id = $1 AND event_type = 'm.room.encryption'
         ORDER BY origin_server_ts DESC
         LIMIT 1
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_optional(&*state.services.room_storage.pool)
@@ -848,12 +847,12 @@ pub(crate) async fn set_room_account_data(
     let now = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
         ON CONFLICT (user_id, room_id, data_type)
         DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .bind(&room_id)
@@ -1082,12 +1081,12 @@ pub(crate) async fn set_room_vault_data(
 
     let now = chrono::Utc::now().timestamp_millis();
     sqlx::query(
-        r#"
+        r"
         INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
         ON CONFLICT (user_id, room_id, data_type)
         DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .bind(&room_id)
@@ -1458,7 +1457,7 @@ pub(crate) async fn search_room_messages(
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());
     let rows = sqlx::query(
-        r#"
+        r"
         SELECT event_id, room_id, sender, event_type, content, origin_server_ts
         FROM events
         WHERE room_id = $1
@@ -1466,7 +1465,7 @@ pub(crate) async fn search_room_messages(
           AND LOWER(content::text) LIKE $2
         ORDER BY origin_server_ts DESC
         LIMIT $3
-        "#,
+        ",
     )
     .bind(&room_id)
     .bind(&search_pattern)

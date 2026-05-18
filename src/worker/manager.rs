@@ -183,7 +183,6 @@ impl WorkerManager {
             let _ = self
                 .storage
                 .record_load_stats(worker_id, &stats)
-                .await
                 .map_err(|e| warn!("Failed to record load stats: {}", e));
         }
 
@@ -515,7 +514,6 @@ impl WorkerManager {
                 worker_id,
                 "replication",
             )
-            .await
             .map_err(|e| warn!("Failed to record connection: {}", e));
 
         let mut connections = self.connections.write().await;

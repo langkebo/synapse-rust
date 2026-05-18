@@ -264,7 +264,7 @@ pub async fn search_public_rooms(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let _filter = body.get("filter").and_then(|v| v.as_str());
-    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20);
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).clamp(1, 100);
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
 
     let (rooms, total) = tokio::try_join!(

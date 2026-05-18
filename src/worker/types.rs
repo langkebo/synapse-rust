@@ -20,35 +20,35 @@ pub enum WorkerType {
 impl WorkerType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            WorkerType::Master => "master",
-            WorkerType::Frontend => "frontend",
-            WorkerType::Background => "background",
-            WorkerType::EventPersister => "event_persister",
-            WorkerType::Synchrotron => "synchrotron",
-            WorkerType::FederationSender => "federation_sender",
-            WorkerType::FederationReader => "federation_reader",
-            WorkerType::MediaRepository => "media_repository",
-            WorkerType::Pusher => "pusher",
-            WorkerType::AppService => "appservice",
+            Self::Master => "master",
+            Self::Frontend => "frontend",
+            Self::Background => "background",
+            Self::EventPersister => "event_persister",
+            Self::Synchrotron => "synchrotron",
+            Self::FederationSender => "federation_sender",
+            Self::FederationReader => "federation_reader",
+            Self::MediaRepository => "media_repository",
+            Self::Pusher => "pusher",
+            Self::AppService => "appservice",
         }
     }
 
     pub fn can_handle_http(&self) -> bool {
         matches!(
             self,
-            WorkerType::Master | WorkerType::Frontend | WorkerType::Synchrotron
+            Self::Master | Self::Frontend | Self::Synchrotron
         )
     }
 
     pub fn can_handle_federation(&self) -> bool {
         matches!(
             self,
-            WorkerType::Master | WorkerType::FederationSender | WorkerType::FederationReader
+            Self::Master | Self::FederationSender | Self::FederationReader
         )
     }
 
     pub fn can_persist_events(&self) -> bool {
-        matches!(self, WorkerType::Master | WorkerType::EventPersister)
+        matches!(self, Self::Master | Self::EventPersister)
     }
 }
 
@@ -57,16 +57,16 @@ impl FromStr for WorkerType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "master" => Ok(WorkerType::Master),
-            "frontend" => Ok(WorkerType::Frontend),
-            "background" => Ok(WorkerType::Background),
-            "event_persister" => Ok(WorkerType::EventPersister),
-            "synchrotron" => Ok(WorkerType::Synchrotron),
-            "federation_sender" => Ok(WorkerType::FederationSender),
-            "federation_reader" => Ok(WorkerType::FederationReader),
-            "media_repository" => Ok(WorkerType::MediaRepository),
-            "pusher" => Ok(WorkerType::Pusher),
-            "appservice" => Ok(WorkerType::AppService),
+            "master" => Ok(Self::Master),
+            "frontend" => Ok(Self::Frontend),
+            "background" => Ok(Self::Background),
+            "event_persister" => Ok(Self::EventPersister),
+            "synchrotron" => Ok(Self::Synchrotron),
+            "federation_sender" => Ok(Self::FederationSender),
+            "federation_reader" => Ok(Self::FederationReader),
+            "media_repository" => Ok(Self::MediaRepository),
+            "pusher" => Ok(Self::Pusher),
+            "appservice" => Ok(Self::AppService),
             _ => Err(format!("Invalid worker type: {s}")),
         }
     }
@@ -85,11 +85,11 @@ pub enum WorkerStatus {
 impl WorkerStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            WorkerStatus::Starting => "starting",
-            WorkerStatus::Running => "running",
-            WorkerStatus::Stopping => "stopping",
-            WorkerStatus::Stopped => "stopped",
-            WorkerStatus::Error => "error",
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Stopping => "stopping",
+            Self::Stopped => "stopped",
+            Self::Error => "error",
         }
     }
 }
@@ -99,11 +99,11 @@ impl FromStr for WorkerStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "starting" => Ok(WorkerStatus::Starting),
-            "running" => Ok(WorkerStatus::Running),
-            "stopping" => Ok(WorkerStatus::Stopping),
-            "stopped" => Ok(WorkerStatus::Stopped),
-            "error" => Ok(WorkerStatus::Error),
+            "starting" => Ok(Self::Starting),
+            "running" => Ok(Self::Running),
+            "stopping" => Ok(Self::Stopping),
+            "stopped" => Ok(Self::Stopped),
+            "error" => Ok(Self::Error),
             _ => Err(format!("Invalid worker status: {s}")),
         }
     }

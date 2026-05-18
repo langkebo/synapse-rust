@@ -185,7 +185,7 @@ pub async fn get_all_updates(
     _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
     let (updates, next_batch) = state
         .services
@@ -323,7 +323,7 @@ pub async fn get_history(
     Path(job_name): Path<String>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
     let history = state
         .services

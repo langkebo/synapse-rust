@@ -143,12 +143,12 @@ impl ModerationStorage {
         let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple());
 
         sqlx::query_as::<_, ModerationRule>(
-            r#"
+            r"
             INSERT INTO moderation_rules 
                 (rule_id, server_id, rule_type, pattern, action, reason, created_by, created_ts, updated_ts, is_active, priority)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, true, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&rule_id)
         .bind(&params.server_id)
@@ -165,9 +165,9 @@ impl ModerationStorage {
 
     pub async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
-            r#"
+            r"
             SELECT * FROM moderation_rules WHERE rule_id = $1 AND is_active = true
-            "#,
+            ",
         )
         .bind(rule_id)
         .fetch_optional(&*self.pool)
@@ -176,11 +176,11 @@ impl ModerationStorage {
 
     pub async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
-            r#"
+            r"
             SELECT * FROM moderation_rules 
             WHERE is_active = true 
             ORDER BY priority DESC, created_ts ASC
-            "#,
+            ",
         )
         .fetch_all(&*self.pool)
         .await
@@ -191,11 +191,11 @@ impl ModerationStorage {
         rule_type: &str,
     ) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
-            r#"
+            r"
             SELECT * FROM moderation_rules 
             WHERE rule_type = $1 AND is_active = true 
             ORDER BY priority DESC, created_ts ASC
-            "#,
+            ",
         )
         .bind(rule_type)
         .fetch_all(&*self.pool)
@@ -213,7 +213,7 @@ impl ModerationStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ModerationRule>(
-            r#"
+            r"
             UPDATE moderation_rules 
             SET 
                 pattern = COALESCE($2, pattern),
@@ -223,7 +223,7 @@ impl ModerationStorage {
                 updated_ts = $6
             WHERE rule_id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(rule_id)
         .bind(pattern)
@@ -237,11 +237,11 @@ impl ModerationStorage {
 
     pub async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             UPDATE moderation_rules 
             SET is_active = false
             WHERE rule_id = $1
-            "#,
+            ",
         )
         .bind(rule_id)
         .execute(&*self.pool)
@@ -288,11 +288,11 @@ impl ModerationLogStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO moderation_logs 
                 (rule_id, event_id, room_id, sender, content_hash, action_taken, confidence, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
+            ",
         )
         .bind(rule_id)
         .bind(event_id)
@@ -313,9 +313,9 @@ impl ModerationLogStorage {
         event_id: &str,
     ) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
-            r#"
+            r"
             SELECT * FROM moderation_logs WHERE event_id = $1 ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .bind(event_id)
         .fetch_all(&*self.pool)
@@ -328,10 +328,10 @@ impl ModerationLogStorage {
         limit: i32,
     ) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
-            r#"
+            r"
             SELECT * FROM moderation_logs WHERE room_id = $1 
             ORDER BY created_ts DESC LIMIT $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(limit)
@@ -345,10 +345,10 @@ impl ModerationLogStorage {
         limit: i32,
     ) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
-            r#"
+            r"
             SELECT * FROM moderation_logs WHERE sender = $1 
             ORDER BY created_ts DESC LIMIT $2
-            "#,
+            ",
         )
         .bind(sender)
         .bind(limit)
@@ -361,9 +361,9 @@ impl ModerationLogStorage {
             chrono::Utc::now().timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
 
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM moderation_logs WHERE created_ts < $1
-            "#,
+            ",
         )
         .bind(cutoff_ts)
         .execute(&*self.pool)

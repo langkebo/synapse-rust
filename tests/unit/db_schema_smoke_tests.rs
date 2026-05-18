@@ -748,7 +748,6 @@ mod db_schema_smoke_suite {
                     queue_depth: Some(1),
                 },
             )
-            .await
             .expect("Failed to record load stats");
         storage
             .update_replication_position(&worker_id, "events", 42)
@@ -765,7 +764,6 @@ mod db_schema_smoke_suite {
             .expect("Failed to assign task");
         storage
             .record_connection(&worker_id, &peer_worker_id, "tcp")
-            .await
             .expect("Failed to record connection");
         storage
             .update_connection_stats(
@@ -775,7 +773,6 @@ mod db_schema_smoke_suite {
                     .messages_sent(1)
                     .messages_received(2),
             )
-            .await
             .expect("Failed to update connection stats");
 
         let active_workers = storage

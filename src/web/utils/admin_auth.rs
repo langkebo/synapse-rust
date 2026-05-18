@@ -436,8 +436,7 @@ fn verify_totp_code(
     }
 
     let user_id = user
-        .map(|value| value.user_id.as_str())
-        .unwrap_or("unknown");
+        .map_or("unknown", |value| value.user_id.as_str());
     tracing::warn!(target: "admin_auth", user_id, "Admin MFA verification failed");
     Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
 }

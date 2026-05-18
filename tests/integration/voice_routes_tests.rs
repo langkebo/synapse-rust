@@ -304,7 +304,7 @@ async fn create_call_session(
                             "type": "offer",
                             "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
                         },
-                        "lifetime": 60000
+                        "lifetime": 60_000
                     })
                     .to_string(),
                 ))

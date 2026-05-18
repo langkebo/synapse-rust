@@ -63,11 +63,11 @@ impl BurnAfterReadStorage {
         room_id: &str,
     ) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
         sqlx::query_as::<_, BurnSettingsRow>(
-            r#"
+            r"
             SELECT user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
             FROM burn_after_read_settings
             WHERE user_id = $1 AND room_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -85,7 +85,7 @@ impl BurnAfterReadStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BurnSettingsRow>(
-            r#"
+            r"
             INSERT INTO burn_after_read_settings (user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $5)
             ON CONFLICT (user_id, room_id) DO UPDATE SET
@@ -93,7 +93,7 @@ impl BurnAfterReadStorage {
                 burn_after_ms = EXCLUDED.burn_after_ms,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -116,14 +116,14 @@ impl BurnAfterReadStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BurnPendingRow>(
-            r#"
+            r"
             INSERT INTO burn_after_read_pending (user_id, room_id, event_id, created_ts, delete_at)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (user_id, room_id, event_id) WHERE is_processed = FALSE DO UPDATE SET
                 delete_at = EXCLUDED.delete_at,
                 created_ts = EXCLUDED.created_ts
             RETURNING id, user_id, room_id, event_id, created_ts, delete_at, is_processed
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -143,11 +143,11 @@ impl BurnAfterReadStorage {
         event_id: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             UPDATE burn_after_read_pending
             SET is_processed = TRUE
             WHERE user_id = $1 AND room_id = $2 AND event_id = $3 AND is_processed = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -164,12 +164,12 @@ impl BurnAfterReadStorage {
         room_id: &str,
     ) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
-            r#"
+            r"
             SELECT id, user_id, room_id, event_id, created_ts, delete_at, is_processed
             FROM burn_after_read_pending
             WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE
             ORDER BY delete_at ASC
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -181,12 +181,12 @@ impl BurnAfterReadStorage {
 
     pub async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
-            r#"
+            r"
             SELECT id, user_id, room_id, event_id, created_ts, delete_at, is_processed
             FROM burn_after_read_pending
             WHERE delete_at <= $1 AND is_processed = FALSE
             ORDER BY delete_at ASC
-            "#,
+            ",
         )
         .bind(now_ms)
         .fetch_all(&*self.pool)
@@ -214,10 +214,10 @@ impl BurnAfterReadStorage {
         burned_ts: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)
             VALUES ($1, $2, $3, $4)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(room_id)
@@ -231,12 +231,12 @@ impl BurnAfterReadStorage {
 
     pub async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
         let row = sqlx::query_as::<_, BurnStatsRow>(
-            r#"
+            r"
             SELECT
                 COALESCE((SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1), 0) AS total_burned,
                 COALESCE((SELECT COUNT(*) FROM burn_after_read_pending WHERE user_id = $1 AND is_processed = FALSE), 0) AS total_pending,
                 COALESCE((SELECT COUNT(*) FROM burn_after_read_settings WHERE user_id = $1 AND is_enabled = TRUE), 0) AS rooms_enabled
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
@@ -250,11 +250,11 @@ impl BurnAfterReadStorage {
         user_id: &str,
     ) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
         let row = sqlx::query_as::<_, BurnUserDefaultsRow>(
-            r#"
+            r"
             SELECT user_id, default_burn_ms, created_ts, updated_ts
             FROM burn_after_read_user_defaults
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -271,13 +271,13 @@ impl BurnAfterReadStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO burn_after_read_user_defaults (user_id, default_burn_ms, created_ts, updated_ts)
             VALUES ($1, $2, $3, $3)
             ON CONFLICT (user_id) DO UPDATE SET
                 default_burn_ms = EXCLUDED.default_burn_ms,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(default_burn_ms)
@@ -299,13 +299,13 @@ mod tests {
             user_id: "@alice:example.com".to_string(),
             room_id: "!room:example.com".to_string(),
             is_enabled: true,
-            burn_after_ms: 60000,
+            burn_after_ms: 60_000,
             created_ts: 1234567890,
             updated_ts: None,
         };
         assert_eq!(row.user_id, "@alice:example.com");
         assert!(row.is_enabled);
-        assert_eq!(row.burn_after_ms, 60000);
+        assert_eq!(row.burn_after_ms, 60_000);
     }
 
     #[test]

@@ -44,8 +44,7 @@ fn sender_server_name(sender: &str) -> Option<&str> {
 fn user_matches_origin(user_id: &str, origin: &str) -> bool {
     user_id
         .rsplit_once(':')
-        .map(|(_, server_name)| server_name == origin)
-        .unwrap_or(false)
+        .is_some_and(|(_, server_name)| server_name == origin)
 }
 
 async fn validate_federation_origin_in_room(

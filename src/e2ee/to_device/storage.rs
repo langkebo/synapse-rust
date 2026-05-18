@@ -30,7 +30,7 @@ impl ToDeviceStorage {
         // addressed to a dehydrated device id are silently dropped.
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
-            r#"
+            r"
             SELECT 1 AS hit FROM devices
                 WHERE user_id = $1 AND device_id = $2
             UNION ALL
@@ -38,7 +38,7 @@ impl ToDeviceStorage {
                 WHERE user_id = $1 AND device_id = $2
                   AND (expires_at IS NULL OR expires_at > $3)
             LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -57,10 +57,10 @@ impl ToDeviceStorage {
         message_id: &str,
     ) -> Result<bool, ApiError> {
         let result = sqlx::query(
-            r#"
+            r"
             SELECT 1 FROM to_device_transactions
             WHERE sender_user_id = $1 AND sender_device_id = $2 AND message_id = $3
-            "#,
+            ",
         )
         .bind(sender_user_id)
         .bind(sender_device_id)
@@ -80,11 +80,11 @@ impl ToDeviceStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             INSERT INTO to_device_transactions (sender_user_id, sender_device_id, message_id, created_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (sender_user_id, sender_device_id, message_id) DO NOTHING
-            "#,
+            ",
         )
         .bind(sender_user_id)
         .bind(sender_device_id)
@@ -100,10 +100,10 @@ impl ToDeviceStorage {
     pub async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError> {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age_ms;
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_transactions
             WHERE created_ts < $1
-            "#,
+            ",
         )
         .bind(cutoff)
         .execute(&*self.pool)
@@ -128,7 +128,7 @@ impl ToDeviceStorage {
 
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"
+            r"
             INSERT INTO to_device_messages (
                 sender_user_id,
                 sender_device_id,
@@ -141,7 +141,7 @@ impl ToDeviceStorage {
                 created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, nextval('to_device_stream_id_seq'), $8)
-            "#,
+            ",
         )
         .bind(msg.sender_user_id)
         .bind(msg.sender_device_id)
@@ -164,12 +164,12 @@ impl ToDeviceStorage {
         device_id: &str,
     ) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts
             FROM to_device_messages
             WHERE recipient_user_id = $1 AND recipient_device_id = $2
             ORDER BY stream_id ASC
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -204,11 +204,11 @@ impl ToDeviceStorage {
         device_id: &str,
     ) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_messages
             WHERE recipient_user_id = $1 AND recipient_device_id = $2
             RETURNING id, stream_id, sender_user_id, event_type, content, message_id, created_ts
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -239,10 +239,10 @@ impl ToDeviceStorage {
 
     pub async fn delete_messages(&self, ids: &[i64]) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_messages
             WHERE id = ANY($1)
-            "#,
+            ",
         )
         .bind(ids)
         .execute(&*self.pool)
@@ -259,12 +259,12 @@ impl ToDeviceStorage {
         stream_id: i64,
     ) -> Result<(), ApiError> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM to_device_messages
             WHERE recipient_user_id = $1
               AND recipient_device_id = $2
               AND stream_id <= $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)

@@ -18,9 +18,9 @@ pub enum DeviceTrustLevel {
 impl std::fmt::Display for DeviceTrustLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeviceTrustLevel::Verified => write!(f, "verified"),
-            DeviceTrustLevel::Unverified => write!(f, "unverified"),
-            DeviceTrustLevel::Blocked => write!(f, "blocked"),
+            Self::Verified => write!(f, "verified"),
+            Self::Unverified => write!(f, "unverified"),
+            Self::Blocked => write!(f, "blocked"),
         }
     }
 }
@@ -30,9 +30,9 @@ impl std::str::FromStr for DeviceTrustLevel {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "verified" => Ok(DeviceTrustLevel::Verified),
-            "unverified" => Ok(DeviceTrustLevel::Unverified),
-            "blocked" => Ok(DeviceTrustLevel::Blocked),
+            "verified" => Ok(Self::Verified),
+            "unverified" => Ok(Self::Unverified),
+            "blocked" => Ok(Self::Blocked),
             _ => Err(format!("Unknown trust level: {s}")),
         }
     }
@@ -95,9 +95,9 @@ pub enum VerificationMethod {
 impl std::fmt::Display for VerificationMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerificationMethod::Sas => write!(f, "sas"),
-            VerificationMethod::Qr => write!(f, "qr"),
-            VerificationMethod::Emoji => write!(f, "emoji"),
+            Self::Sas => write!(f, "sas"),
+            Self::Qr => write!(f, "qr"),
+            Self::Emoji => write!(f, "emoji"),
         }
     }
 }
@@ -107,9 +107,9 @@ impl std::str::FromStr for VerificationMethod {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "sas" => Ok(VerificationMethod::Sas),
-            "qr" => Ok(VerificationMethod::Qr),
-            "emoji" => Ok(VerificationMethod::Emoji),
+            "sas" => Ok(Self::Sas),
+            "qr" => Ok(Self::Qr),
+            "emoji" => Ok(Self::Emoji),
             _ => Err(format!("Unknown verification method: {s}")),
         }
     }
@@ -130,10 +130,10 @@ pub enum VerificationRequestStatus {
 impl std::fmt::Display for VerificationRequestStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerificationRequestStatus::Pending => write!(f, "pending"),
-            VerificationRequestStatus::Approved => write!(f, "approved"),
-            VerificationRequestStatus::Rejected => write!(f, "rejected"),
-            VerificationRequestStatus::Expired => write!(f, "expired"),
+            Self::Pending => write!(f, "pending"),
+            Self::Approved => write!(f, "approved"),
+            Self::Rejected => write!(f, "rejected"),
+            Self::Expired => write!(f, "expired"),
         }
     }
 }
@@ -143,10 +143,10 @@ impl std::str::FromStr for VerificationRequestStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "pending" => Ok(VerificationRequestStatus::Pending),
-            "approved" => Ok(VerificationRequestStatus::Approved),
-            "rejected" => Ok(VerificationRequestStatus::Rejected),
-            "expired" => Ok(VerificationRequestStatus::Expired),
+            "pending" => Ok(Self::Pending),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "expired" => Ok(Self::Expired),
             _ => Err(format!("Unknown verification status: {s}")),
         }
     }

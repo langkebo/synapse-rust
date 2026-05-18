@@ -254,6 +254,66 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     .await
     .expect("Failed to create filters table");
 
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_pending (
+                room_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                triggered_by_user_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                PRIMARY KEY (room_id, triggered_by_user_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create key_rotation_pending table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_state (
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                is_rotated BOOLEAN NOT NULL DEFAULT FALSE,
+                rotated_at TIMESTAMPTZ,
+                PRIMARY KEY (user_id, room_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create key_rotation_state table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS megolm_key_shares (
+                room_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                share_reason TEXT NOT NULL,
+                shared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (room_id, session_id)
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create megolm_key_shares table");
+
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS megolm_sessions (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                sender_key TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ
+            )
+            "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create megolm_sessions table");
+
     Some(pool)
 }
 
@@ -294,7 +354,7 @@ fn create_room_service(
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
             Arc::new(synapse_rust::cache::CacheManager::new(
-                synapse_rust::cache::CacheConfig::default(),
+                &synapse_rust::cache::CacheConfig::default(),
             )),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
@@ -319,7 +379,7 @@ fn test_sync_success() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -392,7 +452,7 @@ fn test_incremental_sync_does_not_replay_old_timeline() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -472,7 +532,7 @@ fn test_sync_offline_presence_overwrites_previous_presence_state() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -518,7 +578,7 @@ fn test_sync_presence_events_reflect_persisted_presence_state() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -571,7 +631,7 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -708,7 +768,7 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -858,7 +918,7 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -1004,7 +1064,7 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
         };
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -1114,7 +1174,7 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -1313,7 +1373,7 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -1516,7 +1576,7 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);
@@ -1688,7 +1748,7 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
         let event_storage = EventStorage::new(&pool, "localhost".to_string());
         let room_storage = RoomStorage::new(&pool);

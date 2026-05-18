@@ -174,12 +174,12 @@ async fn get_room_tags(
     room_id: &str,
 ) -> Result<Vec<RoomTag>, sqlx::Error> {
     sqlx::query_as::<_, RoomTag>(
-        r#"
+        r"
         SELECT user_id, room_id, tag, order_value, created_ts
         FROM room_tags
         WHERE user_id = $1 AND room_id = $2
         ORDER BY tag
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(room_id)
@@ -189,12 +189,12 @@ async fn get_room_tags(
 
 async fn get_all_user_tags(pool: &PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
     sqlx::query_as::<_, RoomTag>(
-        r#"
+        r"
         SELECT user_id, room_id, tag, order_value, created_ts
         FROM room_tags
         WHERE user_id = $1
         ORDER BY room_id, tag
-        "#,
+        ",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -210,12 +210,12 @@ async fn upsert_room_tag(
     created_ts: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"
+        r"
         INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (user_id, room_id, tag)
         DO UPDATE SET order_value = $4, created_ts = $5
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(room_id)
@@ -235,10 +235,10 @@ async fn delete_room_tag(
     tag: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"
+        r"
         DELETE FROM room_tags
         WHERE user_id = $1 AND room_id = $2 AND tag = $3
-        "#,
+        ",
     )
     .bind(user_id)
     .bind(room_id)

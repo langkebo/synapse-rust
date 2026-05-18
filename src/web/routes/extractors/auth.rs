@@ -89,7 +89,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                         }
                     }
 
-                    Ok(AuthenticatedUser {
+                    Ok(Self {
                         user_id,
                         device_id,
                         is_admin,
@@ -118,7 +118,7 @@ impl FromRequestParts<AppState> for AdminUser {
 
         async move {
             let admin = authorize_admin_request(&headers, &method, &path, &state).await?;
-            Ok(AdminUser {
+            Ok(Self {
                 user_id: admin.user_id,
                 device_id: admin.device_id,
                 access_token: admin.access_token,
@@ -143,7 +143,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
             match token_result {
                 Ok(token) => match state.services.auth_service.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                        Ok(OptionalAuthenticatedUser {
+                        Ok(Self {
                             user_id: Some(user_id),
                             device_id,
                             is_admin,
@@ -152,7 +152,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
                             access_token: Some(token),
                         })
                     }
-                    Err(_) => Ok(OptionalAuthenticatedUser {
+                    Err(_) => Ok(Self {
                         user_id: None,
                         device_id: None,
                         is_admin: false,
@@ -161,7 +161,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
                         access_token: None,
                     }),
                 },
-                Err(_) => Ok(OptionalAuthenticatedUser {
+                Err(_) => Ok(Self {
                     user_id: None,
                     device_id: None,
                     is_admin: false,

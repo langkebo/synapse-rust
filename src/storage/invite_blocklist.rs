@@ -30,16 +30,16 @@ impl InviteBlocklistStorage {
             .await?;
 
         // Insert new blocklist
-        for user_id in &user_ids {
+        if !user_ids.is_empty() {
             sqlx::query(
-                r#"
+                r"
                 INSERT INTO room_invite_blocklist (room_id, user_id, created_ts)
-                VALUES ($1, $2, $3)
+                SELECT $1, unnest($2::text[]), $3
                 ON CONFLICT DO NOTHING
-                "#,
+                ",
             )
             .bind(room_id)
-            .bind(user_id)
+            .bind(&user_ids)
             .bind(now)
             .execute(&*self.pool)
             .await?;
@@ -51,9 +51,9 @@ impl InviteBlocklistStorage {
     /// Get the invite blocklist for a room
     pub async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT user_id FROM room_invite_blocklist WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -65,10 +65,10 @@ impl InviteBlocklistStorage {
     /// Check if a user is blocked from being invited
     pub async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT user_id FROM room_invite_blocklist 
             WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -93,16 +93,16 @@ impl InviteBlocklistStorage {
             .await?;
 
         // Insert new allowlist
-        for user_id in &user_ids {
+        if !user_ids.is_empty() {
             sqlx::query(
-                r#"
+                r"
                 INSERT INTO room_invite_allowlist (room_id, user_id, created_ts)
-                VALUES ($1, $2, $3)
+                SELECT $1, unnest($2::text[]), $3
                 ON CONFLICT DO NOTHING
-                "#,
+                ",
             )
             .bind(room_id)
-            .bind(user_id)
+            .bind(&user_ids)
             .bind(now)
             .execute(&*self.pool)
             .await?;
@@ -114,9 +114,9 @@ impl InviteBlocklistStorage {
     /// Get the invite allowlist for a room
     pub async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT user_id FROM room_invite_allowlist WHERE room_id = $1
-            "#,
+            ",
         )
         .bind(room_id)
         .fetch_all(&*self.pool)
@@ -128,10 +128,10 @@ impl InviteBlocklistStorage {
     /// Check if a user is allowed to be invited (when allowlist is set)
     pub async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
-            r#"
+            r"
             SELECT user_id FROM room_invite_allowlist 
             WHERE room_id = $1 AND user_id = $2
-            "#,
+            ",
         )
         .bind(room_id)
         .bind(user_id)
@@ -165,10 +165,10 @@ impl InviteBlocklistStorage {
     /// Get global invite blocklist (all rooms)
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, i64)>(
-            r#"
+            r"
             SELECT room_id, user_id, created_ts FROM room_invite_blocklist
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -188,10 +188,10 @@ impl InviteBlocklistStorage {
     /// Get global invite allowlist (all rooms)
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, i64)>(
-            r#"
+            r"
             SELECT room_id, user_id, created_ts FROM room_invite_allowlist
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .fetch_all(&*self.pool)
         .await?;

@@ -124,14 +124,14 @@ impl CaptchaStorage {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
-            r#"
+            r"
             INSERT INTO registration_captcha (
                 captcha_id, captcha_type, target, code, created_ts, expires_at,
                 ip_address, user_agent, max_attempts, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&captcha_id)
         .bind(&request.captcha_type)
@@ -176,12 +176,12 @@ impl CaptchaStorage {
     ) -> Result<Option<RegistrationCaptcha>, ApiError> {
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
-            r#"
+            r"
             SELECT * FROM registration_captcha
             WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_at > $3
             ORDER BY created_ts DESC
             LIMIT 1
-            "#,
+            ",
         )
         .bind(target)
         .bind(captcha_type)
@@ -237,11 +237,11 @@ impl CaptchaStorage {
 
         if captcha.code == code {
             sqlx::query(
-                r#"
+                r"
                 UPDATE registration_captcha 
                 SET status = 'verified', verified_at = $1, used_at = $1
                 WHERE captcha_id = $2
-                "#,
+                ",
             )
             .bind(now)
             .bind(captcha_id)
@@ -278,14 +278,14 @@ impl CaptchaStorage {
     ) -> Result<CaptchaSendLog, ApiError> {
         let sent_ts = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, CaptchaSendLog>(
-            r#"
+            r"
             INSERT INTO captcha_send_log (
                 captcha_id, captcha_type, target, sent_ts, ip_address, user_agent,
                 is_success, error_message, provider, provider_response
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.captcha_id)
         .bind(&request.captcha_type)
@@ -313,10 +313,10 @@ impl CaptchaStorage {
         let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
 
         let count: (i64,) = sqlx::query_as(
-            r#"
+            r"
             SELECT COUNT(*) FROM captcha_send_log 
             WHERE target = $1 AND captcha_type = $2 AND sent_ts > $3
-            "#,
+            ",
         )
         .bind(target)
         .bind(captcha_type)
@@ -336,10 +336,10 @@ impl CaptchaStorage {
         let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
 
         let count: (i64,) = sqlx::query_as(
-            r#"
+            r"
             SELECT COUNT(*) FROM captcha_send_log 
             WHERE ip_address = $1 AND sent_ts > $2
-            "#,
+            ",
         )
         .bind(ip_address)
         .bind(one_hour_ago_ts)

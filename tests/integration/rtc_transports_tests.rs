@@ -4,7 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
@@ -18,7 +18,7 @@ async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
     container.config.voip.stun_uris = vec!["stun:stun.example.org".to_string()];
     container.config.voip.turn_shared_secret = Some("test_secret".to_string());
 
-    let cache = Arc::new(CacheManager::new(Default::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
     Some((synapse_rust::web::create_router(state), pool))
 }

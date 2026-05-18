@@ -150,7 +150,7 @@ fn test_register_user_success() {
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
         };
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service =
             AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
@@ -192,7 +192,7 @@ fn test_login_success() {
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
         };
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service =
             AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
@@ -229,7 +229,7 @@ fn test_get_profile_success() {
             Some(pool) => Arc::new(pool),
             None => return,
         };
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let id = unique_id();
         let user_id = format!("@alice_{}:localhost", id);
         let username = format!("alice_{}", id);

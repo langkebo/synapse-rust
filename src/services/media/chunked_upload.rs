@@ -84,11 +84,11 @@ impl ChunkedUploadService {
         let expires_at = now + (self.upload_expiry_seconds * 1000);
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO upload_progress 
             (upload_id, user_id, filename, content_type, total_size, total_chunks, status, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
-            "#,
+            ",
         )
         .bind(&upload_id)
         .bind(user_id)
@@ -152,13 +152,13 @@ impl ChunkedUploadService {
         let chunk_size = request.chunk_data.len() as i64;
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO upload_chunks (upload_id, chunk_index, chunk_data, chunk_size, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (upload_id, chunk_index) DO UPDATE SET 
                 chunk_data = EXCLUDED.chunk_data,
                 chunk_size = EXCLUDED.chunk_size
-            "#,
+            ",
         )
         .bind(&upload_id)
         .bind(request.chunk_index)
@@ -170,14 +170,14 @@ impl ChunkedUploadService {
         .map_err(|e| ApiError::internal(format!("Failed to store chunk: {e}")))?;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE upload_progress 
             SET uploaded_chunks = uploaded_chunks + 1,
                 uploaded_size = uploaded_size + $2,
                 updated_ts = $3,
                 status = CASE WHEN uploaded_chunks + 1 >= total_chunks THEN 'complete' ELSE 'pending' END
             WHERE upload_id = $1
-            "#,
+            ",
         )
         .bind(&upload_id)
         .bind(chunk_size)
@@ -257,11 +257,11 @@ impl ChunkedUploadService {
         let size = combined_data.len() as i64;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE upload_progress 
             SET status = 'finalized', updated_ts = $2
             WHERE upload_id = $1
-            "#,
+            ",
         )
         .bind(upload_id)
         .bind(chrono::Utc::now().timestamp_millis())
@@ -348,18 +348,5 @@ impl ChunkedUploadService {
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to list uploads: {e}")))
-    }
-}
-
-impl Default for ChunkedUploadService {
-    fn default() -> Self {
-        Self {
-            pool: Arc::new(sqlx::PgPool::connect_lazy("postgres://invalid").unwrap_or_else(|_| {
-                panic!("ChunkedUploadService requires a properly configured database pool")
-            })),
-            chunk_size_limit: 10 * 1024 * 1024,
-            max_file_size: 100 * 1024 * 1024,
-            upload_expiry_seconds: 3600,
-        }
     }
 }

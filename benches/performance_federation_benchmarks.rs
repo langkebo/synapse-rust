@@ -37,7 +37,7 @@ fn benchmark_federation_key_prewarming(c: &mut Criterion) {
     use tokio::runtime::Runtime;
 
     let rt = Runtime::new().expect("Failed to create runtime");
-    let cache_manager = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache_manager = Arc::new(CacheManager::new(&CacheConfig::default()));
 
     c.bench_function("federation_key_prewarm_10", |b| {
         b.iter(|| {

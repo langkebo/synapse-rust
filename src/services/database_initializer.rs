@@ -28,15 +28,15 @@ impl Environment {
     }
 
     pub fn is_development(&self) -> bool {
-        self == &Environment::Development
+        self == &Self::Development
     }
 }
 
 impl From<String> for Environment {
     fn from(s: String) -> Self {
         match s.as_str() {
-            "prod" | "production" | "release" => Environment::Production,
-            _ => Environment::Development,
+            "prod" | "production" | "release" => Self::Production,
+            _ => Self::Development,
         }
     }
 }
@@ -289,10 +289,10 @@ impl DatabaseInitService {
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (i64,)>(
-            r#"
+            r"
             SELECT value::BIGINT
             FROM db_metadata WHERE key = 'last_init_ts'
-            "#,
+            ",
         )
         .fetch_optional(&*self.pool)
         .await;
@@ -322,13 +322,13 @@ impl DatabaseInitService {
         let now = chrono::Utc::now().timestamp();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO db_metadata (key, value, created_ts, updated_ts)
             VALUES ('last_init_ts', $1, $2, $2)
             ON CONFLICT (key) DO UPDATE SET
                 value = EXCLUDED.value,
                 updated_ts = EXCLUDED.updated_ts
-            "#,
+            ",
         )
         .bind(now.to_string())
         .bind(now)
@@ -396,7 +396,7 @@ impl DatabaseInitService {
     }
 
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {
-        let create_table_sql = r#"
+        let create_table_sql = r"
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 id BIGSERIAL PRIMARY KEY,
                 version TEXT NOT NULL,
@@ -409,14 +409,14 @@ impl DatabaseInitService {
                 executed_at TIMESTAMPTZ DEFAULT NOW(),
                 CONSTRAINT uq_schema_migrations_version UNIQUE (version)
             )
-        "#;
+        ";
 
         sqlx::raw_sql(create_table_sql).execute(&*self.pool).await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version)
-            "#,
+            ",
         )
         .execute(&*self.pool)
         .await?;
@@ -432,7 +432,7 @@ impl DatabaseInitService {
                 .fetch_optional(&*self.pool)
                 .await?;
 
-        Ok(result.map(|(success,)| success).unwrap_or(false))
+        Ok(result.is_some_and(|(success,)| success))
     }
 
     async fn record_migration(
@@ -444,14 +444,14 @@ impl DatabaseInitService {
     ) -> Result<(), sqlx::Error> {
         let now_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, success)
+            r"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, success)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (version) DO UPDATE SET
                    checksum = EXCLUDED.checksum,
                    applied_ts = EXCLUDED.applied_ts,
                    executed_at = NOW(),
                    execution_time_ms = EXCLUDED.execution_time_ms,
-                   success = EXCLUDED.success"#,
+                   success = EXCLUDED.success",
         )
         .bind(version)
         .bind(checksum)

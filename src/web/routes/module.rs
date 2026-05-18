@@ -460,7 +460,7 @@ pub async fn get_all_modules(
     _auth_user: AdminUser,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
     let (modules, next_batch) = state
         .services

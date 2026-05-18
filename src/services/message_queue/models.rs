@@ -103,7 +103,7 @@ impl Default for DeadLetterConfig {
             enabled: true,
             queue_name: "dead_letter".to_string(),
             max_retries: 3,
-            retention_ms: 86400000,
+            retention_ms: 86_400_000,
         }
     }
 }

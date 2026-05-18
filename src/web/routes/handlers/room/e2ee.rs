@@ -235,8 +235,7 @@ pub(crate) async fn claim_room_keys(
         .filter(|key| {
             requested_sessions
                 .as_ref()
-                .map(|session_ids| session_ids.contains(&key.session_id))
-                .unwrap_or(true)
+                .is_none_or(|session_ids| session_ids.contains(&key.session_id))
         })
         .map(|key| (key.session_id.clone(), room_key_to_json(&key)))
         .collect::<serde_json::Map<_, _>>();

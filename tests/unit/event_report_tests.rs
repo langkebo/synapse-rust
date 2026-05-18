@@ -75,7 +75,7 @@ mod tests {
             blocked_until_at: None,
             is_blocked: false,
             block_reason: None,
-            created_ts: 1234560000,
+            created_ts: 1234560_000,
             updated_ts: 1234567000,
         };
 

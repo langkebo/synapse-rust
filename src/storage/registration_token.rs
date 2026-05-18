@@ -154,7 +154,7 @@ impl RegistrationTokenStorage {
             .unwrap_or_else(|| "single_use".to_string());
 
         let row = sqlx::query_as::<_, RegistrationToken>(
-            r#"
+            r"
             INSERT INTO registration_tokens (
                 token, token_type, description, max_uses, expires_at, created_by,
                 created_ts, updated_ts, allowed_email_domains, allowed_user_ids,
@@ -162,7 +162,7 @@ impl RegistrationTokenStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&token)
         .bind(&token_type)
@@ -220,7 +220,7 @@ impl RegistrationTokenStorage {
         request: UpdateRegistrationTokenRequest,
     ) -> Result<RegistrationToken, sqlx::Error> {
         let row = sqlx::query_as::<_, RegistrationToken>(
-            r#"
+            r"
             UPDATE registration_tokens SET
                 description = COALESCE($2, description),
                 max_uses = COALESCE($3, max_uses),
@@ -228,7 +228,7 @@ impl RegistrationTokenStorage {
                 expires_at = COALESCE($5, expires_at)
             WHERE id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(&request.description)
@@ -329,13 +329,13 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE registration_tokens
             SET uses_count = uses_count + 1,
                 is_used = CASE WHEN token_type = 'single_use' THEN TRUE ELSE is_used END,
                 last_used_ts = $2
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(token_id)
         .bind(now)
@@ -343,11 +343,11 @@ impl RegistrationTokenStorage {
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO registration_token_usage (
                 token_id, token, user_id, username, email, ip_address, user_agent, used_ts
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
+            ",
         )
         .bind(token_id)
         .bind(token)
@@ -442,13 +442,13 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let rows = sqlx::query_as::<_, RegistrationToken>(
-            r#"
+            r"
             SELECT * FROM registration_tokens 
             WHERE is_enabled = TRUE 
             AND (expires_at IS NULL OR expires_at > $1)
             AND (max_uses = 0 OR uses_count < max_uses)
             ORDER BY created_ts DESC
-            "#,
+            ",
         )
         .bind(now)
         .fetch_all(&*self.pool)
@@ -501,13 +501,13 @@ impl RegistrationTokenStorage {
         let invite_code = Self::generate_token();
 
         let row = sqlx::query_as::<_, RoomInvite>(
-            r#"
+            r"
             INSERT INTO room_invites (
                 invite_code, room_id, inviter_user_id, invitee_email, expires_at, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&invite_code)
         .bind(&request.room_id)
@@ -558,13 +558,13 @@ impl RegistrationTokenStorage {
                 let now = Utc::now().timestamp_millis();
 
                 sqlx::query(
-                    r#"
+                    r"
                     UPDATE room_invites SET
                         is_used = TRUE,
                         invitee_user_id = $2,
                         used_ts = $3
                     WHERE invite_code = $1
-                    "#,
+                    ",
                 )
                 .bind(invite_code)
                 .bind(invitee_user_id)
@@ -585,13 +585,13 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE room_invites SET
                 is_revoked = TRUE,
                 revoked_at = $2,
                 revoked_reason = $3
             WHERE invite_code = $1
-            "#,
+            ",
         )
         .bind(invite_code)
         .bind(now)
@@ -610,14 +610,14 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RegistrationTokenBatch>(
-            r#"
+            r"
             INSERT INTO registration_token_batches (
                 batch_id, description, token_count, created_by, created_ts, expires_at,
                 allowed_email_domains, auto_join_rooms
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&batch.batch_id)
         .bind(&batch.description)
@@ -632,13 +632,13 @@ impl RegistrationTokenStorage {
 
         for token in tokens {
             sqlx::query(
-                r#"
+                r"
                 INSERT INTO registration_tokens (
                     token, token_type, description, max_uses, expires_at, created_by,
                     created_ts, updated_ts
                 )
                 VALUES ($1, 'single_use', $2, 1, $3, $4, $5, $5)
-                "#,
+                ",
             )
             .bind(token)
             .bind(&batch.description)
@@ -911,7 +911,7 @@ mod tests {
             uses_count: 0,
             is_used: false,
             is_enabled: true,
-            expires_at: Some(now + 86400000),
+            expires_at: Some(now + 86_400_000),
             created_by: None,
             created_ts: now,
             updated_ts: now,
@@ -932,7 +932,7 @@ mod tests {
             uses_count: 0,
             is_used: false,
             is_enabled: true,
-            expires_at: Some(now - 86400000),
+            expires_at: Some(now - 86_400_000),
             created_by: None,
             created_ts: now - 172800000,
             updated_ts: now - 172800000,

@@ -199,11 +199,8 @@ where
                             ))
                             .await;
                             continue;
-                        } else {
-                            // If commit failed and not retryable, return the error
-                            // tx is moved by tx.commit().await, so no rollback can be performed here.
-                            return Err(TransactionError::Database(e));
                         }
+                        return Err(TransactionError::Database(e));
                     }
                 }
             }
@@ -216,17 +213,14 @@ where
                     ))
                     .await;
                     continue;
-                } else {
-                    let _ = tx.rollback().await;
-                    return Err(TransactionError::Database(e));
                 }
+                let _ = tx.rollback().await;
+                return Err(TransactionError::Database(e));
             }
         }
     }
 
-    Err(last_error
-        .map(TransactionError::Database)
-        .unwrap_or_else(|| TransactionError::Transaction("Max retries exceeded".to_string())))
+    Err(last_error.map_or_else(|| TransactionError::Transaction("Max retries exceeded".to_string()), TransactionError::Database))
 }
 
 pub fn is_retryable_db_error(error: &sqlx::Error) -> bool {

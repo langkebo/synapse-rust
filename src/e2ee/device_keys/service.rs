@@ -682,8 +682,7 @@ fn is_local_user_id(user_id: &str, local_server_name: &str) -> bool {
     user_id
         .strip_prefix('@')
         .and_then(|user| user.rsplit_once(':'))
-        .map(|(_, server_name)| server_name == local_server_name)
-        .unwrap_or(false)
+        .is_some_and(|(_, server_name)| server_name == local_server_name)
 }
 
 #[cfg(test)]

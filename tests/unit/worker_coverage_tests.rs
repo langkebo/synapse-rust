@@ -495,7 +495,7 @@ fn test_worker_config_custom() {
         bind_address: Some("0.0.0.0".to_string()),
         max_connections: Some(5000),
         heartbeat_interval_ms: Some(10000),
-        command_timeout_ms: Some(60000),
+        command_timeout_ms: Some(60_000),
         extra_config: HashMap::from([("key".to_string(), serde_json::json!("value"))]),
     };
 
@@ -1376,7 +1376,7 @@ async fn test_stream_writer_manager_can_write() {
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
     // Default instance is local writer for all streams
-    let can_write = manager.can_write("events").await;
+    let can_write = manager.can_write("events");
     assert!(can_write);
 }
 
@@ -1396,11 +1396,11 @@ async fn test_stream_writer_manager_validate_writer() {
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
     // Valid writer
-    let result = manager.validate_writer("events", "worker1").await;
+    let result = manager.validate_writer("events", "worker1");
     assert!(result.is_ok());
 
     // Invalid writer
-    let result = manager.validate_writer("events", "worker2").await;
+    let result = manager.validate_writer("events", "worker2");
     assert!(result.is_err());
 }
 
@@ -1420,7 +1420,7 @@ async fn test_stream_writer_manager_get_stream_config() {
 
     let manager = StreamWriterManager::new(config.clone(), bus.clone(), "worker1".to_string());
 
-    let retrieved_config = manager.get_stream_config().await;
+    let retrieved_config = manager.get_stream_config();
     assert_eq!(retrieved_config.events, Some("worker1".to_string()));
 }
 

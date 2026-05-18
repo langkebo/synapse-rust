@@ -25,12 +25,8 @@ pub struct KeyBackupService {
 }
 
 impl KeyBackupService {
-    pub fn new(storage: KeyBackupStorage) -> Self {
-        Self {
-            storage: storage.clone(),
-            key_storage: BackupKeyStorage::new(&storage.pool),
-            device_key_storage: None,
-        }
+    pub fn new(storage: &KeyBackupStorage) -> Self {
+        Self { storage: storage.clone(), key_storage: BackupKeyStorage::new(&storage.pool), device_key_storage: None }
     }
 
     pub fn with_device_key_storage(mut self, storage: DeviceKeyStorage) -> Self {
@@ -46,18 +42,10 @@ impl KeyBackupService {
     ) -> Result<String, ApiError> {
         let version_i64 = chrono::Utc::now().timestamp();
         let version = version_i64.to_string();
-        let auth_key = auth_data
-            .as_ref()
-            .and_then(|v| v.get("auth_key"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let mgmt_key = auth_data
-            .as_ref()
-            .and_then(|v| v.get("mgmt_key"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let auth_key =
+            auth_data.as_ref().and_then(|v| v.get("auth_key")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mgmt_key =
+            auth_data.as_ref().and_then(|v| v.get("mgmt_key")).and_then(|v| v.as_str()).unwrap_or("").to_string();
         let backup = KeyBackup {
             user_id: user_id.to_string(),
             backup_id: version.clone(),
@@ -74,11 +62,7 @@ impl KeyBackupService {
         Ok(version)
     }
 
-    pub async fn get_backup(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<Option<KeyBackup>, ApiError> {
+    pub async fn get_backup(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
         self.storage.get_backup_version(user_id, version).await
     }
 
@@ -88,28 +72,15 @@ impl KeyBackupService {
         version: &str,
         auth_data: Option<serde_json::Value>,
     ) -> Result<(), ApiError> {
-        let backup = self
-            .storage
-            .get_backup_version(user_id, version)
-            .await?
-            .ok_or_else(|| {
-                ApiError::not_found(format!(
-                    "Backup version '{version}' not found for user '{user_id}'"
-                ))
+        let backup =
+            self.storage.get_backup_version(user_id, version).await?.ok_or_else(|| {
+                ApiError::not_found(format!("Backup version '{version}' not found for user '{user_id}'"))
             })?;
 
         let mut updated_backup = backup;
         if let Some(data) = auth_data {
-            updated_backup.auth_key = data
-                .get("auth_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            updated_backup.mgmt_key = data
-                .get("mgmt_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            updated_backup.auth_key = data.get("auth_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            updated_backup.mgmt_key = data.get("mgmt_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
             updated_backup.backup_data = data;
         }
         updated_backup.etag = Some(format!("{:x}", chrono::Utc::now().timestamp()));
@@ -130,16 +101,9 @@ impl KeyBackupService {
     }
 
     pub async fn upload_backup_key(&self, params: BackupKeyUploadParams) -> Result<(), ApiError> {
-        let backup = self
-            .storage
-            .get_backup_version(&params.user_id, &params.version)
-            .await?
-            .ok_or_else(|| {
-                ApiError::not_found(format!(
-                    "Backup version '{}' not found for user '{}'",
-                    params.version, params.user_id
-                ))
-            })?;
+        let backup = self.storage.get_backup_version(&params.user_id, &params.version).await?.ok_or_else(|| {
+            ApiError::not_found(format!("Backup version '{}' not found for user '{}'", params.version, params.user_id))
+        })?;
 
         self.key_storage
             .upload_backup_key(BackupKeyInsertParams {
@@ -174,18 +138,9 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let first_message_index = key_backup_data
-            .get("first_message_index")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let forwarded_count = key_backup_data
-            .get("forwarded_count")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let is_verified = key_backup_data
-            .get("is_verified")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let first_message_index = key_backup_data.get("first_message_index").and_then(|v| v.as_i64()).unwrap_or(0);
+        let forwarded_count = key_backup_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let is_verified = key_backup_data.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false);
 
         self.key_storage
             .upload_backup_key(BackupKeyInsertParams {
@@ -203,15 +158,8 @@ impl KeyBackupService {
         Ok(())
     }
 
-    pub async fn delete_backup_key(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<(), ApiError> {
-        self.key_storage
-            .delete_backup_key(user_id, room_id, session_id)
-            .await?;
+    pub async fn delete_backup_key(&self, user_id: &str, room_id: &str, session_id: &str) -> Result<(), ApiError> {
+        self.key_storage.delete_backup_key(user_id, room_id, session_id).await?;
 
         Ok(())
     }
@@ -224,32 +172,17 @@ impl KeyBackupService {
         room_id: &str,
         session_id: &str,
     ) -> Result<u64, ApiError> {
-        self.key_storage
-            .delete_session_for_version(user_id, version, room_id, session_id)
-            .await
+        self.key_storage.delete_session_for_version(user_id, version, room_id, session_id).await
     }
 
     /// Delete all sessions for a room within a specific backup version. Returns deleted-row count.
-    pub async fn delete_room_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-        room_id: &str,
-    ) -> Result<u64, ApiError> {
-        self.key_storage
-            .delete_room_for_version(user_id, version, room_id)
-            .await
+    pub async fn delete_room_for_version(&self, user_id: &str, version: &str, room_id: &str) -> Result<u64, ApiError> {
+        self.key_storage.delete_room_for_version(user_id, version, room_id).await
     }
 
     /// Delete every session within a specific backup version. Returns deleted-row count.
-    pub async fn delete_all_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<u64, ApiError> {
-        self.key_storage
-            .delete_all_for_version(user_id, version)
-            .await
+    pub async fn delete_all_for_version(&self, user_id: &str, version: &str) -> Result<u64, ApiError> {
+        self.key_storage.delete_all_for_version(user_id, version).await
     }
 
     pub async fn upload_room_key(
@@ -259,9 +192,11 @@ impl KeyBackupService {
         session_id: &str,
         session_data: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        let backup = self.storage.get_backup(user_id).await?.ok_or_else(|| {
-            ApiError::not_found(format!("No backup found for user '{user_id}'"))
-        })?;
+        let backup = self
+            .storage
+            .get_backup(user_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("No backup found for user '{user_id}'")))?;
 
         self.key_storage
             .upload_backup_key(BackupKeyInsertParams {
@@ -356,12 +291,12 @@ impl KeyBackupService {
 
     pub async fn get_backup_key_count(&self, user_id: &str) -> Result<i64, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT COALESCE(COUNT(*), 0) as count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(&*self.storage.pool)
@@ -372,7 +307,7 @@ impl KeyBackupService {
 
     pub async fn get_all_backup_keys(&self, user_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -385,7 +320,7 @@ impl KeyBackupService {
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(&*self.storage.pool)
@@ -394,13 +329,9 @@ impl KeyBackupService {
     }
 
     /// Return every stored session for a single backup version.
-    pub async fn get_keys_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<Vec<BackupKeyInfo>, ApiError> {
+    pub async fn get_keys_for_version(&self, user_id: &str, version: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r#"
+            r"
             SELECT
                 kb.user_id,
                 COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
@@ -414,7 +345,7 @@ impl KeyBackupService {
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version)
@@ -423,19 +354,15 @@ impl KeyBackupService {
         Ok(rows)
     }
 
-    pub async fn get_backup_key_count_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<i64, ApiError> {
+    pub async fn get_backup_key_count_for_version(&self, user_id: &str, version: &str) -> Result<i64, ApiError> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT COALESCE(COUNT(*), 0) as count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(version)
@@ -445,11 +372,7 @@ impl KeyBackupService {
         Ok(row.try_get::<i64, _>("count")?)
     }
 
-    pub async fn get_backup_count_per_room(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<serde_json::Value, ApiError> {
+    pub async fn get_backup_count_per_room(&self, user_id: &str, version: &str) -> Result<serde_json::Value, ApiError> {
         let backup = self
             .storage
             .get_backup_version(user_id, version)
@@ -457,14 +380,14 @@ impl KeyBackupService {
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT bk.room_id, COALESCE(COUNT(*), 0) as count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
             GROUP BY bk.room_id
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(&backup.backup_id)
@@ -493,9 +416,7 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        self.key_storage
-            .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
-            .await
+        self.key_storage.get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id).await
     }
 
     pub async fn get_backup_key(
@@ -510,9 +431,7 @@ impl KeyBackupService {
             None => return Ok(None),
         };
 
-        self.key_storage
-            .get_backup_key_by_backup_id(user_id, &backup.backup_id, room_id, session_id)
-            .await
+        self.key_storage.get_backup_key_by_backup_id(user_id, &backup.backup_id, room_id, session_id).await
     }
 
     pub async fn get_room_key(
@@ -521,9 +440,7 @@ impl KeyBackupService {
         room_id: &str,
         session_id: &str,
     ) -> Result<Option<BackupKeyInfo>, ApiError> {
-        self.key_storage
-            .get_backup_key(user_id, room_id, session_id)
-            .await
+        self.key_storage.get_backup_key(user_id, room_id, session_id).await
     }
 
     pub async fn recover_keys(
@@ -543,10 +460,8 @@ impl KeyBackupService {
         let all_keys = if let Some(ref room_list) = rooms {
             let mut keys = Vec::new();
             for room_id in room_list {
-                let room_keys = self
-                    .key_storage
-                    .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
-                    .await?;
+                let room_keys =
+                    self.key_storage.get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id).await?;
                 keys.extend(room_keys);
             }
             keys
@@ -581,11 +496,7 @@ impl KeyBackupService {
         })
     }
 
-    pub async fn get_recovery_progress(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<RecoveryProgress, ApiError> {
+    pub async fn get_recovery_progress(&self, user_id: &str, version: &str) -> Result<RecoveryProgress, ApiError> {
         let backup = self
             .storage
             .get_backup_version(user_id, version)
@@ -600,21 +511,13 @@ impl KeyBackupService {
             version: version.to_string(),
             total_keys,
             recovered_keys: total_keys,
-            status: if total_keys > 0 {
-                "completed".to_string()
-            } else {
-                "empty".to_string()
-            },
+            status: if total_keys > 0 { "completed".to_string() } else { "empty".to_string() },
             started_ts: backup.version * 1000,
             updated_ts: now,
         })
     }
 
-    pub async fn verify_backup(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<BackupVerificationResponse, ApiError> {
+    pub async fn verify_backup(&self, user_id: &str, version: &str) -> Result<BackupVerificationResponse, ApiError> {
         let backup = self
             .storage
             .get_backup_version(user_id, version)
@@ -623,11 +526,7 @@ impl KeyBackupService {
 
         let key_count = self.get_backup_key_count(user_id).await?;
 
-        let signatures = backup
-            .backup_data
-            .get("signatures")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
+        let signatures = backup.backup_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
 
         let mut signature_valid = false;
 
@@ -646,9 +545,8 @@ impl KeyBackupService {
 
                         let device_id = parts[1];
 
-                        if let Ok(Some(device_key)) = device_key_storage
-                            .get_device_key(user_id, device_id, "ed25519")
-                            .await
+                        if let Ok(Some(device_key)) =
+                            device_key_storage.get_device_key(user_id, device_id, "ed25519").await
                         {
                             match verify_signed_json(
                                 user_id,
@@ -662,10 +560,7 @@ impl KeyBackupService {
                                     break;
                                 }
                                 Ok(false) => {
-                                    tracing::warn!(
-                                        "Backup signature verification failed for key {}",
-                                        signing_key_id
-                                    );
+                                    tracing::warn!("Backup signature verification failed for key {}", signing_key_id);
                                 }
                                 Err(e) => {
                                     tracing::warn!(
@@ -680,16 +575,11 @@ impl KeyBackupService {
                 }
             }
         } else {
-            let has_signatures = signatures
-                .as_object()
-                .map(|m| !m.is_empty())
-                .unwrap_or(false);
+            let has_signatures = signatures.as_object().is_some_and(|m| !m.is_empty());
             signature_valid = has_signatures;
         }
 
-        let valid = !backup.algorithm.is_empty()
-            && backup.backup_data.get("public_key").is_some()
-            && signature_valid;
+        let valid = !backup.algorithm.is_empty() && backup.backup_data.get("public_key").is_some() && signature_valid;
 
         Ok(BackupVerificationResponse {
             valid,
@@ -716,11 +606,13 @@ impl KeyBackupService {
         let mut total_sessions = 0i64;
         let mut has_more = false;
 
+        let batch_keys = self.key_storage.get_backup_keys_by_rooms(user_id, &backup.backup_id, &request.room_ids).await?;
+
         for room_id in &request.room_ids {
-            let keys = self
-                .key_storage
-                .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
-                .await?;
+            let keys = match batch_keys.get(room_id) {
+                Some(k) => k,
+                None => continue,
+            };
 
             let mut sessions: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
             for key in keys.iter().take(session_limit - total_sessions as usize) {
@@ -750,11 +642,7 @@ impl KeyBackupService {
             rooms: rooms_map,
             total_sessions,
             has_more,
-            next_batch: if has_more {
-                Some(format!("batch_{}", chrono::Utc::now().timestamp()))
-            } else {
-                None
-            },
+            next_batch: if has_more { Some(format!("batch_{}", chrono::Utc::now().timestamp())) } else { None },
         })
     }
 
@@ -770,10 +658,7 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let keys = self
-            .key_storage
-            .get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id)
-            .await?;
+        let keys = self.key_storage.get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id).await?;
 
         let mut sessions: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
         for key in keys {
@@ -798,9 +683,7 @@ impl KeyBackupService {
         room_id: &str,
         session_id: &str,
     ) -> Result<Option<serde_json::Value>, ApiError> {
-        let key = self
-            .get_backup_key(user_id, room_id, session_id, version)
-            .await?;
+        let key = self.get_backup_key(user_id, room_id, session_id, version).await?;
 
         Ok(key.map(|k| {
             serde_json::json!({

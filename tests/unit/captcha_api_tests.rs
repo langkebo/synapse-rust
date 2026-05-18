@@ -24,7 +24,7 @@ fn test_send_captcha_response() {
         "captcha_id": "captcha_123",
         "captcha_type": "image",
         "image_url": "data:image/png;base64,...",
-        "expires_ts": 1700003600000_i64
+        "expires_ts": 1_700_003_600_000_i64
     });
 
     assert!(response.get("captcha_id").is_some());
@@ -92,7 +92,7 @@ fn test_captcha_status_pending_response() {
         "status": "pending",
         "attempt_count": 0,
         "max_attempts": 3,
-        "expires_ts": 1700003600000_i64
+        "expires_ts": 1_700_003_600_000_i64
     });
 
     assert!(status.get("captcha_id").is_some());

@@ -54,104 +54,106 @@ pub trait ErrorContext {
 impl ErrorContext for ApiError {
     fn layer(&self) -> ErrorLayer {
         match self {
-            ApiError::Database(_) | ApiError::Cache(_) => ErrorLayer::Infrastructure,
-            ApiError::Unauthorized(_)
-            | ApiError::Forbidden(_)
-            | ApiError::NotFound(_)
-            | ApiError::Gone(_)
-            | ApiError::Conflict(_)
-            | ApiError::RateLimited
-            | ApiError::RateLimitedWithRetry(_) => ErrorLayer::BusinessLogic,
-            ApiError::Internal(_)
-            | ApiError::Authentication(_)
-            | ApiError::Validation(_)
-            | ApiError::InvalidInput(_)
-            | ApiError::DecryptionError(_)
-            | ApiError::EncryptionError(_)
-            | ApiError::Crypto(_)
-            | ApiError::BadRequest(_) => ErrorLayer::Application,
+            Self::Database(_) | Self::Cache(_) => ErrorLayer::Infrastructure,
+            Self::Unauthorized(_)
+            | Self::Forbidden(_)
+            | Self::NotFound(_)
+            | Self::Gone(_)
+            | Self::Conflict(_)
+            | Self::RateLimited
+            | Self::RateLimitedWithRetry(_) => ErrorLayer::BusinessLogic,
+            Self::Internal(_)
+            | Self::Authentication(_)
+            | Self::Validation(_)
+            | Self::InvalidInput(_)
+            | Self::DecryptionError(_)
+            | Self::EncryptionError(_)
+            | Self::Crypto(_)
+            | Self::BadRequest(_) => ErrorLayer::Application,
             _ => ErrorLayer::Application,
         }
     }
 
     fn severity(&self) -> ErrorSeverity {
         match self {
-            ApiError::Internal(_) | ApiError::Database(_) | ApiError::Cache(_) => {
+            Self::Internal(_) | Self::Database(_) | Self::Cache(_) => {
                 ErrorSeverity::Critical
             }
-            ApiError::Unauthorized(_)
-            | ApiError::Forbidden(_)
-            | ApiError::RateLimited
-            | ApiError::RateLimitedWithRetry(_) => ErrorSeverity::High,
-            ApiError::Gone(_)
-            | ApiError::NotFound(_)
-            | ApiError::Conflict(_)
-            | ApiError::Validation(_) => ErrorSeverity::Medium,
-            ApiError::BadRequest(_) | ApiError::InvalidInput(_) => ErrorSeverity::Low,
-            ApiError::Authentication(_)
-            | ApiError::DecryptionError(_)
-            | ApiError::EncryptionError(_)
-            | ApiError::Crypto(_) => ErrorSeverity::High,
+            Self::Unauthorized(_)
+            | Self::Forbidden(_)
+            | Self::RateLimited
+            | Self::RateLimitedWithRetry(_) => ErrorSeverity::High,
+            Self::Gone(_)
+            | Self::NotFound(_)
+            | Self::Conflict(_)
+            | Self::Validation(_) => ErrorSeverity::Medium,
+            Self::BadRequest(_) | Self::InvalidInput(_) => ErrorSeverity::Low,
+            Self::Authentication(_)
+            | Self::DecryptionError(_)
+            | Self::EncryptionError(_)
+            | Self::Crypto(_) => ErrorSeverity::High,
             _ => ErrorSeverity::Medium,
         }
     }
 
     fn user_message(&self) -> String {
         match self {
-            ApiError::BadRequest(msg) => msg.clone(),
-            ApiError::Unauthorized(msg) => msg.clone(),
-            ApiError::Forbidden(msg) => msg.clone(),
-            ApiError::NotFound(msg) => msg.clone(),
-            ApiError::Gone(msg) => msg.clone(),
-            ApiError::Conflict(msg) => msg.clone(),
-            ApiError::RateLimited => "Too many requests. Please try again later.".to_string(),
-            ApiError::RateLimitedWithRetry(_) => {
+            Self::BadRequest(msg) => msg.clone(),
+            Self::Unauthorized(msg) => msg.clone(),
+            Self::Forbidden(msg) => msg.clone(),
+            Self::NotFound(msg) => msg.clone(),
+            Self::Gone(msg) => msg.clone(),
+            Self::Conflict(msg) => msg.clone(),
+            Self::RateLimited => "Too many requests. Please try again later.".to_string(),
+            Self::RateLimitedWithRetry(_) => {
                 "Too many requests. Please try again later.".to_string()
             }
-            ApiError::Internal(_) => {
+            Self::Internal(_) => {
                 "An internal server error occurred. Please try again later.".to_string()
             }
-            ApiError::Database(_) => {
+            Self::Database(_) => {
                 "A database error occurred. Please try again later.".to_string()
             }
-            ApiError::Cache(_) => "A cache error occurred. Please try again later.".to_string(),
-            ApiError::Authentication(msg) => msg.clone(),
-            ApiError::Validation(msg) => msg.clone(),
-            ApiError::InvalidInput(msg) => msg.clone(),
-            ApiError::DecryptionError(_) => {
+            Self::Cache(_) => "A cache error occurred. Please try again later.".to_string(),
+            Self::Authentication(msg) => msg.clone(),
+            Self::Validation(msg) => msg.clone(),
+            Self::InvalidInput(msg) => msg.clone(),
+            Self::DecryptionError(_) => {
                 "Failed to decrypt data. Please check your encryption keys.".to_string()
             }
-            ApiError::EncryptionError(_) => {
+            Self::EncryptionError(_) => {
                 "Failed to encrypt data. Please check your encryption keys.".to_string()
             }
-            ApiError::Crypto(_) => {
+            Self::Crypto(_) => {
                 "A cryptographic error occurred. Please try again later.".to_string()
             }
-            ApiError::MissingToken => "Authentication token is required.".to_string(),
-            ApiError::NotJson(msg) => msg.clone(),
-            ApiError::UserDeactivated(msg) => msg.clone(),
-            ApiError::InvalidUsername(msg) => msg.clone(),
-            ApiError::RoomInUse(msg) => msg.clone(),
-            ApiError::UserInUse(msg) => msg.clone(),
-            ApiError::InvalidRoomState(msg) => msg.clone(),
-            ApiError::ThreepidInUse(msg) => msg.clone(),
-            ApiError::ThreepidNotFound(msg) => msg.clone(),
-            ApiError::ThreepidAuthFailed(msg) => msg.clone(),
-            ApiError::ThreepidDenied(msg) => msg.clone(),
-            ApiError::ServerNotTrusted(msg) => msg.clone(),
-            ApiError::UnsupportedRoomVersion(msg) => msg.clone(),
-            ApiError::IncompatibleRoomVersion(msg) => msg.clone(),
-            ApiError::BadState(msg) => msg.clone(),
-            ApiError::GuestAccessForbidden(msg) => msg.clone(),
-            ApiError::CaptchaNeeded(msg) => msg.clone(),
-            ApiError::CaptchaInvalid(msg) => msg.clone(),
-            ApiError::MissingParam(msg) => msg.clone(),
-            ApiError::TooLarge(msg) => msg.clone(),
-            ApiError::Exclusive(msg) => msg.clone(),
-            ApiError::ResourceLimitExceeded(msg) => msg.clone(),
-            ApiError::CannotLeaveServerNoticeRoom(msg) => msg.clone(),
-            ApiError::Unknown(msg) => msg.clone(),
-            ApiError::Unrecognized(msg) => msg.clone(),
+            Self::MissingToken => "Authentication token is required.".to_string(),
+            Self::NotJson(msg) => msg.clone(),
+            Self::UserDeactivated(msg) => msg.clone(),
+            Self::InvalidUsername(msg) => msg.clone(),
+            Self::RoomInUse(msg) => msg.clone(),
+            Self::UserInUse(msg) => msg.clone(),
+            Self::InvalidRoomState(msg) => msg.clone(),
+            Self::ThreepidInUse(msg) => msg.clone(),
+            Self::ThreepidNotFound(msg) => msg.clone(),
+            Self::ThreepidAuthFailed(msg) => msg.clone(),
+            Self::ThreepidDenied(msg) => msg.clone(),
+            Self::ServerNotTrusted(msg) => msg.clone(),
+            Self::UnsupportedRoomVersion(msg) => msg.clone(),
+            Self::IncompatibleRoomVersion(msg) => msg.clone(),
+            Self::BadState(msg) => msg.clone(),
+            Self::GuestAccessForbidden(msg) => msg.clone(),
+            Self::CaptchaNeeded(msg) => msg.clone(),
+            Self::CaptchaInvalid(msg) => msg.clone(),
+            Self::MissingParam(msg) => msg.clone(),
+            Self::TooLarge(msg) => msg.clone(),
+            Self::Exclusive(msg) => msg.clone(),
+            Self::ResourceLimitExceeded(msg) => msg.clone(),
+            Self::CannotLeaveServerNoticeRoom(msg) => msg.clone(),
+            Self::Unknown(msg) => msg.clone(),
+            Self::Unrecognized(msg) => msg.clone(),
+            Self::NotImplemented(msg) => msg.clone(),
+            Self::RequestTimeout(msg) => msg.clone(),
         }
     }
 

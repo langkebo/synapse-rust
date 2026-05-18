@@ -94,7 +94,7 @@ pub struct EventReportStorage {
     pool: Arc<PgPool>,
 }
 
-const REPORT_RATE_LIMIT_SELECT: &str = r#"
+const REPORT_RATE_LIMIT_SELECT: &str = r"
     SELECT
         id,
         user_id,
@@ -106,7 +106,7 @@ const REPORT_RATE_LIMIT_SELECT: &str = r#"
         created_ts,
         COALESCE(updated_ts, created_ts) AS updated_ts
     FROM report_rate_limits
-"#;
+";
 
 impl EventReportStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -120,14 +120,14 @@ impl EventReportStorage {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, EventReport>(
-            r#"
+            r"
             INSERT INTO event_reports (
                 event_id, room_id, reporter_user_id, reported_user_id, event_json,
                 reason, description, score, received_ts, status
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open')
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.event_id)
         .bind(&request.room_id)
@@ -237,7 +237,7 @@ impl EventReportStorage {
     ) -> Result<Vec<EventReport>, sqlx::Error> {
         let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
             sqlx::query_as::<_, EventReport>(
-                r#"
+                r"
                 SELECT * FROM event_reports 
                 WHERE status = $1 AND (
                     score < $3 OR 
@@ -245,7 +245,7 @@ impl EventReportStorage {
                     (score = $3 AND received_ts = $4 AND id < $5)
                 ) 
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2
-                "#,
+                ",
             )
             .bind(status)
             .bind(limit)
@@ -276,7 +276,7 @@ impl EventReportStorage {
     ) -> Result<Vec<EventReport>, sqlx::Error> {
         let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
             sqlx::query_as::<_, EventReport>(
-                r#"
+                r"
                 SELECT * FROM event_reports 
                 WHERE (
                     score < $3 OR 
@@ -284,7 +284,7 @@ impl EventReportStorage {
                     (score = $3 AND received_ts = $4 AND id < $5)
                 ) 
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1
-                "#,
+                ",
             )
             .bind(limit)
             .bind(score)
@@ -320,7 +320,7 @@ impl EventReportStorage {
         };
 
         let row = sqlx::query_as::<_, EventReport>(
-            r#"
+            r"
             UPDATE event_reports SET
                 status = COALESCE($2, status),
                 score = COALESCE($3, score),
@@ -329,7 +329,7 @@ impl EventReportStorage {
                 resolved_at = COALESCE($6, resolved_at)
             WHERE id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(&request.status)
@@ -439,7 +439,7 @@ impl EventReportStorage {
                     });
                 }
 
-                let one_day_ago = Utc::now().timestamp_millis() - 86400000;
+                let one_day_ago = Utc::now().timestamp_millis() - 86_400_000;
                 if l.last_report_at
                     .is_some_and(|last_report_at| last_report_at > one_day_ago)
                 {
@@ -468,7 +468,7 @@ impl EventReportStorage {
 
     pub async fn record_report(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        let one_day_ago = now - 86400000;
+        let one_day_ago = now - 86_400_000;
 
         let existing = sqlx::query_as::<_, ReportRateLimit>(&format!(
             "{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"
@@ -520,7 +520,7 @@ impl EventReportStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO report_rate_limits (user_id, is_blocked, blocked_until_at, block_reason, created_ts, updated_ts)
             VALUES ($1, TRUE, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
@@ -528,7 +528,7 @@ impl EventReportStorage {
                 blocked_until_at = $2,
                 block_reason = $3,
                 updated_ts = $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(blocked_until)

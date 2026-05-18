@@ -42,9 +42,9 @@ mod cursor_tests {
     }
 }
 
-fn quarantine_status_to_bool(value: Option<String>) -> bool {
+fn quarantine_status_to_bool(value: Option<&str>) -> bool {
     matches!(
-        value.as_deref(),
+        value,
         Some("quarantined") | Some("true") | Some("1") | Some("yes")
     )
 }
@@ -90,7 +90,8 @@ pub async fn get_all_media(
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
-        .unwrap_or(100_i64);
+        .unwrap_or(100_i64)
+        .clamp(1, 500);
     let cursor = decode_media_cursor(params.get("from").map(String::as_str));
 
     let media = sqlx::query(
@@ -120,7 +121,7 @@ pub async fn get_all_media(
                 "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
                 "media_length": row.get::<Option<i64>, _>("size"),
                 "user_id": row.get::<Option<String>, _>("uploader_user_id"),
-                "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status"))
+                "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status").as_deref())
             })
         })
         .collect();
@@ -168,7 +169,7 @@ pub async fn get_media_info(
             "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
             "media_length": row.get::<Option<i64>, _>("size"),
             "user_id": row.get::<Option<String>, _>("uploader_user_id"),
-            "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status"))
+            "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status").as_deref())
         }))),
         None => Err(ApiError::not_found("Media not found".to_string())),
     }

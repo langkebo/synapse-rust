@@ -51,8 +51,7 @@ impl KeyRequestService {
         request_id: Option<&str>,
     ) -> Result<KeyRequestInfo, ApiError> {
         let request_id = request_id
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), ToOwned::to_owned);
         let action = request_type.unwrap_or("request");
 
         let request_info = KeyRequestInfo {

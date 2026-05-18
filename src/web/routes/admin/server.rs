@@ -81,7 +81,7 @@ pub async fn get_admin_info_compat(
     get_admin_info(admin, State(state)).await
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_admin_info(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -100,7 +100,7 @@ pub async fn get_admin_info(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_admin_whoami(
     admin: AdminUser,
     State(state): State<AppState>,
@@ -113,7 +113,7 @@ pub async fn get_admin_whoami(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_backups(
     _admin: AdminUser,
     State(_state): State<AppState>,
@@ -130,7 +130,7 @@ fn unsupported_admin_server_feature(feature: &str) -> ApiError {
     ))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_server_version(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -165,7 +165,7 @@ pub async fn purge_media_cache(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn restart_server(
     _admin: AdminUser,
     State(_state): State<AppState>,
@@ -315,7 +315,7 @@ pub async fn get_health(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_config(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -328,7 +328,7 @@ pub async fn get_config(
     })))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_experimental_features(
     _admin: AdminUser,
     State(_state): State<AppState>,
@@ -338,7 +338,7 @@ pub async fn get_experimental_features(
     ))
 }
 
-#[axum::debug_handler]
+#[allow(clippy::unused_async)]
 pub async fn get_jitsi_config(
     _admin: AdminUser,
     State(state): State<AppState>,

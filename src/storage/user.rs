@@ -5,6 +5,7 @@ use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
 
 const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
+const USER_PROFILE_BATCH_CACHE_TTL: u64 = 300;
 
 fn escape_like_pattern(input: &str) -> String {
     input
@@ -120,14 +121,14 @@ impl UserStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
                       is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(username)
@@ -151,14 +152,14 @@ impl UserStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
                       is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(username)
@@ -172,14 +173,14 @@ impl UserStorage {
 
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
                    is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE user_id = $1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -188,14 +189,14 @@ impl UserStorage {
 
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
                    is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE username = $1
-            "#,
+            ",
         )
         .bind(username)
         .fetch_optional(&*self.pool)
@@ -204,14 +205,14 @@ impl UserStorage {
 
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
                    is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE email = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
-            "#,
+            ",
         )
         .bind(email)
         .fetch_optional(&*self.pool)
@@ -231,7 +232,7 @@ impl UserStorage {
 
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
@@ -240,7 +241,7 @@ impl UserStorage {
             FROM users
             ORDER BY created_ts DESC
             LIMIT $1
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&*self.pool)
@@ -255,7 +256,7 @@ impl UserStorage {
     ) -> Result<Vec<User>, sqlx::Error> {
         if let (Some(ts), Some(user_id)) = (since_ts, since_user_id) {
             sqlx::query_as::<_, User>(
-                r#"
+                r"
                 SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
                        is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
                        generation, consent_version, appservice_id, user_type, invalid_update_at, 
@@ -265,7 +266,7 @@ impl UserStorage {
                 WHERE (created_ts < $2 OR (created_ts = $2 AND user_id < $3))
                 ORDER BY created_ts DESC, user_id DESC
                 LIMIT $1
-                "#,
+                ",
             )
             .bind(limit)
             .bind(ts)
@@ -274,7 +275,7 @@ impl UserStorage {
             .await
         } else {
             sqlx::query_as::<_, User>(
-                r#"
+                r"
                 SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
                        is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
                        generation, consent_version, appservice_id, user_type, invalid_update_at, 
@@ -283,7 +284,7 @@ impl UserStorage {
                 FROM users
                 ORDER BY created_ts DESC, user_id DESC
                 LIMIT $1
-                "#,
+                ",
             )
             .bind(limit)
             .fetch_all(&*self.pool)
@@ -293,9 +294,9 @@ impl UserStorage {
 
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         let row = sqlx::query(
-            r#"
+            r"
             SELECT COALESCE(COUNT(*), 0) as count FROM users
-            "#,
+            ",
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -304,9 +305,9 @@ impl UserStorage {
 
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            r#"
+            r"
             SELECT 1 FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -337,7 +338,7 @@ impl UserStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
-            r#"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"#
+            r"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"
         )
         .bind(password_hash)
         .bind(now)
@@ -352,7 +353,7 @@ impl UserStorage {
         user_id: &str,
         displayname: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+        sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
             .bind(displayname)
             .bind(user_id)
             .execute(&*self.pool)
@@ -371,7 +372,7 @@ impl UserStorage {
         user_id: &str,
         avatar_url: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET avatar_url = $1 WHERE user_id = $2"#)
+        sqlx::query(r"UPDATE users SET avatar_url = $1 WHERE user_id = $2")
             .bind(avatar_url)
             .bind(user_id)
             .execute(&*self.pool)
@@ -386,7 +387,7 @@ impl UserStorage {
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1"#)
+        sqlx::query(r"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
@@ -394,7 +395,7 @@ impl UserStorage {
     }
 
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"UPDATE users SET is_admin = $1 WHERE user_id = $2"#)
+        sqlx::query(r"UPDATE users SET is_admin = $1 WHERE user_id = $2")
             .bind(is_admin)
             .bind(user_id)
             .execute(&*self.pool)
@@ -411,11 +412,11 @@ impl UserStorage {
         let content_str = serde_json::to_string(content).unwrap_or_default();
         let now: i64 = chrono::Utc::now().timestamp();
         sqlx::query(
-            r#"
+            r"
             INSERT INTO user_account_data (user_id, event_type, content, created_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(event_type)
@@ -442,7 +443,7 @@ impl UserStorage {
         let contains_pattern = format!("%{escaped}%");
 
         sqlx::query_as::<_, UserSearchResult>(
-            r#"
+            r"
             WITH candidate_matches AS (
                 SELECT
                     user_id,
@@ -523,7 +524,7 @@ impl UserStorage {
                 cm.match_similarity DESC,
                 u.created_ts DESC
             LIMIT $5
-            "#,
+            ",
         )
         .bind(&exact_pattern)
         .bind(&prefix_pattern)
@@ -545,11 +546,11 @@ impl UserStorage {
         }
 
         let result = sqlx::query_as::<_, UserProfile>(
-            r#"
+            r"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
             FROM users
             WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&*self.pool)
@@ -570,16 +571,41 @@ impl UserStorage {
             return Ok(vec![]);
         }
 
-        sqlx::query_as::<_, UserProfile>(
-            r#"
+        let mut cached_profiles = Vec::new();
+        let mut missing_ids = Vec::new();
+
+        for uid in user_ids {
+            let key = format!("user:profile:{uid}");
+            if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
+                cached_profiles.push(profile);
+            } else {
+                missing_ids.push(uid.clone());
+            }
+        }
+
+        if missing_ids.is_empty() {
+            return Ok(cached_profiles);
+        }
+
+        let fetched = sqlx::query_as::<_, UserProfile>(
+            r"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
             FROM users
             WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
-            "#,
+            ",
         )
-        .bind(user_ids)
+        .bind(&missing_ids)
         .fetch_all(&*self.pool)
-        .await
+        .await?;
+
+        for profile in &fetched {
+            let key = format!("user:profile:{}", profile.user_id);
+            let _ = self.cache.set(&key, profile, USER_PROFILE_BATCH_CACHE_TTL).await;
+        }
+
+        let mut all_profiles = cached_profiles;
+        all_profiles.extend(fetched);
+        Ok(all_profiles)
     }
 
     pub async fn get_user_profiles_map(
@@ -604,7 +630,7 @@ impl UserStorage {
         }
 
         sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
                    is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
@@ -612,7 +638,7 @@ impl UserStorage {
                    password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
             WHERE user_id = ANY($1)
-            "#,
+            ",
         )
         .bind(user_ids)
         .fetch_all(&*self.pool)
@@ -642,7 +668,7 @@ impl UserStorage {
 
         let mut count = 0u64;
         for (user_id, displayname) in updates {
-            sqlx::query(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#)
+            sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
                 .bind(displayname)
                 .bind(user_id)
                 .execute(&*self.pool)
@@ -669,7 +695,7 @@ impl UserStorage {
         let contains_pattern = format!("%{escaped}%");
 
         sqlx::query_as::<_, UserSearchResultWithPresence>(
-            r#"
+            r"
             WITH candidate_matches AS (
                 SELECT
                     user_id,
@@ -753,7 +779,7 @@ impl UserStorage {
                 cm.match_similarity DESC,
                 u.created_ts DESC
             LIMIT $5
-            "#,
+            ",
         )
         .bind(&exact_pattern)
         .bind(&prefix_pattern)
@@ -796,7 +822,7 @@ impl UserStorage {
         }
 
         let rows = sqlx::query_as::<_, UserDirectorySearchResult>(
-            r#"
+            r"
             WITH candidate_matches AS (
                 SELECT
                     user_id,
@@ -952,7 +978,7 @@ impl UserStorage {
                 u.created_ts DESC,
                 u.username ASC
             LIMIT $6
-            "#,
+            ",
         )
         .bind(&exact_pattern)
         .bind(&prefix_pattern)
@@ -976,7 +1002,7 @@ impl UserStorage {
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM users WHERE user_id = $1"#)
+        sqlx::query(r"DELETE FROM users WHERE user_id = $1")
             .bind(user_id)
             .execute(&*self.pool)
             .await?;

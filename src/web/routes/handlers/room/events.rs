@@ -189,13 +189,13 @@ pub(crate) async fn get_room_notifications(
     let _from = params.get("from").cloned();
 
     let notifications = sqlx::query(
-        r#"
+        r"
         SELECT event_id, room_id, ts, notification_type, is_read
         FROM notifications
         WHERE user_id = $1 AND room_id = $2
         ORDER BY ts DESC
         LIMIT $3
-        "#,
+        ",
     )
     .bind(&auth_user.user_id)
     .bind(&room_id)
@@ -300,12 +300,12 @@ pub(crate) async fn send_message(
 
     if event_type == "m.room.encrypted" {
         let is_encrypted = sqlx::query(
-            r#"
+            r"
             SELECT 1
             FROM room_events
             WHERE room_id = $1 AND event_type = 'm.room.encryption'
             LIMIT 1
-            "#,
+            ",
         )
         .bind(&room_id)
         .fetch_optional(&*state.services.room_storage.pool)
@@ -377,13 +377,13 @@ pub(crate) async fn get_room_message_queue(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let pending_events: Vec<serde_json::Value> = sqlx::query(
-        r#"
+        r"
         SELECT event_id, room_id, user_id, event_type, content, origin_server_ts, status
         FROM events
         WHERE room_id = $1 AND status = 'pending'
         ORDER BY origin_server_ts ASC
         LIMIT 100
-        "#,
+        ",
     )
     .bind(&room_id)
     .fetch_all(&*state.services.event_storage.pool)
@@ -796,27 +796,29 @@ pub(crate) async fn sign_room_event(
     let algorithm = body
         .get("algorithm")
         .and_then(|v| v.as_str())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            key_id
-                .split(':')
-                .next()
-                .filter(|value| !value.is_empty())
-                .unwrap_or("ed25519")
-                .to_string()
-        });
+        .map_or_else(
+            || {
+                key_id
+                    .split(':')
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("ed25519")
+                    .to_string()
+            },
+            str::to_owned,
+        );
 
     let created_ts = chrono::Utc::now().timestamp_millis();
 
     sqlx::query(
-        r#"
+        r"
         INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
         SET signature = EXCLUDED.signature,
             algorithm = EXCLUDED.algorithm,
             created_ts = EXCLUDED.created_ts
-        "#,
+        ",
     )
     .bind(uuid::Uuid::new_v4())
     .bind(&event_id)
@@ -877,11 +879,11 @@ pub(crate) async fn verify_room_event(
     }
 
     let signatures: Vec<crate::e2ee::signature::EventSignature> = sqlx::query_as(
-        r#"
+        r"
         SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
         FROM event_signatures
         WHERE event_id = $1
-        "#,
+        ",
     )
     .bind(&event_id)
     .fetch_all(&*state.services.event_storage.pool)

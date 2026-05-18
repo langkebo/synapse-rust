@@ -1,6 +1,6 @@
 use crate::auth::Claims;
 use crate::common::ApiError;
-use deadpool_redis::{Config, Pool, Runtime};
+use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::sync::Cache;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
@@ -177,11 +177,12 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
-    pub async fn new(
+    pub fn new(
         config: &crate::common::config::RedisConfig,
     ) -> Result<Self, redis::RedisError> {
         let conn_str = config.connection_url();
-        let cfg = Config::from_url(conn_str);
+        let mut cfg = Config::from_url(conn_str);
+        cfg.pool = Some(PoolConfig::new(config.pool_size as usize));
 
         let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
             redis::RedisError::from((
@@ -597,9 +598,9 @@ pub struct CacheManager {
 }
 
 impl CacheManager {
-    pub fn new(config: CacheConfig) -> Self {
+    pub fn new(config: &CacheConfig) -> Self {
         Self {
-            local: LocalCache::new(&config),
+            local: LocalCache::new(config),
             redis: None,
             use_redis: false,
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -608,11 +609,11 @@ impl CacheManager {
         }
     }
 
-    pub async fn with_redis(
+    pub fn with_redis(
         config: &crate::common::config::RedisConfig,
-        cache_config: CacheConfig,
+        cache_config: &CacheConfig,
     ) -> Result<Self, redis::RedisError> {
-        match RedisCache::new(config).await {
+        match RedisCache::new(config) {
             Ok(redis_cache) => {
                 let pool = redis_cache.pool.clone();
                 let redis_url = config.connection_url();
@@ -630,7 +631,7 @@ impl CacheManager {
                 ));
 
                 Ok(Self {
-                    local: LocalCache::new(&cache_config),
+                    local: LocalCache::new(cache_config),
                     redis: Some(Arc::new(redis_cache)),
                     use_redis: true,
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -641,7 +642,7 @@ impl CacheManager {
             Err(e) => {
                 tracing::warn!("Failed to connect to Redis: {}, using local cache only", e);
                 Ok(Self {
-                    local: LocalCache::new(&cache_config),
+                    local: LocalCache::new(cache_config),
                     redis: None,
                     use_redis: false,
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -652,11 +653,11 @@ impl CacheManager {
         }
     }
 
-    pub fn with_redis_pool(pool: Pool, cache_config: CacheConfig) -> Self {
+    pub fn with_redis_pool(pool: Pool, cache_config: &CacheConfig) -> Self {
         Self::with_redis_pool_and_url(pool, cache_config, "redis://127.0.0.1:6379")
     }
 
-    pub fn with_redis_pool_and_url(pool: Pool, cache_config: CacheConfig, redis_url: &str) -> Self {
+    pub fn with_redis_pool_and_url(pool: Pool, cache_config: &CacheConfig, redis_url: &str) -> Self {
         let redis_cache = RedisCache::from_pool(pool.clone());
         let invalidation_config = CacheInvalidationConfig {
             enabled: true,
@@ -672,7 +673,7 @@ impl CacheManager {
         ));
 
         Self {
-            local: LocalCache::new(&cache_config),
+            local: LocalCache::new(cache_config),
             redis: Some(Arc::new(redis_cache)),
             use_redis: true,
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -683,8 +684,8 @@ impl CacheManager {
 
     pub fn with_redis_pool_and_invalidation(
         pool: Pool,
-        cache_config: CacheConfig,
-        invalidation_config: CacheInvalidationConfig,
+        cache_config: &CacheConfig,
+        invalidation_config: &CacheInvalidationConfig,
     ) -> Self {
         let redis_cache = RedisCache::from_pool(pool.clone());
         let invalidation_manager = Arc::new(CacheInvalidationManager::new(
@@ -693,7 +694,7 @@ impl CacheManager {
         ));
 
         Self {
-            local: LocalCache::new(&cache_config),
+            local: LocalCache::new(cache_config),
             redis: Some(Arc::new(redis_cache)),
             use_redis: true,
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -702,9 +703,9 @@ impl CacheManager {
         }
     }
 
-    pub async fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
+    pub fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
         if let Some(im) = &self.invalidation_manager {
-            im.start_subscriber().await?;
+            im.start_subscriber()?;
         }
         Ok(())
     }
@@ -783,7 +784,7 @@ impl CacheManager {
             .and_then(|im| im.subscribe())
     }
 
-    pub async fn handle_invalidation_message(&self, msg: &CacheInvalidationMessage) {
+    pub fn handle_invalidation_message(&self, msg: &CacheInvalidationMessage) {
         match msg.invalidation_type {
             InvalidationType::Key => {
                 self.local.remove(&msg.key);
@@ -804,10 +805,9 @@ impl CacheManager {
         if let Some(claims) = self.local.get(token) {
             if claims.exp >= chrono::Utc::now().timestamp() {
                 return Some(claims);
-            } else {
-                self.local.remove(token);
-                return None;
             }
+            self.local.remove(token);
+            return None;
         }
 
         if self.use_redis {
@@ -817,10 +817,9 @@ impl CacheManager {
                         if claims.exp >= chrono::Utc::now().timestamp() {
                             self.local.set(token, &claims);
                             return Some(claims);
-                        } else {
-                            let _ = redis.delete(token).await;
-                            return None;
                         }
+                        let _ = redis.delete(token).await;
+                        return None;
                     }
                 }
             }
@@ -1148,7 +1147,7 @@ mod tests {
     #[test]
     fn test_cache_manager_new() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
         assert!(!manager.use_redis);
         assert!(manager.redis.is_none());
     }
@@ -1156,7 +1155,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_set_and_get() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
 
         let test_value = "test_value".to_string();
         let _ = manager.set("test_key", &test_value, 60).await;
@@ -1168,7 +1167,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_delete() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
 
         let test_value = "test_value".to_string();
         let _ = manager.set("test_key", &test_value, 60).await;
@@ -1181,7 +1180,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_get_nonexistent() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
 
         let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
         assert!(result.is_none());
@@ -1190,7 +1189,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_token_operations() {
         let config = CacheConfig::default();
-        let manager = CacheManager::new(config);
+        let manager = CacheManager::new(&config);
 
         let now = chrono::Utc::now().timestamp();
         let claims = Claims {

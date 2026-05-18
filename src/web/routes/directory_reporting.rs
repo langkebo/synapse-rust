@@ -1,9 +1,9 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
-    account_compat::{can_view_profile_for_requester, enforce_profile_visibility},
-    ensure_room_member, extract_token_from_headers, validate_event_id, validate_room_alias,
-    validate_room_id, validate_user_id, AppState,
+    account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
+    ensure_room_member, extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
+    validate_user_id, AppState,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -30,13 +30,7 @@ async fn ensure_room_alias_write_allowed(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to manage aliases",
-    )
-    .await?;
+    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
 
     let is_creator = state
         .services
@@ -46,9 +40,7 @@ async fn ensure_room_alias_write_allowed(
         .map_err(|e| ApiError::internal(format!("Failed to check room creator: {e}")))?;
 
     if !is_creator {
-        return Err(ApiError::forbidden(
-            "Only room admins can manage aliases".to_string(),
-        ));
+        return Err(ApiError::forbidden("Only room admins can manage aliases".to_string()));
     }
 
     Ok(())
@@ -88,23 +80,18 @@ pub(crate) async fn search_user_directory(
     let token = extract_token_from_headers(&headers)?;
     let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
-    let search_query = body
-        .get("search_term")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10).clamp(1, 100) as i64;
 
-    let results = state
-        .services
-        .user_storage
-        .search_users(&search_query, limit)
-        .await?;
+    let results = state.services.user_storage.search_users(&search_query, limit).await?;
+
+    let target_user_ids: Vec<String> = results.iter().map(|u| u.user_id.clone()).collect();
+    let visibility = can_view_profile_for_requester_batch(&state, Some(&requester_id), &target_user_ids).await?;
 
     let mut users = Vec::new();
     for u in results {
-        if !can_view_profile_for_requester(&state, Some(&requester_id), &u.user_id).await? {
+        if !visibility.get(&u.user_id).copied().unwrap_or(true) {
             continue;
         }
 
@@ -143,7 +130,7 @@ pub(crate) async fn list_user_directory(
     let token = extract_token_from_headers(&headers)?;
     let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as i64;
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
 
     let total_count = state.services.user_storage.get_user_count().await?;
@@ -151,24 +138,21 @@ pub(crate) async fn list_user_directory(
     let users = state
         .services
         .user_storage
-        .get_users_paginated(
-            limit,
-            cursor.map(|(ts, _)| ts),
-            cursor.map(|(_, user_id)| user_id),
-        )
+        .get_users_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, user_id)| user_id))
         .await?;
 
     let next_batch = if users.len() as i64 == limit {
-        users
-            .last()
-            .map(|user| encode_user_cursor(user.created_ts, &user.user_id))
+        users.last().map(|user| encode_user_cursor(user.created_ts, &user.user_id))
     } else {
         None
     };
 
+    let target_user_ids: Vec<String> = users.iter().map(|u| u.user_id.clone()).collect();
+    let visibility = can_view_profile_for_requester_batch(&state, Some(&requester_id), &target_user_ids).await?;
+
     let mut users_json = Vec::new();
     for u in users {
-        if !can_view_profile_for_requester(&state, Some(&requester_id), &u.user_id).await? {
+        if !visibility.get(&u.user_id).copied().unwrap_or(true) {
             continue;
         }
 
@@ -194,13 +178,7 @@ pub(crate) async fn report_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a room member to report events in this room",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report events in this room").await?;
 
     let event = state
         .services
@@ -218,14 +196,7 @@ pub(crate) async fn report_event(
     let report_id = state
         .services
         .event_storage
-        .report_event(
-            &event.event_id,
-            &event.room_id,
-            "",
-            &auth_user.user_id,
-            reason,
-            score,
-        )
+        .report_event(&event.event_id, &event.room_id, "", &auth_user.user_id, reason, score)
         .await?;
 
     Ok(Json(json!({
@@ -240,9 +211,7 @@ pub(crate) async fn update_report_score(
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_event_id(&event_id)?;
-    Err(ApiError::forbidden(
-        "Report score updates are not available via the client API".to_string(),
-    ))
+    Err(ApiError::forbidden("Report score updates are not available via the client API".to_string()))
 }
 
 pub(crate) async fn report_room(
@@ -252,22 +221,10 @@ pub(crate) async fn report_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a room member to report this room",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report this room").await?;
 
-    let reason = body
-        .get("reason")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let description = body
-        .get("description")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let reason = body.get("reason").and_then(|v| v.as_str()).map(str::to_string);
+    let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
 
     let request = crate::storage::event_report::CreateEventReportRequest {
         event_id: format!("room_report:{room_id}"),
@@ -280,11 +237,7 @@ pub(crate) async fn report_room(
         score: Some(0),
     };
 
-    let report = state
-        .services
-        .event_report_service
-        .create_report(request)
-        .await?;
+    let report = state.services.event_report_service.create_report(request).await?;
 
     Ok(Json(json!({
         "report_id": report.id,
@@ -300,13 +253,7 @@ pub(crate) async fn get_scanner_info(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a room member to view scanner info",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view scanner info").await?;
 
     let event = state
         .services
@@ -344,19 +291,9 @@ pub(crate) async fn get_room_aliases(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a room member to view aliases",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view aliases").await?;
 
-    let aliases = state
-        .services
-        .room_service
-        .get_room_aliases(&room_id)
-        .await?;
+    let aliases = state.services.room_service.get_room_aliases(&room_id).await?;
     Ok(Json(json!({ "aliases": aliases })))
 }
 
@@ -368,9 +305,7 @@ pub(crate) async fn set_room_alias(
     validate_room_alias(&room_alias)?;
 
     if room_alias.len() > 255 {
-        return Err(ApiError::bad_request(
-            "Alias too long (max 255 characters)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Alias too long (max 255 characters)".to_string()));
     }
 
     if !state
@@ -385,11 +320,7 @@ pub(crate) async fn set_room_alias(
 
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
 
-    state
-        .services
-        .room_service
-        .set_room_alias(&room_id, &room_alias, &auth_user.user_id)
-        .await?;
+    state.services.room_service.set_room_alias(&room_id, &room_alias, &auth_user.user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
@@ -403,11 +334,7 @@ pub(crate) async fn delete_room_alias(
     Path((room_id, _room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
-    state
-        .services
-        .room_service
-        .remove_room_alias(&room_id)
-        .await?;
+    state.services.room_service.remove_room_alias(&room_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -417,11 +344,7 @@ pub(crate) async fn get_room_by_alias(
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
-    let room_id = state
-        .services
-        .room_service
-        .get_room_by_alias(&room_alias)
-        .await?;
+    let room_id = state.services.room_service.get_room_by_alias(&room_alias).await?;
     match room_id {
         Some(rid) => Ok(Json(json!({ "room_id": rid }))),
         None => Err(ApiError::not_found("Room alias not found".to_string())),
@@ -457,11 +380,7 @@ pub(crate) async fn set_room_alias_direct(
 
     ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
 
-    state
-        .services
-        .room_service
-        .set_room_alias(room_id, &room_alias, &auth_user.user_id)
-        .await?;
+    state.services.room_service.set_room_alias(room_id, &room_alias, &auth_user.user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
@@ -476,19 +395,10 @@ pub(crate) async fn delete_room_alias_direct(
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
-    if let Some(room_id) = state
-        .services
-        .room_service
-        .get_room_by_alias(&room_alias)
-        .await?
-    {
+    if let Some(room_id) = state.services.room_service.get_room_by_alias(&room_alias).await? {
         ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
     }
-    state
-        .services
-        .room_service
-        .remove_room_alias_by_name(&room_alias)
-        .await?;
+    state.services.room_service.remove_room_alias_by_name(&room_alias).await?;
     Ok(Json(json!({
         "removed": true,
         "alias": room_alias
@@ -500,11 +410,7 @@ pub(crate) async fn get_public_rooms(
     _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20)
-        .min(1000) as i64;
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(params.get("since").and_then(|v| v.as_str()));
 
     let (rooms, total) = tokio::try_join!(
@@ -512,11 +418,7 @@ pub(crate) async fn get_public_rooms(
             state
                 .services
                 .room_storage
-                .get_public_rooms_paginated(
-                    limit,
-                    cursor.map(|(ts, _)| ts),
-                    cursor.map(|(_, room_id)| room_id),
-                )
+                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         },
@@ -531,9 +433,7 @@ pub(crate) async fn get_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms
-            .last()
-            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
     };
@@ -567,27 +467,18 @@ pub(crate) async fn get_public_rooms(
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{
-        decode_public_rooms_cursor, decode_user_cursor, encode_public_rooms_cursor,
-        encode_user_cursor,
-    };
+    use super::{decode_public_rooms_cursor, decode_user_cursor, encode_public_rooms_cursor, encode_user_cursor};
 
     #[test]
     fn test_public_rooms_cursor_round_trip() {
         let cursor = encode_public_rooms_cursor(1_700_000_000_000, "!room:example.com");
-        assert_eq!(
-            decode_public_rooms_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "!room:example.com"))
-        );
+        assert_eq!(decode_public_rooms_cursor(Some(&cursor)), Some((1_700_000_000_000, "!room:example.com")));
     }
 
     #[test]
     fn test_user_directory_cursor_round_trip() {
         let cursor = encode_user_cursor(1_700_000_000_000, "@alice:example.com");
-        assert_eq!(
-            decode_user_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "@alice:example.com"))
-        );
+        assert_eq!(decode_user_cursor(Some(&cursor)), Some((1_700_000_000_000, "@alice:example.com")));
     }
 
     #[test]
@@ -603,11 +494,7 @@ pub(crate) async fn query_public_rooms(
     _auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20)
-        .min(1000) as i64;
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
     let _filter = body.get("filter");
 
@@ -616,11 +503,7 @@ pub(crate) async fn query_public_rooms(
             state
                 .services
                 .room_storage
-                .get_public_rooms_paginated(
-                    limit,
-                    cursor.map(|(ts, _)| ts),
-                    cursor.map(|(_, room_id)| room_id),
-                )
+                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal(format!("Failed: {e}")))
         },
@@ -635,9 +518,7 @@ pub(crate) async fn query_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms
-            .last()
-            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
     };

@@ -82,13 +82,12 @@ pub struct PushGateway {
 }
 
 impl PushGateway {
-    pub fn new(config: PushGatewayConfig) -> Self {
+    pub fn new(config: &PushGatewayConfig) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let _ = config;
         Self { client }
     }
 
@@ -195,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_build_notification() {
-        let gateway = PushGateway::new(PushGatewayConfig::default());
+        let gateway = PushGateway::new(&PushGatewayConfig::default());
 
         let notification = gateway.build_notification(
             "event123",
@@ -214,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_build_device() {
-        let gateway = PushGateway::new(PushGatewayConfig::default());
+        let gateway = PushGateway::new(&PushGatewayConfig::default());
 
         let device = gateway.build_device(
             "com.example.app",

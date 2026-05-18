@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         tracing::info!(
                             "[GENERIC] Payload summary: fields={}",
-                            payload.as_object().map(|o| o.len()).unwrap_or(0)
+                            payload.as_object().map_or(0, |o| o.len())
                         );
                     }
 

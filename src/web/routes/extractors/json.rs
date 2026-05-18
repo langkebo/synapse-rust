@@ -12,7 +12,7 @@ where
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         match axum::extract::Json::<T>::from_request(req, state).await {
-            Ok(axum::extract::Json(value)) => Ok(MatrixJson(value)),
+            Ok(axum::extract::Json(value)) => Ok(Self(value)),
             Err(rejection) => {
                 let message = match rejection {
                     JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {e}"),

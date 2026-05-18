@@ -99,8 +99,7 @@ pub async fn federation_auth_middleware(
     let request_target = parts
         .uri
         .path_and_query()
-        .map(|p| p.as_str().to_string())
-        .unwrap_or_else(|| parts.uri.path().to_string());
+        .map_or_else(|| parts.uri.path().to_string(), |p| p.as_str().to_string());
     let key_fetch_priority = request_target.contains("/_matrix/federation/v1/make_join/")
         || request_target.contains("/_matrix/federation/v1/send_join/")
         || request_target.contains("/_matrix/federation/v1/invite/")
@@ -323,11 +322,10 @@ pub(crate) async fn verify_federation_signature_with_cache(
             tracing::debug!("Signature cache hit for {}:{}", origin, key_id);
             if entry.verified {
                 return Ok(());
-            } else {
-                return Err(ApiError::unauthorized(
-                    "Cached signature verification failed".to_string(),
-                ));
             }
+            return Err(ApiError::unauthorized(
+                "Cached signature verification failed".to_string(),
+            ));
         }
     }
 
@@ -612,12 +610,12 @@ fn verify_server_keys_signature(
     {
         Some(sig) => sig,
         None => {
-            tracing::debug!(
+            tracing::warn!(
                 "No signature found in server keys response for {} key_id={}",
                 origin,
                 key_id
             );
-            return true;
+            return false;
         }
     };
 
@@ -758,7 +756,7 @@ mod tests {
         services.config.federation.signing_key = Some(signing_key_b64);
         services.server_name = origin.clone();
 
-        let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
         let signed_bytes =

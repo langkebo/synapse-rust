@@ -124,7 +124,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_default_config(&self) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE is_default = TRUE AND is_enabled = TRUE LIMIT 1"#,
+            r"SELECT * FROM media_quota_config WHERE is_default = TRUE AND is_enabled = TRUE LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await
@@ -135,7 +135,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_config(&self, config_id: i64) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE id = $1"#,
+            r"SELECT * FROM media_quota_config WHERE id = $1",
         )
         .bind(config_id)
         .fetch_optional(&self.pool)
@@ -159,7 +159,7 @@ impl MediaQuotaStorage {
 
         if request.is_default.unwrap_or(false) {
             sqlx::query(
-                r#"UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE"#,
+                r"UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE",
             )
             .execute(&self.pool)
             .await
@@ -167,14 +167,14 @@ impl MediaQuotaStorage {
         }
 
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"
+            r"
             INSERT INTO media_quota_config (
                 config_name, name, description, max_storage_bytes, max_file_size_bytes,
                 max_files_count, allowed_mime_types, blocked_mime_types, is_default, created_ts
             )
             VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.name)
         .bind(&request.description)
@@ -194,7 +194,7 @@ impl MediaQuotaStorage {
 
     pub async fn list_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
-            r#"SELECT * FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC"#,
+            r"SELECT * FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -205,7 +205,7 @@ impl MediaQuotaStorage {
 
     pub async fn delete_config(&self, config_id: i64) -> Result<bool, ApiError> {
         let result =
-            sqlx::query(r#"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1"#)
+            sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1")
                 .bind(config_id)
                 .execute(&self.pool)
                 .await
@@ -216,7 +216,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_user_quota(&self, user_id: &str) -> Result<Option<UserMediaQuota>, ApiError> {
         let quota = sqlx::query_as::<_, UserMediaQuota>(
-            r#"SELECT * FROM user_media_quota WHERE user_id = $1"#,
+            r"SELECT * FROM user_media_quota WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
@@ -239,11 +239,11 @@ impl MediaQuotaStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
-            r#"
+            r"
             INSERT INTO user_media_quota (user_id, quota_config_id, created_ts, updated_ts)
             VALUES ($1, $2, $3, $3)
             RETURNING *
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(quota_config_id)
@@ -262,7 +262,7 @@ impl MediaQuotaStorage {
         let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
-            r#"
+            r"
             INSERT INTO user_media_quota (
                 user_id, quota_config_id, custom_max_storage_bytes,
                 custom_max_file_size_bytes, custom_max_files_count, created_ts, updated_ts
@@ -276,7 +276,7 @@ impl MediaQuotaStorage {
                 custom_max_files_count = $5,
                 updated_ts = $6
             RETURNING *
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(request.quota_config_id)
@@ -295,10 +295,10 @@ impl MediaQuotaStorage {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO media_usage_log (user_id, media_id, file_size_bytes, mime_type, operation, timestamp)
             VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(&request.media_id)
@@ -319,7 +319,7 @@ impl MediaQuotaStorage {
         };
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO user_media_quota (
                 user_id, current_storage_bytes, current_files_count, created_ts, updated_ts
             )
@@ -333,7 +333,7 @@ impl MediaQuotaStorage {
                     ELSE user_media_quota.current_files_count
                 END,
                 updated_ts = $4
-            "#,
+            ",
         )
         .bind(&request.user_id)
         .bind(delta)
@@ -344,7 +344,7 @@ impl MediaQuotaStorage {
         .map_err(|e| ApiError::internal(format!("Failed to update user quota usage: {e}")))?;
 
         sqlx::query(
-            r#"
+            r"
             UPDATE server_media_quota
             SET current_storage_bytes = GREATEST(0, current_storage_bytes + $1),
                 current_files_count = CASE
@@ -354,7 +354,7 @@ impl MediaQuotaStorage {
                 END,
                 updated_ts = $3
             WHERE id = 1
-            "#,
+            ",
         )
         .bind(delta)
         .bind(&request.operation)
@@ -380,8 +380,7 @@ impl MediaQuotaStorage {
                 .await
                 .ok()
                 .flatten()
-                .map(|c| c.max_storage_bytes)
-                .unwrap_or(0)
+                .map_or(0, |c| c.max_storage_bytes)
         } else {
             0
         };
@@ -415,7 +414,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         let quota = sqlx::query_as::<_, ServerMediaQuota>(
-            r#"SELECT * FROM server_media_quota WHERE id = 1"#,
+            r"SELECT * FROM server_media_quota WHERE id = 1",
         )
         .fetch_one(&self.pool)
         .await
@@ -434,7 +433,7 @@ impl MediaQuotaStorage {
         let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, ServerMediaQuota>(
-            r#"
+            r"
             UPDATE server_media_quota
             SET
                 max_storage_bytes = COALESCE($1, max_storage_bytes),
@@ -444,7 +443,7 @@ impl MediaQuotaStorage {
                 updated_ts = $5
             WHERE id = 1
             RETURNING *
-            "#,
+            ",
         )
         .bind(max_storage_bytes)
         .bind(max_file_size_bytes)
@@ -469,14 +468,14 @@ impl MediaQuotaStorage {
     ) -> Result<MediaQuotaAlert, ApiError> {
         let now = Utc::now().timestamp_millis();
         let alert = sqlx::query_as::<_, MediaQuotaAlert>(
-            r#"
+            r"
             INSERT INTO media_quota_alerts (
                 user_id, alert_type, threshold_percent, current_usage_bytes,
                 quota_limit_bytes, message, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(alert_type)
@@ -499,14 +498,14 @@ impl MediaQuotaStorage {
     ) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         let alerts = if unread_only {
             sqlx::query_as::<_, MediaQuotaAlert>(
-                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC"#,
+                r"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC",
             )
             .bind(user_id)
             .fetch_all(&self.pool)
             .await
         } else {
             sqlx::query_as::<_, MediaQuotaAlert>(
-                r#"SELECT * FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_ts DESC"#,
+                r"SELECT * FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_ts DESC",
             )
             .bind(user_id)
             .fetch_all(&self.pool)
@@ -517,7 +516,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(r#"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1"#)
+        let result = sqlx::query(r"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1")
             .bind(alert_id)
             .execute(&self.pool)
             .await
@@ -531,8 +530,8 @@ impl MediaQuotaStorage {
         let seven_days_ago = Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
 
         let recent_uploads: i64 = sqlx::query_scalar(
-            r#"SELECT COALESCE(SUM(file_size_bytes), 0)::BIGINT FROM media_usage_log
-               WHERE user_id = $1 AND operation = 'upload' AND timestamp > $2"#,
+            r"SELECT COALESCE(SUM(file_size_bytes), 0)::BIGINT FROM media_usage_log
+               WHERE user_id = $1 AND operation = 'upload' AND timestamp > $2",
         )
         .bind(user_id)
         .bind(seven_days_ago)

@@ -33,10 +33,8 @@ use validator::Validate;
 type HmacSha256 = Hmac<Sha256>;
 
 // nonce 存储 (内存中，生产环境应该用 Redis)
-lazy_static::lazy_static! {
-    static ref NONCES: std::sync::Mutex<std::collections::HashMap<String, NonceData>> =
-        std::sync::Mutex::new(std::collections::HashMap::new());
-}
+static NONCES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, NonceData>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 #[derive(Clone)]
 struct NonceData {

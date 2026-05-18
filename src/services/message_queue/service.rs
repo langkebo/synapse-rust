@@ -221,10 +221,9 @@ impl MessageQueue {
         for (queue_name, queue) in queues.iter_mut() {
             let before = queue.len();
             queue.retain(|message| {
-                !message
+                message
                     .expires_at
-                    .map(|expires_at| expires_at <= now)
-                    .unwrap_or(false)
+                    .is_none_or(|expires_at| expires_at > now)
             });
             let removed_from_queue = before.saturating_sub(queue.len()) as u64;
             removed += removed_from_queue;
@@ -237,10 +236,9 @@ impl MessageQueue {
         let mut pending = self.pending.write().await;
         let pending_before = pending.len();
         pending.retain(|_, message| {
-            !message
+            message
                 .expires_at
-                .map(|expires_at| expires_at <= now)
-                .unwrap_or(false)
+                .is_none_or(|expires_at| expires_at > now)
         });
         removed += pending_before.saturating_sub(pending.len()) as u64;
 

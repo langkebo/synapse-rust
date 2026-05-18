@@ -1,5 +1,5 @@
 use crate::services::{DatabaseInitMode, DatabaseInitService};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;
@@ -9,13 +9,13 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
-static PREPARED_TEST_POOLS: Lazy<Mutex<VecDeque<Arc<PgPool>>>> =
-    Lazy::new(|| Mutex::new(VecDeque::new()));
-static TEST_ENV_LOCK: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
+static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
-static SHARED_CLONE_SEMAPHORE: Lazy<Semaphore> =
-    Lazy::new(|| Semaphore::new(configured_shared_clone_concurrency()));
+static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(configured_shared_clone_concurrency()));
 const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
@@ -103,11 +103,17 @@ pub async fn env_lock_async() -> EnvLockGuard {
 }
 
 pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
-    PREPARED_TEST_POOLS.lock().unwrap().push_back(pool);
+    PREPARED_TEST_POOLS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push_back(pool);
 }
 
 pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
-    PREPARED_TEST_POOLS.lock().unwrap().pop_front()
+    PREPARED_TEST_POOLS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pop_front()
 }
 
 fn env_u32(key: &str) -> Option<u32> {
@@ -136,8 +142,7 @@ pub fn configured_test_pool_max_connections() -> u32 {
 
 pub fn configured_test_pool_min_connections() -> u32 {
     env_u32("TEST_DB_MIN_CONNECTIONS")
-        .map(|value| value.min(configured_test_pool_max_connections()))
-        .unwrap_or(DEFAULT_TEST_DB_MIN_CONNECTIONS)
+        .map_or(DEFAULT_TEST_DB_MIN_CONNECTIONS, |value| value.min(configured_test_pool_max_connections()))
 }
 
 pub fn configured_test_pool_connect_timeout() -> Duration {
@@ -191,23 +196,33 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
+    if sqlx::query(&format!("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {schema_name}"))
+        .execute(&admin_pool)
+        .await
+        .is_err()
+    {
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            .execute(&admin_pool)
+            .await;
+    }
+
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
-        .max_connections(configured_test_pool_max_connections())
-        .min_connections(configured_test_pool_min_connections())
-        .acquire_timeout(configured_test_pool_acquire_timeout())
-        .idle_timeout(Some(configured_test_pool_idle_timeout()))
-        .max_lifetime(Some(configured_test_pool_max_lifetime()))
-        .after_connect(move |connection, _meta| {
-            let search_path_sql = search_path_sql.clone();
-            Box::pin(async move {
-                sqlx::query(&search_path_sql).execute(connection).await?;
-                Ok(())
+            .max_connections(configured_test_pool_max_connections())
+            .min_connections(configured_test_pool_min_connections())
+            .acquire_timeout(configured_test_pool_acquire_timeout())
+            .idle_timeout(Some(configured_test_pool_idle_timeout()))
+            .max_lifetime(Some(configured_test_pool_max_lifetime()))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    Ok(())
+                })
             })
-        })
-        .connect(&database_url),
+            .connect(&database_url),
     )
     .await
     .map_err(|_| {
@@ -217,7 +232,6 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     let pool = Arc::new(pool);
 
-    // Set a timeout for the entire initialization process
     let report = tokio::time::timeout(
         Duration::from_secs(120),
         DatabaseInitService::new(pool.clone())
@@ -286,6 +300,16 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
         .await
         .map_err(|error| format!("failed to create template schema {template_name}: {error}"))?;
 
+    if sqlx::query(&format!("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {template_name}"))
+        .execute(&admin_pool)
+        .await
+        .is_err()
+    {
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            .execute(&admin_pool)
+            .await;
+    }
+
     let search_path_sql = format!("SET search_path TO {template_name}, public");
     let pool = tokio::time::timeout(
         connect_timeout,
@@ -353,7 +377,7 @@ async fn clone_schema_from_template(
 
     // Clone: create schema + copy all tables from template using DDL generation
     let clone_sql = format!(
-        r#"
+        r"
         DO $$
         DECLARE
             r RECORD;
@@ -377,7 +401,7 @@ async fn clone_schema_from_template(
                 );
             END LOOP;
         END $$;
-        "#
+        "
     );
 
     sqlx::raw_sql(&clone_sql)
@@ -431,23 +455,33 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
+    if sqlx::query(&format!("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {schema_name}"))
+        .execute(&admin_pool)
+        .await
+        .is_err()
+    {
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            .execute(&admin_pool)
+            .await;
+    }
+
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
-        .max_connections(configured_test_pool_max_connections())
-        .min_connections(configured_test_pool_min_connections())
-        .acquire_timeout(configured_test_pool_acquire_timeout())
-        .idle_timeout(Some(configured_test_pool_idle_timeout()))
-        .max_lifetime(Some(configured_test_pool_max_lifetime()))
-        .after_connect(move |connection, _meta| {
-            let search_path_sql = search_path_sql.clone();
-            Box::pin(async move {
-                sqlx::query(&search_path_sql).execute(connection).await?;
-                Ok(())
+            .max_connections(configured_test_pool_max_connections())
+            .min_connections(configured_test_pool_min_connections())
+            .acquire_timeout(configured_test_pool_acquire_timeout())
+            .idle_timeout(Some(configured_test_pool_idle_timeout()))
+            .max_lifetime(Some(configured_test_pool_max_lifetime()))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    Ok(())
+                })
             })
-        })
-        .connect(&database_url),
+            .connect(&database_url),
     )
     .await
     .map_err(|_| {
@@ -512,6 +546,7 @@ fn candidate_database_urls() -> Vec<String> {
 }
 
 fn next_test_schema_name() -> String {
+    #[allow(clippy::expect_used)]
     let timestamp_nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock before unix epoch")

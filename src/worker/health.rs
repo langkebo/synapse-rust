@@ -204,8 +204,7 @@ impl HealthChecker {
         let status = self.health_status.read().await;
         status
             .get(worker_id)
-            .map(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
-            .unwrap_or(false)
+            .is_some_and(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
     }
 
     pub fn register_callback(&self, callback: HealthCallback) {

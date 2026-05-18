@@ -4,8 +4,8 @@ use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::presence::PresenceStorage;
 use crate::storage::sliding_sync::{
-    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRequest,
-    SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage,
+    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
+    SlidingSyncRoom, SlidingSyncStorage,
 };
 use crate::storage::{EventStorage, RoomEvent, StateEvent};
 use serde::{Deserialize, Serialize};
@@ -50,14 +50,7 @@ impl SlidingSyncService {
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
     ) -> Self {
-        Self {
-            storage,
-            cache,
-            event_storage,
-            typing_service,
-            presence_storage,
-            member_storage,
-        }
+        Self { storage, cache, event_storage, typing_service, presence_storage, member_storage }
     }
 
     pub async fn sync(
@@ -68,10 +61,7 @@ impl SlidingSyncService {
     ) -> Result<SlidingSyncResponse, ApiError> {
         // Update user presence to online
         tracing::info!("Updating presence for user: {}", user_id);
-        let _ = self
-            .presence_storage
-            .set_presence(user_id, "online", None)
-            .await;
+        let _ = self.presence_storage.set_presence(user_id, "online", None).await;
 
         let conn_id = request.conn_id.as_deref();
 
@@ -89,17 +79,8 @@ impl SlidingSyncService {
         }
 
         for (list_key, list_data) in &request.lists {
-            let ranges: Vec<(u32, u32)> = list_data
-                .ranges
-                .iter()
-                .filter_map(|r| {
-                    if r.len() >= 2 {
-                        Some((r[0], r[1]))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let ranges: Vec<(u32, u32)> =
+                list_data.ranges.iter().filter_map(|r| if r.len() >= 2 { Some((r[0], r[1])) } else { None }).collect();
 
             self.storage
                 .save_list(
@@ -121,31 +102,20 @@ impl SlidingSyncService {
                 self.storage
                     .delete_room(user_id, device_id, room_id, conn_id)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to unsubscribe room: {e}"))
-                    })?;
+                    .map_err(|e| ApiError::internal(format!("Failed to unsubscribe room: {e}")))?;
             }
         }
 
         if is_initial {
             if let Ok(joined_rooms) = self.member_storage.get_joined_rooms(user_id).await {
                 for room_id in &joined_rooms {
-                    let _ = self
-                        .storage
-                        .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
-                        .await;
+                    let _ = self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id).await;
                 }
             }
         }
 
         let lists_response = self
-            .build_lists_response(
-                user_id,
-                device_id,
-                conn_id,
-                &request.lists,
-                request.pos.as_deref(),
-            )
+            .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
             .await
             .map_err(|e| ApiError::internal(format!("Failed to build lists response: {e}")))?;
 
@@ -164,9 +134,7 @@ impl SlidingSyncService {
                 request.extensions.as_ref(),
             )
             .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to build extensions response: {e}"))
-            })?;
+            .map_err(|e| ApiError::internal(format!("Failed to build extensions response: {e}")))?;
 
         let new_token = self
             .storage
@@ -213,23 +181,12 @@ impl SlidingSyncService {
                         })
                         .await?;
                     let room_ids = range_rooms.into_iter().map(|room| room.room_id).collect();
-                    range_snapshots.push(SlidingListRangeSnapshot {
-                        start,
-                        end,
-                        room_ids,
-                    });
+                    range_snapshots.push(SlidingListRangeSnapshot { start, end, room_ids });
                 }
             }
 
-            let count = self
-                .count_rooms_for_list(
-                    user_id,
-                    device_id,
-                    conn_id,
-                    list_key,
-                    list_data.filters.as_ref(),
-                )
-                .await?;
+            let count =
+                self.count_rooms_for_list(user_id, device_id, conn_id, list_key, list_data.filters.as_ref()).await?;
 
             lists_json.insert(
                 list_key.clone(),
@@ -260,10 +217,7 @@ impl SlidingSyncService {
         list_key: &str,
         filters: Option<&crate::storage::sliding_sync::SlidingSyncFilters>,
     ) -> Result<u32, sqlx::Error> {
-        let count = self
-            .storage
-            .count_rooms_for_list(user_id, device_id, conn_id, list_key, filters)
-            .await?;
+        let count = self.storage.count_rooms_for_list(user_id, device_id, conn_id, list_key, filters).await?;
         Ok(count as u32)
     }
 
@@ -277,10 +231,8 @@ impl SlidingSyncService {
         since_pos: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let cache_key = Self::list_snapshot_cache_key(user_id, device_id, conn_id, list_key);
-        let previous_snapshot = self
-            .cache
-            .get_raw(&cache_key)
-            .and_then(|raw| serde_json::from_str::<SlidingListWindowSnapshot>(&raw).ok());
+        let previous_snapshot =
+            self.cache.get_raw(&cache_key).and_then(|raw| serde_json::from_str::<SlidingListWindowSnapshot>(&raw).ok());
 
         let ops = if let (Some(_), Some(previous)) = (since_pos, previous_snapshot.as_ref()) {
             Self::build_incremental_ops(previous, current_ranges)
@@ -289,9 +241,7 @@ impl SlidingSyncService {
             Self::build_sync_ops(current_ranges)
         };
 
-        let snapshot = SlidingListWindowSnapshot {
-            ranges: current_ranges.to_vec(),
-        };
+        let snapshot = SlidingListWindowSnapshot { ranges: current_ranges.to_vec() };
         if let Ok(raw) = serde_json::to_string(&snapshot) {
             self.cache.set_raw(&cache_key, &raw, 3600).await;
         }
@@ -312,29 +262,18 @@ impl SlidingSyncService {
         if let Some(subscriptions) = &request.room_subscriptions {
             if let Some(subs_obj) = subscriptions.as_object() {
                 for (room_id, config_value) in subs_obj {
-                    room_configs.insert(
-                        room_id.clone(),
-                        Self::subscription_config_from_value(Some(config_value)),
-                    );
-                    let room = if let Some(room) = self
-                        .storage
-                        .get_room(user_id, device_id, room_id, conn_id)
-                        .await?
-                    {
+                    room_configs.insert(room_id.clone(), Self::subscription_config_from_value(Some(config_value)));
+                    let room = if let Some(room) = self.storage.get_room(user_id, device_id, room_id, conn_id).await? {
                         Some(room)
                     } else {
-                        self.storage
-                            .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
-                            .await?
+                        self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id).await?
                     };
 
                     if let Some(room) = room {
                         let payload = self
                             .build_room_json(
                                 &room,
-                                room_configs
-                                    .get(room_id)
-                                    .unwrap_or(&RoomSubscriptionConfig::default()),
+                                room_configs.get(room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                 request.pos.is_none(),
                             )
                             .await?;
@@ -372,9 +311,7 @@ impl SlidingSyncService {
                             let payload = self
                                 .build_room_json(
                                     &room,
-                                    room_configs
-                                        .get(&room_id)
-                                        .unwrap_or(&RoomSubscriptionConfig::default()),
+                                    room_configs.get(&room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                     request.pos.is_none(),
                                 )
                                 .await?;
@@ -395,24 +332,18 @@ impl SlidingSyncService {
         initial: bool,
     ) -> Result<serde_json::Value, sqlx::Error> {
         let mut room_json = Self::room_to_json(room);
-        let required_state_events = self
-            .build_required_state_events(&room.room_id, config.required_state.as_ref())
-            .await?;
-        let (timeline, limited, prev_batch) = self
-            .build_timeline(&room.room_id, config.timeline_limit)
-            .await?;
+        let required_state_events =
+            self.build_required_state_events(&room.room_id, config.required_state.as_ref()).await?;
+        let (timeline, limited, prev_batch) = self.build_timeline(&room.room_id, config.timeline_limit).await?;
 
-        room_json["required_state"] = json!(required_state_events);
-        room_json["state"] = json!(required_state_events);
+        let state_value = json!(required_state_events);
+        room_json["required_state"] = state_value.clone();
+        room_json["state"] = state_value;
         room_json["timeline"] = json!(timeline);
         room_json["initial"] = json!(initial);
         room_json["limited"] = json!(limited);
         room_json["prev_batch"] = json!(prev_batch);
-        room_json["num_live"] = json!(config
-            .timeline_limit
-            .filter(|limit| *limit > 0)
-            .map(|_| timeline.len())
-            .unwrap_or(0));
+        room_json["num_live"] = json!(config.timeline_limit.filter(|limit| *limit > 0).map_or(0, |_| timeline.len()));
         room_json["bump_stamp"] = json!(room.bump_stamp);
 
         Ok(room_json)
@@ -454,23 +385,17 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if account_data_enabled {
-            let room_ids: Vec<String> = rooms_response
-                .as_object()
-                .map(|obj| obj.keys().cloned().collect())
-                .unwrap_or_default();
+            let room_ids: Vec<String> =
+                rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
 
             let global = self.storage.get_global_account_data(user_id).await?;
-            let rooms = self
-                .storage
-                .get_room_account_data(user_id, &room_ids)
-                .await?;
+            let rooms = self.storage.get_room_account_data(user_id, &room_ids).await?;
 
             response_extensions.insert(
                 "account_data".to_string(),
@@ -487,17 +412,14 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if receipts_enabled {
-            let room_ids: Vec<String> = rooms_response
-                .as_object()
-                .map(|obj| obj.keys().cloned().collect())
-                .unwrap_or_default();
+            let room_ids: Vec<String> =
+                rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
             let receipts = self.storage.get_receipts_for_rooms(&room_ids).await?;
             response_extensions.insert(
                 "receipts".to_string(),
@@ -513,26 +435,24 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if typing_enabled {
-            let room_ids: Vec<String> = rooms_response
-                .as_object()
-                .map(|obj| obj.keys().cloned().collect())
-                .unwrap_or_default();
+            let room_ids: Vec<String> =
+                rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
             let mut typing_rooms = serde_json::Map::new();
-            for room_id in room_ids {
-                let typing_users = self
-                    .typing_service
-                    .get_typing_users(&room_id)
-                    .await
-                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-                let user_ids: Vec<String> = typing_users.into_keys().collect();
-                typing_rooms.insert(room_id, serde_json::json!({ "user_ids": user_ids }));
+            match self.typing_service.get_typing_users_batch(&room_ids).await {
+                Ok(batch) => {
+                    for (room_id, user_ids) in batch {
+                        typing_rooms.insert(room_id, serde_json::json!({ "user_ids": user_ids }));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to get typing users batch: {}", e);
+                }
             }
             response_extensions.insert(
                 "typing".to_string(),
@@ -548,16 +468,13 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if to_device_enabled {
-            let to_device = self
-                .build_to_device_extension(user_id, device_id, to_device_request)
-                .await?;
+            let to_device = self.build_to_device_extension(user_id, device_id, to_device_request).await?;
             response_extensions.insert("to_device".to_string(), to_device);
         }
 
@@ -567,16 +484,13 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if e2ee_enabled {
-            let e2ee = self
-                .build_e2ee_extension(user_id, device_id, conn_id, since_pos)
-                .await?;
+            let e2ee = self.build_e2ee_extension(user_id, device_id, conn_id, since_pos).await?;
             response_extensions.insert("e2ee".to_string(), e2ee);
         }
 
@@ -586,25 +500,22 @@ impl SlidingSyncService {
                 if v.as_bool() == Some(true) {
                     Some(true)
                 } else {
-                    v.as_object()
-                        .map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
                 }
             })
             .unwrap_or(false);
 
         if presence_enabled {
-            let room_ids: Vec<String> = rooms_response
-                .as_object()
-                .map(|obj| obj.keys().cloned().collect())
-                .unwrap_or_default();
+            let room_ids: Vec<String> =
+                rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
 
             let mut all_members = std::collections::HashSet::new();
-            all_members.insert(user_id.to_string()); // Always include self
+            all_members.insert(user_id.to_string());
 
-            for room_id in &room_ids {
-                if let Ok(members) = self.member_storage.get_room_members(room_id, "join").await {
+            if let Ok(batch) = self.member_storage.get_members_batch(&room_ids, "join").await {
+                for members in batch.values() {
                     for member in members {
-                        all_members.insert(member.user_id);
+                        all_members.insert(member.user_id.clone());
                     }
                 }
             }
@@ -676,8 +587,7 @@ impl SlidingSyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update room state: {e}")))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
-            .await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
         Ok(())
     }
@@ -695,8 +605,7 @@ impl SlidingSyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to bump room: {e}")))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
-            .await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
         Ok(())
     }
@@ -711,19 +620,11 @@ impl SlidingSyncService {
         notification_count: i32,
     ) -> Result<(), ApiError> {
         self.storage
-            .update_notification_counts(
-                user_id,
-                device_id,
-                room_id,
-                conn_id,
-                highlight_count,
-                notification_count,
-            )
+            .update_notification_counts(user_id, device_id, room_id, conn_id, highlight_count, notification_count)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update notifications: {e}")))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
-            .await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
         Ok(())
     }
@@ -740,8 +641,7 @@ impl SlidingSyncService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to remove room: {e}")))?;
 
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id)
-            .await;
+        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
         Ok(())
     }
@@ -777,17 +677,9 @@ impl SlidingSyncService {
         Ok((entries, total))
     }
 
-    async fn invalidate_room_cache(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        conn_id: Option<&str>,
-    ) {
+    async fn invalidate_room_cache(&self, user_id: &str, device_id: &str, room_id: &str, conn_id: Option<&str>) {
         let cache_key = if let Some(cid) = conn_id {
-            format!(
-                "sliding_sync:room:{user_id}:{device_id}:{cid}:{room_id}"
-            )
+            format!("sliding_sync:room:{user_id}:{device_id}:{cid}:{room_id}")
         } else {
             format!("sliding_sync:room:{user_id}:{device_id}::{room_id}")
         };
@@ -809,31 +701,22 @@ impl SlidingSyncService {
 
         let cache_key = Self::e2ee_device_list_stream_cache_key(user_id, device_id, conn_id);
         let since_stream_id = if since_pos.is_some() {
-            self.cache
-                .get_raw(&cache_key)
-                .and_then(|raw| raw.parse::<i64>().ok())
-                .unwrap_or(0)
+            self.cache.get_raw(&cache_key).and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(0)
         } else {
             0
         };
         let current_stream_id = self.get_current_device_list_stream_id().await?;
-        let device_lists = self
-            .get_device_lists_since(user_id, since_stream_id)
-            .await?;
+        let device_lists = self.get_device_lists_since(user_id, since_stream_id).await?;
 
-        self.cache
-            .set_raw(&cache_key, &current_stream_id.to_string(), 3600)
-            .await;
+        self.cache.set_raw(&cache_key, &current_stream_id.to_string(), 3600).await;
 
         let mut otk_counts = serde_json::Map::new();
         for (algo, count) in key_counts {
             otk_counts.insert(algo, json!(count));
         }
 
-        let unused_fallback_types = device_key_storage
-            .get_unused_fallback_key_types(user_id, device_id)
-            .await
-            .unwrap_or_else(|_| vec![]);
+        let unused_fallback_types =
+            device_key_storage.get_unused_fallback_key_types(user_id, device_id).await.unwrap_or_else(|_| vec![]);
 
         Ok(json!({
             "device_lists": device_lists,
@@ -861,9 +744,8 @@ impl SlidingSyncService {
             .filter(|value| *value > 0)
             .unwrap_or(100);
 
-        let (events, next_batch) = self
-            .get_to_device_extension_payload(user_id, device_id, since_stream_id, limit)
-            .await?;
+        let (events, next_batch) =
+            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit).await?;
 
         Ok(json!({
             "events": events,
@@ -888,14 +770,10 @@ impl SlidingSyncService {
             .or_else(|| value.get("timelineLimit"))
             .and_then(|v| v.as_u64())
             .and_then(|v| u32::try_from(v).ok());
-        let required_state = value
-            .get("required_state")
-            .and_then(|v| serde_json::from_value::<Vec<Vec<String>>>(v.clone()).ok());
+        let required_state =
+            value.get("required_state").and_then(|v| serde_json::from_value::<Vec<Vec<String>>>(v.clone()).ok());
 
-        RoomSubscriptionConfig {
-            timeline_limit,
-            required_state,
-        }
+        RoomSubscriptionConfig { timeline_limit, required_state }
     }
 
     async fn build_required_state_events(
@@ -924,19 +802,14 @@ impl SlidingSyncService {
             return Ok((Vec::new(), false, None));
         };
 
-        let mut events = self
-            .event_storage
-            .get_room_events_paginated(room_id, None, i64::from(limit) + 1, "b")
-            .await?;
+        let mut events = self.event_storage.get_room_events_paginated(room_id, None, i64::from(limit) + 1, "b").await?;
         let limited = events.len() > limit as usize;
         if limited {
             events.truncate(limit as usize);
         }
         events.reverse();
 
-        let prev_batch = events
-            .first()
-            .map(|event| format!("t{}", event.origin_server_ts));
+        let prev_batch = events.first().map(|event| format!("t{}", event.origin_server_ts));
         let timeline = events.iter().map(Self::room_event_to_json).collect();
         Ok((timeline, limited, prev_batch))
     }
@@ -945,14 +818,8 @@ impl SlidingSyncService {
         let event_type = event.event_type.as_deref().unwrap_or_default();
         let state_key = event.state_key.as_deref().unwrap_or_default();
         required_state.iter().any(|entry| {
-            let event_type_match = entry
-                .first()
-                .map(|value| value == "*" || value == event_type)
-                .unwrap_or(false);
-            let state_key_match = entry
-                .get(1)
-                .map(|value| value == "*" || value == state_key)
-                .unwrap_or(false);
+            let event_type_match = entry.first().is_some_and(|value| value == "*" || value == event_type);
+            let state_key_match = entry.get(1).is_some_and(|value| value == "*" || value == state_key);
             event_type_match && state_key_match
         })
     }
@@ -1027,17 +894,24 @@ impl SlidingSyncService {
             return None;
         }
 
-        let mut working = previous.room_ids.clone();
+        let mut working: Vec<Option<String>> = previous.room_ids.iter().map(|s| Some(s.clone())).collect();
         let mut ops = Vec::with_capacity(current.room_ids.len());
         let mut index = 0usize;
 
         while index < current.room_ids.len() || index < working.len() {
             if index >= current.room_ids.len() {
-                ops.push(json!({
-                    "op": "DELETE",
-                    "index": previous.start + index as u32,
-                }));
-                working.remove(index);
+                if working[index].is_some() {
+                    ops.push(json!({
+                        "op": "DELETE",
+                        "index": previous.start + index as u32,
+                    }));
+                }
+                working[index] = None;
+                let next_some = working[index + 1..].iter().position(|s| s.is_some());
+                match next_some {
+                    Some(offset) => index += offset + 1,
+                    None => break,
+                }
                 continue;
             }
 
@@ -1048,26 +922,26 @@ impl SlidingSyncService {
                     "index": previous.start + index as u32,
                     "room_id": room_id,
                 }));
-                working.insert(index, room_id);
+                working.push(Some(room_id));
                 index += 1;
                 continue;
             }
 
-            if working[index] == current.room_ids[index] {
+            if working[index].as_deref() == Some(&current.room_ids[index]) {
                 index += 1;
                 continue;
             }
 
-            if let Some(offset) = working[index + 1..]
-                .iter()
-                .position(|room_id| room_id == &current.room_ids[index])
-            {
-                for _ in 0..=offset {
-                    ops.push(json!({
-                        "op": "DELETE",
-                        "index": previous.start + index as u32,
-                    }));
-                    working.remove(index);
+            let find_offset = working[index + 1..].iter().position(|s| s.as_deref() == Some(&current.room_ids[index]));
+            if let Some(offset) = find_offset {
+                for del_idx in index..=index + offset {
+                    if working[del_idx].is_some() {
+                        ops.push(json!({
+                            "op": "DELETE",
+                            "index": previous.start + del_idx as u32,
+                        }));
+                        working[del_idx] = None;
+                    }
                 }
                 continue;
             }
@@ -1078,36 +952,28 @@ impl SlidingSyncService {
                 "index": previous.start + index as u32,
                 "room_id": room_id,
             }));
-            working.insert(index, room_id);
+            working[index] = Some(room_id);
             index += 1;
         }
 
-        if working == current.room_ids {
+        let working_ids: Vec<String> = working.iter().filter_map(|s| s.clone()).collect();
+        if working_ids == current.room_ids {
             Some(ops)
         } else {
             None
         }
     }
 
-    fn list_snapshot_cache_key(
-        user_id: &str,
-        device_id: &str,
-        conn_id: Option<&str>,
-        list_key: &str,
-    ) -> String {
+    fn list_snapshot_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>, list_key: &str) -> String {
         match conn_id {
-            Some(conn_id) => format!(
-                "sliding_sync:list:{user_id}:{device_id}:{conn_id}:{list_key}"
-            ),
+            Some(conn_id) => {
+                format!("sliding_sync:list:{user_id}:{device_id}:{conn_id}:{list_key}")
+            }
             None => format!("sliding_sync:list:{user_id}:{device_id}::{list_key}"),
         }
     }
 
-    fn e2ee_device_list_stream_cache_key(
-        user_id: &str,
-        device_id: &str,
-        conn_id: Option<&str>,
-    ) -> String {
+    fn e2ee_device_list_stream_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:{user_id}:{device_id}:{conn_id}"),
             None => format!("sliding_sync:e2ee:{user_id}:{device_id}:"),
@@ -1116,22 +982,18 @@ impl SlidingSyncService {
 
     async fn get_current_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
-            r#"
+            r"
             SELECT COALESCE(MAX(stream_id), 0)
             FROM device_lists_stream
-            "#,
+            ",
         )
         .fetch_one(&*self.event_storage.pool)
         .await
     }
 
-    async fn get_device_lists_since(
-        &self,
-        user_id: &str,
-        since_stream_id: i64,
-    ) -> Result<Value, sqlx::Error> {
+    async fn get_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Value, sqlx::Error> {
         let changed_rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT dls.user_id
             FROM device_lists_stream dls
             INNER JOIN room_memberships rm1 ON rm1.user_id = dls.user_id AND rm1.membership = 'join'
@@ -1140,7 +1002,7 @@ impl SlidingSyncService {
               AND dls.user_id != $2
             ORDER BY dls.user_id
             LIMIT 100
-            "#,
+            ",
         )
         .bind(since_stream_id)
         .bind(user_id)
@@ -1156,7 +1018,7 @@ impl SlidingSyncService {
             .collect();
 
         let left_rows = sqlx::query(
-            r#"
+            r"
             SELECT DISTINCT dls.user_id
             FROM device_lists_stream dls
             WHERE dls.stream_id > $1
@@ -1168,7 +1030,7 @@ impl SlidingSyncService {
               )
             ORDER BY dls.user_id
             LIMIT 100
-            "#,
+            ",
         )
         .bind(since_stream_id)
         .bind(user_id)
@@ -1197,7 +1059,7 @@ impl SlidingSyncService {
         limit: i64,
     ) -> Result<(Vec<Value>, Option<String>), sqlx::Error> {
         let rows = sqlx::query(
-            r#"
+            r"
             SELECT stream_id, sender_user_id, sender_device_id, event_type, content, message_id
             FROM to_device_messages
             WHERE recipient_user_id = $1
@@ -1205,7 +1067,7 @@ impl SlidingSyncService {
               AND stream_id > $3
             ORDER BY stream_id ASC
             LIMIT $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -1242,11 +1104,7 @@ impl SlidingSyncService {
             .collect();
 
         let next_batch = if events.is_empty() {
-            Some(
-                self.get_current_to_device_stream_id(user_id, device_id)
-                    .await?
-                    .to_string(),
-            )
+            Some(self.get_current_to_device_stream_id(user_id, device_id).await?.to_string())
         } else {
             Some(last_stream_id.to_string())
         };
@@ -1254,18 +1112,14 @@ impl SlidingSyncService {
         Ok((events, next_batch))
     }
 
-    async fn get_current_to_device_stream_id(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn get_current_to_device_stream_id(&self, user_id: &str, device_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
-            r#"
+            r"
             SELECT COALESCE(MAX(stream_id), 0)
             FROM to_device_messages
             WHERE recipient_user_id = $1
               AND recipient_device_id = $2
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(device_id)
@@ -1322,10 +1176,7 @@ mod tests {
         let ops = SlidingSyncService::build_sync_ops(&[SlidingListRangeSnapshot {
             start: 0,
             end: 1,
-            room_ids: vec![
-                "!room1:example.com".to_string(),
-                "!room2:example.com".to_string(),
-            ],
+            room_ids: vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()],
         }]);
 
         assert_eq!(ops.len(), 1);
@@ -1339,19 +1190,13 @@ mod tests {
             ranges: vec![SlidingListRangeSnapshot {
                 start: 0,
                 end: 1,
-                room_ids: vec![
-                    "!room1:example.com".to_string(),
-                    "!room2:example.com".to_string(),
-                ],
+                room_ids: vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()],
             }],
         };
         let current = vec![SlidingListRangeSnapshot {
             start: 0,
             end: 1,
-            room_ids: vec![
-                "!room0:example.com".to_string(),
-                "!room1:example.com".to_string(),
-            ],
+            room_ids: vec!["!room0:example.com".to_string(), "!room1:example.com".to_string()],
         }];
 
         let ops = SlidingSyncService::build_incremental_ops(&previous, &current).unwrap();
@@ -1368,7 +1213,7 @@ mod tests {
                     .connect_lazy("postgres://localhost/test")
                     .unwrap(),
             )),
-            cache: Arc::new(CacheManager::new(crate::cache::CacheConfig::default())),
+            cache: Arc::new(CacheManager::new(&crate::cache::CacheConfig::default())),
             event_storage: EventStorage::new(
                 &std::sync::Arc::new(
                     sqlx::postgres::PgPoolOptions::new()
@@ -1386,7 +1231,7 @@ mod tests {
                         .connect_lazy("postgres://localhost/test")
                         .unwrap(),
                 ),
-                Arc::new(CacheManager::new(crate::cache::CacheConfig::default())),
+                Arc::new(CacheManager::new(&crate::cache::CacheConfig::default())),
             ),
             member_storage: RoomMemberStorage::new(
                 &Arc::new(
@@ -1413,9 +1258,6 @@ mod tests {
 
         assert!(json.get("is_invite").is_some());
         assert!(json.get("is_tombstoned").is_none());
-        assert_eq!(
-            json.get("room_name_like").unwrap().as_str().unwrap(),
-            "test"
-        );
+        assert_eq!(json.get("room_name_like").unwrap().as_str().unwrap(), "test");
     }
 }

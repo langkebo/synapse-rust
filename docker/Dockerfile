@@ -1,6 +1,6 @@
 ARG RUST_VERSION=1.93
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12
-ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,voice-extended,cas-sso,saml-sso --no-default-features"
+ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,openclaw,voice-extended,cas-sso,saml-sso --no-default-features"
 
 # ============================================================================
 # Stage 1: builder — 编译 Rust 二进制 + 收集运行时所需文件到 /out/app

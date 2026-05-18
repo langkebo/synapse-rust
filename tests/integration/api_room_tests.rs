@@ -100,7 +100,7 @@ fn create_test_config() -> Config {
             suppress_key_server_warning: false,
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
-            key_rotation_grace_period_ms: 600000,
+            key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
             process_inbound_edus: false,
@@ -175,7 +175,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
 {
     let pool = super::get_test_pool().await?;
-    let cache = Arc::new(CacheManager::new(CacheConfig::default()));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let config = create_test_config();
     let container = ServiceContainer::new(&pool, cache.clone(), config, None).await;
     let state = AppState::new(container, cache.clone());

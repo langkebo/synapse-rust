@@ -49,16 +49,8 @@ pub struct EventBroadcaster {
     batch_tx: Arc<tokio::sync::Mutex<Option<BatchSender>>>,
 }
 
-type DbPendingRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    serde_json::Value,
-    i64,
-    i32,
-);
-type BatchSender = mpsc::UnboundedSender<(String, OutgoingItem)>;
+type DbPendingRow = (i64, String, String, Option<String>, serde_json::Value, i64, i32);
+type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
 impl EventBroadcaster {
     pub fn new(server_name: String) -> Self {
@@ -67,7 +59,7 @@ impl EventBroadcaster {
             federation_client: None,
             membership_storage: None,
             pending_queue: Arc::new(RwLock::new(Vec::new())),
-            backoff_schedule: vec![1000, 5000, 15000, 30000, 60000, 300000, 900000],
+            backoff_schedule: vec![1000, 5000, 15000, 30000, 60_000, 300000, 900000],
             pool: None,
             batch_tx: Arc::new(tokio::sync::Mutex::new(None)),
         }
@@ -100,13 +92,8 @@ impl EventBroadcaster {
         self.pool = Some(pool);
     }
 
-    pub async fn start_batch_sender(
-        &self,
-        origin: String,
-        batch_max_size: usize,
-        flush_interval_ms: u64,
-    ) {
-        let (tx, mut rx) = mpsc::unbounded_channel::<(String, OutgoingItem)>();
+    pub async fn start_batch_sender(&self, origin: String, batch_max_size: usize, flush_interval_ms: u64) {
+        let (tx, mut rx) = mpsc::channel::<(String, OutgoingItem)>(10000);
         *self.batch_tx.lock().await = Some(tx);
 
         let client = self.federation_client.clone();
@@ -117,8 +104,7 @@ impl EventBroadcaster {
 
         tokio::spawn(async move {
             let mut batches: HashMap<String, TransactionBatch> = HashMap::new();
-            let mut interval =
-                tokio::time::interval(tokio::time::Duration::from_millis(flush_interval_ms));
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(flush_interval_ms));
 
             loop {
                 tokio::select! {
@@ -188,7 +174,7 @@ impl EventBroadcaster {
     async fn push_pdu(&self, destination: &str, pdu: serde_json::Value) {
         let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
-            if let Err(e) = tx.send((destination.to_string(), OutgoingItem::Pdu(pdu))) {
+            if let Err(e) = tx.try_send((destination.to_string(), OutgoingItem::Pdu(pdu))) {
                 ::tracing::warn!("Failed to queue PDU for federation broadcast to {}: {}", destination, e);
             }
         }
@@ -197,7 +183,7 @@ impl EventBroadcaster {
     async fn push_edu(&self, destination: &str, edu: serde_json::Value) {
         let guard = self.batch_tx.lock().await;
         if let Some(tx) = guard.as_ref() {
-            if let Err(e) = tx.send((destination.to_string(), OutgoingItem::Edu(edu))) {
+            if let Err(e) = tx.try_send((destination.to_string(), OutgoingItem::Edu(edu))) {
                 ::tracing::warn!("Failed to queue EDU for federation broadcast to {}: {}", destination, e);
             }
         }
@@ -210,13 +196,13 @@ impl EventBroadcaster {
         };
 
         let rows: Vec<DbPendingRow> = sqlx::query_as(
-            r#"
+            r"
             SELECT id, destination, event_id, room_id, content, created_ts, retry_count
             FROM federation_queue
             WHERE status = 'pending'
             ORDER BY created_ts ASC
             LIMIT 500
-            "#,
+            ",
         )
         .fetch_all(pool)
         .await
@@ -233,15 +219,8 @@ impl EventBroadcaster {
             let transaction: FederationTransaction = match serde_json::from_value(content) {
                 Ok(txn) => txn,
                 Err(e) => {
-                    ::tracing::warn!(
-                        "Failed to deserialize persisted transaction {}: {}",
-                        db_id,
-                        e
-                    );
-                    let _ = sqlx::query("DELETE FROM federation_queue WHERE id = $1")
-                        .bind(db_id)
-                        .execute(pool)
-                        .await;
+                    ::tracing::warn!("Failed to deserialize persisted transaction {}: {}", db_id, e);
+                    let _ = sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await;
                     continue;
                 }
             };
@@ -256,10 +235,7 @@ impl EventBroadcaster {
         }
 
         if count > 0 {
-            ::tracing::info!(
-                "Recovered {} pending federation transactions from database",
-                count
-            );
+            ::tracing::info!("Recovered {} pending federation transactions from database", count);
         }
 
         Ok(count)
@@ -271,10 +247,7 @@ impl EventBroadcaster {
         event: &serde_json::Value,
         origin: &str,
     ) -> Result<(), FederationBroadcastError> {
-        let event_id = event
-            .get("event_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
+        let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or("unknown");
 
         let destinations = self.get_eligible_destinations(room_id).await;
 
@@ -290,11 +263,7 @@ impl EventBroadcaster {
                 }
                 self.push_pdu(destination, event.clone()).await;
             }
-            ::tracing::debug!(
-                "Pushed event {} to batch channel ({} destinations)",
-                event_id,
-                destinations.len()
-            );
+            ::tracing::debug!("Pushed event {} to batch channel ({} destinations)", event_id, destinations.len());
             return Ok(());
         }
 
@@ -303,11 +272,7 @@ impl EventBroadcaster {
             None => return Ok(()),
         };
 
-        let txn_id = format!(
-            "txn_{}_{}",
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4()
-        );
+        let txn_id = format!("txn_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
 
         for destination in &destinations {
             if destination == &self.server_name {
@@ -328,14 +293,8 @@ impl EventBroadcaster {
                     ::tracing::info!("Successfully sent event {} to {}", event_id, destination);
                 }
                 Err(e) => {
-                    ::tracing::warn!(
-                        "Failed to send event {} to {}: {}",
-                        event_id,
-                        destination,
-                        e
-                    );
-                    self.enqueue_for_retry(destination.clone(), transaction, 0)
-                        .await;
+                    ::tracing::warn!("Failed to send event {} to {}: {}", event_id, destination, e);
+                    self.enqueue_for_retry(destination.clone(), transaction, 0).await;
                 }
             }
         }
@@ -364,11 +323,7 @@ impl EventBroadcaster {
             None => return Ok(()),
         };
 
-        let txn_id = format!(
-            "edu_{}_{}",
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4()
-        );
+        let txn_id = format!("edu_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
 
         let transaction = FederationTransaction {
             transaction_id: txn_id,
@@ -420,11 +375,7 @@ impl EventBroadcaster {
                 continue;
             }
 
-            let txn_id = format!(
-                "edu_{}_{}",
-                chrono::Utc::now().timestamp_millis(),
-                uuid::Uuid::new_v4()
-            );
+            let txn_id = format!("edu_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
 
             let transaction = FederationTransaction {
                 transaction_id: txn_id,
@@ -436,14 +387,8 @@ impl EventBroadcaster {
             };
 
             if let Err(e) = client.send_transaction(destination, &transaction).await {
-                ::tracing::warn!(
-                    "Failed to send EDU to {} for room {}: {}",
-                    destination,
-                    room_id,
-                    e
-                );
-                self.enqueue_for_retry(destination.clone(), transaction, 0)
-                    .await;
+                ::tracing::warn!("Failed to send EDU to {} for room {}: {}", destination, room_id, e);
+                self.enqueue_for_retry(destination.clone(), transaction, 0).await;
             }
         }
 
@@ -453,8 +398,7 @@ impl EventBroadcaster {
     async fn get_eligible_destinations(&self, room_id: &str) -> Vec<String> {
         if let Some(membership_storage) = &self.membership_storage {
             if let Ok(members) = membership_storage.get_joined_members(room_id).await {
-                let mut servers: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                let mut servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for member in &members {
                     if let Some(pos) = member.user_id.find(':') {
                         let server = &member.user_id[pos + 1..];
@@ -474,11 +418,7 @@ impl EventBroadcaster {
         self.backoff_schedule[idx]
     }
 
-    async fn persist_transaction_to_db(
-        &self,
-        destination: &str,
-        transaction: &FederationTransaction,
-    ) -> Option<i64> {
+    async fn persist_transaction_to_db(&self, destination: &str, transaction: &FederationTransaction) -> Option<i64> {
         let pool = self.pool.as_ref()?;
 
         let content = match serde_json::to_value(transaction) {
@@ -490,29 +430,20 @@ impl EventBroadcaster {
         };
 
         let event_id = format!("txn:{}", transaction.transaction_id);
-        let event_type = if transaction.edus.is_empty() {
-            "m.room.event"
-        } else {
-            "m.edu"
-        };
+        let event_type = if transaction.edus.is_empty() { "m.room.event" } else { "m.edu" };
 
         let room_id = if !transaction.pdus.is_empty() {
-            transaction
-                .pdus
-                .first()
-                .and_then(|p| p.get("room_id"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
+            transaction.pdus.first().and_then(|p| p.get("room_id")).and_then(|v| v.as_str()).map(String::from)
         } else {
             None
         };
 
         match sqlx::query_as::<_, (i64,)>(
-            r#"
+            r"
             INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending')
             RETURNING id
-            "#,
+            ",
         )
         .bind(destination)
         .bind(&event_id)
@@ -533,63 +464,43 @@ impl EventBroadcaster {
 
     async fn update_db_status(&self, db_id: i64, status: &str) {
         if let Some(pool) = &self.pool {
-            let result = match status {
-                "sent" => {
-                    sqlx::query(
-                        "UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1",
-                    )
-                    .bind(db_id)
-                    .bind(chrono::Utc::now().timestamp_millis())
-                    .execute(pool)
-                    .await
-                }
-                "retry" => {
-                    sqlx::query(
+            let result =
+                match status {
+                    "sent" => {
+                        sqlx::query("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1")
+                            .bind(db_id)
+                            .bind(chrono::Utc::now().timestamp_millis())
+                            .execute(pool)
+                            .await
+                    }
+                    "retry" => sqlx::query(
                         "UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1",
                     )
                     .bind(db_id)
                     .execute(pool)
-                    .await
-                }
-                _ => {
-                    sqlx::query("UPDATE federation_queue SET status = $2 WHERE id = $1")
-                        .bind(db_id)
-                        .bind(status)
-                        .execute(pool)
-                        .await
-                }
-            };
+                    .await,
+                    _ => {
+                        sqlx::query("UPDATE federation_queue SET status = $2 WHERE id = $1")
+                            .bind(db_id)
+                            .bind(status)
+                            .execute(pool)
+                            .await
+                    }
+                };
 
             if let Err(e) = result {
-                ::tracing::warn!(
-                    "Failed to update federation_queue status for {}: {}",
-                    db_id,
-                    e
-                );
+                ::tracing::warn!("Failed to update federation_queue status for {}: {}", db_id, e);
             }
         }
     }
 
-    async fn enqueue_for_retry(
-        &self,
-        destination: String,
-        transaction: FederationTransaction,
-        retry_count: u32,
-    ) {
+    async fn enqueue_for_retry(&self, destination: String, transaction: FederationTransaction, retry_count: u32) {
         let delay = self.get_backoff_delay(retry_count);
         let next_retry_at = chrono::Utc::now().timestamp_millis() + delay as i64;
 
-        let db_id = self
-            .persist_transaction_to_db(&destination, &transaction)
-            .await;
+        let db_id = self.persist_transaction_to_db(&destination, &transaction).await;
 
-        let pending = PendingTransaction {
-            destination,
-            transaction,
-            retry_count,
-            next_retry_at,
-            db_id,
-        };
+        let pending = PendingTransaction { destination, transaction, retry_count, next_retry_at, db_id };
 
         let mut queue = self.pending_queue.write().await;
         queue.push(pending.clone());
@@ -633,10 +544,7 @@ impl EventBroadcaster {
                 continue;
             }
 
-            match client
-                .send_transaction(&pending.destination, &pending.transaction)
-                .await
-            {
+            match client.send_transaction(&pending.destination, &pending.transaction).await {
                 Ok(_) => {
                     ::tracing::info!(
                         "Retry succeeded for transaction to {} (attempt {})",
@@ -677,23 +585,18 @@ impl EventBroadcaster {
         self.pending_queue.read().await.len()
     }
 
-    pub async fn cleanup_old_transactions(
-        &self,
-        older_than_ts: i64,
-    ) -> Result<u64, FederationBroadcastError> {
+    pub async fn cleanup_old_transactions(&self, older_than_ts: i64) -> Result<u64, FederationBroadcastError> {
         let pool = match &self.pool {
             Some(p) => p,
             None => return Ok(0),
         };
 
-        sqlx::query(
-            "DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1",
-        )
-        .bind(older_than_ts)
-        .execute(pool)
-        .await
-        .map(|r| r.rows_affected())
-        .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
+        sqlx::query("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1")
+            .bind(older_than_ts)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+            .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
     }
 }
 
@@ -715,11 +618,7 @@ async fn send_batch(
     }
 
     let txn = FederationTransaction {
-        transaction_id: format!(
-            "batch_{}_{}",
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4()
-        ),
+        transaction_id: format!("batch_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4()),
         origin: batch.origin.clone(),
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
         destination: destination.to_string(),
@@ -729,12 +628,7 @@ async fn send_batch(
 
     match client.send_transaction(destination, &txn).await {
         Ok(_) => {
-            ::tracing::debug!(
-                "Batch sent to {} ({} PDUs, {} EDUs)",
-                destination,
-                txn.pdus.len(),
-                txn.edus.len()
-            );
+            ::tracing::debug!("Batch sent to {} ({} PDUs, {} EDUs)", destination, txn.pdus.len(), txn.edus.len());
         }
         Err(e) => {
             ::tracing::warn!(
@@ -763,11 +657,11 @@ async fn send_batch(
 
                 let event_id = format!("txn:{}", txn.transaction_id);
                 sqlx::query_as::<_, (i64,)>(
-                    r#"
+                    r"
                     INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
                     VALUES ($1, $2, 'm.room.event', NULL, $3, $4, 'pending')
                     RETURNING id
-                    "#,
+                    ",
                 )
                 .bind(destination)
                 .bind(&event_id)

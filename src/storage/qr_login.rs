@@ -27,12 +27,12 @@ impl QrLoginStorage {
         let expires_at = now + 300000;
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO qr_login_transactions (transaction_id, user_id, device_id, status, created_ts, expires_at)
             VALUES ($1, $2, $3, 'pending', $4, $5)
             ON CONFLICT (transaction_id) DO UPDATE 
             SET user_id = EXCLUDED.user_id, device_id = EXCLUDED.device_id, status = 'pending', expires_at = EXCLUDED.expires_at
-            "#,
+            ",
         )
         .bind(transaction_id)
         .bind(user_id)
@@ -62,11 +62,11 @@ impl QrLoginStorage {
                 i64,
             ),
         >(
-            r#"
+            r"
             SELECT transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at 
             FROM qr_login_transactions 
             WHERE transaction_id = $1
-            "#,
+            ",
         )
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
@@ -96,11 +96,11 @@ impl QrLoginStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
-            r#"
+            r"
             UPDATE qr_login_transactions 
             SET status = $2, updated_ts = $3
             WHERE transaction_id = $1
-            "#,
+            ",
         )
         .bind(transaction_id)
         .bind(status)
@@ -114,10 +114,10 @@ impl QrLoginStorage {
     /// Delete QR login transaction (cleanup)
     pub async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM qr_login_transactions 
             WHERE transaction_id = $1
-            "#,
+            ",
         )
         .bind(transaction_id)
         .execute(&*self.pool)
@@ -130,10 +130,10 @@ impl QrLoginStorage {
     pub async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM qr_login_transactions 
             WHERE expires_at < $1
-            "#,
+            ",
         )
         .bind(now)
         .execute(&*self.pool)
