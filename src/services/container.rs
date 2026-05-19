@@ -169,6 +169,7 @@ pub struct ServiceContainer {
     #[cfg(not(feature = "builtin-oidc"))]
     pub builtin_oidc_provider: Option<()>,
     pub identity_service: Arc<crate::services::identity::IdentityService>,
+    pub translation_service: Arc<crate::services::translation_service::TranslationService>,
     pub uia_service: Arc<crate::services::uia_service::UiaService>,
     pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
 }
@@ -906,6 +907,21 @@ impl ServiceContainer {
             config.identity.trusted_servers.clone(),
         ));
 
+        // Translation service
+        let translation_service = Arc::new(
+            crate::services::translation_service::TranslationService::new(
+                config.translate.clone(),
+            ),
+        );
+        if config.translate.is_configured() {
+            ::tracing::info!(
+                "Translation service enabled (provider: {})",
+                config.translate.provider
+            );
+        } else {
+            ::tracing::info!("Translation service disabled (passthrough mode)");
+        }
+
         // VoIP service (singleton — avoids per-request allocation)
         let voip_service = Arc::new(
             crate::services::voip_service::VoipService::new(Arc::new(config.voip.clone())),
@@ -1038,6 +1054,7 @@ impl ServiceContainer {
             voip_service,
             builtin_oidc_provider,
             identity_service,
+            translation_service,
             uia_service: Arc::new(crate::services::uia_service::UiaService::new(
                 cache.clone(),
                 ui_auth_session_timeout,
@@ -1264,6 +1281,7 @@ fn build_test_config() -> Config {
         performance: crate::common::config::PerformanceConfig::default(),
         experimental: crate::common::config::ExperimentalConfig::default(),
         identity: crate::common::config::IdentityConfig::default(),
+        translate: crate::common::config::TranslateConfig::default(),
     }
 }
 
