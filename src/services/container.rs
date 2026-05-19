@@ -1072,6 +1072,7 @@ impl ServiceContainer {
             let db_url = std::env::var("TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
                 .unwrap_or_else(|_| crate::test_config::test_database_url());
+            #[allow(clippy::expect_used)]
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
                     .max_connections(crate::test_utils::configured_test_pool_max_connections())

@@ -358,7 +358,10 @@ impl RouteModule for AiConnectionModule {
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         if state.services.config.experimental.openclaw_routes_enabled {
-            router.merge(ai_connection::create_ai_connection_router())
+            router.nest(
+                "/_matrix/client/v1/ai",
+                ai_connection::create_ai_connection_router(),
+            )
         } else {
             router
         }
@@ -493,8 +496,8 @@ mod tests {
     #[test]
     fn ai_connection_manifest_declares_core_routes() {
         let entries = ai_connection::ai_connection_route_manifest();
-        assert!(contains(&entries, Method::GET, "/connections"));
-        assert!(contains(&entries, Method::POST, "/mcp/tools/call"));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/ai/connections"));
+        assert!(contains(&entries, Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"));
     }
 
     #[cfg(feature = "openclaw-routes")]

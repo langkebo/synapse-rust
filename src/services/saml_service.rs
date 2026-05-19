@@ -510,8 +510,7 @@ impl SamlService {
             attributes
                 .get(uid_attr)
                 .and_then(|v| v.first())
-                .map(|s| self.config.user_id_template.replace("{uid}", s))
-                .unwrap_or_else(|| name_id.to_string())
+                .map_or_else(|| name_id.to_string(), |s| self.config.user_id_template.replace("{uid}", s))
         } else {
             name_id.to_string()
         };
