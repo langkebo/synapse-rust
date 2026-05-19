@@ -45,6 +45,7 @@ pub mod sliding_sync_service;
 pub mod sync_service;
 pub mod telemetry_service;
 pub mod thread_service;
+pub mod translation_service;
 
 pub mod directory_service;
 pub mod dm_service;
