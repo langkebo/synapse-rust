@@ -40,6 +40,12 @@ pub fn ai_connection_route_manifest() -> Vec<crate::web::routes::route_ledger::R
         (Method::DELETE, "/_matrix/client/v1/ai/connections/{id}"),
         (Method::GET, "/_matrix/client/v1/ai/mcp/tools"),
         (Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"),
+        (Method::GET, "/_matrix/client/v3/ai/connections"),
+        (Method::POST, "/_matrix/client/v3/ai/connections"),
+        (Method::GET, "/_matrix/client/v3/ai/connections/{id}"),
+        (Method::DELETE, "/_matrix/client/v3/ai/connections/{id}"),
+        (Method::GET, "/_matrix/client/v3/ai/mcp/tools"),
+        (Method::POST, "/_matrix/client/v3/ai/mcp/tools/call"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "ai_connection"))
