@@ -199,7 +199,7 @@ impl PrivacyStorage {
 
         let can_view = match settings.profile_visibility.as_str() {
             "public" => true,
-            "private" => viewer_id.map_or(false, |v| v == target_user_id),
+            "private" => viewer_id == Some(target_user_id),
             "contacts" => {
                 if let Some(viewer) = viewer_id {
                     self.are_contacts(viewer, target_user_id).await?
@@ -222,7 +222,7 @@ impl PrivacyStorage {
 
         let can_view = match settings.presence_visibility.as_str() {
             "public" => true,
-            "private" => viewer_id.map_or(false, |v| v == target_user_id),
+            "private" => viewer_id == Some(target_user_id),
             "contacts" => {
                 if let Some(viewer) = viewer_id {
                     self.are_contacts(viewer, target_user_id).await?

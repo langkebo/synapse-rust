@@ -1,3 +1,4 @@
+#![allow(clippy::unused_async)]
 use super::{ensure_room_member, AppState, AuthenticatedUser};
 use crate::common::ApiError;
 use crate::services::voice_service::VoiceMessageUploadParams;

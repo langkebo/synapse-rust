@@ -210,7 +210,7 @@ impl ExternalServiceIntegration {
         let signature_matches = auth
             .signature
             .as_deref()
-            .map(|signature| {
+            .is_some_and(|signature| {
                 let normalized = signature.strip_prefix("sha256=").unwrap_or(signature);
                 secrets.iter().any(|secret| {
                     let expected = URL_SAFE_NO_PAD
@@ -218,8 +218,7 @@ impl ExternalServiceIntegration {
                     crate::common::crypto::secure_compare(normalized, &expected)
                         || crate::common::crypto::secure_compare(signature, &expected)
                 })
-            })
-            .unwrap_or(false);
+            });
 
         if signature_matches {
             return Ok(());
@@ -526,8 +525,7 @@ impl ExternalServiceIntegration {
             .data
             .get("room_id")
             .and_then(|r| r.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("!webhook_{}:{}", service_id, self.server_name));
+            .map_or_else(|| format!("!webhook_{}:{}", service_id, self.server_name), |s| s.to_string());
 
         self.storage
             .add_event(

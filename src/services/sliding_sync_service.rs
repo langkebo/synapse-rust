@@ -934,13 +934,13 @@ impl SlidingSyncService {
 
             let find_offset = working[index + 1..].iter().position(|s| s.as_deref() == Some(&current.room_ids[index]));
             if let Some(offset) = find_offset {
-                for del_idx in index..=index + offset {
-                    if working[del_idx].is_some() {
+                for (del_idx, item) in working.iter_mut().enumerate().take(index + offset + 1).skip(index) {
+                    if item.is_some() {
                         ops.push(json!({
                             "op": "DELETE",
                             "index": previous.start + del_idx as u32,
                         }));
-                        working[del_idx] = None;
+                        *item = None;
                     }
                 }
                 continue;

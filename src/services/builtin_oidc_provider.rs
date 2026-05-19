@@ -143,10 +143,8 @@ pub struct BuiltinOidcProvider {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
     key_id: String,
-    auth_sessions:
-        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
-    refresh_tokens:
-        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
+    auth_sessions: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
+    refresh_tokens: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -178,9 +176,7 @@ const AUTH_CODE_EXPIRY_SECS: i64 = 600;
 impl BuiltinOidcProvider {
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
         let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
-        let der = signing_key
-            .to_pkcs1_der()
-            .map_err(|e| ApiError::internal(format!("OIDC RSA serialize: {}", e)))?;
+        let der = signing_key.to_pkcs1_der().map_err(|e| ApiError::internal(format!("OIDC RSA serialize: {}", e)))?;
         let encoding_key = EncodingKey::from_rsa_der(der.as_bytes());
 
         let public_der = signing_key
@@ -220,8 +216,8 @@ impl BuiltinOidcProvider {
 
         info!("Generating new RSA-2048 key for builtin OIDC provider");
         let mut rng = rand::thread_rng();
-        let key = RsaPrivateKey::new(&mut rng, 2048)
-            .map_err(|e| ApiError::internal(format!("OIDC RSA generate: {}", e)))?;
+        let key =
+            RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal(format!("OIDC RSA generate: {}", e)))?;
 
         if let Some(p) = path {
             use rsa::pkcs8::EncodePrivateKey;
@@ -260,11 +256,7 @@ impl BuiltinOidcProvider {
             response_types_supported: vec!["code".to_string()],
             subject_types_supported: vec!["public".to_string()],
             id_token_signing_alg_values_supported: vec!["RS256".to_string()],
-            scopes_supported: vec![
-                "openid".to_string(),
-                "profile".to_string(),
-                "email".to_string(),
-            ],
+            scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
             token_endpoint_auth_methods_supported: vec![
                 "client_secret_basic".to_string(),
                 "client_secret_post".to_string(),
@@ -309,18 +301,13 @@ impl BuiltinOidcProvider {
         let user = self.verify_user(&request.username, &request.password)?;
 
         // 验证 client_id
-        if !self.config.allow_client_ids.is_empty()
-            && !self.config.allow_client_ids.contains(&request.client_id)
-        {
+        if !self.config.allow_client_ids.is_empty() && !self.config.allow_client_ids.contains(&request.client_id) {
             return Err(ApiError::unauthorized("Invalid client_id".to_string()));
         }
 
         // 验证 redirect_uri
         if !self.config.allow_redirect_uris.is_empty()
-            && !self
-                .config
-                .allow_redirect_uris
-                .contains(&request.redirect_uri)
+            && !self.config.allow_redirect_uris.contains(&request.redirect_uri)
         {
             return Err(ApiError::unauthorized("Invalid redirect_uri".to_string()));
         }
@@ -341,10 +328,7 @@ impl BuiltinOidcProvider {
             created_at: Instant::now(),
         };
 
-        self.auth_sessions
-            .write()
-            .await
-            .insert(code.clone(), session);
+        self.auth_sessions.write().await.insert(code.clone(), session);
 
         info!("OIDC authorization code generated for user: {}", user.id);
         Ok(code)
@@ -361,32 +345,19 @@ impl BuiltinOidcProvider {
         }
     }
 
-    async fn handle_authorization_code_grant(
-        &self,
-        request: OidcTokenRequest,
-    ) -> Result<OidcTokenResponse, ApiError> {
-        let code = request
-            .code
-            .as_ref()
-            .ok_or(ApiError::bad_request("Missing code".to_string()))?;
-        let redirect_uri = request
-            .redirect_uri
-            .as_ref()
-            .ok_or(ApiError::bad_request("Missing redirect_uri".to_string()))?;
-        let client_id = request
-            .client_id
-            .as_ref()
-            .ok_or(ApiError::bad_request("Missing client_id".to_string()))?;
+    async fn handle_authorization_code_grant(&self, request: OidcTokenRequest) -> Result<OidcTokenResponse, ApiError> {
+        let code = request.code.as_ref().ok_or(ApiError::bad_request("Missing code".to_string()))?;
+        let redirect_uri =
+            request.redirect_uri.as_ref().ok_or(ApiError::bad_request("Missing redirect_uri".to_string()))?;
+        let client_id = request.client_id.as_ref().ok_or(ApiError::bad_request("Missing client_id".to_string()))?;
 
         // 提取会话
-        let session =
-            self.auth_sessions
-                .write()
-                .await
-                .remove(code)
-                .ok_or(ApiError::unauthorized(
-                    "Invalid or expired code".to_string(),
-                ))?;
+        let session = self
+            .auth_sessions
+            .write()
+            .await
+            .remove(code)
+            .ok_or(ApiError::unauthorized("Invalid or expired code".to_string()))?;
 
         // 验证会话
         if session.redirect_uri != *redirect_uri {
@@ -401,22 +372,19 @@ impl BuiltinOidcProvider {
 
         // PKCE 验证: 若 authorize 阶段绑定了 code_challenge, 则必须提供并匹配 code_verifier
         if let Some(ref challenge) = session.code_challenge {
-            let verifier = request.code_verifier.as_deref().ok_or_else(|| {
-                ApiError::bad_request("Missing code_verifier (PKCE required)".to_string())
-            })?;
+            let verifier = request
+                .code_verifier
+                .as_deref()
+                .ok_or_else(|| ApiError::bad_request("Missing code_verifier (PKCE required)".to_string()))?;
             if verifier.len() < 43 || verifier.len() > 128 {
-                return Err(ApiError::bad_request(
-                    "code_verifier length must be 43..=128".to_string(),
-                ));
+                return Err(ApiError::bad_request("code_verifier length must be 43..=128".to_string()));
             }
             let mut hasher = Sha256::new();
             hasher.update(verifier.as_bytes());
             let computed = URL_SAFE_NO_PAD.encode(hasher.finalize());
             // 常量时间比较, 抵御 timing
             if computed.as_bytes().ct_eq(challenge.as_bytes()).unwrap_u8() != 1 {
-                return Err(ApiError::unauthorized(
-                    "PKCE code_verifier mismatch".to_string(),
-                ));
+                return Err(ApiError::unauthorized("PKCE code_verifier mismatch".to_string()));
             }
         }
 
@@ -430,11 +398,8 @@ impl BuiltinOidcProvider {
 
         // 生成令牌 (先 access, 再用 access 计算 at_hash)
         let access_token = self.generate_access_token(user, session.scope.as_str())?;
-        let id_token =
-            self.generate_id_token(user, client_id, session.nonce.as_deref(), &access_token)?;
-        let refresh_token = self
-            .generate_refresh_token(user, session.scope.as_str())
-            .await?;
+        let id_token = self.generate_id_token(user, client_id, session.nonce.as_deref(), &access_token)?;
+        let refresh_token = self.generate_refresh_token(user, session.scope.as_str()).await?;
 
         Ok(OidcTokenResponse {
             access_token,
@@ -446,14 +411,9 @@ impl BuiltinOidcProvider {
         })
     }
 
-    async fn handle_refresh_token_grant(
-        &self,
-        request: OidcTokenRequest,
-    ) -> Result<OidcTokenResponse, ApiError> {
-        let refresh_token = request
-            .refresh_token
-            .as_ref()
-            .ok_or(ApiError::bad_request("Missing refresh_token".to_string()))?;
+    async fn handle_refresh_token_grant(&self, request: OidcTokenRequest) -> Result<OidcTokenResponse, ApiError> {
+        let refresh_token =
+            request.refresh_token.as_ref().ok_or(ApiError::bad_request("Missing refresh_token".to_string()))?;
 
         // 查找 refresh token
         let token_data = self
@@ -516,9 +476,7 @@ impl BuiltinOidcProvider {
             .users
             .iter()
             .find(|u| u.username == username)
-            .ok_or(ApiError::unauthorized(
-                "Invalid username or password".to_string(),
-            ))?;
+            .ok_or(ApiError::unauthorized("Invalid username or password".to_string()))?;
 
         if let Some(ref phc) = user.password_hash {
             let parsed = PasswordHash::new(phc).map_err(|e| {
@@ -543,9 +501,7 @@ impl BuiltinOidcProvider {
             }
         }
 
-        Err(ApiError::unauthorized(
-            "Invalid username or password".to_string(),
-        ))
+        Err(ApiError::unauthorized("Invalid username or password".to_string()))
     }
 
     /// 计算 at_hash: BASE64URL( left-128-bit( SHA256(access_token) ) ) for RS256
@@ -573,7 +529,7 @@ impl BuiltinOidcProvider {
             iss: self.config.issuer.clone(),
             sub: user.id.clone(),
             aud: client_id.to_string(),
-            exp: now + OIDC_TOKEN_EXPIRY_SECS as i64,
+            exp: now + OIDC_TOKEN_EXPIRY_SECS,
             iat: now,
             nonce: nonce.map(String::from),
             at_hash: Some(Self::compute_at_hash(access_token)),
@@ -590,11 +546,7 @@ impl BuiltinOidcProvider {
     }
 
     /// 生成 Access Token (RS256, 与 id_token 算法一致, 防止 alg 混淆)
-    fn generate_access_token(
-        &self,
-        user: &BuiltinOidcUser,
-        scope: &str,
-    ) -> Result<String, ApiError> {
+    fn generate_access_token(&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| ApiError::internal(format!("clock: {}", e)))?
@@ -604,7 +556,7 @@ impl BuiltinOidcProvider {
             iss: self.config.issuer.clone(),
             sub: user.id.clone(),
             aud: vec![self.config.issuer.clone()],
-            exp: now + OIDC_TOKEN_EXPIRY_SECS as i64,
+            exp: now + OIDC_TOKEN_EXPIRY_SECS,
             iat: now,
             jti: Uuid::new_v4().to_string(),
             scope: scope.to_string(),
@@ -617,11 +569,7 @@ impl BuiltinOidcProvider {
     }
 
     /// 生成 Refresh Token
-    async fn generate_refresh_token(
-        &self,
-        user: &BuiltinOidcUser,
-        scope: &str,
-    ) -> Result<String, ApiError> {
+    async fn generate_refresh_token(&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiError> {
         let token = Uuid::new_v4().to_string();
 
         let refresh_token = RefreshToken {
@@ -631,10 +579,7 @@ impl BuiltinOidcProvider {
             created_at: Instant::now(),
         };
 
-        self.refresh_tokens
-            .write()
-            .await
-            .insert(token.clone(), refresh_token);
+        self.refresh_tokens.write().await.insert(token.clone(), refresh_token);
 
         Ok(token)
     }

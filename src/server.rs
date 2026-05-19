@@ -20,7 +20,7 @@ use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, request_debug_middleware,
     request_timeout_middleware, set_bind_address, set_config_allowed_origins,
-    validate_bind_address_for_dev_mode,
+    set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
 };
 use crate::web::routes::create_router;
 use crate::web::AppState;
@@ -54,6 +54,12 @@ impl SynapseServer {
         // ALLOWED_ORIGINS env var when they have already configured the file.
         set_config_allowed_origins(config.cors.allowed_origins.clone());
         set_bind_address(config.server.host.clone());
+
+        let trust_forwarded = std::env::var("TRUST_FORWARDED_HEADERS")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false);
+        set_trust_forwarded_headers(trust_forwarded);
 
         let cors_report = check_cors_security();
         log_cors_security_report(&cors_report);
