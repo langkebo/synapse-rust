@@ -937,18 +937,41 @@ pub(crate) async fn translate_room_event(
         .get("body")
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    let requested_text = body.get("text").and_then(|value| value.as_str());
+
+    // Extract target language from request body, falling back to config default
+    let target_lang = body
+        .get("target_lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&state.services.config.translate.default_target_lang);
+
+    // Extract optional source language from request body
+    let source_lang = body.get("source_lang").and_then(|v| v.as_str());
+
+    // Use the text field if provided, otherwise use the event body
+    let text_to_translate = body
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or(source_text);
+
+    // Call the translation service
+    let translation_result = state
+        .services
+        .translation_service
+        .translate(text_to_translate, target_lang, source_lang)
+        .await
+        .map_err(|e| {
+            ::tracing::warn!("Translation failed: {}", e);
+            ApiError::bad_request(&format!("Translation failed: {}", e))
+        })?;
 
     Ok(Json(json!({
         "room_id": room_id,
         "event_id": event_id,
         "source_text": source_text,
-        "requested_text": requested_text,
-        "translated_text": if source_text.is_empty() {
-            requested_text.unwrap_or("")
-        } else {
-            source_text
-        }
+        "translated_text": translation_result.translated_text,
+        "detected_source_lang": translation_result.detected_source_lang,
+        "target_lang": translation_result.target_lang,
+        "provider": translation_result.provider
     })))
 }
 
