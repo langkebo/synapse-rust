@@ -363,7 +363,7 @@ async fn proxy(
     let response = CasValidationResponse::Success {
         user: ticket.user_id.clone(),
         attributes: std::collections::HashMap::new(),
-        proxy_granting_ticket: Some(ticket.proxy_ticket_id.clone()),
+        proxy_granting_ticket: Some(ticket.proxy_ticket_id),
     };
 
     Ok((

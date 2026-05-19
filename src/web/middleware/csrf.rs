@@ -213,8 +213,7 @@ mod tests {
             .uri("/submit")
             .header("cookie", "sid=session-cookie")
             .header("origin", "https://evil.example.com")
-            .header("x-forwarded-host", "matrix.example.com")
-            .header("x-forwarded-proto", "https")
+            .header("host", "matrix.example.com")
             .body(Body::empty())
             .expect("request should build");
 
@@ -254,8 +253,7 @@ mod tests {
             .uri("/submit")
             .header("cookie", "sid=session-cookie")
             .header("origin", "https://matrix.example.com")
-            .header("x-forwarded-host", "matrix.example.com")
-            .header("x-forwarded-proto", "https")
+            .header("host", "matrix.example.com")
             .body(Body::empty())
             .expect("request should build");
 
@@ -299,8 +297,7 @@ mod tests {
             .uri("/submit")
             .header("cookie", session_id)
             .header("origin", "https://matrix.example.com")
-            .header("x-forwarded-host", "matrix.example.com")
-            .header("x-forwarded-proto", "https")
+            .header("host", "matrix.example.com")
             .header("x-csrf-token", csrf_token)
             .body(Body::empty())
             .expect("request should build");
@@ -338,7 +335,40 @@ mod tests {
     }
 
     #[test]
-    fn test_same_origin_uses_forwarded_host_and_proto() {
+    fn test_same_origin_ignores_forwarded_headers_by_default() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-host",
+            "matrix.example.com".parse().expect("valid host header"),
+        );
+        headers.insert(
+            "x-forwarded-proto",
+            "https".parse().expect("valid proto header"),
+        );
+
+        assert!(!same_origin("https://matrix.example.com", &headers));
+    }
+
+    #[test]
+    fn test_same_origin_uses_host_header_when_forwarded_not_trusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "host",
+            "matrix.example.com".parse().expect("valid host header"),
+        );
+        headers.insert(
+            "x-forwarded-host",
+            "evil.example.com".parse().expect("valid host header"),
+        );
+
+        assert!(same_origin("https://matrix.example.com", &headers));
+        assert!(!same_origin("https://evil.example.com", &headers));
+    }
+
+    #[test]
+    fn test_same_origin_uses_forwarded_host_and_proto_when_trusted() {
+        super::super::set_trust_forwarded_headers(true);
+
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-host",
@@ -351,5 +381,7 @@ mod tests {
 
         assert!(same_origin("https://matrix.example.com", &headers));
         assert!(!same_origin("https://other.example.com", &headers));
+
+        super::super::set_trust_forwarded_headers(false);
     }
 }

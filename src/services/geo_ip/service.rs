@@ -6,10 +6,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+type GeoIpCache = HashMap<String, (GeoIpResult, Instant)>;
+
 pub struct GeoIpService {
     config: GeoIpConfig,
     http_client: reqwest::Client,
-    cache: Arc<RwLock<HashMap<String, (GeoIpResult, Instant)>>>,
+    cache: Arc<RwLock<GeoIpCache>>,
     rules: Arc<RwLock<Vec<IpAccessRule>>>,
     cache_ttl: Duration,
 }

@@ -14,6 +14,7 @@ pub use security::*;
 
 use axum::http::{HeaderMap, Method};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use regex::Regex;
 use url::Url;
 
@@ -31,9 +32,25 @@ static CORS_ORIGINS_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
 
 static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static BIND_ADDRESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static TRUST_FORWARDED_HEADERS: AtomicBool = AtomicBool::new(false);
 
 pub fn set_bind_address(addr: String) {
     let _ = BIND_ADDRESS.set(addr);
+}
+
+pub fn set_trust_forwarded_headers(trust: bool) {
+    let was_trusted = TRUST_FORWARDED_HEADERS.swap(trust, Ordering::SeqCst);
+    if trust && !was_trusted {
+        tracing::warn!(
+            "TRUST_FORWARDED_HEADERS is enabled. Only enable this when running behind a trusted \
+             reverse proxy that strips incoming x-forwarded-* headers. \
+             If clients can set these headers directly, CSRF same-origin checks can be bypassed."
+        );
+    }
+}
+
+pub(crate) fn is_forwarded_headers_trusted() -> bool {
+    TRUST_FORWARDED_HEADERS.load(Ordering::SeqCst)
 }
 
 pub(crate) fn is_localhost_bind() -> bool {
@@ -110,14 +127,25 @@ pub(crate) fn normalize_origin(origin: &str) -> String {
 }
 
 pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
-    let host = headers
-        .get("x-forwarded-host")
-        .or_else(|| headers.get("host"))
-        .and_then(|value| value.to_str().ok())?;
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("https");
+    let host = if is_forwarded_headers_trusted() {
+        headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
+            .and_then(|value| value.to_str().ok())?
+    } else {
+        headers
+            .get("host")
+            .and_then(|value| value.to_str().ok())?
+    };
+
+    let scheme = if is_forwarded_headers_trusted() {
+        headers
+            .get("x-forwarded-proto")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("https")
+    } else {
+        "https"
+    };
 
     Some(normalize_origin(&format!("{scheme}://{host}")))
 }
