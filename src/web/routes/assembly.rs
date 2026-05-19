@@ -38,8 +38,6 @@ use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 /// Leaving it out means the duplicate detector won't catch your router
 /// clashing with an existing one.
 fn base_route_manifest() -> RouteLedger {
-    #[cfg(feature = "openclaw-routes")]
-    use crate::web::routes::route_ledger::expand_under_prefixes;
     let mut ledger = RouteLedger::new();
     ledger.extend(top_level_inline_manifest());
     ledger.extend(assembly_compat_manifest());
@@ -78,19 +76,6 @@ fn base_route_manifest() -> RouteLedger {
     ledger.extend(app_service::app_service_route_manifest());
     ledger.extend(crate::web::routes::handlers::thread::thread_route_manifest());
     ledger.extend(crate::web::routes::handlers::search::search_route_manifest());
-    #[cfg(feature = "openclaw-routes")]
-    ledger.extend(expand_under_prefixes(
-        "ai_connection",
-        &["/_matrix/client/v1/ai", "/_matrix/client/v3/ai"],
-        &[
-            (Method::GET, "/connections"),
-            (Method::POST, "/connections"),
-            (Method::GET, "/connections/{id}"),
-            (Method::DELETE, "/connections/{id}"),
-            (Method::GET, "/mcp/tools"),
-            (Method::POST, "/mcp/tools/call"),
-        ],
-    ));
     ledger
 }
 
@@ -798,18 +783,6 @@ pub fn create_router(state: AppState) -> Router {
         ))
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_presence_router());
-    #[cfg(feature = "openclaw-routes")]
-    {
-        router = router
-            .nest(
-                "/_matrix/client/v1/ai",
-                create_ai_connection_router().with_state(state.clone()),
-            )
-            .nest(
-                "/_matrix/client/v3/ai",
-                create_ai_connection_router().with_state(state.clone()),
-            );
-    }
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))

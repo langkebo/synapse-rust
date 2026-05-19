@@ -358,10 +358,15 @@ impl RouteModule for AiConnectionModule {
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         if state.services.config.experimental.openclaw_routes_enabled {
-            router.nest(
-                "/_matrix/client/v1/ai",
-                ai_connection::create_ai_connection_router(),
-            )
+            router
+                .nest(
+                    "/_matrix/client/v1/ai",
+                    ai_connection::create_ai_connection_router(),
+                )
+                .nest(
+                    "/_matrix/client/v3/ai",
+                    ai_connection::create_ai_connection_router(),
+                )
         } else {
             router
         }
