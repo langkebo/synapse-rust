@@ -119,10 +119,10 @@ pub async fn get_capabilities(
             "providers": if saml_enabled { json!(["saml"]) } else { json!([]) }
         },
         "m.voice": { "enabled": true },
-        "io.hula.burn_after_read": { "enabled": true },
+        "io.hula.burn_after_read": { "enabled": cfg!(feature = "burn-after-read") },
         "m.thread": { "enabled": true },
         "io.hula.sliding_sync": { "enabled": true },
-        "io.hula.widget": { "enabled": true }
+        "io.hula.widget": { "enabled": cfg!(feature = "widgets") }
     });
 
     #[cfg(feature = "openclaw-routes")]
@@ -157,6 +157,60 @@ pub async fn get_capabilities(
     {
         if let Some(caps) = capabilities.as_object_mut() {
             caps.insert("external_services".to_string(), json!({ "enabled": false }));
+        }
+    }
+
+    // Voice extended (MSC3245 extended server-side features)
+    #[cfg(feature = "voice-extended")]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.voice_extended".to_string(), json!({ "enabled": true }));
+        }
+    }
+    #[cfg(not(feature = "voice-extended"))]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.voice_extended".to_string(), json!({ "enabled": false }));
+        }
+    }
+
+    // CAS SSO
+    #[cfg(feature = "cas-sso")]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            if let Some(sso) = caps.get_mut("m.sso").and_then(|v| v.as_object_mut()) {
+                if let Some(providers) = sso.get_mut("providers").and_then(|v| v.as_array_mut()) {
+                    providers.push(json!("cas"));
+                }
+            }
+        }
+    }
+
+    // Widgets
+    #[cfg(feature = "widgets")]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.widget".to_string(), json!({ "enabled": true }));
+        }
+    }
+    #[cfg(not(feature = "widgets"))]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.widget".to_string(), json!({ "enabled": false }));
+        }
+    }
+
+    // Burn after read
+    #[cfg(feature = "burn-after-read")]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.burn_after_read".to_string(), json!({ "enabled": true }));
+        }
+    }
+    #[cfg(not(feature = "burn-after-read"))]
+    {
+        if let Some(caps) = capabilities.as_object_mut() {
+            caps.insert("io.hula.burn_after_read".to_string(), json!({ "enabled": false }));
         }
     }
 

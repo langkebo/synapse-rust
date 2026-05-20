@@ -1,5 +1,5 @@
 #![allow(clippy::unused_async)]
-use super::{ensure_room_member, AppState, AuthenticatedUser};
+use super::{ensure_room_member, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::ApiError;
 use crate::services::voice_service::VoiceMessageUploadParams;
 use axum::{
@@ -247,6 +247,7 @@ async fn get_user_voice_stats(
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
     let stats = state
         .services
         .voice_service

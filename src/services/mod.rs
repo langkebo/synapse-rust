@@ -94,6 +94,8 @@ pub use builtin_oidc_provider::{
 pub mod matrix_ai_connection_service;
 #[cfg(feature = "openclaw-routes")]
 pub mod mcp_proxy;
+#[cfg(feature = "openclaw-routes")]
+pub mod openclaw_service;
 
 #[cfg(feature = "friends")]
 pub mod friend_room_service;

@@ -613,6 +613,42 @@ impl PushNotificationStorage {
         );
         Ok(result.rows_affected())
     }
+
+    /// Get room notifications for a user.
+    pub async fn get_room_notifications(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomNotification>, sqlx::Error> {
+        sqlx::query_as::<_, RoomNotification>(
+            r"
+            SELECT event_id, room_id, ts, notification_type, is_read
+            FROM notifications
+            WHERE user_id = $1 AND room_id = $2
+            ORDER BY ts DESC
+            LIMIT $3
+            ",
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Room notification model
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RoomNotification {
+    pub event_id: Option<String>,
+    pub room_id: Option<String>,
+    pub ts: Option<i64>,
+    pub notification_type: Option<String>,
+    pub is_read: Option<bool>,
 }
 
 #[cfg(test)]

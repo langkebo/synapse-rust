@@ -2,6 +2,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use tracing;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RoomSummary {
@@ -165,6 +166,7 @@ impl RoomSummaryStorage {
         &self,
         request: CreateRoomSummaryRequest,
     ) -> Result<RoomSummary, sqlx::Error> {
+        tracing::info!(room_id = %request.room_id, "Creating room summary");
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummary>(
@@ -206,11 +208,16 @@ impl RoomSummaryStorage {
     }
 
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
+        tracing::debug!(room_id = %room_id, "Querying room summary");
         let row =
             sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = $1")
                 .bind(room_id)
                 .fetch_optional(&*self.pool)
                 .await?;
+
+        if row.is_none() {
+            tracing::warn!(room_id = %room_id, "Room summary not found");
+        }
 
         Ok(row)
     }
@@ -220,6 +227,7 @@ impl RoomSummaryStorage {
         room_id: &str,
         request: UpdateRoomSummaryRequest,
     ) -> Result<RoomSummary, sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Updating room summary");
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummary>(
             r"
@@ -288,6 +296,7 @@ impl RoomSummaryStorage {
     }
 
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Deleting room summary");
         sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
             .bind(room_id)
             .execute(&*self.pool)
@@ -314,6 +323,7 @@ impl RoomSummaryStorage {
         &self,
         user_id: &str,
     ) -> Result<Vec<RoomSummary>, sqlx::Error> {
+        tracing::debug!(user_id = %user_id, "Querying room summaries for user");
         let rows = sqlx::query_as::<_, RoomSummary>(
             r"
             SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_member_count, rs.invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, rs.created_ts FROM room_summaries rs
@@ -333,6 +343,7 @@ impl RoomSummaryStorage {
         &self,
         request: CreateSummaryMemberRequest,
     ) -> Result<RoomSummaryMember, sqlx::Error> {
+        tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary");
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryMember>(
@@ -375,6 +386,8 @@ impl RoomSummaryStorage {
         if members.is_empty() {
             return Ok(0);
         }
+
+        tracing::info!(room_id = %room_id, count = members.len(), "Batch adding members to room summary");
 
         let now = Utc::now().timestamp_millis();
         let mut user_ids: Vec<String> = Vec::with_capacity(members.len());
@@ -434,6 +447,7 @@ impl RoomSummaryStorage {
         user_id: &str,
         request: UpdateSummaryMemberRequest,
     ) -> Result<RoomSummaryMember, sqlx::Error> {
+        tracing::info!(room_id = %room_id, user_id = %user_id, "Updating room summary member");
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummaryMember>(
             r"
@@ -465,6 +479,7 @@ impl RoomSummaryStorage {
     }
 
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, user_id = %user_id, "Removing member from room summary");
         sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1 AND user_id = $2")
             .bind(room_id)
             .bind(user_id)
@@ -725,6 +740,7 @@ impl RoomSummaryStorage {
     }
 
     pub async fn mark_update_failed(&self, id: i64, error: &str) -> Result<(), sqlx::Error> {
+        tracing::warn!(id = id, error = %error, "Marking room summary update as failed");
         sqlx::query(
             r"
             UPDATE room_summary_update_queue SET

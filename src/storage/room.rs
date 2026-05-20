@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use tracing;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomSearchOrder {
@@ -344,6 +345,7 @@ impl RoomStorage {
     where
         E: sqlx::Executor<'a, Database = Postgres>,
     {
+        tracing::info!(room_id = %room_id, creator = %creator, join_rule = %join_rule, is_public = is_public, "Creating room");
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
@@ -381,6 +383,7 @@ impl RoomStorage {
     }
 
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
+        tracing::debug!(room_id = %room_id, "Querying room");
         let row = sqlx::query_as::<_, RoomRecord>(
             r"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
@@ -425,6 +428,7 @@ impl RoomStorage {
                 is_flagged: false,
             }))
         } else {
+            tracing::warn!(room_id = %room_id, "Room not found");
             Ok(None)
         }
     }
@@ -750,6 +754,7 @@ impl RoomStorage {
         let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r"
             SELECT room_id FROM room_memberships WHERE user_id = $1 AND membership = 'join'
+            LIMIT 1000
             ",
         )
         .bind(user_id)
@@ -988,6 +993,7 @@ impl RoomStorage {
     }
 
     pub async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Deleting room");
         sqlx::query(
             r"
             DELETE FROM rooms WHERE room_id = $1
@@ -1000,6 +1006,7 @@ impl RoomStorage {
     }
 
     pub async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Shutting down room");
         // Mark room as inactive or delete it. For simplicity, we delete it from directory
         // and mark its name to indicate it's shutdown.
         sqlx::query(
@@ -1431,6 +1438,7 @@ impl RoomStorage {
         &self,
         min_age_ms: Option<i64>,
     ) -> Result<serde_json::Value, sqlx::Error> {
+        tracing::info!(min_age_ms = min_age_ms, "Starting abnormal data cleanup");
         let min_age = min_age_ms.unwrap_or(24 * 60 * 60 * 1000);
         let now = chrono::Utc::now().timestamp_millis();
         let cutoff = now - min_age;

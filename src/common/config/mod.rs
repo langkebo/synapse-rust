@@ -3012,7 +3012,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_env_variables_resolves_redis_password() {
+    fn test_resolve_env_variables_resolves_redis_password() -> Result<(), String> {
         unsafe {
             std::env::set_var("TEST_REDIS_PASSWORD", "resolved-secret");
         }
@@ -3162,13 +3162,15 @@ mod tests {
             identity: IdentityConfig::default(),
         };
 
-        config.resolve_env_variables().unwrap();
+        config.resolve_env_variables()?;
 
         assert_eq!(config.redis.password.as_deref(), Some("resolved-secret"));
 
         unsafe {
             std::env::remove_var("TEST_REDIS_PASSWORD");
         }
+
+        Ok(())
     }
 
     #[test]

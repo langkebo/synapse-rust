@@ -684,7 +684,6 @@ fn create_room_summary_v3_router() -> Router<AppState> {
 pub async fn batch_get_room_summaries(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
     Json(body): Json<RoomSummaryBatchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let responses = state
@@ -736,6 +735,10 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
         .route(
             "/_synapse/room_summary/v1/summaries",
             post(create_internal_room_summary),
+        )
+        .route(
+            "/_synapse/room_summary/v1/summaries/batch",
+            post(batch_get_room_summaries),
         )
         .route(
             "/_synapse/room_summary/v1/updates/process",
@@ -798,6 +801,7 @@ pub fn room_summary_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         [
             (Method::GET, "/_synapse/room_summary/v1/summaries"),
             (Method::POST, "/_synapse/room_summary/v1/summaries"),
+            (Method::POST, "/_synapse/room_summary/v1/summaries/batch"),
             (Method::POST, "/_synapse/room_summary/v1/updates/process"),
         ]
         .into_iter()
