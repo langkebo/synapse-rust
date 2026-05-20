@@ -12,6 +12,6 @@ CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_pokes_user ON device_lists_
 CREATE INDEX IF NOT EXISTS idx_user_filters_user_id ON user_filters(user_id);
 CREATE INDEX IF NOT EXISTS idx_room_tags_user_room ON room_tags(user_id, room_id);
 CREATE INDEX IF NOT EXISTS idx_pushers_user_id ON pushers(user_id);
-CREATE INDEX IF NOT EXISTS idx_threepids_medium_address ON threepids(medium, address);
-CREATE INDEX IF NOT EXISTS idx_account_data_user_type ON account_data(user_id, account_data_type);
+CREATE INDEX IF NOT EXISTS idx_user_threepids_medium_address ON user_threepids(medium, address);
+CREATE INDEX IF NOT EXISTS idx_account_data_user_type ON account_data(user_id, data_type);
 CREATE INDEX IF NOT EXISTS idx_room_memberships_room_user ON room_memberships(room_id, user_id);
