@@ -12,7 +12,6 @@ pub use manager::ConfigManager;
 // SECTION: Error Types
 // ============================================================================
 
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -246,10 +245,7 @@ fn default_apns_production() -> bool {
 impl PushConfig {
     pub fn is_enabled(&self) -> bool {
         self.enabled
-            && (self.fcm.is_some()
-                || self.apns.is_some()
-                || self.web_push.is_some()
-                || self.push_gateway_url.is_some())
+            && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
     }
 }
 
@@ -421,11 +417,7 @@ pub struct OidcAttributeMapping {
 }
 
 fn default_oidc_scopes() -> Vec<String> {
-    vec![
-        "openid".to_string(),
-        "profile".to_string(),
-        "email".to_string(),
-    ]
+    vec!["openid".to_string(), "profile".to_string(), "email".to_string()]
 }
 
 fn default_oidc_timeout() -> u64 {
@@ -624,19 +616,13 @@ impl SamlConfig {
     }
 
     pub fn get_sp_acs_url(&self, server_name: &str) -> String {
-        self.sp_acs_url.clone().unwrap_or_else(|| {
-            format!(
-                "https://{server_name}/_matrix/client/r0/login/sso/redirect/saml"
-            )
-        })
+        self.sp_acs_url
+            .clone()
+            .unwrap_or_else(|| format!("https://{server_name}/_matrix/client/r0/login/sso/redirect/saml"))
     }
 
     pub fn get_sp_sls_url(&self, server_name: &str) -> Option<String> {
-        self.sp_sls_url.clone().or_else(|| {
-            Some(format!(
-                "https://{server_name}/_matrix/client/r0/logout/saml"
-            ))
-        })
+        self.sp_sls_url.clone().or_else(|| Some(format!("https://{server_name}/_matrix/client/r0/logout/saml")))
     }
 }
 
@@ -715,10 +701,7 @@ pub struct RetentionPurgeJob {
 }
 
 fn default_retention_purge_jobs() -> Vec<RetentionPurgeJob> {
-    vec![RetentionPurgeJob {
-        interval: default_purge_job_interval(),
-        batch_size: default_purge_job_batch_size(),
-    }]
+    vec![RetentionPurgeJob { interval: default_purge_job_interval(), batch_size: default_purge_job_batch_size() }]
 }
 
 fn default_purge_job_interval() -> u64 {
@@ -934,9 +917,7 @@ pub struct IdentityConfig {
 
 impl Default for IdentityConfig {
     fn default() -> Self {
-        Self {
-            trusted_servers: default_trusted_identity_servers(),
-        }
+        Self { trusted_servers: default_trusted_identity_servers() }
     }
 }
 
@@ -1234,10 +1215,7 @@ fn default_rate_limit_burst_size() -> u32 {
 
 impl Default for RateLimitRule {
     fn default() -> Self {
-        Self {
-            per_second: default_rate_limit_per_second(),
-            burst_size: default_rate_limit_burst_size(),
-        }
+        Self { per_second: default_rate_limit_per_second(), burst_size: default_rate_limit_burst_size() }
     }
 }
 
@@ -1272,11 +1250,7 @@ impl Default for RateLimitConfig {
             enabled: default_rate_limit_enabled(),
             default: RateLimitRule::default(),
             endpoints: Vec::new(),
-            ip_header_priority: vec![
-                "x-forwarded-for".to_string(),
-                "x-real-ip".to_string(),
-                "forwarded".to_string(),
-            ],
+            ip_header_priority: vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
             include_headers: true,
             exempt_paths: vec![
                 "/".to_string(),
@@ -1517,11 +1491,7 @@ impl ServerConfig {
                 return baseurl.clone();
             }
         }
-        let host = if self.host == "0.0.0.0" || self.host == "::" {
-            "localhost"
-        } else {
-            self.host.as_str()
-        };
+        let host = if self.host == "0.0.0.0" || self.host == "::" { "localhost" } else { self.host.as_str() };
         format!("http://{}:{}", host, self.port)
     }
 
@@ -1788,10 +1758,7 @@ pub struct TrustedKeyServer {
 }
 
 fn default_trusted_key_servers() -> Vec<TrustedKeyServer> {
-    vec![TrustedKeyServer {
-        server_name: "matrix.org".to_string(),
-        verify_keys: None,
-    }]
+    vec![TrustedKeyServer { server_name: "matrix.org".to_string(), verify_keys: None }]
 }
 
 fn default_key_refresh_interval() -> u64 {
@@ -1979,22 +1946,11 @@ fn default_allow_credentials() -> bool {
 }
 
 fn default_allowed_methods() -> Vec<String> {
-    vec![
-        "GET".to_string(),
-        "POST".to_string(),
-        "PUT".to_string(),
-        "DELETE".to_string(),
-        "OPTIONS".to_string(),
-    ]
+    vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string(), "OPTIONS".to_string()]
 }
 
 fn default_allowed_headers() -> Vec<String> {
-    vec![
-        "Authorization".to_string(),
-        "Content-Type".to_string(),
-        "Accept".to_string(),
-        "X-Requested-With".to_string(),
-    ]
+    vec!["Authorization".to_string(), "Content-Type".to_string(), "Accept".to_string(), "X-Requested-With".to_string()]
 }
 
 fn default_cors_max_age() -> u64 {
@@ -2164,8 +2120,7 @@ pub struct ReplicationHttpConfig {
 
 impl Config {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = std::env::var("SYNAPSE_CONFIG_PATH")
-            .unwrap_or_else(|_| "./homeserver.yaml".to_string());
+        let config_path = std::env::var("SYNAPSE_CONFIG_PATH").unwrap_or_else(|_| "./homeserver.yaml".to_string());
 
         tracing::info!("Loading configuration from: {}", config_path);
 
@@ -2179,33 +2134,21 @@ impl Config {
         tracing::info!("Configuration loaded, resolving environment variables...");
         tracing::debug!(
             "Before resolution - federation.signing_key: [REDACTED] ({} chars)",
-            config_values
-                .federation
-                .signing_key
-                .as_ref()
-                .map_or(0, |k| k.len())
+            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
         );
         tracing::debug!(
             "Before resolution - security.secret: [REDACTED] ({} chars)",
             config_values.security.secret.len()
         );
 
-        config_values
-            .resolve_env_variables()
-            .map_err(|e| format!("Failed to resolve environment variables: {e}"))?;
+        config_values.resolve_env_variables().map_err(|e| format!("Failed to resolve environment variables: {e}"))?;
 
-        config_values
-            .validate()
-            .map_err(|e| format!("Configuration validation failed: {e}"))?;
+        config_values.validate().map_err(|e| format!("Configuration validation failed: {e}"))?;
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
             "After resolution - federation.signing_key: [REDACTED] ({} chars)",
-            config_values
-                .federation
-                .signing_key
-                .as_ref()
-                .map_or(0, |k| k.len())
+            config_values.federation.signing_key.as_ref().map_or(0, |k| k.len())
         );
         tracing::debug!(
             "After resolution - security.secret: [REDACTED] ({} chars)",
@@ -2218,60 +2161,21 @@ impl Config {
     fn resolve_env_variables(&mut self) -> Result<(), String> {
         self.server.name = resolve_env_in_string(&self.server.name)?;
         self.server.host = resolve_env_in_string(&self.server.host)?;
-        self.server.public_baseurl = self
-            .server
-            .public_baseurl
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.signing_key_path = self
-            .server
-            .signing_key_path
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.macaroon_secret_key = self
-            .server
-            .macaroon_secret_key
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.form_secret = self
-            .server
-            .form_secret
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.server_name = self
-            .server
-            .server_name
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.registration_shared_secret = self
-            .server
-            .registration_shared_secret
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.admin_contact = self
-            .server
-            .admin_contact
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.user_agent_suffix = self
-            .server
-            .user_agent_suffix
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.server.web_client_location = self
-            .server
-            .web_client_location
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
+        self.server.public_baseurl =
+            self.server.public_baseurl.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.signing_key_path =
+            self.server.signing_key_path.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.macaroon_secret_key =
+            self.server.macaroon_secret_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.form_secret = self.server.form_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.registration_shared_secret =
+            self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.user_agent_suffix =
+            self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.web_client_location =
+            self.server.web_client_location.take().map(|v| resolve_env_in_string(&v)).transpose()?;
 
         self.database.host = resolve_env_in_string(&self.database.host)?;
         self.database.username = resolve_env_in_string(&self.database.username)?;
@@ -2279,42 +2183,18 @@ impl Config {
         self.database.name = resolve_env_in_string(&self.database.name)?;
 
         self.redis.host = resolve_env_in_string(&self.redis.host)?;
-        self.redis.password = self
-            .redis
-            .password
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
+        self.redis.password = self.redis.password.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix)?;
 
         self.logging.level = resolve_env_in_string(&self.logging.level)?;
         self.logging.format = resolve_env_in_string(&self.logging.format)?;
-        self.logging.log_file = self
-            .logging
-            .log_file
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.logging.log_dir = self
-            .logging
-            .log_dir
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
+        self.logging.log_file = self.logging.log_file.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.logging.log_dir = self.logging.log_dir.take().map(|v| resolve_env_in_string(&v)).transpose()?;
 
         self.federation.server_name = resolve_env_in_string(&self.federation.server_name)?;
-        self.federation.signing_key = self
-            .federation
-            .signing_key
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
-        self.federation.key_id = self
-            .federation
-            .key_id
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
+        self.federation.signing_key =
+            self.federation.signing_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.federation.ca_file = self
             .federation
             .ca_file
@@ -2333,8 +2213,7 @@ impl Config {
         }
 
         self.security.secret = resolve_env_in_string(&self.security.secret)?;
-        self.security.admin_mfa_shared_secret =
-            resolve_env_in_string(&self.security.admin_mfa_shared_secret)?;
+        self.security.admin_mfa_shared_secret = resolve_env_in_string(&self.security.admin_mfa_shared_secret)?;
 
         self.search.elasticsearch_url = resolve_env_in_string(&self.search.elasticsearch_url)?;
 
@@ -2348,26 +2227,15 @@ impl Config {
         if self.oidc.enabled {
             self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer)?;
             self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id)?;
-            self.oidc.client_secret = self
-                .oidc
-                .client_secret
-                .take()
-                .map(|v| resolve_env_in_string(&v))
-                .transpose()?;
+            self.oidc.client_secret = self.oidc.client_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         }
 
         if self.saml.enabled {
-            self.saml.metadata_url = self
-                .saml
-                .metadata_url
-                .take()
-                .map(|v| resolve_env_in_string(&v))
-                .transpose()?;
+            self.saml.metadata_url = self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
             self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id)?;
         }
 
-        self.admin_registration.shared_secret =
-            resolve_env_in_string(&self.admin_registration.shared_secret)?;
+        self.admin_registration.shared_secret = resolve_env_in_string(&self.admin_registration.shared_secret)?;
         self.admin_registration.ip_whitelist = self
             .admin_registration
             .ip_whitelist
@@ -2382,21 +2250,13 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
 
         if self.voip.is_enabled() {
-            self.voip.turn_shared_secret = self
-                .voip
-                .turn_shared_secret
-                .take()
-                .map(|v| resolve_env_in_string(&v))
-                .transpose()?;
+            self.voip.turn_shared_secret =
+                self.voip.turn_shared_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         }
 
         if self.push.is_enabled() {
-            self.push.push_gateway_url = self
-                .push
-                .push_gateway_url
-                .take()
-                .map(|v| resolve_env_in_string(&v))
-                .transpose()?;
+            self.push.push_gateway_url =
+                self.push.push_gateway_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         }
 
         Ok(())
@@ -2404,17 +2264,14 @@ impl Config {
 
     fn validate(&self) -> Result<(), String> {
         if self.admin_registration.enabled && self.admin_registration.shared_secret.is_empty() {
-            return Err(
-                "admin_registration.enabled is true but shared_secret is not configured. \
+            return Err("admin_registration.enabled is true but shared_secret is not configured. \
                  Please set admin_registration.shared_secret in your configuration file."
-                    .to_string(),
-            );
+                .to_string());
         }
 
         if self.security.admin_mfa_required && self.security.admin_mfa_shared_secret.is_empty() {
             return Err(
-                "security.admin_mfa_required is true but admin_mfa_shared_secret is not configured."
-                    .to_string(),
+                "security.admin_mfa_required is true but admin_mfa_shared_secret is not configured.".to_string()
             );
         }
 
@@ -2425,12 +2282,10 @@ impl Config {
         }
 
         if self.security.secret.len() < 32 {
-            return Err(
-                "security.secret must be at least 32 characters for adequate security. \
+            return Err("security.secret must be at least 32 characters for adequate security. \
                  Current length: {}. \
                  Generate a secure secret with: openssl rand -hex 32"
-                    .replace("{}", &self.security.secret.len().to_string()),
-            );
+                .replace("{}", &self.security.secret.len().to_string()));
         }
 
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
@@ -2450,9 +2305,7 @@ impl Config {
             );
         }
 
-        if let Err(e) =
-            crate::common::argon2_config::Argon2Config::from(&self.security).validate_owasp()
-        {
+        if let Err(e) = crate::common::argon2_config::Argon2Config::from(&self.security).validate_owasp() {
             tracing::warn!(
                 "Argon2 parameters do not meet OWASP recommendations: {}. \
                  Current: m_cost={}, t_cost={}, p_cost={}. \
@@ -2470,11 +2323,7 @@ impl Config {
     pub fn database_url(&self) -> String {
         format!(
             "postgres://{}:{}@{}:{}/{}",
-            self.database.username,
-            self.database.password,
-            self.database.host,
-            self.database.port,
-            self.database.name
+            self.database.username, self.database.password, self.database.host, self.database.port, self.database.name
         )
     }
 
@@ -2502,10 +2351,7 @@ impl Config {
         let server_lifetime = self.server.expire_access_token_lifetime;
         let security_lifetime = self.security.expiry_time;
         if server_lifetime > 0 && server_lifetime != 3600 {
-            if security_lifetime > 0
-                && security_lifetime != 3600
-                && security_lifetime != server_lifetime
-            {
+            if security_lifetime > 0 && security_lifetime != 3600 && security_lifetime != server_lifetime {
                 tracing::warn!(
                     "Both server.expire_access_token_lifetime ({}) and security.expiry_time ({}) are set and differ. \
                      Using server.expire_access_token_lifetime as the canonical value.",
@@ -2529,14 +2375,8 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
     let mut result = value.to_string();
 
     for cap in re.captures_iter(value) {
-        let full_match = cap
-            .get(0)
-            .expect("capture group 0 always exists in captures_iter")
-            .as_str();
-        let inner = cap
-            .get(1)
-            .expect("capture group 1 always exists for this regex")
-            .as_str();
+        let full_match = cap.get(0).expect("capture group 0 always exists in captures_iter").as_str();
+        let inner = cap.get(1).expect("capture group 1 always exists for this regex").as_str();
 
         let replacement = if inner.contains(":-") {
             let parts: Vec<&str> = inner.splitn(2, ":-").collect();
@@ -2544,12 +2384,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let default_value = parts[1];
 
             let resolved = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
-            tracing::debug!(
-                "Resolved env var {} (with default): {} -> {}",
-                var_name,
-                full_match,
-                resolved
-            );
+            tracing::debug!("Resolved env var {} (with default): {} -> {}", var_name, full_match, resolved);
             resolved
         } else if inner.contains(":=") {
             let parts: Vec<&str> = inner.splitn(2, ":=").collect();
@@ -2570,17 +2405,10 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let val = match std::env::var(var_name) {
                 Ok(v) => v,
                 Err(_) => {
-                    return Err(format!(
-                        "Environment variable {var_name} is required: {error_msg}"
-                    ));
+                    return Err(format!("Environment variable {var_name} is required: {error_msg}"));
                 }
             };
-            tracing::debug!(
-                "Resolved required env var {}: {} -> {}",
-                var_name,
-                full_match,
-                val
-            );
+            tracing::debug!("Resolved required env var {}: {} -> {}", var_name, full_match, val);
             val
         } else {
             let resolved = std::env::var(inner).unwrap_or_else(|_| "".to_string());
@@ -2743,6 +2571,7 @@ mod tests {
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
+            translate: TranslateConfig::default(),
         };
 
         let url = config.database_url();
@@ -3160,6 +2989,7 @@ mod tests {
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
+            translate: TranslateConfig::default(),
         };
 
         config.resolve_env_variables()?;
@@ -3324,10 +3154,7 @@ pub struct SmtpRateLimitConfig {
 
 impl Default for SmtpRateLimitConfig {
     fn default() -> Self {
-        Self {
-            per_minute: default_smtp_per_minute(),
-            per_hour: default_smtp_per_hour(),
-        }
+        Self { per_minute: default_smtp_per_minute(), per_hour: default_smtp_per_hour() }
     }
 }
 
