@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use tracing;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StateGroup {
@@ -59,6 +60,7 @@ impl StateGroupStorage {
         state_hash: &str,
         created_ts: i64,
     ) -> Result<i64, sqlx::Error> {
+        tracing::debug!(room_id = %room_id, state_hash = %state_hash, "Creating state group");
         let row = sqlx::query_as::<_, (i64,)>(
             r#"
             INSERT INTO state_groups (room_id, event_id, state_hash, created_ts)
@@ -225,14 +227,28 @@ impl StateGroupStorage {
         Ok(row.map(|r| r.0))
     }
 
+    /// 批量绑定事件到 state_group（单次 INSERT，避免 N+1）
     pub async fn batch_bind_events_to_state_group(
         &self,
         event_ids: &[String],
         state_group_id: i64,
     ) -> Result<(), sqlx::Error> {
-        for event_id in event_ids {
-            self.bind_event_to_state_group(event_id, state_group_id).await?;
+        if event_ids.is_empty() {
+            return Ok(());
         }
+        tracing::debug!(state_group_id = state_group_id, count = event_ids.len(), "Batch binding events to state group");
+        sqlx::query(
+            r#"
+            INSERT INTO event_to_state_groups (event_id, state_group_id)
+            SELECT unnest($1::text[]), $2
+            ON CONFLICT (event_id) DO UPDATE SET state_group_id = $2
+            "#,
+        )
+        .bind(event_ids)
+        .bind(state_group_id)
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -263,21 +279,36 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    /// 批量设置一个 state_group 的状态条目
+    /// 批量设置一个 state_group 的状态条目（单次 INSERT，避免 N+1）
     pub async fn set_state_entries(
         &self,
         state_group_id: i64,
         entries: &[StateGroupStateEntry],
     ) -> Result<(), sqlx::Error> {
-        for entry in entries {
-            self.set_state_entry(
-                state_group_id,
-                &entry.event_type,
-                &entry.state_key,
-                &entry.event_id,
-            )
-            .await?;
+        if entries.is_empty() {
+            return Ok(());
         }
+
+        tracing::debug!(state_group_id = state_group_id, count = entries.len(), "Batch setting state entries");
+
+        let event_types: Vec<&str> = entries.iter().map(|e| e.event_type.as_str()).collect();
+        let state_keys: Vec<&str> = entries.iter().map(|e| e.state_key.as_str()).collect();
+        let event_ids: Vec<&str> = entries.iter().map(|e| e.event_id.as_str()).collect();
+
+        sqlx::query(
+            r#"
+            INSERT INTO state_group_state (state_group_id, event_type, state_key, event_id)
+            SELECT $1, unnest($2::text[]), unnest($3::text[]), unnest($4::text[])
+            ON CONFLICT (state_group_id, event_type, state_key) DO UPDATE SET event_id = EXCLUDED.event_id
+            "#,
+        )
+        .bind(state_group_id)
+        .bind(event_types)
+        .bind(state_keys)
+        .bind(event_ids)
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -320,12 +351,21 @@ impl StateGroupStorage {
     ) -> Result<std::collections::HashMap<(String, String), String>, sqlx::Error> {
         use std::collections::{HashMap, HashSet, VecDeque};
 
+        tracing::debug!(state_group_id = state_group_id, "Resolving state for group");
+
         let mut result: HashMap<(String, String), String> = HashMap::new();
         let mut visited: HashSet<i64> = HashSet::new();
         let mut queue: VecDeque<i64> = VecDeque::new();
         queue.push_back(state_group_id);
 
+        let mut depth = 0i64;
+
         while let Some(sg_id) = queue.pop_front() {
+            depth += 1;
+            if depth > 100 {
+                tracing::warn!(state_group_id = state_group_id, depth = depth, "State resolution depth exceeds 100, possible cycle");
+            }
+
             if !visited.insert(sg_id) {
                 continue;
             }

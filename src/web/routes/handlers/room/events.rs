@@ -7,7 +7,6 @@ use axum::{
     extract::{Json, Path, Query, State},
 };
 use serde_json::{json, Value};
-use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) async fn get_single_event(
@@ -188,32 +187,22 @@ pub(crate) async fn get_room_notifications(
 
     let _from = params.get("from").cloned();
 
-    let notifications = sqlx::query(
-        r"
-        SELECT event_id, room_id, ts, notification_type, is_read
-        FROM notifications
-        WHERE user_id = $1 AND room_id = $2
-        ORDER BY ts DESC
-        LIMIT $3
-        ",
-    )
-    .bind(&auth_user.user_id)
-    .bind(&room_id)
-    .bind(limit as i64)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(map_internal!("Database error"))?;
+    let notifications = state
+        .services
+        .push_notification_storage
+        .get_room_notifications(&auth_user.user_id, &room_id, limit)
+        .await
+        .map_err(map_internal!("Database error"))?;
 
     let notifications_list: Vec<Value> = notifications
         .iter()
-        .map(|row| {
-            let event_id = row.get::<Option<String>, _>("event_id").unwrap_or_default();
+        .map(|n| {
             json!({
-                "event_id": event_id,
-                "room_id": row.get::<Option<String>, _>("room_id"),
-                "ts": row.get::<Option<i64>, _>("ts"),
-                "profile_tag": row.get::<Option<String>, _>("notification_type"),
-                "read": row.get::<Option<bool>, _>("is_read").unwrap_or(false),
+                "event_id": n.event_id,
+                "room_id": n.room_id,
+                "ts": n.ts,
+                "profile_tag": n.notification_type,
+                "read": n.is_read.unwrap_or(false),
                 "room_name": None::<Value>,
                 "sender": None::<Value>,
                 "prio": "high",
@@ -299,19 +288,12 @@ pub(crate) async fn send_message(
         .await?;
 
     if event_type == "m.room.encrypted" {
-        let is_encrypted = sqlx::query(
-            r"
-            SELECT 1
-            FROM room_events
-            WHERE room_id = $1 AND event_type = 'm.room.encryption'
-            LIMIT 1
-            ",
-        )
-        .bind(&room_id)
-        .fetch_optional(&*state.services.room_storage.pool)
-        .await
-        .map_err(map_internal!("Failed to check room encryption status"))?
-        .is_some();
+        let is_encrypted = state
+            .services
+            .event_storage
+            .check_room_has_encryption(&room_id)
+            .await
+            .map_err(map_internal!("Failed to check room encryption status"))?;
 
         if !is_encrypted {
             return Err(ApiError::bad_request(
@@ -376,59 +358,52 @@ pub(crate) async fn get_room_message_queue(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let pending_events: Vec<serde_json::Value> = sqlx::query(
-        r"
-        SELECT event_id, room_id, user_id, event_type, content, origin_server_ts, status
-        FROM events
-        WHERE room_id = $1 AND status = 'pending'
-        ORDER BY origin_server_ts ASC
-        LIMIT 100
-        ",
-    )
-    .bind(&room_id)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to get pending events"))?
-    .into_iter()
-    .map(|row| {
-        use sqlx::Row;
-        serde_json::json!({
-            "event_id": row.get::<Option<String>, _>("event_id"),
-            "room_id": row.get::<Option<String>, _>("room_id"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
-            "event_type": row.get::<Option<String>, _>("event_type"),
-            "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts"),
-            "status": row.get::<Option<String>, _>("status")
+    let pending_events = state
+        .services
+        .event_storage
+        .get_pending_room_events(&room_id, 100)
+        .await
+        .map_err(map_internal!("Failed to get pending events"))?;
+
+    let pending_events_json: Vec<serde_json::Value> = pending_events
+        .into_iter()
+        .map(|event| {
+            serde_json::json!({
+                "event_id": event.event_id,
+                "room_id": event.room_id,
+                "user_id": event.user_id,
+                "event_type": event.event_type,
+                "origin_server_ts": event.origin_server_ts,
+                "status": event.status
+            })
         })
-    })
-    .collect();
+        .collect();
 
-    let processing_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = 'processing'",
-    )
-    .bind(&room_id)
-    .fetch_one(&*state.services.event_storage.pool)
-    .await
-    .unwrap_or(0);
+    let processing_count = state
+        .services
+        .event_storage
+        .count_room_events_by_status(&room_id, "processing")
+        .await
+        .unwrap_or(0);
 
-    let failed_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = 'failed'")
-            .bind(&room_id)
-            .fetch_one(&*state.services.event_storage.pool)
-            .await
-            .unwrap_or(0);
+    let failed_count = state
+        .services
+        .event_storage
+        .count_room_events_by_status(&room_id, "failed")
+        .await
+        .unwrap_or(0);
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
         "queue": {
-            "pending": pending_events,
-            "pending_count": pending_events.len(),
+            "pending": pending_events_json,
+            "pending_count": pending_events_json.len(),
             "processing_count": processing_count,
             "failed_count": failed_count
         },
         "status": {
             "healthy": failed_count < 100,
-            "total_pending": pending_events.len() + processing_count as usize
+            "total_pending": pending_events_json.len() + processing_count as usize
         }
     })))
 }
@@ -810,27 +785,20 @@ pub(crate) async fn sign_room_event(
 
     let created_ts = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
-        r"
-        INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
-        SET signature = EXCLUDED.signature,
-            algorithm = EXCLUDED.algorithm,
-            created_ts = EXCLUDED.created_ts
-        ",
-    )
-    .bind(uuid::Uuid::new_v4())
-    .bind(&event_id)
-    .bind(&auth_user.user_id)
-    .bind(device_id)
-    .bind(signature)
-    .bind(key_id)
-    .bind(&algorithm)
-    .bind(created_ts)
-    .execute(&*state.services.event_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to save signature"))?;
+    state
+        .services
+        .event_storage
+        .save_event_signature(
+            &event_id,
+            &auth_user.user_id,
+            device_id,
+            signature,
+            key_id,
+            &algorithm,
+            created_ts,
+        )
+        .await
+        .map_err(map_internal!("Failed to save signature"))?;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id,
@@ -878,17 +846,12 @@ pub(crate) async fn verify_room_event(
         ));
     }
 
-    let signatures: Vec<crate::e2ee::signature::EventSignature> = sqlx::query_as(
-        r"
-        SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
-        FROM event_signatures
-        WHERE event_id = $1
-        ",
-    )
-    .bind(&event_id)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to get signatures"))?;
+    let signatures = state
+        .services
+        .event_storage
+        .get_event_signatures(&event_id)
+        .await
+        .map_err(map_internal!("Failed to get signatures"))?;
 
     let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
     let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -961,7 +924,7 @@ pub(crate) async fn translate_room_event(
         .await
         .map_err(|e| {
             ::tracing::warn!("Translation failed: {}", e);
-            ApiError::bad_request(&format!("Translation failed: {}", e))
+            ApiError::bad_request(format!("Translation failed: {}", e))
         })?;
 
     Ok(Json(json!({

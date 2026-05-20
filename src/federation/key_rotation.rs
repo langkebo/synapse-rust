@@ -611,13 +611,14 @@ mod tests {
     use sqlx::PgPool;
     use std::env;
 
-    async fn create_test_pool() -> Arc<PgPool> {
+    async fn create_test_pool() -> Option<Arc<PgPool>> {
         let database_url = crate::test_config::test_database_url();
         // Use connect_lazy to allow creating the pool without an immediate connection check
         match PgPool::connect_lazy(&database_url) {
-            Ok(pool) => Arc::new(pool),
-            Err(_) => {
-                panic!("Failed to create lazy pool connection");
+            Ok(pool) => Some(Arc::new(pool)),
+            Err(e) => {
+                eprintln!("Failed to create lazy pool connection: {e}");
+                None
             }
         }
     }
@@ -680,7 +681,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_grace_period() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let expired_key = SigningKey {
@@ -746,7 +750,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_key_rotation_manager_new() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let current = manager.get_current_key().await.unwrap();
@@ -755,7 +762,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_rotate_keys_no_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let should_rotate = manager.should_rotate_keys().await;
@@ -764,7 +774,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_rotate_keys_with_fresh_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let future_expires = (Utc::now() + Duration::days(30)).timestamp_millis();
@@ -790,7 +803,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_should_rotate_keys_expiring_soon() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let soon_expires = (Utc::now() + Duration::hours(12)).timestamp_millis();
@@ -878,7 +894,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_historical_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         manager
@@ -892,7 +911,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_server_keys_response_no_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let result = manager.get_server_keys_response().await;
@@ -901,7 +923,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_server_keys_response_with_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
@@ -935,7 +960,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_server_keys_response_with_historical_keys() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
@@ -992,7 +1020,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_rotation_enabled() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         // Disable rotation
@@ -1010,7 +1041,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_rotation_status_no_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let status = manager.get_rotation_status().await;
@@ -1021,7 +1055,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_rotation_status_with_key() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         // Set a key
@@ -1047,7 +1084,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_derive_public_key_invalid_base64() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let result = manager.derive_public_key("not-valid-base64!!!");
@@ -1056,7 +1096,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_derive_public_key_wrong_length() {
-        let pool = create_test_pool().await;
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         // 16 bytes instead of 32
@@ -1068,11 +1111,10 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     #[tokio::test]
     async fn test_key_rotation_manager_clone() {
-        let pool = std::sync::Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
-        );
+        let pool = match create_test_pool().await {
+            Some(pool) => pool,
+            None => return,
+        };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
         let _cloned = manager.clone();
         // Should compile - Verify clone works

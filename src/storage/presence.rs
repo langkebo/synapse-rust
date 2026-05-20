@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PresenceSnapshot {
@@ -32,6 +33,7 @@ impl PresenceStorage {
         presence: &str,
         status_msg: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        tracing::debug!(user_id = %user_id, presence = %presence, "Setting presence");
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
@@ -70,6 +72,7 @@ impl PresenceStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+        tracing::debug!(user_id = %user_id, "Querying presence");
         let key = CacheKeyBuilder::user_presence(user_id);
         if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
             return Ok(Some((snapshot.presence, snapshot.status_msg)));
@@ -141,6 +144,8 @@ impl PresenceStorage {
         if user_ids.is_empty() {
             return Ok(HashMap::new());
         }
+
+        tracing::info!(count = user_ids.len(), "Bulk syncing presences");
 
         let mut map = HashMap::new();
         let mut missing_ids = Vec::new();
@@ -307,6 +312,7 @@ impl PresenceStorage {
             r"
             SELECT target_id FROM presence_subscriptions
             WHERE subscriber_id = $1
+            LIMIT 5000
             ",
         )
         .bind(subscriber_id)
@@ -379,6 +385,8 @@ impl PresenceStorage {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
+
+        tracing::info!(count = user_ids.len(), "Batch querying presence");
 
         let mut results = Vec::new();
         let mut missing_ids = Vec::new();
@@ -485,6 +493,8 @@ impl PresenceStorage {
         if user_ids.is_empty() {
             return Ok(HashMap::new());
         }
+
+        tracing::info!(count = user_ids.len(), "Batch querying presence snapshots");
 
         let mut map = HashMap::new();
         let mut missing_ids = Vec::new();
