@@ -164,6 +164,7 @@ fn create_test_config() -> Config {
         performance: synapse_rust::common::config::PerformanceConfig::default(),
         experimental: ExperimentalConfig::default(),
         identity: synapse_rust::common::config::IdentityConfig::default(),
+        translate: synapse_rust::common::config::TranslateConfig::default(),
     }
 }
 
