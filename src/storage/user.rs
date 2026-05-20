@@ -3,6 +3,7 @@ use crate::common::constants::USER_PROFILE_CACHE_TTL;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use tracing;
 
 const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
 const USER_PROFILE_BATCH_CACHE_TTL: u64 = 300;
@@ -118,6 +119,7 @@ impl UserStorage {
         password_hash: Option<&str>,
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
+        tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user");
         let now = chrono::Utc::now().timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
@@ -149,6 +151,7 @@ impl UserStorage {
         password_hash: Option<&str>,
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
+        tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user in transaction");
         let now = chrono::Utc::now().timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
@@ -172,6 +175,7 @@ impl UserStorage {
     }
 
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        tracing::debug!(user_id = %user_id, "Querying user by id");
         sqlx::query_as::<_, User>(
             r"
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
@@ -336,6 +340,7 @@ impl UserStorage {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), sqlx::Error> {
+        tracing::info!(user_id = %user_id, "Updating user password");
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"
@@ -353,6 +358,7 @@ impl UserStorage {
         user_id: &str,
         displayname: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        tracing::info!(user_id = %user_id, "Updating user displayname");
         sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
             .bind(displayname)
             .bind(user_id)
@@ -387,6 +393,7 @@ impl UserStorage {
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(user_id = %user_id, "Deactivating user");
         sqlx::query(r"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
             .bind(user_id)
             .execute(&*self.pool)
@@ -539,6 +546,7 @@ impl UserStorage {
         &self,
         user_id: &str,
     ) -> Result<Option<UserProfile>, sqlx::Error> {
+        tracing::debug!(user_id = %user_id, "Querying user profile");
         let key = format!("user:profile:{user_id}");
 
         if let Ok(Some(profile)) = self.cache.get::<UserProfile>(&key).await {
@@ -1002,6 +1010,7 @@ impl UserStorage {
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(user_id = %user_id, "Deleting user");
         sqlx::query(r"DELETE FROM users WHERE user_id = $1")
             .bind(user_id)
             .execute(&*self.pool)

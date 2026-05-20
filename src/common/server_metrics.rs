@@ -48,6 +48,30 @@ pub struct ServerMetrics {
     pub dehydrated_device_cleanup_errors_total: Counter,
     pub dehydrated_device_cleanup_duration: Histogram,
 
+    // Room Operations Metrics
+    pub room_creates_total: Counter,
+    pub room_joins_total: Counter,
+    pub room_leaves_total: Counter,
+    pub room_operation_duration: Histogram,
+
+    // Message/Sync Operations Metrics
+    pub sync_requests_total: Counter,
+    pub sync_duration: Histogram,
+    pub messages_sent_total: Counter,
+    pub message_send_duration: Histogram,
+
+    // Presence Operations Metrics
+    pub presence_updates_total: Counter,
+    pub presence_sync_duration: Histogram,
+
+    // State Group Operations Metrics
+    pub state_group_resolves_total: Counter,
+    pub state_group_resolve_duration: Histogram,
+
+    // CSRF/Security Metrics
+    pub csrf_validations_total: Counter,
+    pub csrf_validation_failures_total: Counter,
+
     collector: Arc<MetricsCollector>,
 }
 
@@ -138,6 +162,42 @@ impl ServerMetrics {
                 "dehydrated_device_cleanup_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
+
+            room_creates_total: collector.register_counter("room_creates_total".to_string()),
+            room_joins_total: collector.register_counter("room_joins_total".to_string()),
+            room_leaves_total: collector.register_counter("room_leaves_total".to_string()),
+            room_operation_duration: collector.register_histogram_with_labels(
+                "room_operation_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+
+            sync_requests_total: collector.register_counter("sync_requests_total".to_string()),
+            sync_duration: collector.register_histogram_with_labels(
+                "sync_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+            messages_sent_total: collector.register_counter("messages_sent_total".to_string()),
+            message_send_duration: collector.register_histogram_with_labels(
+                "message_send_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+
+            presence_updates_total: collector.register_counter("presence_updates_total".to_string()),
+            presence_sync_duration: collector.register_histogram_with_labels(
+                "presence_sync_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+
+            state_group_resolves_total: collector
+                .register_counter("state_group_resolves_total".to_string()),
+            state_group_resolve_duration: collector.register_histogram_with_labels(
+                "state_group_resolve_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+
+            csrf_validations_total: collector.register_counter("csrf_validations_total".to_string()),
+            csrf_validation_failures_total: collector
+                .register_counter("csrf_validation_failures_total".to_string()),
 
             collector,
         }
@@ -240,6 +300,46 @@ impl ServerMetrics {
         }
     }
 
+    pub fn record_room_operation(&self, op: &str, duration_ms: f64, success: bool) {
+        match op {
+            "create" => self.room_creates_total.inc(),
+            "join" => self.room_joins_total.inc(),
+            "leave" => self.room_leaves_total.inc(),
+            _ => {}
+        }
+        self.room_operation_duration.observe(duration_ms);
+        let _ = success;
+    }
+
+    pub fn record_sync_request(&self, duration_ms: f64, success: bool) {
+        self.sync_requests_total.inc();
+        self.sync_duration.observe(duration_ms);
+        let _ = success;
+    }
+
+    pub fn record_message_send(&self, duration_ms: f64, success: bool) {
+        self.messages_sent_total.inc();
+        self.message_send_duration.observe(duration_ms);
+        let _ = success;
+    }
+
+    pub fn record_presence_update(&self, duration_ms: f64) {
+        self.presence_updates_total.inc();
+        self.presence_sync_duration.observe(duration_ms);
+    }
+
+    pub fn record_state_group_resolve(&self, duration_ms: f64) {
+        self.state_group_resolves_total.inc();
+        self.state_group_resolve_duration.observe(duration_ms);
+    }
+
+    pub fn record_csrf_validation(&self, success: bool) {
+        self.csrf_validations_total.inc();
+        if !success {
+            self.csrf_validation_failures_total.inc();
+        }
+    }
+
     pub fn get_collector(&self) -> &Arc<MetricsCollector> {
         &self.collector
     }
@@ -260,6 +360,15 @@ impl ServerMetrics {
             http_requests: self.http_requests_total.get(),
             http_errors: self.http_request_errors.get(),
             db_errors: self.db_query_errors.get(),
+            room_creates: self.room_creates_total.get(),
+            room_joins: self.room_joins_total.get(),
+            room_leaves: self.room_leaves_total.get(),
+            sync_requests: self.sync_requests_total.get(),
+            messages_sent: self.messages_sent_total.get(),
+            presence_updates: self.presence_updates_total.get(),
+            state_group_resolves: self.state_group_resolves_total.get(),
+            csrf_validations: self.csrf_validations_total.get(),
+            csrf_validation_failures: self.csrf_validation_failures_total.get(),
         }
     }
 
@@ -298,6 +407,15 @@ pub struct MetricsSummary {
     pub http_requests: u64,
     pub http_errors: u64,
     pub db_errors: u64,
+    pub room_creates: u64,
+    pub room_joins: u64,
+    pub room_leaves: u64,
+    pub sync_requests: u64,
+    pub messages_sent: u64,
+    pub presence_updates: u64,
+    pub state_group_resolves: u64,
+    pub csrf_validations: u64,
+    pub csrf_validation_failures: u64,
 }
 
 impl MetricsSummary {
@@ -439,6 +557,15 @@ mod tests {
             http_requests: 1000,
             http_errors: 20,
             db_errors: 5,
+            room_creates: 10,
+            room_joins: 200,
+            room_leaves: 50,
+            sync_requests: 5000,
+            messages_sent: 3000,
+            presence_updates: 800,
+            state_group_resolves: 150,
+            csrf_validations: 400,
+            csrf_validation_failures: 3,
         };
 
         assert_eq!(summary.auth_success_rate(), 90.0);

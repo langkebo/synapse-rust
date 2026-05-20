@@ -1,4 +1,3 @@
-use axum::extract::FromRef;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -6,18 +5,19 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::net::IpAddr;
 use std::sync::Arc;
-use url::Url;
 
 use crate::common::ApiError;
+use crate::services::openclaw_service::OpenClawService;
 use crate::storage::openclaw::{
-    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation, AiGeneration,
-    AiMessage, OpenClawConnection, OpenClawStorage,
+    AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection,
 };
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::AppState;
+
+// ---------------------------------------------------------------------------
+// Response DTOs
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 pub struct ConnectionResponse {
@@ -279,21 +279,7 @@ pub struct PaginatedResponse<T> {
     pub next_batch: Option<String>,
 }
 
-pub struct OpenClawState {
-    pub storage: OpenClawStorage,
-    pub api_key_encryption_key: Option<[u8; 32]>,
-}
-
 const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rust.openclaw";
-
-impl FromRef<AppState> for Arc<OpenClawState> {
-    fn from_ref(state: &AppState) -> Self {
-        Arc::new(OpenClawState {
-            storage: OpenClawStorage::new(state.services.user_storage.pool.clone()),
-            api_key_encryption_key: resolve_openclaw_api_key_encryption_key(state),
-        })
-    }
-}
 
 pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -448,136 +434,20 @@ pub fn openclaw_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteE
     .collect()
 }
 
-fn ensure_openclaw_user_allowed(auth: &AuthInfo) -> Result<(), ApiError> {
-    if auth.is_guest {
-        return Err(ApiError::forbidden(
-            "Guest access to OpenClaw routes is disabled",
-        ));
-    }
+// ---------------------------------------------------------------------------
+// Route handlers — thin HTTP adapters delegating to OpenClawService
+// ---------------------------------------------------------------------------
 
-    Ok(())
-}
-
-fn openclaw_not_found(message: &'static str) -> ApiError {
-    ApiError::not_found(message)
-}
-
-fn ensure_openclaw_resource_owner(
-    owner_user_id: &str,
-    auth_user_id: &str,
-    not_found_message: &'static str,
-) -> Result<(), ApiError> {
-    if owner_user_id != auth_user_id {
-        return Err(openclaw_not_found(not_found_message));
-    }
-
-    Ok(())
-}
-
-fn validate_openclaw_base_url(base_url: &str) -> Result<(), ApiError> {
-    let url = Url::parse(base_url)
-        .map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
-
-    if url.scheme() != "http" && url.scheme() != "https" {
-        return Err(ApiError::bad_request(
-            "OpenClaw base_url must use http or https".to_string(),
-        ));
-    }
-
-    let host = url.host_str().ok_or_else(|| {
-        ApiError::bad_request("OpenClaw base_url must include a host".to_string())
-    })?;
-
-    let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
-        || host.eq_ignore_ascii_case("localhost.")
-        || host.ends_with(".localhost");
-
-    if is_forbidden_host {
-        return Err(ApiError::bad_request(
-            "OpenClaw base_url cannot target localhost".to_string(),
-        ));
-    }
-
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        let forbidden_ip = match ip {
-            IpAddr::V4(ip) => {
-                ip.is_private()
-                    || ip.is_loopback()
-                    || ip.is_link_local()
-                    || ip.is_broadcast()
-                    || ip.is_multicast()
-                    || ip.is_unspecified()
-            }
-            IpAddr::V6(ip) => {
-                ip.is_loopback()
-                    || ip.is_multicast()
-                    || ip.is_unspecified()
-                    || ip.is_unique_local()
-                    || ip.is_unicast_link_local()
-            }
-        };
-
-        if forbidden_ip {
-            return Err(ApiError::bad_request(
-                "OpenClaw base_url cannot target local or private IP ranges".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn derive_api_key_encryption_key(secret: &str) -> [u8; 32] {
-    let digest = Sha256::digest(secret.as_bytes());
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&digest);
-    key
-}
-
-fn resolve_openclaw_api_key_encryption_key(state: &AppState) -> Option<[u8; 32]> {
-    let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok();
-    let config_secret = state
-        .services
-        .config
-        .server
-        .macaroon_secret_key
-        .clone()
-        .or_else(|| Some(state.services.config.security.secret.clone()))
-        .filter(|value| !value.trim().is_empty());
-
-    explicit
-        .filter(|value| !value.trim().is_empty())
-        .or(config_secret)
-        .map(|secret| derive_api_key_encryption_key(secret.trim()))
-}
-
-fn encrypt_optional_api_key(
-    api_key_encryption_key: Option<&[u8; 32]>,
-    api_key: Option<String>,
-) -> Result<Option<String>, ApiError> {
-    match api_key {
-        Some(api_key) => {
-            let key = api_key_encryption_key.ok_or_else(|| {
-                ApiError::internal("OpenClaw API key encryption is not configured".to_string())
-            })?;
-            Ok(Some(encrypt_api_key(&api_key, key)?))
-        }
-        None => Ok(None),
-    }
+fn svc(state: &AppState) -> &Arc<OpenClawService> {
+    &state.openclaw_service
 }
 
 async fn list_connections(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let connections = state
-        .storage
-        .get_user_connections(&auth.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get connections: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let connections = svc(&state).list_connections(&auth.user_id).await?;
     Ok(Json(
         connections
             .into_iter()
@@ -587,140 +457,74 @@ async fn list_connections(
 }
 
 async fn create_connection(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-    validate_openclaw_base_url(&req.base_url)?;
-
-    let encrypted_key =
-        encrypt_optional_api_key(state.api_key_encryption_key.as_ref(), req.api_key)?;
-
-    let conn = state
-        .storage
-        .create_connection(crate::storage::openclaw::CreateConnectionParams {
-            user_id: &auth.user_id,
-            name: &req.name,
-            provider: &req.provider,
-            base_url: &req.base_url,
-            encrypted_api_key: encrypted_key.as_deref(),
-            config: req.config,
-            is_default: req.is_default,
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create connection: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conn = svc(&state)
+        .create_connection(
+            &auth.user_id,
+            &req.name,
+            &req.provider,
+            &req.base_url,
+            req.api_key,
+            req.config,
+            req.is_default,
+        )
+        .await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
 
 async fn get_connection(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let conn = state
-        .storage
-        .get_connection(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Connection not found"))?;
-
-    ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conn = svc(&state).get_connection_for_user(id, &auth.user_id).await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
 
 async fn update_connection(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    if let Some(base_url) = req.base_url.as_deref() {
-        validate_openclaw_base_url(base_url)?;
-    }
-
-    let existing = state
-        .storage
-        .get_connection(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Connection not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Connection not found")?;
-
-    let encrypted_key =
-        encrypt_optional_api_key(state.api_key_encryption_key.as_ref(), req.api_key)?;
-
-    let conn = state
-        .storage
-        .update_connection(crate::storage::openclaw::UpdateConnectionParams {
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conn = svc(&state)
+        .update_connection(
             id,
-            name: req.name.as_deref(),
-            base_url: req.base_url.as_deref(),
-            encrypted_api_key: encrypted_key.as_deref(),
-            config: req.config,
-            is_default: req.is_default,
-            is_active: req.is_active,
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update connection: {}", e)))?;
-
+            &auth.user_id,
+            req.name,
+            req.base_url,
+            req.api_key,
+            req.config,
+            req.is_default,
+            req.is_active,
+        )
+        .await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
 
 async fn delete_connection(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_connection(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Connection not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Connection not found")?;
-
-    state
-        .storage
-        .delete_connection(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete connection: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&state).delete_connection(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn test_connection(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let conn = state
-        .storage
-        .get_connection(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Connection not found"))?;
-
-    ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
-
-    validate_openclaw_base_url(&conn.base_url)?;
-
-    let start = std::time::Instant::now();
-    let is_healthy = test_openclaw_health(&conn.base_url).await;
-    let latency_ms = start.elapsed().as_millis() as i64;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let (conn, is_healthy, latency_ms) = svc(&state).test_connection(id, &auth.user_id).await?;
     Ok(Json(serde_json::json!({
         "healthy": is_healthy,
         "latency_ms": latency_ms,
@@ -730,23 +534,14 @@ async fn test_connection(
 }
 
 async fn list_conversations(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-    let from = decode_conversation_cursor(query.from.as_deref());
-
-    if query.from.is_some() && from.is_none() {
-        return Err(ApiError::bad_request("Invalid from cursor"));
-    }
-
-    let (conversations, next_batch) = state
-        .storage
-        .get_user_conversations(&auth.user_id, query.limit, from)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversations: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let (conversations, next_batch) = svc(&state)
+        .list_conversations(&auth.user_id, query.limit, query.from)
+        .await?;
     Ok(Json(PaginatedResponse {
         total: conversations.len() as i64,
         limit: query.limit,
@@ -760,140 +555,80 @@ async fn list_conversations(
 }
 
 async fn create_conversation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Json(req): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    if let Some(connection_id) = req.connection_id {
-        let conn = state
-            .storage
-            .get_connection(connection_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Connection not found"))?;
-
-        ensure_openclaw_resource_owner(&conn.user_id, &auth.user_id, "Connection not found")?;
-    }
-
-    let conv = state
-        .storage
-        .create_conversation(crate::storage::openclaw::CreateConversationParams {
-            user_id: &auth.user_id,
-            connection_id: req.connection_id,
-            title: req.title.as_deref(),
-            model_id: req.model_id.as_deref(),
-            system_prompt: req.system_prompt.as_deref(),
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create conversation: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&state)
+        .create_conversation(
+            &auth.user_id,
+            req.connection_id,
+            req.title.as_deref(),
+            req.model_id.as_deref(),
+            req.system_prompt.as_deref(),
+            req.temperature,
+            req.max_tokens,
+        )
+        .await?;
     Ok(Json(ConversationResponse::from(conv)))
 }
 
 async fn get_conversation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let conv = state
-        .storage
-        .get_conversation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&state)
+        .get_conversation_for_user(id, &auth.user_id)
+        .await?;
     Ok(Json(ConversationResponse::from(conv)))
 }
 
 async fn update_conversation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_conversation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Conversation not found")?;
-
-    let conv = state
-        .storage
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&state)
         .update_conversation(
             id,
+            &auth.user_id,
             req.title.as_deref(),
             req.system_prompt.as_deref(),
             req.temperature,
             req.max_tokens,
             req.is_pinned,
         )
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update conversation: {}", e)))?;
-
+        .await?;
     Ok(Json(ConversationResponse::from(conv)))
 }
 
 async fn delete_conversation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_conversation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Conversation not found")?;
-
-    state
-        .storage
-        .delete_conversation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete conversation: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&state)
+        .delete_conversation(id, &auth.user_id)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_messages(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(conversation_id): Path<i64>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let conv = state
-        .storage
-        .get_conversation(conversation_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
-
-    let messages = state
-        .storage
-        .get_conversation_messages(conversation_id, query.limit, query.before)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let messages = svc(&state)
+        .list_messages(conversation_id, &auth.user_id, query.limit, query.before)
+        .await?;
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
         limit: query.limit,
@@ -904,90 +639,44 @@ async fn list_messages(
 }
 
 async fn send_message(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(conversation_id): Path<i64>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let conv = state
-        .storage
-        .get_conversation(conversation_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
-
-    let role = req.role.unwrap_or_else(|| "user".to_string());
-
-    let msg = state
-        .storage
-        .create_message(
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let msg = svc(&state)
+        .send_message(
             conversation_id,
-            &role,
+            &auth.user_id,
             &req.content,
-            None,
+            req.role.as_deref(),
             req.tool_calls,
             req.tool_call_id.as_deref(),
         )
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create message: {}", e)))?;
-
+        .await?;
     Ok(Json(MessageResponse::from(msg)))
 }
 
 async fn delete_message(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let msg = state
-        .storage
-        .get_message(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get message: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Message not found"))?;
-
-    let conv = state
-        .storage
-        .get_conversation(msg.conversation_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-    ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
-
-    state
-        .storage
-        .delete_message(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete message: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&state).delete_message(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_generations(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-    let from = decode_generation_cursor(query.from.as_deref());
-
-    if query.from.is_some() && from.is_none() {
-        return Err(ApiError::bad_request("Invalid from cursor"));
-    }
-
-    let (generations, next_batch) = state
-        .storage
-        .get_user_generations(&auth.user_id, query.r#type.as_deref(), query.limit, from)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get generations: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let (generations, next_batch) = svc(&state)
+        .list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from)
+        .await?;
     Ok(Json(PaginatedResponse {
         total: generations.len() as i64,
         limit: query.limit,
@@ -1001,254 +690,114 @@ async fn list_generations(
 }
 
 async fn create_generation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Json(req): Json<CreateGenerationRequest>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    if let Some(conversation_id) = req.conversation_id {
-        let conv = state
-            .storage
-            .get_conversation(conversation_id)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
-            .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
-
-        ensure_openclaw_resource_owner(&conv.user_id, &auth.user_id, "Conversation not found")?;
-    }
-
-    let generation = state
-        .storage
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let generation = svc(&state)
         .create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create generation: {}", e)))?;
-
+        .await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn get_generation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let generation = state
-        .storage
-        .get_generation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Generation not found"))?;
-
-    ensure_openclaw_resource_owner(&generation.user_id, &auth.user_id, "Generation not found")?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let generation = svc(&state)
+        .get_generation_for_user(id, &auth.user_id)
+        .await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn delete_generation(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_generation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Generation not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Generation not found")?;
-
-    state
-        .storage
-        .delete_generation(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete generation: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&state).delete_generation(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_chat_roles(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ChatRoleResponse>>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let roles = state
-        .storage
-        .get_user_chat_roles(&auth.user_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chat roles: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let roles = svc(&state).list_chat_roles(&auth.user_id).await?;
     Ok(Json(
         roles.into_iter().map(ChatRoleResponse::from).collect(),
     ))
 }
 
 async fn create_chat_role(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Json(req): Json<CreateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let role = state
-        .storage
-        .create_chat_role(crate::storage::openclaw::CreateChatRoleParams {
-            user_id: &auth.user_id,
-            name: &req.name,
-            description: req.description.as_deref(),
-            system_message: &req.system_message,
-            model_id: req.model_id.as_deref(),
-            avatar_url: req.avatar_url.as_deref(),
-            category: req.category.as_deref(),
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            is_public: req.is_public,
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to create chat role: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let role = svc(&state)
+        .create_chat_role(
+            &auth.user_id,
+            &req.name,
+            req.description.as_deref(),
+            &req.system_message,
+            req.model_id.as_deref(),
+            req.avatar_url.as_deref(),
+            req.category.as_deref(),
+            req.temperature,
+            req.max_tokens,
+            req.is_public,
+        )
+        .await?;
     Ok(Json(ChatRoleResponse::from(role)))
 }
 
 async fn get_chat_role(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let role = state
-        .storage
-        .get_chat_role(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
-
-    if !role.is_public {
-        ensure_openclaw_resource_owner(&role.user_id, &auth.user_id, "Chat role not found")?;
-    }
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let role = svc(&state).get_chat_role_for_user(id, &auth.user_id).await?;
     Ok(Json(ChatRoleResponse::from(role)))
 }
 
 async fn update_chat_role(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_chat_role(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Chat role not found")?;
-
-    let role = state
-        .storage
-        .update_chat_role(crate::storage::openclaw::UpdateChatRoleParams {
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let role = svc(&state)
+        .update_chat_role(
             id,
-            name: req.name.as_deref(),
-            description: req.description.as_deref(),
-            system_message: req.system_message.as_deref(),
-            model_id: req.model_id.as_deref(),
-            avatar_url: req.avatar_url.as_deref(),
-            category: req.category.as_deref(),
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            is_public: req.is_public,
-        })
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to update chat role: {}", e)))?;
-
+            &auth.user_id,
+            req.name.as_deref(),
+            req.description.as_deref(),
+            req.system_message.as_deref(),
+            req.model_id.as_deref(),
+            req.avatar_url.as_deref(),
+            req.category.as_deref(),
+            req.temperature,
+            req.max_tokens,
+            req.is_public,
+        )
+        .await?;
     Ok(Json(ChatRoleResponse::from(role)))
 }
 
 async fn delete_chat_role(
-    State(state): State<Arc<OpenClawState>>,
+    State(state): State<AppState>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_openclaw_user_allowed(&auth)?;
-
-    let existing = state
-        .storage
-        .get_chat_role(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
-
-    ensure_openclaw_resource_owner(&existing.user_id, &auth.user_id, "Chat role not found")?;
-
-    state
-        .storage
-        .delete_chat_role(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete chat role: {}", e)))?;
-
+    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&state).delete_chat_role(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiError> {
-    use aes_gcm::aead::Aead;
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-    use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
-    use rand::RngCore;
-
-    let cipher = Aes256Gcm::new_from_slice(encryption_key)
-        .map_err(|_| ApiError::internal("Invalid encryption key length".to_string()))?;
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(nonce, key.as_bytes())
-        .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
-
-    let mut combined = nonce_bytes.to_vec();
-    combined.extend_from_slice(&ciphertext);
-
-    Ok(BASE64_STANDARD.encode(&combined))
-}
-
-async fn test_openclaw_health(base_url: &str) -> bool {
-    use reqwest::Client;
-    use std::time::Duration;
-
-    let client = match Client::builder().timeout(Duration::from_secs(5)).build() {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-
-    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
-
-    match client.get(&health_url).send().await {
-        Ok(resp) => resp.status().is_success(),
-        Err(_) => false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::derive_api_key_encryption_key;
-
-    #[test]
-    fn test_derive_api_key_encryption_key_is_deterministic_and_hashed() {
-        let first = derive_api_key_encryption_key("short-secret");
-        let second = derive_api_key_encryption_key("short-secret");
-        let different = derive_api_key_encryption_key("different-secret");
-
-        assert_eq!(first, second);
-        assert_ne!(first, different);
-        assert_ne!(&first[..12], b"short-secret");
-    }
 }

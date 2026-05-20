@@ -1311,6 +1311,139 @@ impl EventStorage {
             .fetch_all(&*self.pool)
             .await
     }
+
+    // -----------------------------------------------------------------------
+    // Room encryption check
+    // -----------------------------------------------------------------------
+
+    /// Check whether a room has an `m.room.encryption` state event.
+    pub async fn check_room_has_encryption(
+        &self,
+        room_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let row: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM room_events WHERE room_id = $1 AND event_type = 'm.room.encryption' LIMIT 1",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(row.is_some())
+    }
+
+    // -----------------------------------------------------------------------
+    // Event queue (pending / processing / failed)
+    // -----------------------------------------------------------------------
+
+    /// Get pending events for a room (used by the message queue endpoint).
+    pub async fn get_pending_room_events(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r"
+            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
+                   COALESCE(not_before, 0) as not_before, status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+            FROM events
+            WHERE room_id = $1 AND status = 'pending'
+            ORDER BY origin_server_ts ASC
+            LIMIT $2
+            ",
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    /// Count events in a room by status (e.g. "processing", "failed").
+    pub async fn count_room_events_by_status(
+        &self,
+        room_id: &str,
+        status: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let result: Option<(i64,)> = sqlx::query_as(
+            "SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = $2",
+        )
+        .bind(room_id)
+        .bind(status)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map_or(0, |r| r.0))
+    }
+
+    // -----------------------------------------------------------------------
+    // Event signatures
+    // -----------------------------------------------------------------------
+
+    /// Save (upsert) an event signature.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_event_signature(
+        &self,
+        event_id: &str,
+        user_id: &str,
+        device_id: &str,
+        signature: &str,
+        key_id: &str,
+        algorithm: &str,
+        created_ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
+            SET signature = EXCLUDED.signature,
+                algorithm = EXCLUDED.algorithm,
+                created_ts = EXCLUDED.created_ts
+            ",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(event_id)
+        .bind(user_id)
+        .bind(device_id)
+        .bind(signature)
+        .bind(key_id)
+        .bind(algorithm)
+        .bind(created_ts)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get all signatures for an event.
+    pub async fn get_event_signatures(
+        &self,
+        event_id: &str,
+    ) -> Result<Vec<EventSignature>, sqlx::Error> {
+        sqlx::query_as::<_, EventSignature>(
+            r"
+            SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
+            FROM event_signatures
+            WHERE event_id = $1
+            ",
+        )
+        .bind(event_id)
+        .fetch_all(&*self.pool)
+        .await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Event signature model
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EventSignature {
+    pub id: uuid::Uuid,
+    pub event_id: String,
+    pub user_id: String,
+    pub device_id: String,
+    pub signature: String,
+    pub key_id: String,
+    pub created_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

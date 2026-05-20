@@ -75,15 +75,25 @@ pub async fn security_headers_middleware(
         ),
     );
 
-    if std::env::var("FORCE_HTTPS")
-        .unwrap_or_default()
-        .to_lowercase()
-        == "true"
-    {
-        response.headers_mut().insert(
-            "Strict-Transport-Security",
-            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
-        );
+    // HSTS: 默认启用，max-age=31536000（1年），包含子域名
+    // 可通过 HSTS_MAX_AGE_SECS=0 禁用
+    let hsts_max_age: u64 = std::env::var("HSTS_MAX_AGE_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(31536000);
+    if hsts_max_age > 0 {
+        let hsts_value = if std::env::var("HSTS_INCLUDE_SUB_DOMAINS")
+            .unwrap_or_default()
+            .to_lowercase()
+            == "true"
+        {
+            format!("max-age={hsts_max_age}; includeSubDomains")
+        } else {
+            format!("max-age={hsts_max_age}")
+        };
+        if let Ok(value) = HeaderValue::from_str(&hsts_value) {
+            response.headers_mut().insert("Strict-Transport-Security", value);
+        }
     }
 
     response

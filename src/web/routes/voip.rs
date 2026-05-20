@@ -52,6 +52,7 @@ pub async fn get_turn_server(
 #[allow(clippy::unused_async)]
 pub async fn get_voip_config(
     State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
     let voip_service = &state.services.voip_service;
 
@@ -77,6 +78,8 @@ pub async fn get_voip_config(
     } else {
         None
     };
+
+    let _ = auth_user;
 
     Ok(Json(VoipConfigResponse {
         turn_servers,

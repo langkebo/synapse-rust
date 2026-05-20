@@ -658,8 +658,14 @@ async fn get_thumbnail_authenticated(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
-    let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
+    let width = params.get("width")
+        .and_then(|v| v.as_u64())
+        .filter(|&w| w <= 10000)
+        .unwrap_or(800) as u32;
+    let height = params.get("height")
+        .and_then(|v| v.as_u64())
+        .filter(|&h| h <= 10000)
+        .unwrap_or(600) as u32;
     let method = params
         .get("method")
         .and_then(|v| v.as_str())
@@ -703,8 +709,14 @@ async fn get_thumbnail(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    let width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(800) as u32;
-    let height = params.get("height").and_then(|v| v.as_u64()).unwrap_or(600) as u32;
+    let width = params.get("width")
+        .and_then(|v| v.as_u64())
+        .filter(|&w| w <= 10000)
+        .unwrap_or(800) as u32;
+    let height = params.get("height")
+        .and_then(|v| v.as_u64())
+        .filter(|&h| h <= 10000)
+        .unwrap_or(600) as u32;
     let method = params
         .get("method")
         .and_then(|v| v.as_str())

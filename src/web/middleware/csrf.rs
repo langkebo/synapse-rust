@@ -68,7 +68,23 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     headers
         .get("cookie")
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_string())
+        .and_then(|cookie_str| {
+            // Parse the specific session cookie instead of using the entire cookie string
+            cookie_str
+                .split(';')
+                .filter_map(|pair| {
+                    let mut parts = pair.trim().splitn(2, '=');
+                    let name = parts.next()?.trim();
+                    let value = parts.next()?.trim();
+                    // Look for common session cookie names
+                    if name == "sid" || name == "session_id" || name == "sessionid" {
+                        Some(format!("{name}={value}"))
+                    } else {
+                        None
+                    }
+                })
+                .next()
+        })
 }
 
 pub async fn csrf_middleware(

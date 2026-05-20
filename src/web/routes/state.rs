@@ -26,6 +26,8 @@ pub struct AppState {
         Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "openclaw-routes")]
     pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
+    #[cfg(feature = "openclaw-routes")]
+    pub openclaw_service: Arc<crate::services::openclaw_service::OpenClawService>,
 }
 
 impl AppState {
@@ -47,6 +49,21 @@ impl AppState {
 
         #[cfg(feature = "openclaw-routes")]
         let pool = services.user_storage.pool.clone();
+        #[cfg(feature = "openclaw-routes")]
+        let openclaw_service = {
+            let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(
+                pool.clone(),
+            ));
+            let encryption_key =
+                crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
+                    services.config.server.macaroon_secret_key.as_deref(),
+                    &services.config.security.secret,
+                );
+            Arc::new(crate::services::openclaw_service::OpenClawService::new(
+                openclaw_storage,
+                encryption_key,
+            ))
+        };
         let key_fetch_max_concurrency = services.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency = if key_fetch_max_concurrency <= 1 {
             1
@@ -93,6 +110,8 @@ impl AppState {
             ),
             #[cfg(feature = "openclaw-routes")]
             mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache)),
+            #[cfg(feature = "openclaw-routes")]
+            openclaw_service,
         }
     }
 

@@ -1,8 +1,8 @@
 use crate::common::ApiError;
 use crate::storage::event::StateEvent;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, AppState,
-    AuthenticatedUser,
+    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict,
+    validate_room_id, AppState, AuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -891,6 +891,8 @@ async fn get_room_hierarchy(
     Path(room_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
