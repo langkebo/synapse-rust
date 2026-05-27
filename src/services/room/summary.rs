@@ -464,10 +464,10 @@ impl RoomSummaryService {
                         .get("msgtype")
                         .and_then(|v| v.as_str())
                         .is_some_and(|t| {
-                            t.starts_with("m.image")
-                                || t.starts_with("m.video")
-                                || t.starts_with("m.file")
-                                || t.starts_with("m.audio")
+                            t == "m.image"
+                                || t == "m.video"
+                                || t == "m.file"
+                                || t == "m.audio"
                         })
             })
             .count() as i64;

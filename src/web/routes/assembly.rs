@@ -12,11 +12,12 @@ use crate::web::middleware::{
 };
 use axum::{
     extract::{Path, State},
-    http::Method,
+    http::{HeaderMap, Method},
     routing::{get, post, put},
     Json, Router,
 };
 use serde_json::json;
+use sqlx::Row;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 /// Manifest of every `(method, absolute_path)` tuple the assembled top-level
@@ -530,35 +531,196 @@ async fn get_rtc_transports(
 
 /// MSC4133 — extended profile properties.
 ///
-/// We do not currently persist extended profile data. For Element compatibility
-/// we keep these routes as explicit no-op stubs so startup/profile probes do not
-/// surface transport errors, while `/_matrix/client/versions` still advertises
-/// `uk.tcpip.msc4133: false` to avoid claiming full support.
+/// We persist a user-scoped JSON object in `account_data` and expose per-field
+/// accessors on top of it. This keeps the implementation small while providing
+/// real interoperability for clients probing the unstable MSC4133 endpoints.
+const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
+const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 128;
+const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
+
+async fn ensure_extended_profile_user_exists(
+    state: &AppState,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    let exists = state
+        .services
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
+
+    if exists {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("User not found".to_string()))
+    }
+}
+
+async fn load_extended_profile_document(
+    state: &AppState,
+    user_id: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
+    let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
+        .bind(user_id)
+        .bind(EXTENDED_PROFILE_DATA_TYPE)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+
+    let Some(row) = result else {
+        return Ok(serde_json::Map::new());
+    };
+
+    let content = row
+        .get::<Option<serde_json::Value>, _>("content")
+        .unwrap_or(json!({}));
+
+    match content {
+        serde_json::Value::Object(map) => Ok(map),
+        _ => Err(ApiError::internal(
+            "Stored extended profile content is not a JSON object".to_string(),
+        )),
+    }
+}
+
+async fn save_extended_profile_document(
+    state: &AppState,
+    user_id: &str,
+    document: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ApiError> {
+    let content = serde_json::Value::Object(document.clone());
+    let content_str = serde_json::to_string(&content)
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+
+    if content_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
+        return Err(ApiError::bad_request(
+            "Extended profile data too large (max 64KB)".to_string(),
+        ));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r"
+        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
+        ",
+    )
+    .bind(user_id)
+    .bind(EXTENDED_PROFILE_DATA_TYPE)
+    .bind(&content)
+    .bind(now)
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to save extended profile data: {e}")))?;
+
+    Ok(())
+}
+
 async fn get_extended_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Path(_user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(json!({})))
+    let user_id = _user_id;
+    crate::web::routes::validators::validate_user_id(&user_id)?;
+    super::account_compat::enforce_profile_visibility(&state, &headers, &user_id).await?;
+    ensure_extended_profile_user_exists(&state, &user_id).await?;
+    Ok(Json(serde_json::Value::Object(
+        load_extended_profile_document(&state, &user_id).await?,
+    )))
 }
 
 async fn get_extended_profile_field(
-    Path(_params): Path<(String, String)>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((user_id, key_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(json!({})))
+    crate::web::routes::validators::validate_user_id(&user_id)?;
+    super::account_compat::enforce_profile_visibility(&state, &headers, &user_id).await?;
+    ensure_extended_profile_user_exists(&state, &user_id).await?;
+
+    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
+        return Err(ApiError::bad_request(
+            "Invalid extended profile field name".to_string(),
+        ));
+    }
+
+    let document = load_extended_profile_document(&state, &user_id).await?;
+    let value = document
+        .get(&key_name)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("Extended profile field not found".to_string()))?;
+
+    Ok(Json(value))
 }
 
 async fn put_extended_profile_field(
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(_params): Path<(String, String)>,
-    Json(_body): Json<serde_json::Value>,
+    Path((user_id, key_name)): Path<(String, String)>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(json!({})))
+    let auth_user = _auth_user;
+    crate::web::routes::validators::validate_user_id(&user_id)?;
+    ensure_extended_profile_user_exists(&state, &user_id).await?;
+
+    if auth_user.user_id != user_id {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
+        return Err(ApiError::bad_request(
+            "Invalid extended profile field name".to_string(),
+        ));
+    }
+
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    if body_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
+        return Err(ApiError::bad_request(
+            "Extended profile field too large (max 64KB)".to_string(),
+        ));
+    }
+
+    let mut document = load_extended_profile_document(&state, &user_id).await?;
+    document.insert(key_name.clone(), body);
+    save_extended_profile_document(&state, &user_id, &document).await?;
+
+    Ok(Json(json!({
+        "key_name": key_name,
+        "updated": true
+    })))
 }
 
 async fn delete_extended_profile_field(
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(_params): Path<(String, String)>,
+    Path((user_id, key_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(json!({})))
+    let auth_user = _auth_user;
+    crate::web::routes::validators::validate_user_id(&user_id)?;
+    ensure_extended_profile_user_exists(&state, &user_id).await?;
+
+    if auth_user.user_id != user_id {
+        return Err(ApiError::forbidden("Access denied".to_string()));
+    }
+    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
+        return Err(ApiError::bad_request(
+            "Invalid extended profile field name".to_string(),
+        ));
+    }
+
+    let mut document = load_extended_profile_document(&state, &user_id).await?;
+    if document.remove(&key_name).is_none() {
+        return Err(ApiError::not_found("Extended profile field not found".to_string()));
+    }
+    save_extended_profile_document(&state, &user_id, &document).await?;
+
+    Ok(Json(json!({
+        "key_name": key_name,
+        "deleted": true
+    })))
 }
 
 /// MSC2965 — `auth_metadata`. Used by clients (e.g. Element) to discover whether
@@ -575,7 +737,7 @@ async fn get_auth_metadata(
 }
 
 fn create_client_capabilities_router() -> Router<AppState> {
-    Router::new().route("/capabilities", get(handlers::get_capabilities))
+    Router::new().route("/capabilities", get(get_capabilities))
 }
 
 fn create_client_media_config_router() -> Router<AppState> {
@@ -583,6 +745,7 @@ fn create_client_media_config_router() -> Router<AppState> {
 }
 
 fn create_voip_compat_router() -> Router<AppState> {
+    // `mut` needed when `voip-tracking` feature is enabled; unused otherwise.
     #[allow(unused_mut)]
     let mut router = Router::new()
         .route(
@@ -642,7 +805,7 @@ pub fn create_router(state: AppState) -> Router {
             );
         }
         Err(err) => {
-            eprintln!("route manifest contains duplicate entries — refusing to start:\n{err}");
+            tracing::error!("route manifest contains duplicate entries — refusing to start:\n{err}");
             std::process::exit(1);
         }
     }
@@ -770,6 +933,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_tags_router(state.clone()))
         .nest("/_matrix/client/r0", create_client_capabilities_router())
         .nest("/_matrix/client/v3", create_client_capabilities_router())
+        .nest("/_matrix/client/v3", media::create_upload_provider_router())
         .nest("/_matrix/client/r0", create_voip_compat_router())
         .nest("/_matrix/client/v3", create_voip_compat_router())
         .nest("/_matrix/client/v1", create_client_media_config_router())
@@ -782,7 +946,8 @@ pub fn create_router(state: AppState) -> Router {
             state.clone(),
         ))
         .merge(create_rendezvous_router(state.clone()))
-        .merge(create_presence_router());
+        .merge(create_presence_router())
+        .merge(oidc::create_oidc_router(state.clone()));
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))
@@ -845,6 +1010,16 @@ fn create_auth_router() -> Router<AppState> {
         .route(
             "/_matrix/client/v1/login/qr/invalidate",
             post(qr_login::invalidate_qr_login),
+        )
+        // Frontend compat: POST /login/qrcode/new -> get_qr_code
+        .route(
+            "/_matrix/client/v1/login/qrcode/new",
+            post(qr_login::get_qr_code),
+        )
+        // Frontend compat: GET /login/qrcode/{session_id} -> get_qr_status
+        .route(
+            "/_matrix/client/v1/login/qrcode/{session_id}",
+            get(qr_login::get_qr_status),
         )
 }
 

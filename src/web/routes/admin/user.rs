@@ -1017,7 +1017,7 @@ pub async fn get_single_user_stats(
     let pool = &*state.services.room_storage.pool;
 
     let messages_sent: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_events WHERE sender = $1 AND type = 'm.room.message'",
+        "SELECT COUNT(*) FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false",
     )
     .bind(&user.user_id)
     .fetch_one(pool)

@@ -165,6 +165,7 @@ pub(crate) async fn send_state_event(
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
+    // Variable used only when `beacons` feature is enabled.
     #[allow(unused_variables)]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
@@ -229,6 +230,26 @@ pub(crate) async fn send_state_event(
         None
     };
 
+    // State events with empty state_key per Matrix spec (global room state)
+    const EMPTY_STATE_KEY_TYPES: &[&str] = &[
+        "m.room.encryption",
+        "m.room.power_levels",
+        "m.room.join_rules",
+        "m.room.history_visibility",
+        "m.room.guest_access",
+        "m.room.name",
+        "m.room.topic",
+        "m.room.avatar",
+        "m.room.canonical_alias",
+        "m.room.server_acl",
+    ];
+
+    let state_key = if EMPTY_STATE_KEY_TYPES.contains(&final_event_type.as_str()) {
+        Some("".to_string())
+    } else {
+        Some(auth_user.user_id.clone())
+    };
+
     let state_event = state
         .services
         .room_service
@@ -239,7 +260,7 @@ pub(crate) async fn send_state_event(
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
                 content,
-                state_key: Some(auth_user.user_id.clone()),
+                state_key,
                 origin_server_ts: now,
             },
             None,
@@ -288,6 +309,7 @@ pub(crate) async fn put_state_event(
         ));
     }
 
+    // Variable used only when `beacons` feature is enabled.
     #[allow(unused_variables)]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")

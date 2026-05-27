@@ -338,7 +338,7 @@ impl DeviceKeyStorage {
             SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
             FROM device_keys
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
-              AND algorithm NOT IN ('signed_curve25519')
+              AND algorithm IN ('ed25519', 'curve25519')
             "
         )
         .bind(user_id)

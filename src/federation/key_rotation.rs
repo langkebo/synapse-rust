@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::common::key_encryption::{encrypt_key, decrypt_key, is_encrypted};
 use crate::federation::signing::sign_json;
 use base64::Engine;
 use chrono::{Duration, Utc};
@@ -51,6 +52,7 @@ pub struct KeyRotationManager {
     rotation_enabled: Arc<RwLock<bool>>,
     signing_keys_table_ready: Arc<AtomicBool>,
     signing_key_path: Option<String>,
+    master_key: Option<Vec<u8>>,
 }
 
 impl KeyRotationManager {
@@ -63,6 +65,21 @@ impl KeyRotationManager {
         server_name: &str,
         signing_key_path: Option<String>,
     ) -> Self {
+        Self::with_key_path_and_master_key(pool, server_name, signing_key_path, None)
+    }
+
+    pub fn with_key_path_and_master_key(
+        pool: &Arc<Pool<Postgres>>,
+        server_name: &str,
+        signing_key_path: Option<String>,
+        master_key: Option<Vec<u8>>,
+    ) -> Self {
+        if master_key.is_none() {
+            tracing::warn!(
+                "No signing_key_master_key configured - federation signing keys will be stored in plaintext. \
+                 Set federation.signing_key_master_key for encrypted key storage."
+            );
+        }
         Self {
             pool: pool.clone(),
             memory_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -72,6 +89,7 @@ impl KeyRotationManager {
             rotation_enabled: Arc::new(RwLock::new(true)),
             signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
             signing_key_path,
+            master_key,
         }
     }
 
@@ -220,7 +238,27 @@ impl KeyRotationManager {
         .await;
 
         match existing_key {
-            Ok(Some(key)) => {
+            Ok(Some(mut key)) => {
+                // Decrypt secret_key if it's encrypted
+                if is_encrypted(&key.secret_key) {
+                    match &self.master_key {
+                        Some(mk) => {
+                            key.secret_key = decrypt_key(&key.secret_key, mk)
+                                .map_err(|e| ApiError::internal(format!("Failed to decrypt signing key: {e}")))?;
+                        }
+                        None => {
+                            return Err(ApiError::internal(
+                                "Signing key is encrypted but no master key is configured"
+                            ));
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "Federation signing key for {} is stored in plaintext. \
+                         Consider configuring signing_key_master_key to encrypt keys at rest.",
+                        key.key_id
+                    );
+                }
                 *self.current_key.write().await = Some(key.clone());
                 tracing::info!("Loaded existing signing key from database");
                 if let Err(e) = self.export_signing_key_to_file(&key).await {
@@ -285,7 +323,6 @@ impl KeyRotationManager {
             created_ts,
             expires_at,
             key_json: json!({
-                "secret_key": secret_key,
                 "public_key": public_key
             }),
             ts_added_ms: created_ts,
@@ -294,8 +331,19 @@ impl KeyRotationManager {
 
         *self.current_key.write().await = Some(signing_key.clone());
 
+        // Encrypt the secret key for storage if master key is configured
+        let stored_secret_key = match &self.master_key {
+            Some(mk) => encrypt_key(secret_key, mk)
+                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}")))?,
+            None => {
+                tracing::warn!(
+                    "Storing federation signing key in plaintext - configure signing_key_master_key for encryption"
+                );
+                secret_key.to_string()
+            }
+        };
+
         let key_json = json!({
-            "secret_key": signing_key.secret_key,
             "public_key": signing_key.public_key
         });
 
@@ -315,7 +363,7 @@ impl KeyRotationManager {
         )
         .bind(&self.server_name)
         .bind(&signing_key.key_id)
-        .bind(&signing_key.secret_key)
+        .bind(&stored_secret_key)
         .bind(&signing_key.public_key)
         .bind(signing_key.created_ts)
         .bind(signing_key.expires_at)
@@ -584,6 +632,60 @@ impl KeyRotationManager {
         Ok(servers.into_iter().map(|(s,)| s).collect())
     }
 
+    /// Revoke a specific key by marking it as expired in the database
+    pub async fn revoke_key(&self, key_id: &str, reason: Option<&str>) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Build the key_json update with revoked metadata
+        let key_json_update = if let Some(r) = reason {
+            serde_json::json!({
+                "revoked": true,
+                "revoked_at": now,
+                "revoke_reason": r
+            })
+        } else {
+            serde_json::json!({
+                "revoked": true,
+                "revoked_at": now
+            })
+        };
+
+        // Mark the key as expired and add revocation metadata
+        let result = sqlx::query(
+            r"UPDATE federation_signing_keys
+               SET expires_at = $1,
+                   key_json = COALESCE(key_json, '{}'::jsonb) || $2::jsonb
+               WHERE key_id = $3 AND server_name = $4 AND (expires_at = 0 OR expires_at > $1)",
+        )
+        .bind(now)
+        .bind(serde_json::to_string(&key_json_update).unwrap_or_else(|_| "{}".to_string()))
+        .bind(key_id)
+        .bind(&self.server_name)
+        .execute(&*self.pool)
+        .await?;
+
+        let revoked = result.rows_affected();
+
+        // If the revoked key is the current key, clear it from cache and trigger rotation
+        {
+            let current = self.current_key.read().await;
+            if let Some(ref current_key) = *current {
+                if current_key.key_id == key_id {
+                    drop(current);
+                    let _ = self.rotate_keys(None).await;
+                }
+            }
+        }
+
+        // Remove from historical keys cache
+        {
+            let mut historical = self.historical_keys.write().await;
+            historical.remove(key_id);
+        }
+
+        Ok(revoked)
+    }
+
     pub async fn set_rotation_enabled(&self, enabled: bool) {
         *self.rotation_enabled.write().await = enabled;
         tracing::info!(
@@ -617,7 +719,7 @@ mod tests {
         match PgPool::connect_lazy(&database_url) {
             Ok(pool) => Some(Arc::new(pool)),
             Err(e) => {
-                eprintln!("Failed to create lazy pool connection: {e}");
+                tracing::warn!("Failed to create lazy pool connection: {e}");
                 None
             }
         }
@@ -636,7 +738,7 @@ mod tests {
         {
             Ok(pool) => Arc::new(pool),
             Err(error) => {
-                eprintln!(
+                tracing::warn!(
                     "Skipping key rotation database tests because test database is unavailable: {error}"
                 );
                 return None;
@@ -671,13 +773,18 @@ mod tests {
         Some(pool)
     }
 
-    // fn generate_valid_test_key() -> String {
-    //     use rand::RngCore;
-    //     let mut rng = rand::thread_rng();
-    //     let mut secret_bytes = [0u8; 32];
-    //     rng.fill_bytes(&mut secret_bytes);
-    //     base64::engine::general_purpose::STANDARD_NO_PAD.encode(secret_bytes)
-    // }
+    /// Generate a proper Ed25519 keypair for testing.
+    /// SAFETY: Test-only key, never used in production.
+    fn generate_test_signing_key(seed_byte: u8) -> (String, String) {
+        let seed = [seed_byte; 32];
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        let secret_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.as_bytes());
+        let public_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes());
+        (secret_b64, public_b64)
+    }
 
     #[tokio::test]
     async fn test_grace_period() {
@@ -687,11 +794,13 @@ mod tests {
         };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
+        let (test_secret, test_public) = generate_test_signing_key(0x01);
         let expired_key = SigningKey {
             server_name: "test.example.com".to_string(),
             key_id: "ed25519:expired".to_string(),
-            secret_key: "test".to_string(),
-            public_key: "test".to_string(),
+            // SAFETY: Test-only key, never used in production
+            secret_key: test_secret,
+            public_key: test_public,
             created_ts: 0,
             expires_at: Utc::now().timestamp_millis() - 1000,
             key_json: serde_json::json!({}),
@@ -710,11 +819,13 @@ mod tests {
 
     #[test]
     fn test_signing_key_creation() {
+        let (test_secret, test_public) = generate_test_signing_key(0x02);
         let key = SigningKey {
             server_name: "test.example.com".to_string(),
             key_id: "ed25519:test".to_string(),
-            secret_key: "secret123".to_string(),
-            public_key: "public456".to_string(),
+            // SAFETY: Test-only key, never used in production
+            secret_key: test_secret.clone(),
+            public_key: test_public.clone(),
             created_ts: 1000,
             expires_at: 2000,
             key_json: serde_json::json!({}),
@@ -723,19 +834,21 @@ mod tests {
         };
 
         assert_eq!(key.key_id, "ed25519:test");
-        assert_eq!(key.secret_key, "secret123");
-        assert_eq!(key.public_key, "public456");
+        assert_eq!(key.secret_key, test_secret);
+        assert_eq!(key.public_key, test_public);
         assert_eq!(key.created_ts, 1000);
         assert_eq!(key.expires_at, 2000);
     }
 
     #[test]
     fn test_signing_key_clone() {
+        let (test_secret, test_public) = generate_test_signing_key(0x03);
         let key = SigningKey {
             server_name: "test.example.com".to_string(),
             key_id: "ed25519:test".to_string(),
-            secret_key: "secret123".to_string(),
-            public_key: "public456".to_string(),
+            // SAFETY: Test-only key, never used in production
+            secret_key: test_secret.clone(),
+            public_key: test_public.clone(),
             created_ts: 1000,
             expires_at: 2000,
             key_json: serde_json::json!({}),
@@ -781,14 +894,16 @@ mod tests {
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let future_expires = (Utc::now() + Duration::days(30)).timestamp_millis();
+        let (test_secret, test_public) = generate_test_signing_key(0x04);
 
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
                 server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
-                secret_key: "test".to_string(),
-                public_key: "test".to_string(),
+                // SAFETY: Test-only key, never used in production
+                secret_key: test_secret,
+                public_key: test_public,
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: future_expires,
                 key_json: serde_json::json!({}),
@@ -810,14 +925,16 @@ mod tests {
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
         let soon_expires = (Utc::now() + Duration::hours(12)).timestamp_millis();
+        let (test_secret, test_public) = generate_test_signing_key(0x05);
 
         {
             let mut current = manager.current_key.write().await;
             *current = Some(SigningKey {
                 server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
-                secret_key: "test".to_string(),
-                public_key: "test".to_string(),
+                // SAFETY: Test-only key, never used in production
+                secret_key: test_secret,
+                public_key: test_public,
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: soon_expires,
                 key_json: serde_json::json!({}),
@@ -839,9 +956,10 @@ mod tests {
         let manager = KeyRotationManager::new(&pool, "test.example.com");
         let now = Utc::now().timestamp_millis();
         let expires_at = now + Duration::days(7).num_milliseconds();
+        let (test_secret, test_public) = generate_test_signing_key(0x06);
         let key_json = json!({
-            "secret_key": "secret123",
-            "public_key": "public456"
+            "secret_key": test_secret,
+            "public_key": test_public
         });
 
         sqlx::query(
@@ -862,8 +980,9 @@ mod tests {
         )
         .bind("test.example.com")
         .bind("ed25519:test")
-        .bind("secret123")
-        .bind("public456")
+        // SAFETY: Test-only key, never used in production
+        .bind(&test_secret)
+        .bind(&test_public)
         .bind(now)
         .bind(expires_at)
         .bind(key_json.clone())
@@ -883,8 +1002,8 @@ mod tests {
 
         assert_eq!(current.server_name, "test.example.com");
         assert_eq!(current.key_id, "ed25519:test");
-        assert_eq!(current.secret_key, "secret123");
-        assert_eq!(current.public_key, "public456");
+        assert_eq!(current.secret_key, test_secret);
+        assert_eq!(current.public_key, test_public);
         assert_eq!(current.created_ts, now);
         assert_eq!(current.expires_at, expires_at);
         assert_eq!(current.key_json, key_json);
@@ -1060,6 +1179,7 @@ mod tests {
             None => return,
         };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
+        let (test_secret, test_public) = generate_test_signing_key(0x07);
 
         // Set a key
         {
@@ -1067,8 +1187,9 @@ mod tests {
             *current = Some(SigningKey {
                 server_name: "test.example.com".to_string(),
                 key_id: "ed25519:test".to_string(),
-                secret_key: "test".to_string(),
-                public_key: "test".to_string(),
+                // SAFETY: Test-only key, never used in production
+                secret_key: test_secret,
+                public_key: test_public,
                 created_ts: Utc::now().timestamp_millis(),
                 expires_at: (Utc::now() + Duration::days(30)).timestamp_millis(),
                 key_json: serde_json::json!({}),

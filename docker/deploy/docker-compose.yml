@@ -127,7 +127,6 @@ services:
     pull_policy: ${SYNAPSE_PULL_POLICY:-never}
     container_name: synapse-app
     restart: unless-stopped
-    init: true
     read_only: true
     tmpfs:
       - /tmp

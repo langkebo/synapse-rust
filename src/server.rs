@@ -108,7 +108,23 @@ impl SynapseServer {
         let pool = pool_options.connect(&database_url).await?;
         let pool = Arc::new(pool);
 
-        // 运行数据库 Schema 健康检查
+        // 先执行运行时数据库初始化，确保所有表存在
+        let runtime_db_init_enabled = std::env::var("SYNAPSE_ENABLE_RUNTIME_DB_INIT")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        let skip_db_init = std::env::var("SYNAPSE_SKIP_DB_INIT")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        if !runtime_db_init_enabled || skip_db_init {
+            ::tracing::info!(
+                "Runtime database initialization disabled; use docker/db_migrate.sh and db-migration-gate.yml as the migration source of truth"
+            );
+        } else {
+            let db_init_service = DatabaseInitService::new(pool.clone());
+            db_init_service.initialize().await?;
+        }
+
+        // 运行数据库 Schema 健康检查（在运行时初始化之后）
         let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK")
             .unwrap_or_default()
             .to_lowercase()
@@ -161,21 +177,6 @@ impl SynapseServer {
                     // 非致命错误，继续启动
                 }
             }
-        }
-
-        let runtime_db_init_enabled = std::env::var("SYNAPSE_ENABLE_RUNTIME_DB_INIT")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
-        let skip_db_init = std::env::var("SYNAPSE_SKIP_DB_INIT")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
-        if !runtime_db_init_enabled || skip_db_init {
-            ::tracing::info!(
-                "Runtime database initialization disabled; use docker/db_migrate.sh and db-migration-gate.yml as the migration source of truth"
-            );
-        } else {
-            let db_init_service = DatabaseInitService::new(pool.clone());
-            db_init_service.initialize().await?;
         }
 
         let mut task_queue: Option<Arc<RedisTaskQueue>> = None;

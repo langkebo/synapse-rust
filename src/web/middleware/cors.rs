@@ -5,6 +5,7 @@ use super::{
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::response::Response;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct CorsSecurityReport {
@@ -89,78 +90,40 @@ pub fn check_cors_security() -> CorsSecurityReport {
 }
 
 pub fn log_cors_security_report(report: &CorsSecurityReport) {
-    println!();
-    println!("╔════════════════════════════════════════════════════════════════╗");
-    println!("║              CORS Security Configuration Check                 ║");
-    println!("╠════════════════════════════════════════════════════════════════╣");
+    let mode = if report.is_development_mode {
+        "DEVELOPMENT"
+    } else {
+        "PRODUCTION"
+    };
+    info!("CORS Security Configuration Check: mode={}", mode);
 
     if report.is_development_mode {
-        println!("║  🔧 MODE: DEVELOPMENT                                          ║");
         if report.is_localhost_bind {
-            println!("║  ⚠️  WARNING: Development mode is ACTIVE                        ║");
-            println!("║  ⚠️  All CORS origins are permitted - NOT SAFE FOR PRODUCTION  ║");
+            info!("Development mode is ACTIVE — all CORS origins are permitted (NOT SAFE FOR PRODUCTION)");
         } else {
-            println!("║  ⚠️  WARNING: Non-localhost bind address detected               ║");
-            println!("║  ⚠️  Permissive CORS is DISABLED for non-localhost              ║");
+            info!("Non-localhost bind address detected — permissive CORS is DISABLED for non-localhost");
         }
-    } else {
-        println!("║  🏭 MODE: PRODUCTION                                           ║");
     }
-
-    println!("╠════════════════════════════════════════════════════════════════╣");
 
     if report.allows_any_origin {
-        println!("║  🌐 CORS Origin: * (ANY ORIGIN)                                ║");
+        info!("CORS Origin: * (ANY ORIGIN)");
     } else if report.has_pattern {
-        println!("║  🌐 CORS Origin: Pattern-based matching                        ║");
+        info!("CORS Origin: Pattern-based matching");
     } else if report.allowed_origins.is_empty() {
-        println!("║  🌐 CORS Origin: NOT CONFIGURED                                ║");
+        info!("CORS Origin: NOT CONFIGURED");
     } else {
-        println!("║  🌐 CORS Origins:                                              ║");
-        for origin in &report.allowed_origins {
-            let truncated = if origin.len() > 50 {
-                format!("{}...", &origin[..47])
-            } else {
-                origin.clone()
-            };
-            println!("║    - {truncated:<58}║");
-        }
+        info!("CORS Origins: {:?}", report.allowed_origins);
     }
-
-    println!("╠════════════════════════════════════════════════════════════════╣");
-
-    if !report.errors.is_empty() {
-        println!("║  🚨 ERRORS:                                                    ║");
-        for error in &report.errors {
-            for line in textwrap::wrap(error, 60) {
-                let padding = if line.len() < 60 { 60 - line.len() } else { 0 };
-                println!("║    {}{}", line, " ".repeat(padding));
-            }
-        }
-    }
-
-    if !report.warnings.is_empty() {
-        println!("║  ⚠️  WARNINGS:                                                  ║");
-        for warning in &report.warnings {
-            for line in textwrap::wrap(warning, 60) {
-                let padding = if line.len() < 60 { 60 - line.len() } else { 0 };
-                println!("║    {}{}", line, " ".repeat(padding));
-            }
-        }
-    }
-
-    if !report.has_issues() {
-        println!("║  ✅ CORS configuration looks secure                            ║");
-    }
-
-    println!("╚════════════════════════════════════════════════════════════════╝");
-    println!();
 
     for error in &report.errors {
         tracing::error!("{}", error);
     }
     for warning in &report.warnings {
         tracing::warn!("{}", warning);
+    }
+
+    if !report.has_issues() {
+        info!("CORS configuration looks secure");
     }
 }
 

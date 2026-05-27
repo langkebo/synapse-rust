@@ -4,17 +4,31 @@ default:
   burst_size: 100
 endpoints:
   - path: "/_matrix/client/versions"
-    per_second: 10
-    burst_size: 30
+    rule:
+      per_second: 10
+      burst_size: 30
   - path: "/.well-known/matrix/client"
-    per_second: 10
-    burst_size: 30
+    rule:
+      per_second: 10
+      burst_size: 30
   - path: "/.well-known/matrix/server"
-    per_second: 10
-    burst_size: 30
+    rule:
+      per_second: 10
+      burst_size: 30
   - path: "/health"
-    per_second: 10
-    burst_size: 30
+    rule:
+      per_second: 10
+      burst_size: 30
+  - path: "/_matrix/client/v3/login"
+    match_type: "prefix"
+    rule:
+      per_second: 5
+      burst_size: 20
+  - path: "/_matrix/client/r0/login"
+    match_type: "prefix"
+    rule:
+      per_second: 5
+      burst_size: 20
 ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"

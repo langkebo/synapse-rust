@@ -245,7 +245,7 @@ impl CaptchaService {
             self.storage
                 .get_default_template(&captcha.captcha_type)
                 .await?
-                .ok_or_else(|| ApiError::internal("No default template found"))?
+                .ok_or_else(|| ApiError::bad_request("No captcha template configured for this type. Please contact the server administrator."))?
         };
 
         let content = Self::render_template(&template, code, expiry_minutes);

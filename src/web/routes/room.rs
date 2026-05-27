@@ -19,7 +19,7 @@ use crate::web::routes::{
     put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
     search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
     set_room_account_data, set_room_vault_data, sign_room_event, sticky_event,
-    translate_room_event, unban_user, verify_room_event, AppState,
+    translate_room_event, translate_text, unban_user, verify_room_event, AppState,
 };
 use axum::{
     extract::{Path, State},
@@ -106,7 +106,7 @@ fn create_room_r0_v3_compat_router() -> Router<AppState> {
         )
         .route(
             "/rooms/{room_id}/send/{event_type}/{txn_id}",
-            put(send_message),
+            put(send_message).post(send_message),
         )
         .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
 }
@@ -182,6 +182,7 @@ fn create_room_v3_router() -> Router<AppState> {
             "/rooms/{room_id}/translate/{event_id}",
             post(translate_room_event),
         )
+        .route("/translate", post(translate_text))
         .route(
             "/rooms/{room_id}/convert/{event_id}",
             post(convert_room_event),
@@ -300,6 +301,7 @@ fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)
         (Method::POST, "/rooms/{room_id}/pinned_events"),
         (Method::DELETE, "/rooms/{room_id}/pinned_events/{event_id}"),
         (Method::PUT, "/rooms/{room_id}/send/{event_type}/{txn_id}"),
+        (Method::POST, "/rooms/{room_id}/send/{event_type}/{txn_id}"),
         (Method::GET, "/rooms/{room_id}/event/{event_id}"),
     ];
     base.extend(sticky_event::sticky_event_compat_relative_routes());
@@ -340,6 +342,7 @@ fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::GET, "/rooms/{room_id}/service_types"),
         (Method::GET, "/rooms/{room_id}/event/{event_id}/url"),
         (Method::POST, "/rooms/{room_id}/translate/{event_id}"),
+        (Method::POST, "/translate"),
         (Method::POST, "/rooms/{room_id}/convert/{event_id}"),
         (Method::PUT, "/rooms/{room_id}/sign/{event_id}"),
         (Method::POST, "/rooms/{room_id}/verify/{event_id}"),
@@ -449,18 +452,52 @@ struct AntiScreenshotPayload {
 }
 
 async fn get_anti_screenshot(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
+    Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(serde_json::json!({"enabled": false})))
+    // Check room state for com.hula.privacy event with block_screenshot action
+    let events = state.services.event_storage
+        .get_state_events_by_type(&room_id, "com.hula.privacy")
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get anti-screenshot state: {e}")))?;
+
+    let enabled = events
+        .into_iter()
+        .find(|e| e.state_key.as_deref() == Some("") || e.state_key.is_none())
+        .and_then(|e| e.content.get("action").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .map(|a| a == "block_screenshot")
+        .unwrap_or(false);
+
+    Ok(Json(serde_json::json!({"enabled": enabled})))
 }
 
 async fn set_anti_screenshot(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let action = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
+
+    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
+    let now_ts = chrono::Utc::now().timestamp_millis();
+
+    state.services.event_storage
+        .create_event(
+            crate::storage::event::CreateEventParams {
+                event_id,
+                room_id: room_id.clone(),
+                user_id: auth_user.user_id.clone(),
+                event_type: "com.hula.privacy".to_string(),
+                content: serde_json::json!({ "action": action }),
+                state_key: Some("".to_string()),
+                origin_server_ts: now_ts,
+            },
+            None,
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to set anti-screenshot state: {e}")))?;
+
     Ok(Json(serde_json::json!({"enabled": payload.enabled})))
 }

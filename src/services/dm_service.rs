@@ -1,6 +1,13 @@
 //! DM Service - 直接消息服务
 //!
 //! 该模块提供 Matrix 直接消息（DM）房间管理功能。
+//! 当前它主要保留为兼容性辅助实现:
+//!
+//! - 单元测试中的纯内存 DM 语义验证
+//! - 仍依赖旧接口的轻量调用方
+//!
+//! 自 P0 私聊/好友关系域收敛后，主运行时语义已经转移到
+//! `FriendRoomService + m.direct account data`，该模块不再作为运行时注入服务。
 //!
 //! # 功能
 //!
@@ -12,7 +19,7 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::{DMService, DMService};
+//! use synapse_rust::services::dm_service::DMService;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -51,6 +58,9 @@ pub struct DMRoom {
     pub created_ts: i64,
 }
 
+/// 兼容性内存 DM 服务。
+///
+/// 该类型仍对外保留，但主要用于测试和旧接口兼容，不再承担主运行时事实来源。
 pub struct DMService {
     /// DM 房间映射（room_id -> DMRoom）
     dm_rooms: Arc<RwLock<HashMap<String, DMRoom>>>,

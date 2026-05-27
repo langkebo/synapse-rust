@@ -113,6 +113,7 @@ fn create_test_config() -> Config {
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
             admission_mode: false,
+            signing_key_master_key: None,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

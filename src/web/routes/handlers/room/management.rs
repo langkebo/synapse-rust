@@ -639,8 +639,8 @@ pub(crate) async fn get_room_capabilities(
     let is_encrypted = sqlx::query(
         r"
         SELECT 1
-        FROM room_events
-        WHERE room_id = $1 AND event_type = 'm.room.encryption'
+        FROM events
+        WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL
         LIMIT 1
         ",
     )
@@ -653,8 +653,8 @@ pub(crate) async fn get_room_capabilities(
     let encryption_content = sqlx::query(
         r"
         SELECT content
-        FROM room_events
-        WHERE room_id = $1 AND event_type = 'm.room.encryption'
+        FROM events
+        WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL
         ORDER BY origin_server_ts DESC
         LIMIT 1
         ",

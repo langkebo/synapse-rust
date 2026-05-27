@@ -127,12 +127,7 @@ pub async fn set_typing(
             )
             .await;
 
-        let expires_at = chrono::Utc::now().timestamp_millis() + timeout as i64;
-
-        Ok(Json(json!({
-            "timeout": timeout,
-            "expires_at": expires_at
-        })))
+        Ok(Json(json!({})))
     } else {
         state
             .services
@@ -165,9 +160,7 @@ pub async fn set_typing(
             )
             .await;
 
-        Ok(Json(json!({
-            "typing": false
-        })))
+        Ok(Json(json!({})))
     }
 }
 
@@ -244,11 +237,11 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-            put(set_typing).get(get_user_typing),
+            put(set_typing).post(set_typing).get(get_user_typing),
         )
         .route(
             "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
-            put(set_typing).get(get_user_typing),
+            put(set_typing).post(set_typing).get(get_user_typing),
         )
         .route(
             "/_matrix/client/v3/rooms/{room_id}/typing",
@@ -270,6 +263,10 @@ pub fn typing_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
     [
         (
             Method::PUT,
+            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+        ),
+        (
+            Method::POST,
             "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
         ),
         (

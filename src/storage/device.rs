@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Row};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -696,6 +696,78 @@ impl DeviceStorage {
 
         Ok(result.rows_affected())
     }
+
+    /// Get the maximum stream ID from the device_lists_stream table.
+    /// Returns 0 if the table is empty.
+    pub async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
+        let max_id: i64 = sqlx::query_scalar(
+            r"
+            SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
+            ",
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(max_id)
+    }
+
+    /// Get the distinct user IDs whose device lists changed in the given stream
+    /// range, excluding the requesting user.
+    pub async fn get_device_list_changed_users(
+        &self,
+        from: i64,
+        to: i64,
+        exclude_user_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT user_id
+            FROM device_lists_stream
+            WHERE stream_id > $1
+              AND stream_id <= $2
+              AND user_id != $3
+            ORDER BY user_id
+            LIMIT 100
+            ",
+        )
+        .bind(from)
+        .bind(to)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|row| row.get("user_id")).collect())
+    }
+
+    /// Get the distinct user IDs who left (no room membership) in the given
+    /// stream range, excluding the requesting user.
+    pub async fn get_device_list_left_users(
+        &self,
+        from: i64,
+        to: i64,
+        exclude_user_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT dl.user_id
+            FROM device_lists_stream dl
+            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
+            WHERE dl.stream_id > $1
+              AND dl.stream_id <= $2
+              AND dl.user_id != $3
+              AND rm.user_id IS NULL
+            ORDER BY dl.user_id
+            LIMIT 100
+            ",
+        )
+        .bind(from)
+        .bind(to)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|row| row.get("user_id")).collect())
+    }
 }
 
 #[cfg(test)]
@@ -896,7 +968,7 @@ mod tests {
         let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {
-                eprintln!(
+                tracing::warn!(
                     "Skipping device lazy-loaded-members test because test database is unavailable: {error}"
                 );
                 return;

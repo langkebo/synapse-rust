@@ -144,6 +144,18 @@ async fn test_e2ee_key_backup_lifecycle() {
                             "sender_key": "test_sender_key",
                             "session_key": "test_session_key_data"
                         }
+                    },
+                    {
+                        "room_id": "!test_room_2:localhost",
+                        "session_id": "session_456",
+                        "first_message_index": 1,
+                        "forwarded_count": 0,
+                        "is_verified": false,
+                        "session_data": {
+                            "algorithm": "m.megolm.v1.aes-sha2",
+                            "sender_key": "test_sender_key_2",
+                            "session_key": "test_session_key_data_2"
+                        }
                     }
                 ]
             })
@@ -164,8 +176,8 @@ async fn test_e2ee_key_backup_lifecycle() {
     let store_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(
         store_json["count"].as_i64().unwrap(),
-        1,
-        "Should store 1 session key"
+        2,
+        "Should store 2 session keys"
     );
 
     // 5. 验证备份密码
@@ -212,7 +224,8 @@ async fn test_e2ee_key_backup_lifecycle() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "passphrase": passphrase
+                "passphrase": passphrase,
+                "rooms": ["!test_room:localhost"]
             })
             .to_string(),
         ))
@@ -229,10 +242,8 @@ async fn test_e2ee_key_backup_lifecycle() {
         .await
         .unwrap();
     let restore_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(
-        restore_json["restored_keys"].as_i64().unwrap() >= 1,
-        "Should restore at least 1 key"
-    );
+    assert_eq!(restore_json["recovered_keys"].as_i64().unwrap(), 1);
+    assert_eq!(restore_json["total_keys"].as_i64().unwrap(), 2);
 
     // 7. 删除备份
     let delete_request = Request::builder()

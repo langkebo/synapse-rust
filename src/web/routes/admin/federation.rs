@@ -190,44 +190,73 @@ mod cursor_tests {
     }
 }
 
-#[allow(dead_code)]
-fn unsupported_admin_federation_feature(feature: &str) -> ApiError {
-    ApiError::unrecognized(format!(
-        "Admin federation endpoint '{feature}' is not implemented in this deployment"
-    ))
+fn build_destination_json(row: &sqlx::postgres::PgRow) -> Result<serde_json::Value, sqlx::Error> {
+    let server_name: Option<String> = row.try_get("server_name")?;
+    let last_failed: Option<i64> = row.try_get("last_failed_connect_at")?;
+    let last_successful: Option<i64> = row.try_get("last_successful_connect_at")?;
+    let failure_count: Option<i32> = row.try_get("failure_count")?;
+    let status: Option<String> = row.try_get("status")?;
+    let updated_ts: Option<i64> = row.try_get("updated_ts")?;
+
+    Ok(json!({
+        "destination": server_name,
+        "retry_last_ts": last_failed,
+        "retry_interval": Value::Null,
+        "failure_ts": last_failed,
+        "last_successful_ts": last_successful,
+        "failure_count": failure_count.unwrap_or_default(),
+        "status": status.unwrap_or_else(|| "active".to_string()),
+        "updated_ts": updated_ts
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DestinationsQuery {
+    pub limit: Option<i32>,
+    pub from: Option<i64>,
 }
 
 #[axum::debug_handler]
 pub async fn get_destinations(
     _admin: AdminUser,
     State(state): State<AppState>,
+    Query(query): Query<DestinationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let offset = query.from.unwrap_or(0);
+
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers")
+            .fetch_one(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+
     let destinations = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name"
+        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name OFFSET $1 LIMIT $2"
     )
+    .bind(offset)
+    .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     let dest_list: Vec<Value> = destinations
         .iter()
-        .map(|row| {
-            json!({
-                "destination": row.get::<Option<String>, _>("server_name"),
-                "retry_last_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
-                "retry_interval": Value::Null,
-                "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
-                "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
-                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
-                "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
-                "updated_ts": row.get::<Option<i64>, _>("updated_ts")
-            })
-        })
-        .collect();
+        .map(|row| build_destination_json(row).map_err(|e| ApiError::internal(format!("Row parse error: {e}"))))
+        .collect::<Result<_, _>>()?;
 
-    Ok(Json(
-        json!({ "destinations": dest_list, "total": dest_list.len() }),
-    ))
+    let next_from = if offset + (limit as i64) < total {
+        Some(offset + (limit as i64))
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "destinations": dest_list,
+        "total": total,
+        "total_count": total,
+        "next_from": next_from
+    })))
 }
 
 #[axum::debug_handler]
@@ -245,16 +274,7 @@ pub async fn get_destination(
     .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
     match dest {
-        Some(row) => Ok(Json(json!({
-            "destination": row.get::<Option<String>, _>("server_name"),
-            "retry_last_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
-            "retry_interval": Value::Null,
-            "failure_ts": row.get::<Option<i64>, _>("last_failed_connect_at"),
-            "last_successful_ts": row.get::<Option<i64>, _>("last_successful_connect_at"),
-            "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
-            "status": row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
-            "updated_ts": row.get::<Option<i64>, _>("updated_ts")
-        }))),
+        Some(row) => Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal(format!("Row parse error: {e}")))?)),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
 }
@@ -355,7 +375,7 @@ pub async fn rewrite_federation(
         )));
     }
 
-    let rooms_result = sqlx::query("SELECT room_id FROM room_state_events WHERE sender LIKE $1")
+    let rooms_result = sqlx::query("SELECT DISTINCT room_id FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL")
         .bind(format!("%:{from_server}"))
         .fetch_all(&*state.services.user_storage.pool)
         .await

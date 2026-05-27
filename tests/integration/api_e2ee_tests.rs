@@ -987,6 +987,125 @@ async fn test_verification_request_listing_and_cancellation_flow() {
 }
 
 #[tokio::test]
+async fn test_verification_compat_request_status_and_cancel_flow() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, alice_user_id) =
+        register_user(&app, &format!("compat_verify_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("compat_verify_bob_{}", rand::random::<u32>())).await;
+    let (mallory_token, _) =
+        register_user(&app, &format!("compat_verify_mallory_{}", rand::random::<u32>())).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/verification/request")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "to_user": bob_user_id,
+                "to_device": "BOB",
+                "method": "m.sas.v1"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let request_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .unwrap();
+    assert_eq!(request_response.status(), StatusCode::OK);
+
+    let request_body = axum::body::to_bytes(request_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let request_json: Value = serde_json::from_slice(&request_body).unwrap();
+    let transaction_id = request_json["transaction_id"].as_str().unwrap().to_string();
+    assert_eq!(request_json["state"], "requested");
+    assert_eq!(request_json["request"]["from_user"], alice_user_id);
+    assert_eq!(request_json["request"]["to_user"], bob_user_id);
+
+    let status_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/keys/verification/{transaction_id}"))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let status_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), status_request)
+        .await
+        .unwrap();
+    assert_eq!(status_response.status(), StatusCode::OK);
+
+    let status_body = axum::body::to_bytes(status_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let status_json: Value = serde_json::from_slice(&status_body).unwrap();
+    assert_eq!(status_json["transaction_id"], transaction_id);
+    assert_eq!(status_json["state"], "requested");
+    assert_eq!(status_json["request"]["to_user"], bob_user_id);
+
+    let forbidden_status_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/keys/verification/{transaction_id}"))
+        .header("Authorization", format!("Bearer {}", mallory_token))
+        .body(Body::empty())
+        .unwrap();
+    let forbidden_status_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_status_request)
+            .await
+            .unwrap();
+    assert_eq!(forbidden_status_response.status(), StatusCode::FORBIDDEN);
+
+    let cancel_request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/_matrix/client/v3/keys/verification/{transaction_id}/cancel"
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "code": "m.user",
+                "reason": "Cancelled via compat endpoint"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let cancel_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), cancel_request)
+        .await
+        .unwrap();
+    assert_eq!(cancel_response.status(), StatusCode::OK);
+
+    let cancel_body = axum::body::to_bytes(cancel_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let cancel_json: Value = serde_json::from_slice(&cancel_body).unwrap();
+    assert_eq!(cancel_json["transaction_id"], transaction_id);
+    assert_eq!(cancel_json["state"], "cancelled");
+    assert_eq!(cancel_json["code"], "m.user");
+
+    let cancelled_status_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/keys/verification/{transaction_id}"))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let cancelled_status_response =
+        ServiceExt::<Request<Body>>::oneshot(app, cancelled_status_request)
+            .await
+            .unwrap();
+    assert_eq!(cancelled_status_response.status(), StatusCode::OK);
+
+    let cancelled_status_body = axum::body::to_bytes(cancelled_status_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let cancelled_status_json: Value = serde_json::from_slice(&cancelled_status_body).unwrap();
+    assert_eq!(cancelled_status_json["state"], "cancelled");
+}
+
+#[tokio::test]
 async fn test_room_key_forward_and_backward_routes() {
     let Some(app) = setup_test_app().await else {
         return;

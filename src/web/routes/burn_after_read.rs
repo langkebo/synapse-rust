@@ -103,6 +103,17 @@ pub async fn enable_burn(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
+    }
+
     let enabled = body
         .get("enabled")
         .and_then(|v| v.as_bool())
@@ -133,6 +144,17 @@ pub async fn get_burn_settings(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
+    }
+
     let settings = state
         .services
         .burn_after_read
@@ -159,6 +181,17 @@ pub async fn mark_burn_read(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
+    }
+
     let settings = state
         .services
         .burn_after_read
@@ -203,6 +236,17 @@ pub async fn get_pending_burns(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
+    }
+
     let pending = state
         .services
         .burn_after_read
@@ -233,6 +277,17 @@ pub async fn cancel_burn(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .room_service
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check room existence: {e}")))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
+    }
+
     state
         .services
         .burn_after_read

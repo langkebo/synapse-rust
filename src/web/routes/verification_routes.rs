@@ -2,7 +2,7 @@ use crate::common::*;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 use axum::{
-    extract::State,
+    extract::{Path, State},
     routing::{get, post, put},
     Json, Router,
 };
@@ -38,15 +38,15 @@ fn create_verification_compat_router() -> Router<AppState> {
         .route("/keys/qr_code/scan", post(scan_qr_code))
         .route(
             "/keys/verification/request",
-            post(stub_verification_request),
+            post(compat_verification_request),
         )
         .route(
             "/keys/verification/{transaction_id}",
-            get(stub_verification_status),
+            get(compat_verification_status),
         )
         .route(
             "/keys/verification/{transaction_id}/cancel",
-            post(stub_verification_cancel),
+            post(compat_verification_cancel),
         )
 }
 
@@ -183,19 +183,11 @@ async fn verification_accept(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
-    let is_participant = request.from_user == auth_user.user_id
-        || request.to_user == auth_user.user_id
-        || request.from_device == device_id
-        || request.to_device.as_deref() == Some(device_id.as_str());
-
-    if !is_participant {
-        return Err(ApiError::forbidden(
-            "Cannot accept another user's verification request".to_string(),
-        ));
-    }
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot accept another user's verification request",
+    )?;
 
     let sas_data = state
         .services
@@ -235,19 +227,11 @@ async fn verification_key_agreement(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
-    let is_participant = request.from_user == auth_user.user_id
-        || request.to_user == auth_user.user_id
-        || request.from_device == device_id
-        || request.to_device.as_deref() == Some(device_id.as_str());
-
-    if !is_participant {
-        return Err(ApiError::forbidden(
-            "Cannot participate in another user's verification".to_string(),
-        ));
-    }
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot participate in another user's verification",
+    )?;
 
     let sas_result = state
         .services
@@ -308,19 +292,11 @@ async fn verification_mac(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
-    let is_participant = request.from_user == auth_user.user_id
-        || request.to_user == auth_user.user_id
-        || request.from_device == device_id
-        || request.to_device.as_deref() == Some(device_id.as_str());
-
-    if !is_participant {
-        return Err(ApiError::forbidden(
-            "Cannot confirm another user's verification".to_string(),
-        ));
-    }
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot confirm another user's verification",
+    )?;
 
     if body.mac.is_empty() {
         return Err(ApiError::bad_request("MAC must not be empty".to_string()));
@@ -360,19 +336,11 @@ async fn verification_done(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
-    let is_participant = request.from_user == auth_user.user_id
-        || request.to_user == auth_user.user_id
-        || request.from_device == device_id
-        || request.to_device.as_deref() == Some(device_id.as_str());
-
-    if !is_participant {
-        return Err(ApiError::forbidden(
-            "Cannot complete another user's verification".to_string(),
-        ));
-    }
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot complete another user's verification",
+    )?;
 
     if mac.is_empty() {
         return Err(ApiError::bad_request(
@@ -410,19 +378,11 @@ async fn verification_cancel(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
-    let is_participant = request.from_user == auth_user.user_id
-        || request.to_user == auth_user.user_id
-        || request.from_device == device_id
-        || request.to_device.as_deref() == Some(device_id.as_str());
-
-    if !is_participant {
-        return Err(ApiError::forbidden(
-            "Cannot cancel another user's verification request".to_string(),
-        ));
-    }
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot cancel another user's verification request",
+    )?;
 
     state
         .services
@@ -546,6 +506,142 @@ fn serialize_verification_request(
     })
 }
 
+fn ensure_verification_participant(
+    request: &crate::e2ee::verification::VerificationRequest,
+    auth_user: &AuthenticatedUser,
+    forbidden_message: &str,
+) -> Result<(), ApiError> {
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
+    let is_participant = request.from_user == auth_user.user_id
+        || request.to_user == auth_user.user_id
+        || request.from_device == device_id
+        || request.to_device.as_deref() == Some(device_id.as_str());
+
+    if is_participant {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(forbidden_message.to_string()))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompatVerificationRequestBody {
+    pub transaction_id: Option<String>,
+    pub from_device: Option<String>,
+    pub to_user: String,
+    pub to_device: Option<String>,
+    pub method: Option<String>,
+    pub methods: Option<Vec<String>>,
+}
+
+async fn compat_verification_request(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<CompatVerificationRequestBody>,
+) -> Result<Json<Value>, ApiError> {
+    let device_id = auth_user.device_id.clone().ok_or_else(|| {
+        ApiError::bad_request("device_id is required for E2EE verification".to_string())
+    })?;
+    let from_device = body.from_device.unwrap_or(device_id);
+    let to_user = body.to_user;
+    let to_device = body.to_device;
+    let method = body
+        .method
+        .as_deref()
+        .or(body.methods.as_ref().and_then(|m| m.first().map(|s| s.as_str())))
+        .unwrap_or("m.sas.v1")
+        .to_string();
+
+    let sas_data = state
+        .services
+        .verification_service
+        .start_sas_verification(
+            &auth_user.user_id,
+            &from_device,
+            &to_user,
+            to_device.clone(),
+        )
+        .await?;
+
+    Ok(Json(json!({
+        "transaction_id": sas_data.transaction_id,
+        "state": "requested",
+        "request": {
+            "transaction_id": sas_data.transaction_id,
+            "from_user": auth_user.user_id,
+            "from_device": from_device,
+            "to_user": to_user,
+            "to_device": to_device,
+            "method": method,
+            "state": "requested"
+        }
+    })))
+}
+
+async fn compat_verification_status(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(transaction_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let request = state
+        .services
+        .verification_service
+        .get_request(&transaction_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
+
+    ensure_verification_participant(
+        &request,
+        &auth_user,
+        "Cannot inspect another user's verification request",
+    )?;
+
+    Ok(Json(json!({
+        "transaction_id": transaction_id,
+        "state": request.state,
+        "request": serialize_verification_request(&request)
+    })))
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CompatVerificationCancelBody {
+    pub code: Option<String>,
+    pub reason: Option<String>,
+}
+
+async fn compat_verification_cancel(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(transaction_id): Path<String>,
+    body: Option<Json<CompatVerificationCancelBody>>,
+) -> Result<Json<Value>, ApiError> {
+    let body = body.map(|Json(payload)| payload).unwrap_or_default();
+    let code = body.code.unwrap_or_else(|| "m.user".to_string());
+    let reason = body
+        .reason
+        .unwrap_or_else(|| "Cancelled by user".to_string());
+
+    let Json(cancelled) = verification_cancel(
+        State(state),
+        auth_user,
+        Json(VerificationCancelBody {
+            transaction_id,
+            code,
+            reason,
+        }),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "transaction_id": cancelled["transaction_id"],
+        "state": cancelled["state"],
+        "code": cancelled["code"],
+        "reason": cancelled["reason"]
+    })))
+}
+
 const SAS_EMOJIS: &[&str; 64] = &[
     "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
     "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
@@ -554,20 +650,6 @@ const SAS_EMOJIS: &[&str; 64] = &[
 ];
 
 #[allow(clippy::unused_async)]
-async fn stub_verification_request() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_verification_status() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_verification_cancel() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

@@ -129,21 +129,18 @@ impl<'a> ManagedTransaction<'a> {
 impl<'a> Drop for ManagedTransaction<'a> {
     fn drop(&mut self) {
         if self.transaction.is_some() && !self.committed && !self.rolled_back {
-            tracing::warn!("Transaction was dropped without explicit commit or rollback, attempting automatic rollback");
+            tracing::warn!(
+                "Transaction was dropped without explicit commit or rollback. \
+                 The database server will roll back the transaction when the connection is reclaimed by the pool."
+            );
 
-            if let Some(tx) = self.transaction.take() {
-                #[cfg(feature = "server")]
-                {
-                    let _ = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async { tx.rollback().await })
-                    });
-                }
-                #[cfg(not(feature = "server"))]
-                {
-                    let _ = tx;
-                    tracing::error!("Cannot rollback transaction in drop without server feature");
-                }
-            }
+            // Drop the transaction without attempting rollback in the Drop impl.
+            // Previous implementation used block_in_place + block_on which could deadlock
+            // if the connection pool is exhausted or if the current task holds resources
+            // the rollback also needs. tokio::spawn is not viable because Transaction<'a>
+            // is not 'static. The safe approach is to let the DB server handle cleanup
+            // when the connection is returned to the pool.
+            self.transaction.take();
             self.rolled_back = true;
         }
     }

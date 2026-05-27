@@ -220,6 +220,7 @@ async fn sso_redirect(
 }
 
 pub fn create_oidc_router(state: AppState) -> Router<AppState> {
+    // `mut` needed when `builtin-oidc` or `saml-sso` feature is enabled; unused otherwise.
     #[allow(unused_mut)]
     let mut router = Router::new()
         .route("/_matrix/client/v3/login/sso/redirect", get(sso_redirect))
