@@ -5,6 +5,7 @@ use crate::e2ee::signed_json::verify_signed_json;
 use crate::error::ApiError;
 use crate::services::dehydrated_device_service::DehydratedDeviceService;
 use chrono::Utc;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -949,5 +950,218 @@ impl CrossSigningService {
             user_id: user_id.to_string(),
             verified_devices,
         })
+    }
+
+    /// Batch version of `get_verified_devices` that avoids N+1 queries.
+    /// Fetches cross-signing keys, device signatures, and device keys for all
+    /// users in a fixed number of SQL queries, then performs verification
+    /// in memory.
+    pub async fn get_verified_devices_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, VerifiedDevicesMap>, ApiError> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // 1. Batch-fetch cross-signing keys for all users (1 query)
+        let cs_keys_by_user = self
+            .storage
+            .get_cross_signing_keys_batch(user_ids)
+            .await?;
+
+        // 2. Batch-fetch device signatures for all users (1 query)
+        let sigs_by_user = self
+            .storage
+            .get_device_signatures_batch(user_ids)
+            .await?;
+
+        // 3. Batch-fetch device keys for all users (N queries but only if
+        //    device_keys_storage is present; we collect unique device_ids per
+        //    user from the signatures we already have as a fallback)
+        let mut device_ids_by_user: HashMap<String, HashSet<String>> = HashMap::new();
+        if let Some(dk_storage) = &self.device_keys_storage {
+            for user_id in user_ids {
+                if let Ok(all_keys) = dk_storage.get_all_device_keys(user_id).await {
+                    let ids: HashSet<String> =
+                        all_keys.iter().map(|k| k.device_id.clone()).collect();
+                    if !ids.is_empty() {
+                        device_ids_by_user.insert(user_id.clone(), ids);
+                    }
+                }
+            }
+        }
+
+        // Fallback: if we didn't get device keys from storage, extract device
+        // IDs from the signatures we already fetched.
+        for (user_id, sigs) in &sigs_by_user {
+            if !device_ids_by_user.contains_key(user_id) {
+                let ids: HashSet<String> =
+                    sigs.iter().map(|s| s.target_device_id.clone()).collect();
+                if !ids.is_empty() {
+                    device_ids_by_user.insert(user_id.clone(), ids);
+                }
+            }
+        }
+
+        // 4. Perform verification in memory for each user
+        let mut result: HashMap<String, VerifiedDevicesMap> = HashMap::new();
+        for user_id in user_ids {
+            let cs_keys = cs_keys_by_user.get(user_id).cloned().unwrap_or_default();
+            let sigs = sigs_by_user.get(user_id).cloned().unwrap_or_default();
+            let device_ids = device_ids_by_user
+                .get(user_id)
+                .cloned()
+                .unwrap_or_default();
+
+            let master_key = cs_keys.iter().find(|k| k.key_type == "master").cloned();
+            let self_signing_key = cs_keys
+                .iter()
+                .find(|k| k.key_type == "self_signing")
+                .cloned();
+
+            let mut verified_devices = Vec::new();
+            for device_id in &device_ids {
+                let verified = self
+                    .verify_device_key_with_prefetched(
+                        user_id,
+                        device_id,
+                        &master_key,
+                        &self_signing_key,
+                        &sigs,
+                    )
+                    .await;
+                verified_devices.push(verified);
+            }
+
+            result.insert(
+                user_id.clone(),
+                VerifiedDevicesMap {
+                    user_id: user_id.clone(),
+                    verified_devices,
+                },
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// Same logic as `verify_device_key` but uses pre-fetched data instead of
+    /// issuing individual SQL queries.
+    async fn verify_device_key_with_prefetched(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        master_key: &Option<CrossSigningKey>,
+        self_signing_key: &Option<CrossSigningKey>,
+        all_signatures: &[DeviceSignature],
+    ) -> DeviceKeyVerificationResult {
+        // Filter signatures for this specific device
+        let signatures: Vec<&DeviceSignature> = all_signatures
+            .iter()
+            .filter(|s| s.target_device_id == *device_id)
+            .collect();
+
+        let verified_by_master = if let Some(ref mk) = master_key {
+            signatures.iter().any(|sig| {
+                if sig.signing_key_id.starts_with("ed25519:") {
+                    let signing_key_id = Self::extract_ed25519_key(
+                        mk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
+                        "master_key",
+                    )
+                    .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
+
+                    sig.signing_key_id == signing_key_id
+                        || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
+                } else {
+                    false
+                }
+            })
+        } else {
+            false
+        };
+
+        let verified_by_self_signing = if let Some(ref ssk) = self_signing_key {
+            let ssk_key_id = Self::extract_ed25519_key(
+                ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
+                "self_signing_key",
+            )
+            .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
+
+            let ssk_sig = signatures.iter().find(|s| {
+                s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:")
+            });
+
+            if let Some(sig) = ssk_sig {
+                let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
+                    if let Ok(Some(device_key)) = dk_storage
+                        .get_device_key(user_id, device_id, "signed_curve25519")
+                        .await
+                    {
+                        let mut json = serde_json::json!({
+                            "user_id": user_id,
+                            "device_id": device_id,
+                            "algorithms": device_key.algorithm,
+                            "keys": {
+                                format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
+                            },
+                        });
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.remove("signatures");
+                            obj.remove("unsigned");
+                        }
+                        json
+                    } else {
+                        serde_json::json!({
+                            "user_id": user_id,
+                            "device_id": device_id,
+                        })
+                    }
+                } else {
+                    serde_json::json!({
+                        "user_id": user_id,
+                        "device_id": device_id,
+                    })
+                };
+
+                let signing_key_id = if sig.signing_key_id.starts_with("ed25519:") {
+                    sig.signing_key_id.clone()
+                } else {
+                    format!("ed25519:{}", ssk.key_type)
+                };
+
+                verify_signed_json(
+                    user_id,
+                    &signing_key_id,
+                    &ssk.public_key,
+                    &sig.signature,
+                    &device_key_json,
+                )
+                .unwrap_or(false)
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        let is_verified = verified_by_master || verified_by_self_signing;
+        let verification_method = if verified_by_master {
+            Some("master_key".to_string())
+        } else if verified_by_self_signing {
+            Some("self_signing_key".to_string())
+        } else {
+            None
+        };
+
+        DeviceKeyVerificationResult {
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            is_verified,
+            verified_by_master,
+            verified_by_self_signing,
+            verification_method,
+            verified_at: if is_verified { Some(Utc::now()) } else { None },
+        }
     }
 }

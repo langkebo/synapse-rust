@@ -44,6 +44,16 @@ const CORE_TABLES: &[&str] = &[
     "secure_backup_session_keys",
     "background_updates",
     "room_retention_policies",
+    "account_data",
+    "room_account_data",
+    "to_device_messages",
+    "device_lists_stream",
+    "device_lists_changes",
+    "room_ephemeral",
+    "read_markers",
+    "key_rotation_pending",
+    "key_rotation_state",
+    "lazy_loaded_members",
 ];
 
 /// 核心字段定义 (表名, 字段名)

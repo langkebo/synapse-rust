@@ -33,12 +33,34 @@ use validator::Validate;
 type HmacSha256 = Hmac<Sha256>;
 
 // nonce 存储 (内存中，生产环境应该用 Redis)
+//
+// Intentionally using std::sync::Mutex instead of tokio::sync::Mutex:
+// - The lock is held for very short durations (HashMap insert/get/remove only)
+// - No async operations are performed while holding the lock
+// - std::sync::Mutex is preferred over tokio::sync::Mutex for such cases
+//   because it avoids the overhead of an async-aware lock when the critical
+//   section never yields. See tokio docs: "use std::sync::Mutex when the
+//   lock is held across very short sections of code"
 static NONCES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, NonceData>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 #[derive(Clone)]
 struct NonceData {
+    created_at: u64,
     expires_at: u64,
+}
+
+/// Remove nonce entries created more than 10 minutes ago.
+fn cleanup_expired_nonces() {
+    let Ok(mut nonces) = NONCES.lock() else {
+        return;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let ten_minutes_ago = now.saturating_sub(600);
+    nonces.retain(|_, data| data.created_at > ten_minutes_ago);
 }
 
 pub fn create_register_router(state: AppState) -> Router<AppState> {
@@ -506,6 +528,9 @@ async fn get_nonce(
         .as_secs();
     let timeout = config.admin_registration.nonce_timeout_seconds;
 
+    // 清理过期 nonce
+    cleanup_expired_nonces();
+
     // 存储 nonce
     {
         let mut nonces = NONCES
@@ -514,6 +539,7 @@ async fn get_nonce(
         nonces.insert(
             nonce.clone(),
             NonceData {
+                created_at: now,
                 expires_at: now + timeout,
             },
         );

@@ -8,21 +8,75 @@ use chrono::Utc;
 use serde_json::{json, Value};
 
 pub async fn get_key_rotation_status(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::forbidden(
-        "Key rotation status is not available via the client API".to_string(),
-    ))
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key rotation management requires server admin privileges".to_string(),
+        ));
+    }
+
+    let rotation_manager = &state.services.key_rotation_manager;
+    let status = rotation_manager.get_rotation_status().await;
+
+    // Add user-specific last rotation info
+    let last_rotation = state
+        .services
+        .key_rotation_storage
+        .get_user_last_rotation_ts(&auth_user.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query key rotation log: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
+
+    Ok(Json(json!({
+        "enabled": status.get("rotation_enabled"),
+        "status": status,
+        "user_last_rotation": last_rotation,
+    })))
+}
+
+/// POST variant of get_key_rotation_status — some clients use POST instead of GET
+pub async fn get_key_rotation_status_post(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    get_key_rotation_status(State(state), auth_user).await
 }
 
 pub async fn rotate_keys(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::forbidden(
-        "Key rotation is not available via the client API".to_string(),
-    ))
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key rotation management requires server admin privileges".to_string(),
+        ));
+    }
+
+    let requested_key_id = body
+        .get("key_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let rotation_manager = &state.services.key_rotation_manager;
+    match rotation_manager.rotate_keys(requested_key_id).await {
+        Ok(()) => {
+            let current = rotation_manager.get_current_key().await;
+            Ok(Json(json!({
+                "success": true,
+                "message": "Keys rotated successfully",
+                "has_new_key": current.is_ok() && current.unwrap().is_some(),
+            })))
+        }
+        Err(e) => {
+            tracing::error!("Key rotation failed: {e}");
+            Err(ApiError::internal("Internal server error".to_string()))
+        }
+    }
 }
 
 pub async fn get_rotation_history(
@@ -30,27 +84,28 @@ pub async fn get_rotation_history(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let rows = sqlx::query(
-        r"
-        SELECT new_key_id AS key_id, rotated_at AS rotated_ts FROM key_rotation_log
-        WHERE user_id = $1 AND device_id = $2
-        ORDER BY rotated_at DESC
-        LIMIT 10
-        ",
-    )
-    .bind(&auth_user.user_id)
-    .bind(&device_id)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get history: {e}")))?;
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key rotation management requires server admin privileges".to_string(),
+        ));
+    }
 
-    let history: Vec<Value> = rows
-        .iter()
-        .map(|row| {
-            use sqlx::Row;
+    let history_rows = state
+        .services
+        .key_rotation_storage
+        .get_device_rotation_history(&auth_user.user_id, &device_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get rotation history: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
+
+    let history: Vec<Value> = history_rows
+        .into_iter()
+        .map(|(key_id, rotated_ts)| {
             json!({
-                "key_id": row.get::<Option<String>, _>("key_id"),
-                "rotated_ts": row.get::<Option<i64>, _>("rotated_ts"),
+                "key_id": key_id,
+                "rotated_ts": rotated_ts,
             })
         })
         .collect();
@@ -62,41 +117,150 @@ pub async fn get_rotation_history(
 }
 
 pub async fn revoke_old_keys(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "success": true,
-        "revoked": 0,
-        "message": "Key revocation is handled automatically by key rotation"
-    })))
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key revocation requires server admin privileges".to_string(),
+        ));
+    }
+
+    let key_id = body
+        .get("key_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let reason = body.get("reason").and_then(|v| v.as_str());
+
+    if key_id.is_empty() {
+        return Err(ApiError::bad_request(
+            "key_id is required for key revocation".to_string(),
+        ));
+    }
+
+    let rotation_manager = &state.services.key_rotation_manager;
+    match rotation_manager.revoke_key(key_id, reason).await {
+        Ok(revoked_count) => Ok(Json(json!({
+            "success": true,
+            "revoked": revoked_count,
+            "message": if revoked_count > 0 {
+                format!("Successfully revoked key {}", key_id)
+            } else {
+                format!("Key {} not found or already expired", key_id)
+            }
+        }))),
+        Err(e) => {
+            tracing::error!("Key revocation failed: {e}");
+            Err(ApiError::internal("Internal server error".to_string()))
+        }
+    }
 }
 
 pub async fn configure_key_rotation(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Json(_body): Json<Value>,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::forbidden(
-        "Key rotation configuration is not available via the client API".to_string(),
-    ))
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key rotation management requires server admin privileges".to_string(),
+        ));
+    }
+
+    let enabled = body.get("enabled").and_then(|v| v.as_bool());
+    let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
+
+    let rotation_manager = &state.services.key_rotation_manager;
+
+    if let Some(enabled_val) = enabled {
+        rotation_manager.set_rotation_enabled(enabled_val).await;
+    }
+
+    if let Some(interval) = interval_ms {
+        state
+            .services
+            .key_rotation_storage
+            .set_rotation_config("interval_ms", &interval.to_string())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to persist key rotation interval_ms: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
+    }
+
+    let status = rotation_manager.get_rotation_status().await;
+
+    // Read persisted interval_ms if not provided in this request
+    let persisted_interval_ms: Option<i64> = if interval_ms.is_some() {
+        interval_ms
+    } else {
+        state
+            .services
+            .key_rotation_storage
+            .get_rotation_config("interval_ms")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v: String| v.parse().ok())
+    };
+
+    Ok(Json(json!({
+        "enabled": status.get("rotation_enabled"),
+        "interval_ms": persisted_interval_ms.unwrap_or(state.services.config.federation.key_rotation_grace_period_ms as i64),
+    })))
+}
+
+/// POST variant of configure_key_rotation
+pub async fn configure_key_rotation_post(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    configure_key_rotation(State(state), auth_user, Json(body)).await
 }
 
 pub async fn check_needs_rotation(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let last_rotation: Option<i64> = sqlx::query_scalar(
-        r"
-        SELECT MAX(rotated_at) FROM key_rotation_log
-        WHERE user_id = $1
-        ",
-    )
-    .bind(&auth_user.user_id)
-    .fetch_one(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed: {e}")))?;
+    if !auth_user.is_admin {
+        return Err(ApiError::forbidden(
+            "Key rotation management requires server admin privileges".to_string(),
+        ));
+    }
+
+    // If key_id is provided, check if that specific key needs rotation
+    let key_id_filter = params.get("key_id").map(|s| s.as_str());
+
+    let last_rotation: Option<i64> = if let Some(key_id) = key_id_filter {
+        state
+            .services
+            .key_rotation_storage
+            .get_last_rotation_for_key(&auth_user.user_id, key_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to query rotation log by key_id: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?
+    } else {
+        let max_ts = state
+            .services
+            .key_rotation_storage
+            .get_max_rotation_ts(&auth_user.user_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to query rotation log: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
+        if max_ts == 0 {
+            None
+        } else {
+            Some(max_ts)
+        }
+    };
 
     let now = Utc::now().timestamp_millis();
     let interval_ms = state
@@ -117,13 +281,25 @@ pub async fn check_needs_rotation(
     })))
 }
 
+/// POST variant of check_needs_rotation — front-end MatrixEncryptionService uses POST
+pub async fn check_needs_rotation_post(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    check_needs_rotation(State(state), auth_user, axum::extract::Query(params)).await
+}
+
 pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/v1/keys/rotation/status",
-            get(get_key_rotation_status),
+            get(get_key_rotation_status).post(get_key_rotation_status_post),
         )
-        .route("/_matrix/client/v1/keys/rotation/rotate", post(rotate_keys))
+        .route(
+            "/_matrix/client/v1/keys/rotation/rotate",
+            post(rotate_keys),
+        )
         .route(
             "/_matrix/client/v1/keys/rotation/history/{device_id}",
             get(get_rotation_history),
@@ -134,11 +310,11 @@ pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/_matrix/client/v1/keys/rotation/config",
-            put(configure_key_rotation),
+            put(configure_key_rotation).post(configure_key_rotation_post),
         )
         .route(
             "/_matrix/client/v1/keys/rotation/check",
-            get(check_needs_rotation),
+            get(check_needs_rotation).post(check_needs_rotation_post),
         )
         .with_state(state)
 }
@@ -148,6 +324,7 @@ pub fn key_rotation_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use axum::http::Method;
     [
         (Method::GET, "/_matrix/client/v1/keys/rotation/status"),
+        (Method::POST, "/_matrix/client/v1/keys/rotation/status"),
         (Method::POST, "/_matrix/client/v1/keys/rotation/rotate"),
         (
             Method::GET,
@@ -155,7 +332,9 @@ pub fn key_rotation_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         ),
         (Method::POST, "/_matrix/client/v1/keys/rotation/revoke"),
         (Method::PUT, "/_matrix/client/v1/keys/rotation/config"),
+        (Method::POST, "/_matrix/client/v1/keys/rotation/config"),
         (Method::GET, "/_matrix/client/v1/keys/rotation/check"),
+        (Method::POST, "/_matrix/client/v1/keys/rotation/check"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "key_rotation"))

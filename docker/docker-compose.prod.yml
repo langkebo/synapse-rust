@@ -111,7 +111,6 @@ services:
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped
-    init: true
     cpus: ${SYNAPSE_CPU_LIMIT:-2.0}
     mem_limit: ${SYNAPSE_MEMORY_LIMIT:-2048m}
     pids_limit: ${SYNAPSE_PIDS_LIMIT:-512}

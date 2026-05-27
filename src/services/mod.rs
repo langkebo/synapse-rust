@@ -48,6 +48,11 @@ pub mod thread_service;
 pub mod translation_service;
 
 pub mod directory_service;
+// Compatibility-only in-memory DM helper. Runtime DM semantics now converge on
+// friend_room_service plus m.direct account data, so this legacy helper is only
+// compiled for test-oriented builds and is no longer part of the general
+// services::* surface.
+#[cfg(feature = "test-utils")]
 pub mod dm_service;
 pub mod typing_service;
 pub mod uia_service;
@@ -58,7 +63,6 @@ pub use application_service::*;
 pub use database_initializer::*;
 pub use dehydrated_device_service::*;
 pub use directory_service::*;
-pub use dm_service::*;
 pub use feature_flag_service::*;
 pub use media_service::*;
 pub use oidc_service::OidcService;

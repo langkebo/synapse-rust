@@ -10,6 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+#[cfg(not(feature = "friends"))]
 use sqlx::Row;
 use validator::Validate;
 
@@ -34,25 +35,39 @@ pub struct UpdateDmRequest {
     pub users: Option<Value>,
 }
 
-async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let row = sqlx::query(
-        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'",
-    )
-    .bind(user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to load m.direct account data: {e}")))?;
+enum DirectMapUpdateAction {
+    ReplaceRoomTargets(Vec<String>),
+    OverwriteMap(Map<String, Value>),
+}
 
-    match row {
-        Some(row) => match row.get::<Option<Value>, _>("content") {
-            Some(Value::Object(map)) => Ok(map),
-            Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
+async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
+    #[cfg(feature = "friends")]
+    {
+        return state.services.friend_room_service.load_direct_map(user_id).await;
+    }
+
+    #[cfg(not(feature = "friends"))]
+    {
+        let row = sqlx::query(
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'",
+        )
+        .bind(user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load m.direct account data: {e}")))?;
+
+        match row {
+            Some(row) => match row.get::<Option<Value>, _>("content") {
+                Some(Value::Object(map)) => Ok(map),
+                Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
+                None => Ok(Map::new()),
+            },
             None => Ok(Map::new()),
-        },
-        None => Ok(Map::new()),
+        }
     }
 }
 
+#[cfg(not(feature = "friends"))]
 async fn save_direct_map(
     state: &AppState,
     user_id: &str,
@@ -76,6 +91,7 @@ async fn save_direct_map(
     Ok(())
 }
 
+#[cfg(any(test, not(feature = "friends")))]
 fn ensure_room_in_direct_map(
     direct_map: &mut Map<String, Value>,
     target_user_id: &str,
@@ -96,6 +112,7 @@ fn ensure_room_in_direct_map(
     }
 }
 
+#[cfg(any(test, not(feature = "friends")))]
 fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &str) {
     direct_map.retain(|_, value| {
         if let Some(rooms) = value.as_array_mut() {
@@ -122,6 +139,25 @@ fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &str) -> Vec<
                 .cloned()
         })
         .collect()
+}
+
+fn get_direct_room_for_user(direct_map: &Map<String, Value>, target_user_id: &str) -> Option<String> {
+    direct_map
+        .get(target_user_id)
+        .and_then(|value| value.as_array())
+        .and_then(|rooms| rooms.first())
+        .and_then(|room| room.as_str())
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(any(test, not(feature = "friends")))]
+fn merge_direct_links(
+    direct_map: &mut Map<String, Value>,
+    links: impl IntoIterator<Item = (String, String)>,
+) {
+    for (user_id, room_id) in links {
+        ensure_room_in_direct_map(direct_map, &user_id, &room_id);
+    }
 }
 
 fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
@@ -151,6 +187,7 @@ fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
     Ok(parsed)
 }
 
+#[cfg(not(feature = "friends"))]
 async fn build_direct_map_from_memberships(
     state: &AppState,
     user_id: &str,
@@ -201,6 +238,311 @@ async fn build_direct_map_from_memberships(
     Ok(direct_map)
 }
 
+#[cfg(not(feature = "friends"))]
+async fn build_direct_map_from_friend_links(
+    _state: &AppState,
+    _user_id: &str,
+) -> Result<Map<String, Value>, ApiError> {
+    Ok(Map::new())
+}
+
+async fn load_effective_direct_map(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Map<String, Value>, ApiError> {
+    #[cfg(feature = "friends")]
+    {
+        return state
+            .services
+            .friend_room_service
+            .get_effective_direct_map(user_id)
+            .await;
+    }
+
+    #[cfg(not(feature = "friends"))]
+    {
+        let mut direct_map = load_direct_map(state, user_id).await?;
+        let friend_links = build_direct_map_from_friend_links(state, user_id).await?;
+        merge_direct_links(
+            &mut direct_map,
+            friend_links.into_iter().flat_map(|(user_id, value)| {
+                value
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|room| room.as_str().map(|room_id| (user_id.clone(), room_id.to_owned())))
+                    .collect::<Vec<_>>()
+            }),
+        );
+
+        if direct_map.is_empty() {
+            direct_map = build_direct_map_from_memberships(state, user_id).await?;
+        }
+
+        Ok(direct_map)
+    }
+}
+
+async fn upsert_direct_room_links(
+    state: &AppState,
+    user_id: &str,
+    target_user_ids: &[String],
+    room_id: &str,
+) -> Result<Map<String, Value>, ApiError> {
+    #[cfg(feature = "friends")]
+    {
+        return state
+            .services
+            .friend_room_service
+            .upsert_direct_room_links(user_id, target_user_ids, room_id)
+            .await;
+    }
+
+    #[cfg(not(feature = "friends"))]
+    {
+        let mut direct_map = load_direct_map(state, user_id).await?;
+        for target_user_id in target_user_ids {
+            ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
+        }
+        save_direct_map(state, user_id, &direct_map).await?;
+        Ok(direct_map)
+    }
+}
+
+fn parse_direct_map_update(
+    body: UpdateDmRequest,
+) -> Result<Option<DirectMapUpdateAction>, ApiError> {
+    if let Some(users) = body.users {
+        return parse_dm_users(&users).map(DirectMapUpdateAction::ReplaceRoomTargets).map(Some);
+    }
+
+    if let Some(content) = body.content {
+        let content = content
+            .as_object()
+            .cloned()
+            .ok_or_else(|| ApiError::bad_request("content must be an m.direct object"))?;
+
+        if let Some(user_id) = content.get("user_id").and_then(|value| value.as_str()) {
+            return Ok(Some(DirectMapUpdateAction::ReplaceRoomTargets(vec![
+                user_id.to_string(),
+            ])));
+        }
+
+        if let Some(users) = content.get("users") {
+            return parse_dm_users(users)
+                .map(DirectMapUpdateAction::ReplaceRoomTargets)
+                .map(Some);
+        }
+        return Ok(Some(DirectMapUpdateAction::OverwriteMap(content)));
+    }
+
+    Ok(None)
+}
+
+async fn apply_direct_map_update(
+    state: &AppState,
+    user_id: &str,
+    room_id: &str,
+    action: DirectMapUpdateAction,
+) -> Result<Map<String, Value>, ApiError> {
+    #[cfg(feature = "friends")]
+    {
+        let action = match action {
+            DirectMapUpdateAction::ReplaceRoomTargets(target_user_ids) => {
+                crate::services::friend_room_service::DirectMapUpdateAction::ReplaceRoomTargets {
+                    room_id: room_id.to_string(),
+                    target_user_ids,
+                }
+            }
+            DirectMapUpdateAction::OverwriteMap(direct_map) => {
+                crate::services::friend_room_service::DirectMapUpdateAction::OverwriteMap(
+                    direct_map,
+                )
+            }
+        };
+
+        return state
+            .services
+            .friend_room_service
+            .apply_direct_map_update(user_id, action)
+            .await;
+    }
+
+    #[cfg(not(feature = "friends"))]
+    {
+        match action {
+            DirectMapUpdateAction::ReplaceRoomTargets(target_user_ids) => {
+                let mut direct_map = load_direct_map(state, user_id).await?;
+                remove_room_from_direct_map(&mut direct_map, room_id);
+                for target_user_id in &target_user_ids {
+                    ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
+                }
+                save_direct_map(state, user_id, &direct_map).await?;
+                Ok(direct_map)
+            }
+            DirectMapUpdateAction::OverwriteMap(direct_map) => {
+                save_direct_map(state, user_id, &direct_map).await?;
+                Ok(direct_map)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "friends")]
+async fn persist_friend_dm_link_if_applicable(
+    state: &AppState,
+    owner_user_id: &str,
+    invitees: &[String],
+    room_id: &str,
+) -> Result<(), ApiError> {
+    if invitees.len() != 1 {
+        return Ok(());
+    }
+
+    state
+        .services
+        .friend_room_service
+        .attach_dm_room_to_existing_friendship(owner_user_id, &invitees[0], room_id, Some(owner_user_id))
+        .await?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "friends"))]
+async fn persist_friend_dm_link_if_applicable(
+    _state: &AppState,
+    _owner_user_id: &str,
+    _invitees: &[String],
+    _room_id: &str,
+) -> Result<(), ApiError> {
+    Ok(())
+}
+
+async fn find_existing_direct_room_id(
+    state: &AppState,
+    owner_user_id: &str,
+    invitees: &[String],
+) -> Result<Option<String>, ApiError> {
+    if invitees.len() != 1 {
+        return Ok(None);
+    }
+
+    let direct_map = load_effective_direct_map(state, owner_user_id).await?;
+    Ok(get_direct_room_for_user(&direct_map, &invitees[0]))
+}
+
+#[cfg(feature = "friends")]
+async fn create_dm_room_via_service(
+    state: &AppState,
+    owner_user_id: &str,
+    invitee_user_ids: &[String],
+    body: &CreateDmRequest,
+) -> Result<Option<String>, ApiError> {
+    let config = CreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(body.is_direct.unwrap_or(true)),
+        visibility: body
+            .visibility
+            .clone()
+            .or_else(|| Some("private".to_string())),
+        preset: Some("private_chat".to_string()),
+        room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
+        ..Default::default()
+    };
+
+    let result = state
+        .services
+        .friend_room_service
+        .create_or_reuse_direct_message_room(
+            owner_user_id,
+            invitee_user_ids,
+            config,
+            Some(owner_user_id),
+        )
+        .await?;
+
+    Ok(Some(result.room_id))
+}
+
+#[cfg(not(feature = "friends"))]
+async fn create_dm_room_via_service(
+    _state: &AppState,
+    _owner_user_id: &str,
+    _invitee_user_ids: &[String],
+    _body: &CreateDmRequest,
+) -> Result<Option<String>, ApiError> {
+    Ok(None)
+}
+
+#[cfg(feature = "friends")]
+async fn load_dm_partner_info(
+    state: &AppState,
+    user_id: &str,
+    room_id: &str,
+) -> Result<(String, String, String), ApiError> {
+    let partner = state
+        .services
+        .friend_room_service
+        .get_dm_partner_for_room(user_id, room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
+
+    Ok((partner.user_id, partner.display_name, partner.avatar_url))
+}
+
+#[cfg(not(feature = "friends"))]
+async fn load_dm_partner_info(
+    state: &AppState,
+    user_id: &str,
+    room_id: &str,
+) -> Result<(String, String, String), ApiError> {
+    let direct_map = load_effective_direct_map(state, user_id).await?;
+
+    let partner_id = direct_map
+        .iter()
+        .find_map(|(partner_id, rooms)| {
+            rooms.as_array().and_then(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| entry.as_str() == Some(room_id))
+                    .then(|| partner_id.clone())
+            })
+        })
+        .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
+
+    let join_members = state
+        .services
+        .member_storage
+        .get_room_members(room_id, "join")
+        .await
+        .map_err(|e| ApiError::database(format!("Failed to get room join members: {e}")))?;
+
+    let invited_members = state
+        .services
+        .member_storage
+        .get_room_members(room_id, "invite")
+        .await
+        .map_err(|e| ApiError::database(format!("Failed to get room invite members: {e}")))?;
+
+    let other_member = join_members
+        .iter()
+        .find(|member| member.user_id == partner_id)
+        .or_else(|| {
+            invited_members
+                .iter()
+                .find(|member| member.user_id == partner_id)
+        })
+        .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
+
+    Ok((
+        other_member.user_id.clone(),
+        other_member.display_name.clone().unwrap_or_default(),
+        other_member.avatar_url.clone().unwrap_or_default(),
+    ))
+}
+
 pub async fn create_dm_room(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -228,37 +570,81 @@ pub async fn create_dm_room(
         ));
     };
 
-    let config = CreateRoomConfig {
-        name: body.name.clone(),
-        topic: body.topic.clone(),
-        visibility: Some(
-            body.visibility
-                .clone()
-                .unwrap_or_else(|| "private".to_string()),
-        ),
-        preset: Some("private_chat".to_string()),
-        invite_list: Some(users_to_invite.clone()),
-        is_direct: Some(body.is_direct.unwrap_or(true)),
-        room_type: Some("m.direct".to_string()),
-        ..Default::default()
+    if let Some(room_id) =
+        create_dm_room_via_service(&state, &auth_user.user_id, &users_to_invite, &body).await?
+    {
+        return Ok(Json(json!({ "room_id": room_id })));
+    }
+
+    let room_id = if users_to_invite.len() == 1 {
+        if let Some(existing_room_id) =
+            find_existing_direct_room_id(&state, &auth_user.user_id, &users_to_invite).await?
+        {
+            persist_friend_dm_link_if_applicable(
+                &state,
+                &auth_user.user_id,
+                &users_to_invite,
+                &existing_room_id,
+            )
+            .await?;
+            existing_room_id
+        } else {
+            let config = CreateRoomConfig {
+                name: body.name.clone(),
+                topic: body.topic.clone(),
+                invite_list: Some(users_to_invite.clone()),
+                is_direct: Some(true),
+                visibility: body
+                    .visibility
+                    .clone()
+                    .or_else(|| Some("private".to_string())),
+                preset: Some("private_chat".to_string()),
+                ..Default::default()
+            };
+
+            let created = state
+                .services
+                .room_service
+                .create_room(&auth_user.user_id, config)
+                .await?;
+
+            created["room_id"]
+                .as_str()
+                .ok_or_else(|| ApiError::internal("Failed to create DM room".to_string()))?
+                .to_string()
+        }
+    } else {
+        let config = CreateRoomConfig {
+            name: body.name.clone(),
+            topic: body.topic.clone(),
+            visibility: Some(
+                body.visibility
+                    .clone()
+                    .unwrap_or_else(|| "private".to_string()),
+            ),
+            preset: Some("private_chat".to_string()),
+            invite_list: Some(users_to_invite.clone()),
+            is_direct: Some(body.is_direct.unwrap_or(true)),
+            room_type: Some("m.direct".to_string()),
+            ..Default::default()
+        };
+
+        let response = state
+            .services
+            .room_service
+            .create_room(&auth_user.user_id, config)
+            .await?;
+
+        response
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::internal("Failed to get room_id from create_room response"))?
+            .to_string()
     };
 
-    let response = state
-        .services
-        .room_service
-        .create_room(&auth_user.user_id, config)
+    persist_friend_dm_link_if_applicable(&state, &auth_user.user_id, &users_to_invite, &room_id)
         .await?;
-
-    let room_id = response
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::internal("Failed to get room_id from create_room response"))?;
-
-    let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
-    for user_id in &users_to_invite {
-        ensure_room_in_direct_map(&mut direct_map, user_id, room_id);
-    }
-    save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
+    upsert_direct_room_links(&state, &auth_user.user_id, &users_to_invite, &room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -270,10 +656,7 @@ pub async fn get_dm_rooms(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
-    let mut dm_rooms = load_direct_map(&state, user_id).await?;
-    if dm_rooms.is_empty() {
-        dm_rooms = build_direct_map_from_memberships(&state, user_id).await?;
-    }
+    let dm_rooms = load_effective_direct_map(&state, user_id).await?;
 
     Ok(Json(json!({
         "rooms": dm_rooms
@@ -289,34 +672,8 @@ pub async fn update_dm_room(
     let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
     let now = chrono::Utc::now().timestamp_millis();
 
-    if let Some(users) = body.users {
-        let users = parse_dm_users(&users)?;
-        remove_room_from_direct_map(&mut direct_map, &room_id);
-        for user_id in &users {
-            ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
-        }
-        save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
-    } else if let Some(content) = body.content {
-        let content = content
-            .as_object()
-            .cloned()
-            .ok_or_else(|| ApiError::bad_request("content must be an m.direct object"))?;
-
-        if let Some(user_id) = content.get("user_id").and_then(|value| value.as_str()) {
-            remove_room_from_direct_map(&mut direct_map, &room_id);
-            ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
-            save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
-        } else if let Some(users) = content.get("users") {
-            let users = parse_dm_users(users)?;
-            remove_room_from_direct_map(&mut direct_map, &room_id);
-            for user_id in &users {
-                ensure_room_in_direct_map(&mut direct_map, user_id, &room_id);
-            }
-            save_direct_map(&state, &auth_user.user_id, &direct_map).await?;
-        } else {
-            save_direct_map(&state, &auth_user.user_id, &content).await?;
-            direct_map = content;
-        }
+    if let Some(action) = parse_direct_map_update(body)? {
+        direct_map = apply_direct_map_update(&state, &auth_user.user_id, &room_id, action).await?;
     }
 
     let users = get_room_direct_users(&direct_map, &room_id);
@@ -334,10 +691,7 @@ pub async fn check_room_dm(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut direct_map = load_direct_map(&state, &auth_user.user_id).await?;
-    if direct_map.is_empty() {
-        direct_map = build_direct_map_from_memberships(&state, &auth_user.user_id).await?;
-    }
+    let direct_map = load_effective_direct_map(&state, &auth_user.user_id).await?;
 
     let is_dm = direct_map.values().any(|value| {
         value
@@ -360,53 +714,14 @@ pub async fn get_dm_partner_route(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = &auth_user.user_id;
-    let mut direct_map = load_direct_map(&state, user_id).await?;
-    if direct_map.is_empty() {
-        direct_map = build_direct_map_from_memberships(&state, user_id).await?;
-    }
-
-    let partner_id = direct_map
-        .iter()
-        .find_map(|(partner_id, rooms)| {
-            rooms.as_array().and_then(|entries| {
-                entries
-                    .iter()
-                    .any(|entry| entry.as_str() == Some(&room_id))
-                    .then(|| partner_id.clone())
-            })
-        })
-        .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
-
-    let join_members = state
-        .services
-        .member_storage
-        .get_room_members(&room_id, "join")
-        .await
-        .map_err(|e| ApiError::database(format!("Failed to get room join members: {e}")))?;
-
-    let invited_members = state
-        .services
-        .member_storage
-        .get_room_members(&room_id, "invite")
-        .await
-        .map_err(|e| ApiError::database(format!("Failed to get room invite members: {e}")))?;
-
-    let other_member = join_members
-        .iter()
-        .find(|member| member.user_id == partner_id)
-        .or_else(|| {
-            invited_members
-                .iter()
-                .find(|member| member.user_id == partner_id)
-        })
-        .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
+    let (partner_user_id, display_name, avatar_url) =
+        load_dm_partner_info(&state, &auth_user.user_id, &room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
-        "user_id": other_member.user_id,
-        "display_name": other_member.display_name.clone().unwrap_or_default(),
-        "avatar_url": other_member.avatar_url.clone().unwrap_or_default()
+        "user_id": partner_user_id,
+        "display_name": display_name,
+        "avatar_url": avatar_url
     })))
 }
 
@@ -506,5 +821,45 @@ mod tests {
                 "@carol:example.com".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_merge_direct_links_preserves_existing_entries() {
+        let mut direct_map = serde_json::from_value::<Map<String, Value>>(json!({
+            "@bob:example.com": ["!room1:example.com"]
+        }))
+        .unwrap();
+
+        merge_direct_links(
+            &mut direct_map,
+            vec![
+                ("@bob:example.com".to_string(), "!room1:example.com".to_string()),
+                ("@bob:example.com".to_string(), "!room2:example.com".to_string()),
+                ("@carol:example.com".to_string(), "!room3:example.com".to_string()),
+            ],
+        );
+
+        assert_eq!(
+            direct_map["@bob:example.com"],
+            json!(["!room1:example.com", "!room2:example.com"])
+        );
+        assert_eq!(
+            direct_map["@carol:example.com"],
+            json!(["!room3:example.com"])
+        );
+    }
+
+    #[test]
+    fn test_get_direct_room_for_user_returns_first_room() {
+        let direct_map = serde_json::from_value::<Map<String, Value>>(json!({
+            "@bob:example.com": ["!room1:example.com", "!room2:example.com"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            get_direct_room_for_user(&direct_map, "@bob:example.com").as_deref(),
+            Some("!room1:example.com")
+        );
+        assert_eq!(get_direct_room_for_user(&direct_map, "@carol:example.com"), None);
     }
 }

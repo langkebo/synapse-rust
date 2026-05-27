@@ -521,7 +521,7 @@ pub(super) async fn send_join(
         state
             .services
             .member_storage
-            .add_member(&room_id, user_id, "join", display_name, None, None)
+            .add_member(&room_id, user_id, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
 
@@ -587,7 +587,7 @@ pub(super) async fn send_leave(
     state
         .services
         .member_storage
-        .add_member(&room_id, user_id, "leave", None, None, None)
+        .add_member(&room_id, user_id, "leave", None, None, None, None)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
 
@@ -679,7 +679,7 @@ pub(super) async fn send_join_v2(
         state
             .services
             .member_storage
-            .add_member(&room_id, sender, "join", display_name, None, None)
+            .add_member(&room_id, sender, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
 

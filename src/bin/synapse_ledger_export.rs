@@ -108,6 +108,7 @@ Schema: docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md
 }
 
 fn missing_feature_warnings(profile: &str) -> Vec<&'static str> {
+    // `mut` needed when feature-specific warnings are pushed; unused otherwise.
     #[allow(unused_mut)]
     let mut warnings = Vec::new();
 

@@ -2,7 +2,6 @@ use crate::auth::Claims;
 use crate::common::ApiError;
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::sync::Cache;
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,6 +30,144 @@ pub use query_cache::{CacheConfig as QueryCacheConfig, CacheEntry, CacheStats, Q
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
 const DEFAULT_REDIS_TIMEOUT_MS: u64 = 500;
+
+/// Intermediate error types used by `with_circuit_breaker` to uniformly convert
+/// circuit-breaker / connection / timeout failures into different error types
+/// (`CacheError` or `redis::RedisError`).
+
+#[derive(Debug)]
+struct CircuitBreakerOpen {
+    operation: String,
+}
+
+#[derive(Debug)]
+struct ConnectionTimeout {
+    operation: String,
+}
+
+#[derive(Debug)]
+struct PoolExhaustion {
+    source: String,
+}
+
+#[derive(Debug)]
+struct CommandTimeout {
+    operation: String,
+}
+
+#[derive(Debug)]
+struct OperationFailed {
+    detail: String,
+}
+
+impl From<CircuitBreakerOpen> for CacheError {
+    fn from(e: CircuitBreakerOpen) -> Self {
+        CacheError::CircuitBreakerOpen(format!(
+            "Circuit breaker is open, rejecting Redis {} request",
+            e.operation
+        ))
+    }
+}
+
+impl From<ConnectionTimeout> for CacheError {
+    fn from(e: ConnectionTimeout) -> Self {
+        CacheError::ConnectionTimeout(format!("Redis pool get timeout for {}", e.operation))
+    }
+}
+
+impl From<PoolExhaustion> for CacheError {
+    fn from(e: PoolExhaustion) -> Self {
+        CacheError::PoolExhaustion(e.source)
+    }
+}
+
+impl From<CommandTimeout> for CacheError {
+    fn from(e: CommandTimeout) -> Self {
+        CacheError::CommandTimeout(format!("Redis {} command timeout", e.operation))
+    }
+}
+
+impl From<OperationFailed> for CacheError {
+    fn from(e: OperationFailed) -> Self {
+        CacheError::OperationFailed(e.detail)
+    }
+}
+
+impl From<CircuitBreakerOpen> for redis::RedisError {
+    fn from(_: CircuitBreakerOpen) -> Self {
+        redis::RedisError::from((redis::ErrorKind::IoError, "Circuit breaker is open"))
+    }
+}
+
+impl From<ConnectionTimeout> for redis::RedisError {
+    fn from(_: ConnectionTimeout) -> Self {
+        redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+    }
+}
+
+impl From<PoolExhaustion> for redis::RedisError {
+    fn from(e: PoolExhaustion) -> Self {
+        redis::RedisError::from((
+            redis::ErrorKind::IoError,
+            "Redis pool exhaustion",
+            e.source,
+        ))
+    }
+}
+
+impl From<CommandTimeout> for redis::RedisError {
+    fn from(_: CommandTimeout) -> Self {
+        redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
+    }
+}
+
+impl From<OperationFailed> for redis::RedisError {
+    fn from(e: OperationFailed) -> Self {
+        redis::RedisError::from((redis::ErrorKind::IoError, "Redis operation failed", e.detail))
+    }
+}
+
+/// Wrapper error type for `get` / `expire` which discard errors internally.
+/// Supports the same `From` conversions as `CacheError` so it can be used with
+/// `with_circuit_breaker`.
+#[derive(Debug)]
+enum CacheErrorWrapper {
+    CircuitBreakerOpen,
+    ConnectionTimeout,
+    PoolExhaustion,
+    CommandTimeout,
+    OperationFailed,
+}
+
+impl From<CircuitBreakerOpen> for CacheErrorWrapper {
+    fn from(_: CircuitBreakerOpen) -> Self {
+        CacheErrorWrapper::CircuitBreakerOpen
+    }
+}
+
+impl From<ConnectionTimeout> for CacheErrorWrapper {
+    fn from(_: ConnectionTimeout) -> Self {
+        CacheErrorWrapper::ConnectionTimeout
+    }
+}
+
+impl From<PoolExhaustion> for CacheErrorWrapper {
+    fn from(_: PoolExhaustion) -> Self {
+        CacheErrorWrapper::PoolExhaustion
+    }
+}
+
+impl From<CommandTimeout> for CacheErrorWrapper {
+    fn from(_: CommandTimeout) -> Self {
+        CacheErrorWrapper::CommandTimeout
+    }
+}
+
+impl From<OperationFailed> for CacheErrorWrapper {
+    fn from(_: OperationFailed) -> Self {
+        CacheErrorWrapper::OperationFailed
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum CacheError {
@@ -235,131 +372,131 @@ impl RedisCache {
         self.degradation_metrics.read().clone()
     }
 
-    pub async fn get(&self, key: &str) -> Option<String> {
+    /// Circuit breaker + connection acquisition helper.
+    ///
+    /// Handles the common pattern shared by all Redis operations:
+    /// 1. Check circuit breaker; record rejection if open
+    /// 2. Acquire a connection from the pool with connection timeout
+    /// 3. Pass the connection to the caller-supplied closure for command execution
+    /// 4. Record success / failure / timeout on the circuit breaker
+    ///
+    /// The closure `f` receives a `mut Connection` and returns `Result<T, E>`.
+    /// - `Ok(t)` → `record_success()`, returns `Ok(t)`
+    /// - `Err(e)` where `e` is a timeout → `record_timeout()`, returns `Err(e)`
+    /// - `Err(e)` otherwise → `record_failure()`, returns `Err(e)`
+    ///
+    /// Connection-level failures (pool exhaustion, connection timeout) are also
+    /// recorded as failures/timeouts on the circuit breaker.
+    async fn with_circuit_breaker<F, Fut, T, E>(
+        &self,
+        operation_name: &str,
+        f: F,
+    ) -> Result<T, E>
+    where
+        F: FnOnce(deadpool_redis::Connection) -> Fut,
+        Fut: std::future::Future<Output = Result<T, E>>,
+        E: From<CircuitBreakerOpen>
+            + From<ConnectionTimeout>
+            + From<PoolExhaustion>
+            + From<CommandTimeout>
+            + From<OperationFailed>
+            + std::fmt::Debug,
+    {
         if !self.circuit_breaker.is_call_allowed() {
             self.degradation_metrics
                 .write()
                 .record_circuit_breaker_rejection();
-            tracing::warn!(target: "cache", "Circuit breaker is open, rejecting Redis GET request");
-            return None;
+            return Err(E::from(CircuitBreakerOpen {
+                operation: operation_name.to_string(),
+            }));
         }
 
         let conn_result = timeout(self.connection_timeout, self.pool.get()).await;
-        match conn_result {
-            Ok(Ok(mut conn)) => {
-                let cmd_result =
-                    timeout(self.command_timeout, conn.get::<_, Option<String>>(key)).await;
-                match cmd_result {
-                    Ok(Ok(val)) => {
-                        self.circuit_breaker.record_success();
-                        if val.is_some() {
-                            self.degradation_metrics.write().record_redis_hit();
-                        } else {
-                            self.degradation_metrics.write().record_redis_miss();
-                        }
-                        val
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!(target: "cache", "Redis GET command failed: {}", e);
-                        self.circuit_breaker.record_failure();
-                        None
-                    }
-                    Err(_) => {
-                        tracing::warn!(target: "cache", "Redis GET command timed out");
-                        self.circuit_breaker.record_timeout();
-                        None
-                    }
-                }
-            }
+        let conn = match conn_result {
+            Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
                 tracing::error!(target: "cache", "Redis connection failed: {}", e);
                 self.circuit_breaker.record_failure();
-                None
+                return Err(E::from(PoolExhaustion {
+                    source: e.to_string(),
+                }));
             }
             Err(_) => {
                 tracing::warn!(target: "cache", "Redis connection timed out");
                 self.circuit_breaker.record_timeout();
-                None
+                return Err(E::from(ConnectionTimeout {
+                    operation: operation_name.to_string(),
+                }));
             }
+        };
+
+        let cmd_future = f(conn);
+        let cmd_result = timeout(self.command_timeout, cmd_future).await;
+
+        match cmd_result {
+            Ok(Ok(val)) => {
+                self.circuit_breaker.record_success();
+                Ok(val)
+            }
+            Ok(Err(e)) => {
+                tracing::error!(target: "cache", "Redis {} command failed: {:?}", operation_name, e);
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
+            Err(_) => {
+                tracing::warn!(target: "cache", "Redis {} command timed out", operation_name);
+                self.circuit_breaker.record_timeout();
+                Err(E::from(CommandTimeout {
+                    operation: operation_name.to_string(),
+                }))
+            }
+        }
+    }
+
+    pub async fn get(&self, key: &str) -> Option<String> {
+        use redis::AsyncCommands;
+        let result = self
+            .with_circuit_breaker("GET", |mut conn| async move {
+                conn.get::<_, Option<String>>(key)
+                    .await
+                    .map_err(|_| CacheErrorWrapper::OperationFailed)
+            })
+            .await;
+
+        match result {
+            Ok(val) => {
+                if val.is_some() {
+                    self.degradation_metrics.write().record_redis_hit();
+                } else {
+                    self.degradation_metrics.write().record_redis_miss();
+                }
+                val
+            }
+            Err(_) => None,
         }
     }
 
     pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
-        if !self.circuit_breaker.is_call_allowed() {
-            self.degradation_metrics
-                .write()
-                .record_circuit_breaker_rejection();
-            return Err(CacheError::CircuitBreakerOpen(
-                "Circuit breaker is open, rejecting Redis SET request".to_string(),
-            ));
-        }
-
-        let conn_result = timeout(self.connection_timeout, self.pool.get())
-            .await
-            .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
-
-        let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
-
-        let set_result = if ttl > 0 {
-            timeout(self.command_timeout, conn.set_ex(key, value, ttl)).await
-        } else {
-            timeout(self.command_timeout, conn.set(key, value)).await
-        };
-
-        match set_result {
-            Ok(Ok(())) => {
-                self.circuit_breaker.record_success();
-                Ok(())
+        use redis::AsyncCommands;
+        self.with_circuit_breaker("SET", |mut conn| async move {
+            if ttl > 0 {
+                conn.set_ex(key, value, ttl).await
+            } else {
+                conn.set(key, value).await
             }
-            Ok(Err(e)) => {
-                tracing::error!(target: "cache", "Redis SET command failed: {}", e);
-                self.circuit_breaker.record_failure();
-                Err(CacheError::OperationFailed(e.to_string()))
-            }
-            Err(_) => {
-                tracing::warn!(target: "cache", "Redis SET command timed out");
-                self.circuit_breaker.record_timeout();
-                Err(CacheError::CommandTimeout(
-                    "Redis SET command timeout".to_string(),
-                ))
-            }
-        }
+            .map_err(|e| CacheError::OperationFailed(e.to_string()))
+        })
+        .await
     }
 
     pub async fn delete(&self, key: &str) -> Result<(), CacheError> {
-        if !self.circuit_breaker.is_call_allowed() {
-            self.degradation_metrics
-                .write()
-                .record_circuit_breaker_rejection();
-            return Err(CacheError::CircuitBreakerOpen(
-                "Circuit breaker is open, rejecting Redis DELETE request".to_string(),
-            ));
-        }
-
-        let conn_result = timeout(self.connection_timeout, self.pool.get())
-            .await
-            .map_err(|_| CacheError::ConnectionTimeout("Redis pool get timeout".to_string()))?;
-
-        let mut conn = conn_result.map_err(|e| CacheError::PoolExhaustion(e.to_string()))?;
-
-        match timeout(self.command_timeout, conn.del(key)).await {
-            Ok(Ok(())) => {
-                self.circuit_breaker.record_success();
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                tracing::error!(target: "cache", "Redis DELETE command failed: {}", e);
-                self.circuit_breaker.record_failure();
-                Err(CacheError::OperationFailed(e.to_string()))
-            }
-            Err(_) => {
-                tracing::warn!(target: "cache", "Redis DELETE command timed out");
-                self.circuit_breaker.record_timeout();
-                Err(CacheError::CommandTimeout(
-                    "Redis DELETE command timeout".to_string(),
-                ))
-            }
-        }
+        use redis::AsyncCommands;
+        self.with_circuit_breaker("DELETE", |mut conn| async move {
+            conn.del(key)
+                .await
+                .map_err(|e| CacheError::OperationFailed(e.to_string()))
+        })
+        .await
     }
 
     pub async fn hincrby(
@@ -368,113 +505,30 @@ impl RedisCache {
         field: &str,
         delta: i64,
     ) -> Result<i64, redis::RedisError> {
-        if !self.circuit_breaker.is_call_allowed() {
-            self.degradation_metrics
-                .write()
-                .record_circuit_breaker_rejection();
-            return Err(redis::RedisError::from((
-                redis::ErrorKind::IoError,
-                "Circuit breaker is open",
-            )));
-        }
-
-        let conn_result = timeout(self.connection_timeout, self.pool.get())
-            .await
-            .map_err(|_| {
-                redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
-            })?;
-
-        let mut conn = conn_result.map_err(|e| {
-            redis::RedisError::from((
-                redis::ErrorKind::IoError,
-                "Redis pool exhaustion",
-                e.to_string(),
-            ))
-        })?;
-
-        let result = timeout(self.command_timeout, conn.hincr(key, field, delta))
-            .await
-            .map_err(|_| {
-                redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
-            })?;
-
-        match result {
-            Ok(val) => {
-                self.circuit_breaker.record_success();
-                Ok(val)
-            }
-            Err(e) => {
-                self.circuit_breaker.record_failure();
-                Err(e)
-            }
-        }
+        use redis::AsyncCommands;
+        self.with_circuit_breaker("HINCRBY", |mut conn| async move {
+            conn.hincr(key, field, delta).await
+        })
+        .await
     }
 
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, redis::RedisError> {
-        if !self.circuit_breaker.is_call_allowed() {
-            self.degradation_metrics
-                .write()
-                .record_circuit_breaker_rejection();
-            return Err(redis::RedisError::from((
-                redis::ErrorKind::IoError,
-                "Circuit breaker is open",
-            )));
-        }
-
-        let conn_result = timeout(self.connection_timeout, self.pool.get())
-            .await
-            .map_err(|_| {
-                redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
-            })?;
-
-        let mut conn = conn_result.map_err(|e| {
-            redis::RedisError::from((
-                redis::ErrorKind::IoError,
-                "Redis pool exhaustion",
-                e.to_string(),
-            ))
-        })?;
-
-        let result = timeout(self.command_timeout, conn.hgetall(key))
-            .await
-            .map_err(|_| {
-                redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
-            })?;
-
-        match result {
-            Ok(val) => {
-                self.circuit_breaker.record_success();
-                Ok(val)
-            }
-            Err(e) => {
-                self.circuit_breaker.record_failure();
-                Err(e)
-            }
-        }
+        use redis::AsyncCommands;
+        self.with_circuit_breaker("HGETALL", |mut conn| async move {
+            conn.hgetall(key).await
+        })
+        .await
     }
 
     pub async fn expire(&self, key: &str, ttl: u64) {
-        if !self.circuit_breaker.is_call_allowed() {
-            self.degradation_metrics
-                .write()
-                .record_circuit_breaker_rejection();
-            return;
-        }
-
-        let conn_result = timeout(self.connection_timeout, self.pool.get()).await;
-        if let Ok(Ok(mut conn)) = conn_result {
-            let result: Result<(), redis::RedisError> =
-                timeout(self.command_timeout, conn.expire(key, ttl as i64))
+        use redis::AsyncCommands;
+        let _: Result<(), CacheErrorWrapper> = self
+            .with_circuit_breaker("EXPIRE", |mut conn| async move {
+                conn.expire(key, ttl as i64)
                     .await
-                    .unwrap_or(Ok(()));
-
-            match result {
-                Ok(()) => self.circuit_breaker.record_success(),
-                Err(_) => self.circuit_breaker.record_failure(),
-            }
-        } else {
-            self.circuit_breaker.record_failure();
-        }
+                    .map_err(|_| CacheErrorWrapper::OperationFailed)
+            })
+            .await;
     }
 
     pub async fn token_bucket_take(

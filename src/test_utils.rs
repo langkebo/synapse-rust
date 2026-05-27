@@ -22,6 +22,7 @@ const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
+const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 2;
 
 pub struct EnvLockGuard {
@@ -134,6 +135,13 @@ fn env_usize(key: &str) -> Option<usize> {
         .and_then(|value| value.trim().parse::<usize>().ok())
 }
 
+fn env_string(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 pub fn configured_test_pool_max_connections() -> u32 {
     env_u32("TEST_DB_MAX_CONNECTIONS")
         .filter(|value| *value > 0)
@@ -169,10 +177,20 @@ pub fn configured_test_pool_max_lifetime() -> Duration {
     )
 }
 
+pub fn configured_test_db_init_timeout() -> Duration {
+    Duration::from_secs(
+        env_u64("TEST_DB_INIT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_INIT_TIMEOUT_SECS),
+    )
+}
+
 pub fn configured_shared_clone_concurrency() -> usize {
     env_usize("TEST_DB_SHARED_CLONE_CONCURRENCY")
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY)
+}
+
+pub fn configured_test_db_template_schema() -> Option<String> {
+    env_string("TEST_DB_TEMPLATE_SCHEMA")
 }
 
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
@@ -232,14 +250,20 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     let pool = Arc::new(pool);
 
+    let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
-        Duration::from_secs(120),
+        init_timeout,
         DatabaseInitService::new(pool.clone())
             .with_mode(DatabaseInitMode::Strict)
             .initialize(),
     )
     .await
-    .map_err(|_| format!("database initialization timed out after 120 seconds for {schema_name}"))?
+    .map_err(|_| {
+        format!(
+            "database initialization timed out after {:?} for {schema_name}",
+            init_timeout
+        )
+    })?
     .map_err(|error| {
         format!("strict migration initialization failed for {schema_name}: {error}")
     })?;
@@ -250,6 +274,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             report.errors.join(" | ")
         ));
     }
+
+    ensure_test_schema_contract(&pool).await?;
 
     Ok(pool)
 }
@@ -262,17 +288,24 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
 
     // Step 1: Ensure the template schema exists (one-time init)
-    let template = TEMPLATE_SCHEMA_NAME
-        .get_or_try_init(|| async { init_template_schema(&database_url).await })
-        .await?
-        .clone();
+    let template = if let Some(schema_name) = configured_test_db_template_schema() {
+        ensure_template_schema_exists(&database_url, &schema_name).await?;
+        schema_name
+    } else {
+        TEMPLATE_SCHEMA_NAME
+            .get_or_try_init(|| async { init_template_schema(&database_url).await })
+            .await?
+            .clone()
+    };
 
     // Step 2: Clone template into a fresh per-test schema
     let _permit = SHARED_CLONE_SEMAPHORE
         .acquire()
         .await
         .map_err(|_| "shared clone semaphore closed".to_string())?;
-    clone_schema_from_template(&database_url, &template).await
+    let pool = clone_schema_from_template(&database_url, &template).await?;
+    ensure_test_schema_contract(&pool).await?;
+    Ok(pool)
 }
 
 async fn init_template_schema(database_url: &str) -> Result<String, String> {
@@ -334,14 +367,20 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
 
     let pool = Arc::new(pool);
 
+    let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
-        Duration::from_secs(120),
+        init_timeout,
         DatabaseInitService::new(pool.clone())
             .with_mode(DatabaseInitMode::Strict)
             .initialize(),
     )
     .await
-    .map_err(|_| "template schema initialization timed out after 120 seconds".to_string())?
+    .map_err(|_| {
+        format!(
+            "template schema initialization timed out after {:?}",
+            init_timeout
+        )
+    })?
     .map_err(|error| format!("template schema initialization failed: {error}"))?;
 
     if !report.is_success {
@@ -355,6 +394,42 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
     pool.close().await;
 
     Ok(template_name)
+}
+
+async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) -> Result<(), String> {
+    let connect_timeout = configured_test_pool_connect_timeout();
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+
+    let exists = sqlx::query_scalar::<_, bool>(
+        r"
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.schemata
+            WHERE schema_name = $1
+        )
+        ",
+    )
+    .bind(schema_name)
+    .fetch_one(&admin_pool)
+    .await
+    .map_err(|error| format!("failed to verify template schema {schema_name}: {error}"))?;
+
+    if !exists {
+        return Err(format!(
+            "configured template schema does not exist: {schema_name}"
+        ));
+    }
+
+    Ok(())
 }
 
 async fn clone_schema_from_template(
@@ -431,7 +506,9 @@ async fn clone_schema_from_template(
     .map_err(|_| format!("failed to connect cloned pool for {schema_name}: timed out"))?
     .map_err(|error| format!("failed to connect cloned pool for {schema_name}: {error}"))?;
 
-    Ok(Arc::new(pool))
+    let pool = Arc::new(pool);
+    ensure_test_schema_contract(&pool).await?;
+    Ok(pool)
 }
 
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
@@ -489,7 +566,9 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     })?
         .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
-    Ok(Arc::new(pool))
+    let pool = Arc::new(pool);
+    ensure_test_schema_contract(&pool).await?;
+    Ok(pool)
 }
 
 pub async fn resolve_test_database_url() -> Result<String, String> {
@@ -557,4 +636,49 @@ fn next_test_schema_name() -> String {
         TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst),
         timestamp_nanos,
     )
+}
+
+async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {
+    sqlx::raw_sql(
+        r"
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS generation BIGINT DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_version TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS appservice_id TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS invalid_update_at BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS migration_state TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_ts BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_password_change_required BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS password_expires_at BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until BIGINT;
+
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS token_hash TEXT;
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS token TEXT;
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS last_used_ts BIGINT;
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS user_agent TEXT;
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS ip_address TEXT;
+        ALTER TABLE access_tokens ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT FALSE;
+        ALTER TABLE access_tokens ALTER COLUMN token DROP NOT NULL;
+
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS signatures JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS hashes JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS unsigned JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS processed_at BIGINT;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS not_before BIGINT DEFAULT 0;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'persisted';
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS reference_image TEXT;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'self';
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id TEXT;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS stream_ordering BIGINT;
+        ",
+    )
+    .execute(&**pool)
+    .await
+    .map_err(|error| format!("failed to ensure test schema contract: {error}"))?;
+
+    Ok(())
 }

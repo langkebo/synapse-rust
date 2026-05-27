@@ -2,7 +2,17 @@ enabled: true
 default:
   per_second: 50
   burst_size: 100
-endpoints: []
+endpoints:
+  - path: "/_matrix/client/v3/login"
+    match_type: "prefix"
+    rule:
+      per_second: 3
+      burst_size: 10
+  - path: "/_matrix/client/r0/login"
+    match_type: "prefix"
+    rule:
+      per_second: 3
+      burst_size: 10
 ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"

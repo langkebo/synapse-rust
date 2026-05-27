@@ -648,6 +648,14 @@ impl DeviceKeyService {
 
     fn populate_user_keys(target: &mut serde_json::Map<String, Value>, keys: Vec<DeviceKey>) {
         for key in keys {
+            // Only device identity keys (ed25519, curve25519) belong in the
+            // device_keys `keys` map.  OTK algorithms like signed_curve25519
+            // must be excluded — they are returned separately via
+            // one_time_key_counts / one_time_keys, not in device_keys.
+            if key.algorithm != "ed25519" && key.algorithm != "curve25519" {
+                continue;
+            }
+
             let entry = target.entry(key.device_id.clone()).or_insert_with(|| {
                 serde_json::json!({
                     "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
@@ -660,11 +668,7 @@ impl DeviceKeyService {
 
             if let Some(obj) = entry.as_object_mut() {
                 if let Some(keys_map) = obj.get_mut("keys").and_then(|v| v.as_object_mut()) {
-                    let prefix = if key.algorithm == "curve25519" {
-                        "curve25519"
-                    } else {
-                        "ed25519"
-                    };
+                    let prefix = &key.algorithm;
                     let key_name = if key.key_id.starts_with(&format!("{prefix}:")) {
                         key.key_id.clone()
                     } else {

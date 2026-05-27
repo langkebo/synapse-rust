@@ -263,4 +263,39 @@ impl AuthService {
             counter.inc();
         }
     }
+
+    /// Verify a user's password without creating a new session or device.
+    /// This is intended for UIA (User-Interactive Authentication) flows where
+    /// password verification is needed without the side effects of `login()`.
+    pub async fn verify_user_credentials(
+        &self,
+        user_id: &str,
+        password: &str,
+    ) -> ApiResult<()> {
+        let user_opt = self
+            .user_storage
+            .get_user_by_identifier(user_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+
+        let user = user_opt.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
+
+        if user.is_deactivated {
+            return Err(ApiError::forbidden("Invalid credentials".to_string()));
+        }
+
+        let password_hash = user
+            .password_hash
+            .ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
+
+        let password_ok = self
+            .verify_user_password(password, &password_hash)
+            .await?;
+
+        if !password_ok {
+            return Err(ApiError::forbidden("Invalid credentials".to_string()));
+        }
+
+        Ok(())
+    }
 }

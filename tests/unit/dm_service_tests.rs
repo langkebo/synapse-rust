@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::DMService;
+    use synapse_rust::services::dm_service::DMService;
 
     #[test]
     fn test_create_dm_key() {

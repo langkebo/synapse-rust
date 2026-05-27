@@ -273,14 +273,30 @@ impl UiaService {
             .and_then(|i| i.get("user"))
             .and_then(|v| v.as_str())
             .or_else(|| auth.get("user").and_then(|v| v.as_str()))
+            .or_else(|| auth.get("user_id").and_then(|v| v.as_str()))
             .unwrap_or(user_id);
 
-        if identifier_user != user_id {
+        // Resolve localpart to fully-qualified Matrix ID per spec.
+        // The `identifier.user` field may be a localpart (e.g. "alice")
+        // or a full MXID (e.g. "@alice:server.com").
+        let resolved_user_id = if identifier_user.starts_with('@') {
+            identifier_user.to_string()
+        } else {
+            // Extract server_name from the authenticated user_id
+            let server_name = user_id
+                .rsplit_once(':')
+                .map(|(_, s)| s)
+                .unwrap_or("localhost");
+            format!("@{}:{}", identifier_user, server_name)
+        };
+
+        if resolved_user_id != user_id {
             return Err(ApiError::forbidden("User mismatch".to_string()));
         }
 
+        // Only verify password hash without creating a new session/device
         auth_service
-            .login(user_id, password, None, None)
+            .verify_user_credentials(user_id, password)
             .await
             .map_err(|_| ApiError::forbidden("Invalid password".to_string()))?;
 
@@ -303,6 +319,67 @@ impl UiaService {
     }
 
     pub fn cleanup_expired_sessions(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Perform full UIA verification for a route handler.
+    ///
+    /// This consolidates the common pattern shared by UIA-protected endpoints:
+    /// 1. If no `auth` field → create session, return 401 with M_UIA_REQUIRED
+    /// 2. Call `validate_auth` → if error, return 401 with UIA response
+    /// 3. Dispatch to `verify_password_stage` / `verify_token_stage` based on auth_type
+    /// 4. Return `Ok(())` if all verification passes
+    ///
+    /// Returns `Err(Value)` with the JSON body for a 401 response on auth failure.
+    pub async fn require_uia(
+        &self,
+        auth: Option<&Value>,
+        user_id: &str,
+        flows: Vec<UiaFlow>,
+        auth_service: &crate::auth::AuthService,
+    ) -> Result<(), Value> {
+        let auth_val = match auth {
+            None => {
+                let session = self.create_session(user_id, flows).await;
+                return Err(self.build_uia_response(
+                    &session,
+                    "M_UIA_REQUIRED",
+                    "User-Interactive Authentication required",
+                ));
+            }
+            Some(v) => v,
+        };
+
+        // Validate UIA session and stage
+        if let Err(uia_response) = self.validate_auth(auth_val, user_id, flows.clone()).await {
+            return Err(uia_response);
+        }
+
+        // Verify the specific auth type
+        let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match auth_type {
+            "m.login.password" => {
+                if let Err(e) = self.verify_password_stage(auth_val, user_id, auth_service).await {
+                    let session = self.create_session(user_id, flows).await;
+                    return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
+                }
+            }
+            "m.login.token" => {
+                if let Err(e) = self.verify_token_stage(auth_val, user_id) {
+                    let session = self.create_session(user_id, flows).await;
+                    return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
+                }
+            }
+            _ => {
+                let session = self.create_session(user_id, flows).await;
+                return Err(self.build_uia_response(
+                    &session,
+                    "M_INVALID_PARAM",
+                    &format!("Unsupported auth type: {auth_type}"),
+                ));
+            }
+        }
+
         Ok(())
     }
 }

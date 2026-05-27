@@ -45,6 +45,12 @@ fn create_media_v1_router() -> Router<AppState> {
         .route("/quota/check", get(check_quota))
         .route("/quota/stats", get(quota_stats))
         .route("/quota/alerts", get(quota_alerts))
+        // Chunked upload routes
+        .route("/upload/chunk/start", post(chunked_upload_start))
+        .route("/upload/chunk", post(chunked_upload_chunk))
+        .route("/upload/chunk/complete", post(chunked_upload_complete))
+        .route("/upload/chunk/cancel", post(chunked_upload_cancel))
+        .route("/upload/chunk/progress", get(chunked_upload_progress))
 }
 
 fn create_media_v3_router() -> Router<AppState> {
@@ -68,6 +74,7 @@ fn create_media_r0_router() -> Router<AppState> {
     create_media_modern_upload_router()
         .merge(create_media_config_router())
         .merge(create_media_legacy_download_router())
+        .merge(create_media_preview_delete_router())
 }
 
 fn create_media_r1_router() -> Router<AppState> {
@@ -88,6 +95,52 @@ fn create_media_authenticated_router() -> Router<AppState> {
             "/thumbnail/{server_name}/{media_id}",
             get(get_thumbnail_authenticated),
         )
+}
+
+pub fn create_upload_provider_router() -> Router<AppState> {
+    Router::new()
+        .route("/upload/token", post(create_upload_token))
+        .route("/upload/provider", get(get_upload_provider))
+}
+
+/// POST /_matrix/client/v3/upload/token
+/// Generate a one-time upload token for OSS/MinIO direct upload.
+/// Falls back to standard Matrix upload if no external provider is configured.
+async fn create_upload_token(
+    State(_state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let filename = body.get("filename").and_then(|v| v.as_str()).unwrap_or("upload");
+    let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+
+    // Generate a unique upload token
+    let token = format!("upload_{}_{}", auth_user.user_id, chrono::Utc::now().timestamp_millis());
+
+    // Standard Matrix upload fallback (no external storage configured)
+    Ok((StatusCode::OK, Json(json!({
+        "upload_token": token,
+        "storage_type": "matrix",
+        "upload_url": "/_matrix/media/v3/upload",
+        "filename": filename,
+        "content_type": content_type,
+        "max_file_size": 50 * 1024 * 1024u64,
+    }))))
+}
+
+/// GET /_matrix/client/v3/upload/provider
+/// Return the current upload provider configuration.
+async fn get_upload_provider(
+    State(_state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok((StatusCode::OK, Json(json!({
+        "provider": "matrix",
+        "supports_chunked_upload": true,
+        "supports_resume": true,
+        "max_file_size": 50 * 1024 * 1024u64,
+        "chunk_size": 5 * 1024 * 1024,
+    }))))
 }
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -129,6 +182,11 @@ fn media_v1_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::GET, "/quota/check"),
         (Method::GET, "/quota/stats"),
         (Method::GET, "/quota/alerts"),
+        (Method::POST, "/upload/chunk/start"),
+        (Method::POST, "/upload/chunk"),
+        (Method::POST, "/upload/chunk/complete"),
+        (Method::POST, "/upload/chunk/cancel"),
+        (Method::GET, "/upload/chunk/progress"),
     ]
 }
 
@@ -507,9 +565,9 @@ async fn upload_media_v3(
     upload_media_common(&state, &auth_user.user_id, &params, &headers, body).await
 }
 
-pub async fn media_config(State(_state): State<AppState>) -> Json<Value> {
+pub async fn media_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "m.upload.size": 50 * 1024 * 1024
+        "m.upload.size": state.services.config.server.max_upload_size
     }))
 }
 
@@ -866,6 +924,188 @@ async fn delete_media(
     Ok(Json(json!({
         "deleted": true,
         "media_id": media_id
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// Chunked upload handlers
+// ---------------------------------------------------------------------------
+
+/// POST /_matrix/media/v1/upload/chunk/start
+/// Start a new chunked upload session.
+async fn chunked_upload_start(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let filename = body.get("filename").and_then(|v| v.as_str());
+    let content_type = body.get("content_type").and_then(|v| v.as_str());
+    let total_size = body.get("total_size").and_then(|v| v.as_i64());
+    let total_chunks = body
+        .get("total_chunks")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1) as i32;
+
+    if total_chunks < 1 {
+        return Err(ApiError::bad_request(
+            "total_chunks must be at least 1".to_string(),
+        ));
+    }
+
+    let upload_id = state
+        .services
+        .chunked_upload_service
+        .start_upload(
+            &auth_user.user_id,
+            filename,
+            content_type,
+            total_size,
+            total_chunks,
+        )
+        .await?;
+
+    Ok(Json(json!({
+        "upload_id": upload_id,
+        "chunk_size_limit": 10 * 1024 * 1024,
+        "max_file_size": 100 * 1024 * 1024
+    })))
+}
+
+/// POST /_matrix/media/v1/upload/chunk
+/// Upload a single chunk. If no upload_id is provided, a new session is auto-started.
+async fn chunked_upload_chunk(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    headers: HeaderMap,
+    Query(params): Query<Value>,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let upload_id = params.get("upload_id").and_then(|v| v.as_str());
+    let chunk_index = params
+        .get("chunk_index")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+    let total_chunks = params
+        .get("total_chunks")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1) as i32;
+    let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let total_size = params.get("total_size").and_then(|v| v.as_i64());
+
+    let request = crate::services::media::chunked_upload::ChunkUploadRequest {
+        upload_id: upload_id.map(|s| s.to_string()),
+        chunk_index,
+        total_chunks,
+        chunk_data: body.to_vec(),
+        filename,
+        content_type,
+        total_size,
+    };
+
+    let response = state
+        .services
+        .chunked_upload_service
+        .upload_chunk(request, &auth_user.user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "upload_id": response.upload_id,
+        "chunk_index": response.chunk_index,
+        "uploaded_chunks": response.uploaded_chunks,
+        "total_chunks": response.total_chunks,
+        "uploaded_size": response.uploaded_size,
+        "status": response.status
+    })))
+}
+
+/// POST /_matrix/media/v1/upload/chunk/complete
+/// Finalize a chunked upload after all chunks have been uploaded.
+async fn chunked_upload_complete(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let upload_id = body
+        .get("upload_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
+
+    let response = state
+        .services
+        .chunked_upload_service
+        .complete_upload(upload_id, &auth_user.user_id)
+        .await?;
+
+    // Fix content_uri to use actual server name instead of localhost
+    let content_uri = format!("mxc://{}/{}", state.services.server_name, response.media_id);
+
+    Ok(Json(json!({
+        "content_uri": content_uri,
+        "media_id": response.media_id,
+        "size": response.size
+    })))
+}
+
+/// POST /_matrix/media/v1/upload/chunk/cancel
+/// Cancel an in-progress chunked upload.
+async fn chunked_upload_cancel(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let upload_id = body
+        .get("upload_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
+
+    state
+        .services
+        .chunked_upload_service
+        .cancel_upload(upload_id, &auth_user.user_id)
+        .await?;
+
+    Ok(Json(json!({
+        "cancelled": true,
+        "upload_id": upload_id
+    })))
+}
+
+/// GET /_matrix/media/v1/upload/chunk/progress?upload_id=...
+/// Query the progress of an in-progress chunked upload.
+async fn chunked_upload_progress(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let upload_id = params
+        .get("upload_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
+
+    let progress = state
+        .services
+        .chunked_upload_service
+        .get_progress(upload_id)
+        .await?;
+
+    if progress.user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Upload does not belong to user"));
+    }
+
+    Ok(Json(json!({
+        "upload_id": progress.upload_id,
+        "filename": progress.filename,
+        "content_type": progress.content_type,
+        "total_size": progress.total_size,
+        "uploaded_size": progress.uploaded_size,
+        "total_chunks": progress.total_chunks,
+        "uploaded_chunks": progress.uploaded_chunks,
+        "status": progress.status,
+        "expires_at": progress.expires_at
     })))
 }
 

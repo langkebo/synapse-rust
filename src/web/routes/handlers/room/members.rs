@@ -745,7 +745,7 @@ pub(crate) async fn ban_user(
     state
         .services
         .member_storage
-        .add_member(&room_id, target, "ban", None, None, None)
+        .add_member(&room_id, target, "ban", None, None, None, None)
         .await
         .map_err(map_internal!("Failed to ban user"))?;
 

@@ -292,40 +292,36 @@ pub(crate) async fn change_password_uia(
                 .get("identifier")
                 .and_then(|i| i.get("user"))
                 .and_then(|u| u.as_str())
-                .or_else(|| auth.get("user").and_then(|u| u.as_str()));
+                .or_else(|| auth.get("user").and_then(|u| u.as_str()))
+                .or_else(|| auth.get("user_id").and_then(|u| u.as_str()));
 
             let authenticated_user_id = auth_user.user_id.as_deref().ok_or_else(|| {
                 ApiError::unauthorized("Access token required for m.login.password".to_string())
             })?;
 
-            if let Some(username) = user_identifier {
-                let user_id = if username.starts_with('@') {
+            // Per Matrix spec, if identifier/user/user_id is not provided,
+            // the authenticated user is implied.
+            let resolved_user_id = if let Some(username) = user_identifier {
+                if username.starts_with('@') {
                     username.to_string()
                 } else {
                     format!("@{}:{}", username, state.services.server_name)
-                };
-
-                if user_id != authenticated_user_id {
-                    return Err(ApiError::forbidden("User mismatch".to_string()));
                 }
-
-                state
-                    .services
-                    .registration_service
-                    .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
-                    .await?;
-
-                // Note: change_password should NOT revoke the current device's token.
-                // The current session should remain valid per Matrix spec.
-                // If the underlying implementation revokes all tokens, we need to
-                // re-cache the current token to keep the session alive.
-
-                Ok(Json(json!({})).into_response())
             } else {
-                Err(ApiError::bad_request(
-                    "User identifier required".to_string(),
-                ))
+                authenticated_user_id.to_string()
+            };
+
+            if resolved_user_id != authenticated_user_id {
+                return Err(ApiError::forbidden("User mismatch".to_string()));
             }
+
+            state
+                .services
+                .registration_service
+                .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
+                .await?;
+
+            Ok(Json(json!({})).into_response())
         }
         "m.login.email.identity" => {
             let threepid_creds = auth.get("threepid_creds").unwrap_or(&auth);
@@ -475,77 +471,13 @@ pub(crate) async fn deactivate_account(
 ) -> Result<axum::response::Response, ApiError> {
     let flows = UiaService::get_deactivate_account_flows();
     let auth = body.get("auth");
-
-    match auth {
-        None => {
-            let session = state
-                .services
-                .uia_service
-                .create_session(&auth_user.user_id, flows)
-                .await;
-            return Ok((
-                StatusCode::UNAUTHORIZED,
-                Json(state.services.uia_service.build_uia_response(
-                    &session,
-                    "M_UIA_REQUIRED",
-                    "User-Interactive Authentication required",
-                )),
-            )
-                .into_response());
-        }
-        Some(auth_val) => {
-            let result = state
-                .services
-                .uia_service
-                .validate_auth(auth_val, &auth_user.user_id, flows)
-                .await;
-
-            match result {
-                Ok(_) => {}
-                Err(uia_response) => {
-                    return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
-                }
-            }
-
-            let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            match auth_type {
-                "m.login.password" => {
-                    if let Err(e) = state
-                        .services
-                        .uia_service
-                        .verify_password_stage(
-                            auth_val,
-                            &auth_user.user_id,
-                            &state.services.auth_service,
-                        )
-                        .await
-                    {
-                        let session = state
-                            .services
-                            .uia_service
-                            .create_session(
-                                &auth_user.user_id,
-                                UiaService::get_deactivate_account_flows(),
-                            )
-                            .await;
-                        return Ok((
-                            StatusCode::UNAUTHORIZED,
-                            Json(state.services.uia_service.build_uia_response(
-                                &session,
-                                "M_FORBIDDEN",
-                                &e.to_string(),
-                            )),
-                        )
-                            .into_response());
-                    }
-                }
-                _ => {
-                    return Err(ApiError::unauthorized(
-                        "Unsupported authentication type".to_string(),
-                    ));
-                }
-            }
-        }
+    if let Err(uia_response) = state
+        .services
+        .uia_service
+        .require_uia(auth, &auth_user.user_id, flows, &state.services.auth_service)
+        .await
+    {
+        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }
 
     let user_id = auth_user.user_id.clone();

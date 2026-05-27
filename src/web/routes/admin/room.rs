@@ -1130,7 +1130,7 @@ pub async fn get_room_stats(
 
     // Encrypted rooms
     let encrypted_rooms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_state_events WHERE room_id IN (SELECT room_id FROM rooms) AND type = 'm.room.encryption'"
+        "SELECT COUNT(DISTINCT room_id) FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)"
     )
     .fetch_one(pool)
     .await
@@ -1224,7 +1224,7 @@ pub async fn get_single_room_stats(
 
     // Room state
     let is_encrypted: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM room_state_events WHERE room_id = $1 AND type = 'm.room.encryption')"
+        "SELECT EXISTS(SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL)"
     )
     .bind(&room_id)
     .fetch_one(pool)
@@ -2056,8 +2056,8 @@ pub async fn search_room_messages_admin(
     let events = sqlx::query(
         r"
         SELECT event_id, event_type, sender, content, origin_server_ts
-        FROM room_events
-        WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
+        FROM events
+        WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2 AND is_redacted = false
         ORDER BY origin_server_ts DESC
         LIMIT $3
         ",
@@ -2135,12 +2135,12 @@ pub async fn get_room_forward_extremities(
 
     let count: i64 = sqlx::query_scalar(
         r"
-        SELECT COUNT(*) FROM room_events
+        SELECT COUNT(*) FROM events
         WHERE room_id = $1
         AND state_key IS NOT NULL
         AND event_id NOT IN (
-            SELECT prev_event_id FROM room_events
-            WHERE room_id = $1 AND prev_event_id IS NOT NULL
+            SELECT content->>'prev_event_id' FROM events
+            WHERE room_id = $1 AND content->>'prev_event_id' IS NOT NULL
         )
         ",
     )
@@ -2210,27 +2210,59 @@ async fn search_all_rooms_impl(
     }
 
     let search_pattern = body.search_term.as_ref().map(|term| format!("%{term}%"));
+    let search_term = body.search_term.as_ref().map(|term| term.clone());
 
     let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         r"
         SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts as creation_ts,
                COUNT(DISTINCT rm.user_id) as member_count,
-               CASE WHEN COUNT(DISTINCT re.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
+               CASE WHEN COUNT(DISTINCT e.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
         FROM rooms r
         LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
-        LEFT JOIN room_events re ON r.room_id = re.room_id AND re.event_type = 'm.room.encryption'
+        LEFT JOIN events e ON r.room_id = e.room_id AND e.event_type = 'm.room.encryption' AND e.state_key IS NOT NULL
         WHERE 1=1
         ",
     );
 
     if let Some(pattern) = &search_pattern {
-        query.push(" AND (r.name ILIKE ");
-        query.push_bind(pattern);
-        query.push(" OR r.topic ILIKE ");
-        query.push_bind(pattern);
-        query.push(" OR r.room_id ILIKE ");
-        query.push_bind(pattern);
-        query.push(")");
+        // Use pg_trgm similarity operator (%) for GIN index support when search term
+        // is long enough (>=3 chars), combined with ILIKE for exact substring matching.
+        // The % operator leverages the GIN trigram index for efficient filtering.
+        if let Some(term) = &search_term {
+            if term.len() >= 3 {
+                query.push(" AND (r.name ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.name % ");
+                query.push_bind(term);
+                query.push(" OR r.topic ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.canonical_alias ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.canonical_alias % ");
+                query.push_bind(term);
+                query.push(" OR r.room_id ILIKE ");
+                query.push_bind(pattern);
+                query.push(")");
+            } else {
+                query.push(" AND (r.name ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.topic ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.canonical_alias ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.room_id ILIKE ");
+                query.push_bind(pattern);
+                query.push(")");
+            }
+        } else {
+            query.push(" AND (r.name ILIKE ");
+            query.push_bind(pattern);
+            query.push(" OR r.topic ILIKE ");
+            query.push_bind(pattern);
+            query.push(" OR r.room_id ILIKE ");
+            query.push_bind(pattern);
+            query.push(")");
+        }
     }
 
     if let Some(is_public) = body.is_public {
@@ -2241,11 +2273,11 @@ async fn search_all_rooms_impl(
     if let Some(is_encrypted) = body.is_encrypted {
         if is_encrypted {
             query.push(
-                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
+                " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
             );
         } else {
             query.push(
-                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
+                " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
             );
         }
     }
@@ -2357,11 +2389,11 @@ async fn search_all_rooms_impl(
     if let Some(is_encrypted) = body.is_encrypted {
         if is_encrypted {
             count_query.push(
-                " AND EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
+                " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
             );
         } else {
             count_query.push(
-                " AND NOT EXISTS (SELECT 1 FROM room_events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption')",
+                " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
             );
         }
     }

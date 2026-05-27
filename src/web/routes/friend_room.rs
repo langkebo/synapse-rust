@@ -875,12 +875,17 @@ async fn get_groups_for_user(
 }
 
 async fn get_friend_dm(
-    State(_state): State<AppState>,
-    _auth_user: AuthenticatedUser,
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let room_id: Option<String> = None;
+    let room_id = state
+        .services
+        .friend_room_service
+        .get_existing_dm_room_id(&auth_user.user_id, &user_id)
+        .await?;
+
     Ok(Json(json!({
         "room_id": room_id,
         "user_id": user_id,
@@ -893,6 +898,7 @@ async fn create_friend_dm(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+
     let config = crate::services::room::service::CreateRoomConfig {
         visibility: Some("private".to_string()),
         room_alias_name: None,
@@ -909,17 +915,17 @@ async fn create_friend_dm(
         room_version: None,
         power_level_content_override: None,
     };
+
     let result = state
         .services
-        .room_service
-        .create_room(&auth_user.user_id, config)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .friend_room_service
+        .ensure_direct_room(&auth_user.user_id, &user_id, config, Some(&auth_user.user_id))
+        .await?;
 
-    let room_id = result.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string());
     Ok(Json(json!({
-        "room_id": room_id,
+        "room_id": result.room_id,
         "user_id": user_id,
+        "created": result.created,
     })))
 }
 

@@ -1,9 +1,12 @@
 use super::{AppState, AuthenticatedUser};
+use crate::e2ee::secure_backup::RestoreSecureBackupRequest;
 use crate::web::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
 use crate::web::routes::MatrixJson;
 use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -45,7 +48,7 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         )
         .route(
             "/sendToDevice/{event_type}/{transaction_id}",
-            put(send_to_device),
+            put(send_to_device).post(send_to_device),
         )
 }
 
@@ -126,6 +129,7 @@ fn e2ee_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::DELETE, "/room_keys/request/{request_id}"),
         (Method::GET, "/rooms/{room_id}/keys/distribution"),
         (Method::PUT, "/sendToDevice/{event_type}/{transaction_id}"),
+        (Method::POST, "/sendToDevice/{event_type}/{transaction_id}"),
     ]
 }
 
@@ -177,8 +181,32 @@ async fn upload_keys(
         .or(auth_user.device_id.clone())
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
+    // Validate: reject completely empty uploads (no device_keys AND no one_time_keys)
+    // But allow individual fields to be empty objects — clients commonly send
+    // {"device_keys":{...}, "one_time_keys":{}} when only uploading device keys.
     let has_device_keys = body.get("device_keys").is_some();
     let has_one_time_keys = body.get("one_time_keys").is_some();
+
+    if !has_device_keys && !has_one_time_keys {
+        return Err(ApiError::bad_request(
+            "Must include at least device_keys or one_time_keys".to_string(),
+        ));
+    }
+
+    // Validate device_keys has required fields when provided as a non-empty object
+    if has_device_keys {
+        let dk = body.get("device_keys").unwrap();
+        if let Some(obj) = dk.as_object() {
+            if !obj.is_empty() {
+                // Non-empty device_keys should have keys field
+                if dk.get("keys").is_some_and(|k| k.as_object().is_none_or(|m| m.is_empty())) {
+                    return Err(ApiError::bad_request(
+                        "device_keys.keys must be a non-empty object".to_string(),
+                    ));
+                }
+            }
+        }
+    }
 
     let inner_device_keys = body
         .get("device_keys")
@@ -307,13 +335,16 @@ async fn query_keys(
 
     let mut verified_devices = serde_json::Map::new();
     if let Some(device_keys_obj) = response.device_keys.as_object() {
-        for user_id in device_keys_obj.keys() {
-            if let Ok(vd_map) = state
+        let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
+        if !user_ids.is_empty() {
+            let batch_result = state
                 .services
                 .cross_signing_service
-                .get_verified_devices(user_id)
+                .get_verified_devices_batch(&user_ids)
                 .await
-            {
+                .unwrap_or_default();
+
+            for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map
                     .verified_devices
                     .into_iter()
@@ -329,7 +360,7 @@ async fn query_keys(
                     })
                     .collect();
                 if !devices.is_empty() {
-                    verified_devices.insert(user_id.clone(), serde_json::json!(devices));
+                    verified_devices.insert(user_id, serde_json::json!(devices));
                 }
             }
         }
@@ -425,75 +456,42 @@ async fn key_changes(
     let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
     let to = params.get("to").and_then(parse_stream_id);
 
-    let max_stream_id: i64 = sqlx::query_scalar(
-        r"
-        SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        ",
-    )
-    .fetch_one(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {e}")))?;
+    let max_stream_id: i64 = state
+        .services
+        .device_storage
+        .get_max_device_list_stream_id()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get device list stream position: {e}");
+            ApiError::database("Failed to get device list stream position")
+        })?;
 
     let to = to.unwrap_or(max_stream_id);
 
-    let changed_rows = sqlx::query(
-        r"
-        SELECT DISTINCT user_id
-        FROM device_lists_stream
-        WHERE stream_id > $1
-          AND stream_id <= $2
-          AND user_id != $3
-        ORDER BY user_id
-        LIMIT 100
-        ",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(&auth_user.user_id)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get key changes: {e}")))?;
-
-    let changed: Vec<String> = changed_rows
-        .iter()
-        .map(|row| {
-            use sqlx::Row;
-            row.get("user_id")
-        })
-        .collect();
+    let changed: Vec<String> = state
+        .services
+        .device_storage
+        .get_device_list_changed_users(from, to, &auth_user.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get key changes: {e}");
+            ApiError::database("Failed to get key changes")
+        })?;
     let changed = filter_users_with_shared_rooms(&state, &auth_user.user_id, &changed)
         .await
         .into_iter()
         .filter(|user_id| user_id != &auth_user.user_id)
         .collect::<Vec<_>>();
 
-    let left_rows = sqlx::query(
-        r"
-        SELECT DISTINCT dl.user_id
-        FROM device_lists_stream dl
-        LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
-        WHERE dl.stream_id > $1
-          AND dl.stream_id <= $2
-          AND dl.user_id != $3
-          AND rm.user_id IS NULL
-        ORDER BY dl.user_id
-        LIMIT 100
-        ",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(&auth_user.user_id)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {e}")))?;
-
-    let left: Vec<String> = left_rows
-        .iter()
-        .map(|row| {
-            use sqlx::Row;
-            row.get("user_id")
-        })
-        .collect();
+    let left: Vec<String> = state
+        .services
+        .device_storage
+        .get_device_list_left_users(from, to, &auth_user.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get key changes left: {e}");
+            ApiError::database("Failed to get key changes left")
+        })?;
     let left = filter_users_with_shared_rooms(&state, &auth_user.user_id, &left)
         .await
         .into_iter()
@@ -536,7 +534,10 @@ async fn device_list_update(
             .device_storage
             .get_users_devices_batch(&users)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get devices: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("Failed to get devices: {e}");
+                ApiError::database("Failed to get devices")
+            })?;
 
         for user_id in &users {
             if let Some(devices) = devices_by_user.get(user_id) {
@@ -575,7 +576,10 @@ async fn device_list_update(
     )
     .fetch_one(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list stream position: {e}")))?;
+    .map_err(|e| {
+        tracing::error!("Failed to get device list stream position: {e}");
+        ApiError::database("Failed to get device list stream position")
+    })?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
@@ -594,7 +598,10 @@ async fn device_list_update(
     .bind(&users)
     .fetch_all(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device list changes: {e}")))?;
+    .map_err(|e| {
+        tracing::error!("Failed to get device list changes: {e}");
+        ApiError::database("Failed to get device list changes")
+    })?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -625,7 +632,10 @@ async fn device_list_update(
         .bind(&device_id)
         .fetch_optional(&*state.services.device_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get device data: {e}")))?;
+        .map_err(|e| {
+            tracing::error!("Failed to get device data: {e}");
+            ApiError::database("Failed to get device data")
+        })?;
 
         if let Some((display_name, last_seen_ts)) = row {
             changed.push(json!({
@@ -644,7 +654,10 @@ async fn device_list_update(
         .device_storage
         .filter_existing_users(&users)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to resolve left users: {e}")))?;
+        .map_err(|e| {
+            tracing::error!("Failed to resolve left users: {e}");
+            ApiError::database("Failed to resolve left users")
+        })?;
 
     let existing: HashSet<String> = existing_users.into_iter().collect();
     for user_id in &users {
@@ -719,7 +732,7 @@ async fn send_to_device(
         )
         .await?;
 
-    Ok(empty_json())
+    Ok(Json(json!({ "failures": {} })))
 }
 
 #[axum::debug_handler]
@@ -742,7 +755,25 @@ async fn upload_device_signing(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
+    // UIA (User-Interactive Authentication) is required for cross-signing key upload
+    // per Matrix spec: POST /_matrix/client/v3/keys/device_signing/upload requires UIA
+    let auth = body.get("auth");
+    if let Err(uia_response) = state
+        .services
+        .uia_service
+        .require_uia(
+            auth,
+            &auth_user.user_id,
+            crate::services::uia_service::UiaService::get_cross_signing_flows(),
+            &state.services.auth_service,
+        )
+        .await
+    {
+        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+    }
+
+    // UIA passed, proceed with business logic
     let device_id = auth_user
         .device_id
         .as_ref()
@@ -784,7 +815,7 @@ async fn upload_device_signing(
         }
     }
 
-    Ok(empty_json())
+    Ok(Json(json!({})).into_response())
 }
 
 #[axum::debug_handler]
@@ -1134,24 +1165,52 @@ async fn create_secure_backup(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let passphrase = body
-        .get("passphrase")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
+    // Support two modes:
+    // 1. Passphrase mode: { "passphrase": "..." } -> server derives key
+    // 2. Standard mode: { "algorithm": "...", "auth_data": {...} } -> client provides auth data
+    let passphrase = body.get("passphrase").and_then(|v| v.as_str());
+    let algorithm = body.get("algorithm").and_then(|v| v.as_str());
+    let auth_data_val = body.get("auth_data");
 
-    let response = state
-        .services
-        .secure_backup_service
-        .create_backup(&auth_user.user_id, passphrase)
-        .await?;
+    if let Some(passphrase) = passphrase {
+        // Passphrase mode: server derives key from passphrase
+        let response = state
+            .services
+            .secure_backup_service
+            .create_backup(&auth_user.user_id, passphrase)
+            .await?;
 
-    Ok(Json(serde_json::json!({
-        "backup_id": response.backup_id,
-        "version": response.version,
-        "algorithm": response.algorithm,
-        "auth_data": response.auth_data,
-        "key_count": response.key_count
-    })))
+        Ok(Json(serde_json::json!({
+            "backup_id": response.backup_id,
+            "version": response.version,
+            "algorithm": response.algorithm,
+            "auth_data": response.auth_data,
+            "key_count": response.key_count
+        })))
+    } else if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
+        // Standard mode: client provides algorithm and auth_data
+        let response = state
+            .services
+            .secure_backup_service
+            .create_backup_with_data(
+                &auth_user.user_id,
+                algorithm,
+                auth_data_val,
+            )
+            .await?;
+
+        Ok(Json(serde_json::json!({
+            "backup_id": response.backup_id,
+            "version": response.version,
+            "algorithm": response.algorithm,
+            "auth_data": response.auth_data,
+            "key_count": response.key_count
+        })))
+    } else {
+        Err(ApiError::bad_request(
+            "Either 'passphrase' or 'algorithm'+'auth_data' required".to_string(),
+        ))
+    }
 }
 
 #[axum::debug_handler]
@@ -1233,24 +1292,17 @@ async fn restore_secure_backup(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let passphrase = body
-        .get("passphrase")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
-
     let response = state
         .services
         .secure_backup_service
-        .restore_backup(&auth_user.user_id, &backup_id, passphrase)
+        .restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms)
         .await?;
 
     Ok(Json(serde_json::json!({
-        "success": response.success,
-        "restored_keys": response.key_count,
-        "key_count": response.key_count,
-        "message": response.message
+        "recovered_keys": response.recovered_keys,
+        "total_keys": response.total_keys
     })))
 }
 
