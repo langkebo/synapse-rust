@@ -79,7 +79,7 @@ impl AuthService {
         initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         if username.is_empty() || password.is_empty() {
-            return Err(ApiError::bad_request(
+            return Err(ApiError::missing_param(
                 "Username and password are required".to_string(),
             ));
         }
@@ -87,7 +87,7 @@ impl AuthService {
             return Err(ApiError::invalid_username(e.to_string()));
         }
         if let Err(e) = self.validator.validate_password(password) {
-            return Err(ApiError::bad_request(format!(
+            return Err(ApiError::invalid_param(format!(
                 "Password does not meet policy requirements: {e}"
             )));
         }
@@ -102,7 +102,7 @@ impl AuthService {
             .await
             .map_err(|e| {
                 if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
-                    ApiError::bad_request("Username already exists".to_string())
+                    ApiError::user_in_use("Username already exists".to_string())
                 } else {
                     ApiError::internal(format!("Failed to create user: {e}"))
                 }

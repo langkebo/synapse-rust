@@ -369,6 +369,83 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 }
 
 #[tokio::test]
+async fn test_create_dm_is_idempotent_for_same_pair() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, _alice_id) = register_user(&app, "dm_idempotent_alice").await;
+    let (_bob_token, bob_id) = register_user(&app, "dm_idempotent_bob").await;
+
+    let request_body = json!({
+        "user_id": bob_id
+    })
+    .to_string();
+
+    let first_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/create_dm")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(request_body.clone()))
+        .unwrap();
+    let first_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), first_request)
+        .await
+        .unwrap();
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_body = axum::body::to_bytes(first_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let first_json: Value = serde_json::from_slice(&first_body).unwrap();
+    let first_room_id = first_json["room_id"].as_str().unwrap().to_string();
+
+    let second_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/create_dm")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(request_body))
+        .unwrap();
+    let second_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), second_request)
+        .await
+        .unwrap();
+    assert_eq!(second_response.status(), StatusCode::OK);
+    let second_body = axum::body::to_bytes(second_response.into_body(), 2048)
+        .await
+        .unwrap();
+    let second_json: Value = serde_json::from_slice(&second_body).unwrap();
+    let second_room_id = second_json["room_id"].as_str().unwrap().to_string();
+
+    assert_eq!(first_room_id, second_room_id);
+
+    let direct_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/direct")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let direct_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), direct_request)
+        .await
+        .unwrap();
+    assert_eq!(direct_response.status(), StatusCode::OK);
+    let direct_body = axum::body::to_bytes(direct_response.into_body(), 4096)
+        .await
+        .unwrap();
+    let direct_json: Value = serde_json::from_slice(&direct_body).unwrap();
+    let mapped_rooms = direct_json["rooms"][&bob_id]
+        .as_array()
+        .expect("m.direct should contain target user");
+
+    assert_eq!(
+        mapped_rooms
+            .iter()
+            .filter(|room| room.as_str() == Some(first_room_id.as_str()))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn test_admin_room_search_enforces_matrix_forbidden_and_handles_special_terms() {
     let Some(app) = setup_test_app().await else {
         return;

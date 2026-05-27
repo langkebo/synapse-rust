@@ -284,10 +284,6 @@ impl RelationsService {
                     "sender": r.sender,
                     "origin_server_ts": r.origin_server_ts,
                     "content": r.content,
-                    "m.relates_to": {
-                        "rel_type": r.relation_type,
-                        "event_id": r.relates_to_event_id
-                    }
                 })
             })
             .collect();

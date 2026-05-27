@@ -62,17 +62,7 @@ fn relative_routes() -> Vec<(Method, &'static str)> {
         (Method::GET, "/room_keys/export/{version}"),
         (Method::POST, "/room_keys/import"),
         (Method::POST, "/room_keys/import/{version}"),
-        (Method::GET, "/secure_backup"),
-        (Method::POST, "/secure_backup"),
-        (Method::GET, "/secure_backup/{backup_id}"),
-        (Method::DELETE, "/secure_backup/{backup_id}"),
-        (Method::POST, "/secure_backup/{backup_id}/keys"),
-        (Method::POST, "/secure_backup/{backup_id}/restore"),
-        (Method::POST, "/secure_backup/{backup_id}/verify"),
-        (Method::GET, "/room_keys/recover"),
-        (Method::PUT, "/room_keys/recover"),
-        (Method::POST, "/room_keys/export"),
-        (Method::PUT, "/room_keys/export"),
+        // /keys/backup/secure routes are in e2ee_routes.rs
     ]
 }
 
@@ -129,7 +119,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
                 .put(put_room_key_legacy)
                 .delete(delete_room_key_legacy),
         )
-        .route("/room_keys/recover", post(recover_keys).get(stub_room_keys_recover_get).put(stub_room_keys_recover_put))
+        .route("/room_keys/recover", post(recover_keys))
         .route(
             "/room_keys/recovery/{version}/progress",
             get(get_recovery_progress),
@@ -145,30 +135,11 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
             get(recover_session_key),
         )
         // Key Export/Import (E2EE 100%)
-        .route("/room_keys/export", get(export_keys).post(stub_room_keys_export_post).put(stub_room_keys_export_put))
+        .route("/room_keys/export", get(export_keys))
         .route("/room_keys/export/{version}", get(export_keys_by_version))
         .route("/room_keys/import", post(import_keys))
-        .route("/room_keys/import/{version}", post(import_keys_by_version))
-        .route(
-            "/secure_backup",
-            get(stub_secure_backup_list).post(stub_secure_backup_create),
-        )
-        .route(
-            "/secure_backup/{backup_id}",
-            get(stub_secure_backup_get).delete(stub_secure_backup_delete),
-        )
-        .route(
-            "/secure_backup/{backup_id}/keys",
-            post(stub_secure_backup_keys),
-        )
-        .route(
-            "/secure_backup/{backup_id}/restore",
-            post(stub_secure_backup_restore),
-        )
-        .route(
-            "/secure_backup/{backup_id}/verify",
-            post(stub_secure_backup_verify),
-        );
+        .route("/room_keys/import/{version}", post(import_keys_by_version));
+        // Note: /keys/backup/secure routes are handled in e2ee_routes.rs
 
     Router::new()
         .nest("/_matrix/client/v1", router.clone())
@@ -201,79 +172,18 @@ async fn create_backup_version(
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     let auth = body.get("auth");
-
-    match auth {
-        None => {
-            let session =
-                state.services.uia_service.create_session(&auth_user.user_id, UiaService::get_default_flows()).await;
-            return Ok((
-                StatusCode::UNAUTHORIZED,
-                Json(state.services.uia_service.build_uia_response(
-                    &session,
-                    "M_UIA_REQUIRED",
-                    "User-Interactive Authentication required",
-                )),
-            )
-                .into_response());
-        }
-        Some(auth_val) => {
-            let result = state
-                .services
-                .uia_service
-                .validate_auth(auth_val, &auth_user.user_id, UiaService::get_default_flows())
-                .await;
-
-            match result {
-                Ok(_) => {}
-                Err(uia_response) => {
-                    return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
-                }
-            }
-
-            let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            match auth_type {
-                "m.login.password" => {
-                    if let Err(e) = state
-                        .services
-                        .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
-                        .await
-                    {
-                        let session = state
-                            .services
-                            .uia_service
-                            .create_session(&auth_user.user_id, UiaService::get_default_flows())
-                            .await;
-                        return Ok((
-                            StatusCode::UNAUTHORIZED,
-                            Json(state.services.uia_service.build_uia_response(
-                                &session,
-                                "M_FORBIDDEN",
-                                &e.to_string(),
-                            )),
-                        )
-                            .into_response());
-                    }
-                }
-                "m.login.token" => {}
-                _ => {
-                    let session = state
-                        .services
-                        .uia_service
-                        .create_session(&auth_user.user_id, UiaService::get_default_flows())
-                        .await;
-                    return Ok((
-                        StatusCode::UNAUTHORIZED,
-                        Json(state.services.uia_service.build_uia_response(
-                            &session,
-                            "M_UIA_REQUIRED",
-                            "Unsupported authentication type",
-                        )),
-                    )
-                        .into_response());
-                }
-            }
-        }
+    if let Err(uia_response) = state
+        .services
+        .uia_service
+        .require_uia(
+            auth,
+            &auth_user.user_id,
+            UiaService::get_default_flows(),
+            &state.services.auth_service,
+        )
+        .await
+    {
+        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }
 
     let algorithm = body.get("algorithm").and_then(|v| v.as_str()).unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
@@ -439,7 +349,7 @@ async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Resul
         }
     }
 
-    Ok(Json(serde_json::json!({ "rooms": rooms })))
+    Ok(Json(serde_json::json!({ "rooms": rooms, "etag": version })))
 }
 
 #[axum::debug_handler]
@@ -976,61 +886,6 @@ async fn import_keys(
         "failed": failed_count,
         "total": room_keys.len()
     })))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_list() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_create() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_get() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_delete() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_keys() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_restore() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_secure_backup_verify() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_room_keys_recover_get() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_room_keys_recover_put() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_room_keys_export_post() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
-}
-
-#[allow(clippy::unused_async)]
-async fn stub_room_keys_export_put() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("This endpoint is not supported"))
 }
 
 /// Import keys by version

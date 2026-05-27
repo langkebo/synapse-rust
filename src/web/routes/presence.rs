@@ -13,15 +13,15 @@ pub fn create_presence_router() -> Router<AppState> {
     Router::new()
         .route(
             "/_matrix/client/v1/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
+            get(get_presence).put(set_presence).post(set_presence),
         )
         .route(
             "/_matrix/client/r0/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
+            get(get_presence).put(set_presence).post(set_presence),
         )
         .route(
             "/_matrix/client/v3/presence/{user_id}/status",
-            get(get_presence).put(set_presence),
+            get(get_presence).put(set_presence).post(set_presence),
         )
         .route(
             "/_matrix/client/v3/presence/list",
@@ -40,10 +40,13 @@ pub fn presence_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteE
     [
         (Method::GET, "/_matrix/client/v1/presence/{user_id}/status"),
         (Method::PUT, "/_matrix/client/v1/presence/{user_id}/status"),
+        (Method::POST, "/_matrix/client/v1/presence/{user_id}/status"),
         (Method::GET, "/_matrix/client/r0/presence/{user_id}/status"),
         (Method::PUT, "/_matrix/client/r0/presence/{user_id}/status"),
+        (Method::POST, "/_matrix/client/r0/presence/{user_id}/status"),
         (Method::GET, "/_matrix/client/v3/presence/{user_id}/status"),
         (Method::PUT, "/_matrix/client/v3/presence/{user_id}/status"),
+        (Method::POST, "/_matrix/client/v3/presence/{user_id}/status"),
         (Method::POST, "/_matrix/client/v3/presence/list"),
         (Method::GET, "/_matrix/client/v3/presence/list/{user_id}"),
     ]

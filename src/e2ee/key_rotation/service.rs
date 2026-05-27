@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct KeyRotationService {
+    // Kept for future OLM session rotation; not yet wired into any public method.
     #[allow(dead_code)]
     olm_service: Arc<OlmService>,
     megolm_service: Arc<MegolmService>,
@@ -239,6 +240,7 @@ impl KeyRotationService {
     }
 }
 
+#[derive(Clone)]
 pub struct KeyRotationStorage {
     pool: Arc<sqlx::PgPool>,
 }
@@ -283,10 +285,11 @@ impl KeyRotationStorage {
             SELECT DISTINCT r.room_id 
             FROM rooms r
             INNER JOIN room_memberships rm ON r.room_id = rm.room_id
-            INNER JOIN room_events re ON r.room_id = re.room_id
+            INNER JOIN events e ON r.room_id = e.room_id
             WHERE rm.user_id = $1 
               AND rm.membership = 'join'
-              AND re.event_type = 'm.room.encryption'
+              AND e.event_type = 'm.room.encryption'
+              AND e.state_key IS NOT NULL
             "
         )
         .bind(user_id)
@@ -396,10 +399,11 @@ impl KeyRotationStorage {
             r"
             SELECT rm.user_id
             FROM room_memberships rm
-            INNER JOIN room_events re ON rm.room_id = re.room_id
+            INNER JOIN events e ON rm.room_id = e.room_id
             WHERE rm.room_id = $1
               AND rm.membership = 'join'
-              AND re.event_type = 'm.room.encryption'
+              AND e.event_type = 'm.room.encryption'
+              AND e.state_key IS NOT NULL
             ",
         )
         .bind(room_id)
@@ -469,5 +473,157 @@ impl KeyRotationStorage {
         .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
 
         Ok(())
+    }
+
+    /// Get the timestamp of the most recent rotation for a user.
+    pub async fn get_user_last_rotation_ts(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<i64>, ApiError> {
+        let result: Option<i64> = sqlx::query_scalar(
+            r"SELECT MAX(rotated_at) FROM key_rotation_log WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query key rotation log: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?;
+
+        Ok(result)
+    }
+
+    /// Get the rotation history for a specific user and device, limited to the
+    /// most recent 10 entries.
+    pub async fn get_device_rotation_history(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
+        let rows = sqlx::query(
+            r"
+            SELECT new_key_id AS key_id, rotated_at AS rotated_ts
+            FROM key_rotation_log
+            WHERE user_id = $1 AND device_id = $2
+            ORDER BY rotated_at DESC
+            LIMIT 10
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get rotation history: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?;
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                (
+                    row.get::<Option<String>, _>("key_id"),
+                    row.get::<Option<i64>, _>("rotated_ts"),
+                )
+            })
+            .collect())
+    }
+
+    /// Get the last rotation timestamp for a specific key id.
+    pub async fn get_last_rotation_for_key(
+        &self,
+        user_id: &str,
+        key_id: &str,
+    ) -> Result<Option<i64>, ApiError> {
+        let result: Option<i64> = sqlx::query_scalar(
+            r"
+            SELECT EXTRACT(EPOCH FROM rotated_at) * 1000
+            FROM key_rotation_log
+            WHERE user_id = $1 AND (new_key_id = $2 OR old_key_id = $2)
+            ORDER BY rotated_at DESC LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(key_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query rotation log by key_id: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?
+        .flatten();
+
+        Ok(result)
+    }
+
+    /// Get the maximum rotation timestamp for a user (returns 0 if no
+    /// rotations exist).
+    pub async fn get_max_rotation_ts(
+        &self,
+        user_id: &str,
+    ) -> Result<i64, ApiError> {
+        let result: i64 = sqlx::query_scalar(
+            r"
+            SELECT COALESCE(EXTRACT(EPOCH FROM MAX(rotated_at)) * 1000, 0)::bigint
+            FROM key_rotation_log
+            WHERE user_id = $1
+            ",
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query rotation log: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?;
+
+        Ok(result)
+    }
+
+    /// Persist a key-value pair in the key_rotation_config table.
+    pub async fn set_rotation_config(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            r"
+            INSERT INTO key_rotation_config (key, value)
+            VALUES ($1, $2)
+            ON CONFLICT (key) DO UPDATE SET value = $2
+            ",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to persist key rotation config: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?;
+
+        Ok(())
+    }
+
+    /// Read a value from the key_rotation_config table.
+    pub async fn get_rotation_config(
+        &self,
+        key: &str,
+    ) -> Result<Option<String>, ApiError> {
+        let result: Option<String> = sqlx::query_scalar(
+            r"SELECT value FROM key_rotation_config WHERE key = $1",
+        )
+        .bind(key)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query key rotation config: {e}");
+            ApiError::internal(format!("Database error: {e}"))
+        })?
+        .flatten();
+
+        Ok(result)
     }
 }

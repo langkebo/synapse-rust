@@ -44,6 +44,7 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
 }
 
 pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
+    // `mut` needed when `server-notifications` feature is enabled; unused otherwise.
     #[allow(unused_mut)]
     let mut admin_router = Router::new()
         .merge(create_audit_router(state.clone()))

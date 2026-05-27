@@ -263,7 +263,7 @@ mod tests {
         let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {
-                eprintln!(
+                tracing::warn!(
                     "Skipping email verification delete-token test because test database is unavailable: {error}"
                 );
                 return;

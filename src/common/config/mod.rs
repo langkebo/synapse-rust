@@ -1745,6 +1745,20 @@ pub struct FederationConfig {
 
     #[serde(default)]
     pub admission_mode: bool,
+
+    /// Master key for encrypting federation signing keys at rest.
+    ///
+    /// When configured, signing keys stored in the database will be encrypted
+    /// using AES-256-GCM with this master key. Keys are stored with an `enc:`
+    /// prefix to indicate encryption. If not configured, keys are stored in
+    /// plaintext (with a warning logged at startup).
+    ///
+    /// Can also be set via the `SYNAPSE__FEDERATION__SIGNING_KEY_MASTER_KEY`
+    /// environment variable.
+    ///
+    /// Generate with: `openssl rand -hex 32`
+    #[serde(default)]
+    pub signing_key_master_key: Option<String>,
 }
 
 /// 信任的密钥服务器配置
@@ -2195,6 +2209,8 @@ impl Config {
         self.federation.signing_key =
             self.federation.signing_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.federation.signing_key_master_key =
+            self.federation.signing_key_master_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.federation.ca_file = self
             .federation
             .ca_file
@@ -2525,6 +2541,7 @@ mod tests {
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
+                signing_key_master_key: None,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2677,6 +2694,7 @@ mod tests {
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
+                signing_key_master_key: None,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -2943,6 +2961,7 @@ mod tests {
                 join_max_concurrency: 16,
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
+                signing_key_master_key: None,
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -3060,6 +3079,7 @@ mod tests {
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
             admission_mode: false,
+            signing_key_master_key: None,
         };
 
         assert!(config.enabled);

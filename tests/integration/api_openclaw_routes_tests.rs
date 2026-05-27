@@ -207,6 +207,39 @@ async fn test_openclaw_routes_reject_guest_users() {
 }
 
 #[tokio::test]
+async fn test_guest_upgrade_returns_persisted_user_id_and_revokes_guest_status() {
+    let Some(app) = setup_test_app(true).await else {
+        return;
+    };
+
+    let (guest_token, guest_user_id) = register_guest_user(&app).await;
+
+    let (upgrade_status, upgrade_json) = json_response(
+        &app,
+        "POST",
+        "/_matrix/client/v3/account/guest/upgrade",
+        &guest_token,
+        Some(json!({
+            "username": "upgraded_guest_user",
+            "password": "Password123!"
+        })),
+    )
+    .await;
+
+    assert_eq!(upgrade_status, StatusCode::OK);
+    assert_eq!(upgrade_json["success"], true);
+    assert_eq!(upgrade_json["user_id"], guest_user_id);
+    assert!(upgrade_json["access_token"].as_str().is_some_and(|token| !token.is_empty()));
+
+    let upgraded_token = upgrade_json["access_token"].as_str().unwrap();
+    let (guest_info_status, guest_info_json) =
+        get_json_response(&app, "/_matrix/client/v3/account/guest", upgraded_token).await;
+
+    assert_eq!(guest_info_status, StatusCode::FORBIDDEN);
+    assert_eq!(guest_info_json["errcode"], "M_FORBIDDEN");
+}
+
+#[tokio::test]
 async fn test_openclaw_create_connection_rejects_localhost_base_url() {
     let Some(app) = setup_test_app(true).await else {
         return;

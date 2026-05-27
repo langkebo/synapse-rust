@@ -1,6 +1,7 @@
 use super::models::*;
 use crate::error::ApiError;
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -163,6 +164,115 @@ impl CrossSigningStorage {
                 }
             })
             .collect())
+    }
+
+    pub async fn get_cross_signing_keys_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, Vec<CrossSigningKey>>, ApiError> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r"
+            SELECT user_id, key_type, key_data, signatures, added_ts
+            FROM cross_signing_keys
+            WHERE user_id = ANY($1)
+            ",
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: HashMap<String, Vec<CrossSigningKey>> = HashMap::new();
+        for row in rows {
+            let user_id: String = row.get("user_id");
+            let key_data: String = row.get("key_data");
+            let signatures: serde_json::Value =
+                row.try_get("signatures").unwrap_or(serde_json::json!({}));
+            let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
+
+            let public_key = key_json
+                .as_ref()
+                .and_then(|j| j.get("keys"))
+                .and_then(|k| k.as_object())
+                .and_then(|obj| obj.values().next())
+                .and_then(|v| v.as_str())
+                .unwrap_or(&key_data)
+                .to_string();
+
+            let usage = key_json
+                .as_ref()
+                .and_then(|j| j.get("usage"))
+                .and_then(|u| u.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let key = CrossSigningKey {
+                id: uuid::Uuid::new_v4(),
+                user_id: user_id.clone(),
+                key_type: row.get("key_type"),
+                public_key,
+                usage,
+                signatures,
+                key_json,
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                    .unwrap_or_default(),
+                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                    .unwrap_or_default(),
+            };
+
+            result.entry(user_id).or_default().push(key);
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_device_signatures_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, Vec<DeviceSignature>>, ApiError> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r"
+            SELECT user_id, device_id, target_user_id, target_device_id,
+                   algorithm, signature, created_ts
+            FROM device_signatures
+            WHERE user_id = ANY($1)
+            ",
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: HashMap<String, Vec<DeviceSignature>> = HashMap::new();
+        for row in rows {
+            let user_id: String = row.get("user_id");
+            let sig = DeviceSignature {
+                user_id: user_id.clone(),
+                device_id: row.get("device_id"),
+                signing_key_id: row.get("algorithm"),
+                target_user_id: row.get("target_user_id"),
+                target_device_id: row.get("target_device_id"),
+                target_key_id: row.get("algorithm"),
+                signature: row.get("signature"),
+                created_ts: chrono::DateTime::from_timestamp_millis(
+                    row.get::<i64, _>("created_ts"),
+                )
+                .unwrap_or_default(),
+            };
+            result.entry(user_id).or_default().push(sig);
+        }
+
+        Ok(result)
     }
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {

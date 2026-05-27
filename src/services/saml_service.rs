@@ -1362,7 +1362,7 @@ mod tests {
 
         let result = service.validate_response("https://idp.example.com", &xml, Some("id_123"));
         if let Err(e) = &result {
-            eprintln!("Validation failed: {:?}", e);
+            tracing::warn!("Validation failed: {:?}", e);
         }
         assert!(result.is_ok());
     }

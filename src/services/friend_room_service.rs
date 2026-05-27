@@ -7,11 +7,13 @@ use crate::storage::{
     CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Map, Value};
+use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const FRIEND_LIST_CACHE_TTL_SECS: u64 = 30;
+const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
+const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
@@ -67,6 +69,65 @@ pub struct FriendListPage {
     pub generated_ts: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DmPartnerInfo {
+    pub user_id: String,
+    pub display_name: String,
+    pub avatar_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnsureDirectRoomResult {
+    pub room_id: String,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum DirectMapUpdateAction {
+    ReplaceRoomTargets { room_id: String, target_user_ids: Vec<String> },
+    OverwriteMap(Map<String, Value>),
+}
+
+fn ensure_room_in_direct_map(
+    direct_map: &mut Map<String, Value>,
+    target_user_id: &str,
+    room_id: &str,
+) {
+    let entry = direct_map
+        .entry(target_user_id.to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+
+    if !entry.is_array() {
+        *entry = Value::Array(Vec::new());
+    }
+
+    if let Some(rooms) = entry.as_array_mut() {
+        if !rooms.iter().any(|value| value.as_str() == Some(room_id)) {
+            rooms.push(Value::String(room_id.to_string()));
+        }
+    }
+}
+
+fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &str) {
+    direct_map.retain(|_, value| {
+        if let Some(rooms) = value.as_array_mut() {
+            rooms.retain(|room| room.as_str() != Some(room_id));
+            !rooms.is_empty()
+        } else {
+            false
+        }
+    });
+}
+
+fn merge_direct_links(
+    direct_map: &mut Map<String, Value>,
+    links: impl IntoIterator<Item = (String, String)>,
+) {
+    for (user_id, room_id) in links {
+        ensure_room_in_direct_map(direct_map, &user_id, &room_id);
+    }
+}
+
 pub struct FriendRoomService {
     friend_storage: FriendRoomStorage,
     room_service: Arc<RoomService>,
@@ -108,7 +169,14 @@ impl FriendRoomService {
 
     /// 创建或获取好友列表房间
     pub async fn create_friend_list_room(&self, user_id: &str) -> ApiResult<String> {
+        // 先查 Redis 缓存
+        let room_cache_key = format!("friends:room_id:{}", user_id);
+        if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
+            return Ok(room_id);
+        }
+
         if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
+            let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
             return Ok(room_id);
         }
 
@@ -131,6 +199,10 @@ impl FriendRoomService {
         let content = json!({ "friends": [], "version": 1 });
         self.send_state_event(&room_id, user_id, "m.friends.list", "", content)
             .await?;
+
+        // 缓存新创建的 room_id
+        let room_cache_key = format!("friends:room_id:{}", user_id);
+        let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
 
         Ok(room_id)
     }
@@ -174,9 +246,37 @@ impl FriendRoomService {
             .await
             .map_err(|e| ApiError::database(format!("Failed to check pending request: {e}")))?
         {
-            return Err(ApiError::conflict(
-                "A pending friend request already exists between you and this user".to_string(),
-            ));
+            // Idempotent: return the existing pending request instead of 409
+            if let Some(existing) = self
+                .friend_storage
+                .get_pending_friend_request(sender_id, receiver_id)
+                .await
+                .map_err(|e| ApiError::database(format!("Failed to get existing request: {e}")))?
+            {
+                tracing::info!(
+                    "Returning existing pending friend request {} -> {} (id: {})",
+                    sender_id,
+                    receiver_id,
+                    existing.id
+                );
+                return Ok(existing.id);
+            }
+            // The pending request was sent by the other direction (receiver -> sender)
+            if let Some(existing) = self
+                .friend_storage
+                .get_pending_friend_request(receiver_id, sender_id)
+                .await
+                .map_err(|e| ApiError::database(format!("Failed to get existing reverse request: {e}")))?
+            {
+                tracing::info!(
+                    "Returning existing reverse pending friend request {} <- {} (id: {})",
+                    sender_id,
+                    receiver_id,
+                    existing.id
+                );
+                return Ok(existing.id);
+            }
+            // Edge case: pending request disappeared between check and fetch
         }
 
         let request_id = self
@@ -475,6 +575,428 @@ impl FriendRoomService {
             .into_iter()
             .filter_map(|item| serde_json::to_value(item).ok())
             .collect())
+    }
+
+    /// 读取用户好友列表里已持久化的 DM 关系。
+    ///
+    /// 该接口只读取现有好友列表房间，不会像 `create_friend_list_room` 那样
+    /// 在只读场景里隐式创建新房间，适合 DM 查询路由的收敛读路径使用。
+    pub async fn get_direct_message_links(
+        &self,
+        user_id: &str,
+    ) -> ApiResult<Vec<(String, String)>> {
+        let Some(room_id) = self
+            .friend_storage
+            .get_friend_list_room_id(user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {e}")))? else {
+            return Ok(Vec::new());
+        };
+
+        let content = self
+            .friend_storage
+            .get_friend_list_content(&room_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {e}")))?;
+
+        let links = content
+            .and_then(|value| value.get("friends").cloned())
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|friend| {
+                let friend_id = friend.get("user_id").and_then(|value| value.as_str())?;
+                let dm_room_id = friend.get("dm_room_id").and_then(|value| value.as_str())?;
+                let is_active = friend
+                    .get("dm_room_active")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
+
+                is_active.then(|| (friend_id.to_owned(), dm_room_id.to_owned()))
+            })
+            .collect();
+
+        Ok(links)
+    }
+
+    pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
+        let row = sqlx::query(
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'",
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to load m.direct account data: {e}")))?;
+
+        match row {
+            Some(row) => match row.get::<Option<Value>, _>("content") {
+                Some(Value::Object(map)) => Ok(map),
+                Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
+                None => Ok(Map::new()),
+            },
+            None => Ok(Map::new()),
+        }
+    }
+
+    pub async fn save_direct_map(
+        &self,
+        user_id: &str,
+        direct_map: &Map<String, Value>,
+    ) -> ApiResult<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+            VALUES ($1, 'm.direct', $2, $3, $3)
+            ON CONFLICT (user_id, data_type) DO UPDATE
+            SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(user_id)
+        .bind(Value::Object(direct_map.clone()))
+        .bind(now)
+        .execute(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to save m.direct account data: {e}")))?;
+
+        Ok(())
+    }
+
+    pub async fn get_effective_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
+        let mut direct_map = self.load_direct_map(user_id).await?;
+        merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
+
+        if direct_map.is_empty() {
+            let rows = sqlx::query(
+                r"
+                SELECT rm_other.user_id AS other_user_id, rm_user.room_id
+                FROM room_memberships rm_user
+                JOIN room_summaries rs
+                  ON rs.room_id = rm_user.room_id
+                 AND rs.is_direct = TRUE
+                JOIN room_memberships rm_other
+                  ON rm_other.room_id = rm_user.room_id
+                 AND rm_other.user_id <> $1
+                 AND rm_other.membership IN ('join', 'invite')
+                WHERE rm_user.user_id = $1
+                  AND rm_user.membership IN ('join', 'invite')
+                  AND (
+                    SELECT COUNT(*)
+                    FROM room_memberships rm_count
+                    WHERE rm_count.room_id = rm_user.room_id
+                      AND rm_count.membership IN ('join', 'invite')
+                  ) = 2
+                ",
+            )
+            .bind(user_id)
+            .fetch_all(&*self.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::database(format!("Failed to build effective direct map: {e}")))?;
+
+            for row in rows {
+                ensure_room_in_direct_map(
+                    &mut direct_map,
+                    &row.get::<String, _>("other_user_id"),
+                    &row.get::<String, _>("room_id"),
+                );
+            }
+        }
+
+        Ok(direct_map)
+    }
+
+    pub async fn upsert_direct_room_links(
+        &self,
+        user_id: &str,
+        target_user_ids: &[String],
+        room_id: &str,
+    ) -> ApiResult<Map<String, Value>> {
+        let mut direct_map = self.load_direct_map(user_id).await?;
+        for target_user_id in target_user_ids {
+            ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
+        }
+        self.save_direct_map(user_id, &direct_map).await?;
+        Ok(direct_map)
+    }
+
+    pub async fn apply_direct_map_update(
+        &self,
+        user_id: &str,
+        action: DirectMapUpdateAction,
+    ) -> ApiResult<Map<String, Value>> {
+        match action {
+            DirectMapUpdateAction::ReplaceRoomTargets {
+                room_id,
+                target_user_ids,
+            } => {
+                let mut direct_map = self.load_direct_map(user_id).await?;
+                remove_room_from_direct_map(&mut direct_map, &room_id);
+                for target_user_id in &target_user_ids {
+                    ensure_room_in_direct_map(&mut direct_map, target_user_id, &room_id);
+                }
+                self.save_direct_map(user_id, &direct_map).await?;
+                Ok(direct_map)
+            }
+            DirectMapUpdateAction::OverwriteMap(direct_map) => {
+                self.save_direct_map(user_id, &direct_map).await?;
+                Ok(direct_map)
+            }
+        }
+    }
+
+    pub async fn replace_direct_room_targets(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        target_user_ids: &[String],
+    ) -> ApiResult<Map<String, Value>> {
+        self.apply_direct_map_update(
+            user_id,
+            DirectMapUpdateAction::ReplaceRoomTargets {
+                room_id: room_id.to_string(),
+                target_user_ids: target_user_ids.to_vec(),
+            },
+        )
+        .await
+    }
+
+    pub async fn overwrite_direct_map(
+        &self,
+        user_id: &str,
+        direct_map: Map<String, Value>,
+    ) -> ApiResult<Map<String, Value>> {
+        self.apply_direct_map_update(user_id, DirectMapUpdateAction::OverwriteMap(direct_map))
+            .await
+    }
+
+    /// 当双方已存在好友关系时，将新创建的 DM 房间写回好友列表。
+    ///
+    /// 这是一个渐进式收敛入口:
+    /// - 若不存在好友列表或好友关系，则返回 `0`，不报错
+    /// - 若存在单边或双边好友关系，则将对应好友条目的 `dm_room_*` 字段更新为最新值
+    pub async fn attach_dm_room_to_existing_friendship(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        dm_room_id: &str,
+        changed_by: Option<&str>,
+    ) -> ApiResult<usize> {
+        let mut updated = 0usize;
+
+        if self
+            .update_existing_friend_dm_link(user_id, friend_id, dm_room_id, "active", changed_by, None)
+            .await?
+        {
+            updated += 1;
+        }
+
+        if self
+            .update_existing_friend_dm_link(friend_id, user_id, dm_room_id, "active", changed_by, None)
+            .await?
+        {
+            updated += 1;
+        }
+
+        Ok(updated)
+    }
+
+    /// 查询两名用户之间已存在的 DM 房间。
+    ///
+    /// 优先读取好友持久化视图中的 `dm_room_id`，若不存在则回退到
+    /// `room_memberships + room_summaries` 查询。
+    pub async fn get_existing_dm_room_id(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> ApiResult<Option<String>> {
+        if let Some(info) = self.get_friend_info(user_id, friend_id).await? {
+            let dm_room_id = info
+                .get("dm_room_id")
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+            let dm_room_active = info
+                .get("dm_room_active")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
+
+            if dm_room_active && dm_room_id.is_some() {
+                return Ok(dm_room_id);
+            }
+        }
+
+        let row = sqlx::query(
+            r"
+            SELECT m1.room_id
+            FROM room_memberships m1
+            JOIN room_memberships m2 ON m1.room_id = m2.room_id
+            JOIN room_summaries rs ON m1.room_id = rs.room_id
+            WHERE m1.user_id = $1
+              AND m2.user_id = $2
+              AND m1.membership IN ('join', 'invite')
+              AND m2.membership IN ('join', 'invite')
+              AND rs.is_direct = true
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(friend_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::database(format!("Failed to query existing DM room: {e}")))?;
+
+        Ok(row.map(|value| value.get::<String, _>("room_id")))
+    }
+
+    pub async fn get_dm_partner_for_room(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> ApiResult<Option<DmPartnerInfo>> {
+        if let Some((partner_user_id, _)) = self
+            .get_direct_message_links(user_id)
+            .await?
+            .into_iter()
+            .find(|(_, dm_room_id)| dm_room_id == room_id)
+        {
+            if let Some(profile) = self
+                .user_storage
+                .get_user_profile(&partner_user_id)
+                .await
+                .map_err(|e| ApiError::database(format!("Failed to load DM partner profile: {e}")))?
+            {
+                return Ok(Some(DmPartnerInfo {
+                    user_id: partner_user_id,
+                    display_name: profile.displayname.unwrap_or_default(),
+                    avatar_url: profile.avatar_url.unwrap_or_default(),
+                }));
+            }
+
+            return Ok(Some(DmPartnerInfo {
+                user_id: partner_user_id,
+                display_name: String::new(),
+                avatar_url: String::new(),
+            }));
+        }
+
+        let row = sqlx::query(
+            r"
+            SELECT
+                rm.user_id,
+                COALESCE(rm.display_name, u.displayname, u.username, '') AS display_name,
+                COALESCE(rm.avatar_url, u.avatar_url, '') AS avatar_url
+            FROM room_memberships rm
+            LEFT JOIN users u ON u.user_id = rm.user_id
+            WHERE rm.room_id = $1
+              AND rm.user_id <> $2
+              AND rm.membership IN ('join', 'invite')
+            ORDER BY CASE WHEN rm.membership = 'join' THEN 0 ELSE 1 END, rm.updated_ts DESC NULLS LAST
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::database(format!("Failed to load DM partner from membership: {e}")))?;
+
+        Ok(row.map(|row| DmPartnerInfo {
+            user_id: row.get::<String, _>("user_id"),
+            display_name: row.get::<String, _>("display_name"),
+            avatar_url: row.get::<String, _>("avatar_url"),
+        }))
+    }
+
+    pub async fn ensure_direct_room(
+        &self,
+        owner_user_id: &str,
+        friend_user_id: &str,
+        config: crate::services::room::service::CreateRoomConfig,
+        actor_user_id: Option<&str>,
+    ) -> ApiResult<EnsureDirectRoomResult> {
+        if let Some(room_id) = self
+            .get_existing_dm_room_id(owner_user_id, friend_user_id)
+            .await?
+        {
+            self.attach_dm_room_to_existing_friendship(
+                owner_user_id,
+                friend_user_id,
+                &room_id,
+                actor_user_id.or(Some(owner_user_id)),
+            )
+            .await?;
+
+            return Ok(EnsureDirectRoomResult {
+                room_id,
+                created: false,
+            });
+        }
+
+        let result = self
+            .room_service
+            .create_room(owner_user_id, config)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+
+        let room_id = result
+            .get("room_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::internal("Failed to get room_id from create_room response"))?
+            .to_string();
+
+        self.attach_dm_room_to_existing_friendship(
+            owner_user_id,
+            friend_user_id,
+            &room_id,
+            actor_user_id.or(Some(owner_user_id)),
+        )
+        .await?;
+
+        Ok(EnsureDirectRoomResult {
+            room_id,
+            created: true,
+        })
+    }
+
+    pub async fn create_or_reuse_direct_message_room(
+        &self,
+        owner_user_id: &str,
+        target_user_ids: &[String],
+        config: crate::services::room::service::CreateRoomConfig,
+        actor_user_id: Option<&str>,
+    ) -> ApiResult<EnsureDirectRoomResult> {
+        if target_user_ids.len() == 1 {
+            let result = self
+                .ensure_direct_room(
+                    owner_user_id,
+                    &target_user_ids[0],
+                    config,
+                    actor_user_id,
+                )
+                .await?;
+            self.upsert_direct_room_links(owner_user_id, target_user_ids, &result.room_id)
+                .await?;
+            return Ok(result);
+        }
+
+        let response = self
+            .room_service
+            .create_room(owner_user_id, config)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+
+        let room_id = response
+            .get("room_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::internal("Failed to get room_id from create_room response"))?
+            .to_string();
+
+        self.upsert_direct_room_links(owner_user_id, target_user_ids, &room_id)
+            .await?;
+
+        Ok(EnsureDirectRoomResult {
+            room_id,
+            created: true,
+        })
     }
 
     pub async fn get_friends_page(
@@ -1350,6 +1872,71 @@ impl FriendRoomService {
         Ok(())
     }
 
+    async fn update_existing_friend_dm_link(
+        &self,
+        owner_user_id: &str,
+        friend_id: &str,
+        dm_room_id: &str,
+        dm_room_state: &str,
+        changed_by: Option<&str>,
+        reason: Option<&str>,
+    ) -> ApiResult<bool> {
+        let Some(friend_room_id) = self
+            .friend_storage
+            .get_friend_list_room_id(owner_user_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {e}")))? else {
+            return Ok(false);
+        };
+
+        let mut content = self
+            .friend_storage
+            .get_friend_list_content(&friend_room_id)
+            .await
+            .map_err(|e| ApiError::database(format!("Database error: {e}")))?
+            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut touched = false;
+
+        if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut()) {
+            for friend in friends.iter_mut() {
+                if friend.get("user_id").and_then(|value| value.as_str()) != Some(friend_id) {
+                    continue;
+                }
+
+                friend["dm_room_id"] = json!(dm_room_id);
+                friend["dm_room_state"] = json!(dm_room_state);
+                friend["dm_room_active"] = json!(dm_room_state == "active");
+                friend["dm_room_updated_ts"] = json!(now);
+
+                if let Some(changed_by) = changed_by {
+                    friend["dm_room_changed_by"] = json!(changed_by);
+                }
+
+                if let Some(reason) = reason {
+                    friend["dm_room_reason"] = json!(reason);
+                }
+
+                touched = true;
+                break;
+            }
+        }
+
+        if !touched {
+            return Ok(false);
+        }
+
+        if let Some(version) = content.get("version").and_then(|value| value.as_i64()) {
+            content["version"] = json!(version + 1);
+        }
+
+        self.send_state_event(&friend_room_id, owner_user_id, "m.friends.list", "", content)
+            .await?;
+
+        Ok(true)
+    }
+
     async fn create_friend_dm_room(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
         let config = crate::services::room_service::CreateRoomConfig {
             visibility: Some("private".to_string()),
@@ -1359,12 +1946,9 @@ impl FriendRoomService {
             ..Default::default()
         };
 
-        let response = self.room_service.create_room(user_id, config).await?;
-        response
-            .get("room_id")
-            .and_then(|v| v.as_str())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| ApiError::internal("Failed to get room_id for DM"))
+        self.ensure_direct_room(user_id, friend_id, config, Some(user_id))
+            .await
+            .map(|result| result.room_id)
     }
 
     fn build_friend_entries(
@@ -1500,6 +2084,70 @@ fn sort_letter_for(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::cache::{CacheConfig, CacheManager};
+    use crate::services::ServiceContainer;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    fn unique_suffix() -> u64 {
+        TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+    }
+
+    async fn setup_test_container() -> Option<ServiceContainer> {
+        let pool = match crate::test_utils::prepare_shared_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!(
+                    "Shared schema setup failed for friend room service tests ({error}); retrying with isolated schema"
+                );
+                match crate::test_utils::prepare_isolated_test_pool().await {
+                    Ok(pool) => pool,
+                    Err(error) => {
+                        eprintln!(
+                            "Skipping friend room service tests because test database is unavailable: {error}"
+                        );
+                        return None;
+                    }
+                }
+            }
+        };
+
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        Some(ServiceContainer::new_test_with_pool_and_cache(pool, cache).await)
+    }
+
+    async fn register_test_user(
+        container: &ServiceContainer,
+        username: &str,
+        display_name: &str,
+    ) -> String {
+        let (user, _, _, _) = container
+            .auth_service
+            .register(username, "Test@123", false, Some(display_name))
+            .await
+            .expect("register test user");
+        user.user_id
+    }
+
+    async fn establish_friendship(
+        container: &ServiceContainer,
+        alice_user_id: &str,
+        bob_user_id: &str,
+    ) {
+        container
+            .friend_room_service
+            .send_friend_request(alice_user_id, bob_user_id, Some("hello"))
+            .await
+            .expect("send friend request");
+        container
+            .friend_room_service
+            .accept_friend_request(bob_user_id, alice_user_id)
+            .await
+            .expect("accept friend request");
+    }
+
     #[test]
     fn test_is_remote_user() {}
 
@@ -1511,5 +2159,66 @@ mod tests {
     #[test]
     fn test_sort_letter_for_non_ascii_name() {
         assert_eq!(super::sort_letter_for("张三"), "#");
+    }
+
+    #[tokio::test]
+    async fn test_get_existing_dm_room_id_returns_persisted_friend_dm() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let alice_user_id =
+            register_test_user(&container, &format!("friendsvc_alice_{suffix}"), "Alice").await;
+        let bob_user_id =
+            register_test_user(&container, &format!("friendsvc_bob_{suffix}"), "Bob").await;
+
+        establish_friendship(&container, &alice_user_id, &bob_user_id).await;
+
+        let room_id = container
+            .friend_room_service
+            .get_existing_dm_room_id(&alice_user_id, &bob_user_id)
+            .await
+            .expect("query existing dm room");
+
+        assert!(room_id.is_some());
+        assert!(room_id.unwrap().starts_with('!'));
+    }
+
+    #[tokio::test]
+    async fn test_get_dm_partner_for_room_returns_profile_info() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let alice_user_id = register_test_user(
+            &container,
+            &format!("friendsvc_partner_alice_{suffix}"),
+            "Alice",
+        )
+        .await;
+        let bob_user_id =
+            register_test_user(&container, &format!("friendsvc_partner_bob_{suffix}"), "Bob")
+                .await;
+
+        establish_friendship(&container, &alice_user_id, &bob_user_id).await;
+
+        let room_id = container
+            .friend_room_service
+            .get_existing_dm_room_id(&alice_user_id, &bob_user_id)
+            .await
+            .expect("query existing dm room")
+            .expect("existing dm room id");
+
+        let partner = container
+            .friend_room_service
+            .get_dm_partner_for_room(&alice_user_id, &room_id)
+            .await
+            .expect("query dm partner")
+            .expect("dm partner info");
+
+        assert_eq!(partner.user_id, bob_user_id);
+        assert_eq!(partner.display_name, "Bob");
     }
 }

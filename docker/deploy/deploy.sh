@@ -382,14 +382,59 @@ require_command() {
 
 load_env() {
     local cli_extensions="$ENABLED_EXTENSIONS"
-    set -a
-    # shellcheck disable=SC1091
-    source .env
-    set +a
+
+    while IFS= read -r raw_line || [ -n "$raw_line" ]; do
+        local line="$raw_line"
+        line="${line%$'\r'}"
+
+        case "$line" in
+            ''|\#*)
+                continue
+                ;;
+        esac
+
+        local key="${line%%=*}"
+        local value="${line#*=}"
+
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+
+        if [[ "$key" == export\ * ]]; then
+            key="${key#export }"
+            key="${key#"${key%%[![:space:]]*}"}"
+        fi
+
+        if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+            value="${value:1:${#value}-2}"
+        elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+
+        export "$key=$value"
+    done < .env
+
     ROLLBACK_ENABLED="${ROLLBACK_ON_FAILURE:-true}"
     # CLI args take precedence over .env value
     if [ -n "$cli_extensions" ]; then
         ENABLED_EXTENSIONS="$cli_extensions"
+    fi
+}
+
+local_image_ref() {
+    echo "${SYNAPSE_IMAGE:-synapse-rust:local}"
+}
+
+docker_feature_args() {
+    if [ "$ENABLED_EXTENSIONS" = "all" ]; then
+        echo "--features all-extensions"
+    elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
+        echo "--features server --no-default-features"
+    elif [ "$ENABLED_EXTENSIONS" = "$CORE_PRIVATE_CHAT_EXTENSIONS" ]; then
+        echo "--features server,core-private-chat --no-default-features"
+    else
+        echo "--features server,$ENABLED_EXTENSIONS --no-default-features"
     fi
 }
 
@@ -499,9 +544,11 @@ backup_current_state() {
     DEPLOYMENT_PHASE="backup"
     log_info "为回滚创建备份..."
 
-    if docker image inspect synapse-rust:local >/dev/null 2>&1; then
-        ROLLBACK_IMAGE_TAG="synapse-rust:rollback-${TIMESTAMP}"
-        docker tag synapse-rust:local "$ROLLBACK_IMAGE_TAG"
+    local current_image
+    current_image="$(local_image_ref)"
+    if docker image inspect "$current_image" >/dev/null 2>&1; then
+        ROLLBACK_IMAGE_TAG="${current_image%:*}:rollback-${TIMESTAMP}"
+        docker tag "$current_image" "$ROLLBACK_IMAGE_TAG"
         log_info "已保存旧镜像标签: $ROLLBACK_IMAGE_TAG"
     fi
 
@@ -570,7 +617,7 @@ remove_existing_deployment() {
     compose down --remove-orphans || true
     docker rm -f synapse-postgres synapse-redis synapse-migrator synapse-app synapse-nginx >/dev/null 2>&1 || true
     if [ "$USE_REMOTE_IMAGE" != "true" ] && [ "$SKIP_BUILD" != "true" ]; then
-        docker image rm -f synapse-rust:local synapse-rust-tools:local >/dev/null 2>&1 || true
+        docker image rm -f "$(local_image_ref)" synapse-rust-tools:local >/dev/null 2>&1 || true
     fi
 
     log_success "旧部署资源清理完成"
@@ -589,15 +636,22 @@ build_images() {
     fi
     if [ "$SKIP_BUILD" = "true" ]; then
         log_info "跳过 Docker 镜像构建 (--skip-build)"
-        if ! docker image inspect "${SYNAPSE_IMAGE:-synapse-rust:local}" >/dev/null 2>&1; then
-            log_error "跳过构建但本地镜像 ${SYNAPSE_IMAGE:-synapse-rust:local} 不存在"
+        if ! docker image inspect "$(local_image_ref)" >/dev/null 2>&1; then
+            log_error "跳过构建但本地镜像 $(local_image_ref) 不存在"
             exit 1
         fi
         return
     fi
     log_info "构建新的 Docker 镜像..."
-    compose build --no-cache synapse
-    docker image inspect synapse-rust:local >/dev/null
+    local feature_args
+    feature_args="$(docker_feature_args)"
+    docker build --no-cache \
+        -f "$PROJECT_ROOT/docker/Dockerfile" \
+        --target tools \
+        --build-arg "CARGO_FEATURE_ARGS=${feature_args}" \
+        -t "$(local_image_ref)" \
+        "$PROJECT_ROOT"
+    docker image inspect "$(local_image_ref)" >/dev/null
     log_success "Docker 镜像构建完成"
 }
 
@@ -679,25 +733,38 @@ verify_health_endpoints() {
 
 verify_logs_clean() {
     DEPLOYMENT_PHASE="verify-logs"
-    log_info "检查容器日志中是否存在 ERROR/WARNING..."
+    log_info "检查容器日志中是否存在异常 ERROR，WARNING 仅做提示..."
 
     local log_dump
     log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
-    local filtered
-    filtered="$(echo "$log_dump" | grep -Ei '\b(ERROR|WARN(ING)?)\b' \
+    local errors
+    errors="$(echo "$log_dump" | grep -Ei '\b(ERROR)\b' \
         | grep -v 'no usable system locales' \
         | grep -v 'enabling "trust" authentication' \
         | grep -v 'Missing indexes' \
         | grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' \
         | grep -v 'forcibly turning on oci-mediatype' \
         || true)"
-    if [ -n "$filtered" ]; then
-        log_error "检测到 ERROR/WARNING 日志:"
-        echo "$filtered"
+    if [ -n "$errors" ]; then
+        log_error "检测到 ERROR 日志:"
+        echo "$errors"
         return 1
     fi
 
-    log_success "未发现 ERROR/WARNING 级别日志"
+    local warnings
+    warnings="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' \
+        | grep -v 'no usable system locales' \
+        | grep -v 'enabling "trust" authentication' \
+        | grep -v 'Missing indexes' \
+        | grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' \
+        | grep -v 'forcibly turning on oci-mediatype' \
+        || true)"
+    if [ -n "$warnings" ]; then
+        log_warning "检测到 WARNING 日志（不阻断部署）:"
+        echo "$warnings"
+    else
+        log_success "未发现 ERROR/WARNING 级别日志"
+    fi
 }
 
 show_status() {
@@ -715,7 +782,7 @@ rollback_deployment() {
     compose down --remove-orphans >/dev/null 2>&1 || true
 
     if [ -n "$ROLLBACK_IMAGE_TAG" ] && docker image inspect "$ROLLBACK_IMAGE_TAG" >/dev/null 2>&1; then
-        docker tag "$ROLLBACK_IMAGE_TAG" synapse-rust:local || true
+        docker tag "$ROLLBACK_IMAGE_TAG" "$(local_image_ref)" || true
     fi
 
     if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then

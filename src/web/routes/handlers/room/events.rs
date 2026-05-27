@@ -938,6 +938,60 @@ pub(crate) async fn translate_room_event(
     })))
 }
 
+pub(crate) async fn translate_text(
+    State(state): State<AppState>,
+    _auth_user: AuthenticatedUser,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let text = body
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if text.is_empty() {
+        return Ok(Json(json!({
+            "translated_text": "",
+            "detected_source_lang": null,
+            "target_lang": "",
+            "provider": "passthrough"
+        })));
+    }
+
+    // Validate text length
+    let max_len = state.services.config.translate.max_text_length;
+    if text.len() > max_len {
+        return Err(ApiError::bad_request(format!(
+            "Text too long: {} bytes (max: {})",
+            text.len(),
+            max_len
+        )));
+    }
+
+    let target_lang = body
+        .get("target_lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&state.services.config.translate.default_target_lang);
+
+    let source_lang = body.get("source_lang").and_then(|v| v.as_str());
+
+    let translation_result = state
+        .services
+        .translation_service
+        .translate(text, target_lang, source_lang)
+        .await
+        .map_err(|e| {
+            ::tracing::warn!("Translation failed: {}", e);
+            ApiError::bad_request(format!("Translation failed: {}", e))
+        })?;
+
+    Ok(Json(json!({
+        "translated_text": translation_result.translated_text,
+        "detected_source_lang": translation_result.detected_source_lang,
+        "target_lang": translation_result.target_lang,
+        "provider": translation_result.provider
+    })))
+}
+
 pub(crate) async fn convert_room_event(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1045,105 +1099,4 @@ pub(crate) async fn redact_event(
     })))
 }
 
-#[allow(dead_code)]
-pub(crate) async fn get_relations(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
-) -> Result<Json<Value>, ApiError> {
-    let room_id = room_id.replace("%21", "!").replace("%3A", ":");
-    let event_id = event_id.replace("%24", "$");
 
-    validate_room_id(&room_id)?;
-    validate_event_id(&event_id)?;
-
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
-
-    let mut chunk = Vec::new();
-
-    if rel_type == "m.thread" {
-        if let Some(thread_root) = state
-            .services
-            .thread_storage
-            .get_thread_root_by_event(&room_id, &event_id)
-            .await
-            .map_err(map_internal!("Failed to get thread root"))?
-        {
-            let thread_id = thread_root.thread_id.clone().unwrap_or_default();
-            if !thread_id.is_empty() {
-                let replies = state
-                    .services
-                    .thread_storage
-                    .get_thread_replies(&room_id, &thread_id, Some(100), None)
-                    .await
-                    .map_err(|e| {
-                        ApiError::internal(format!("Failed to get thread replies: {e}"))
-                    })?;
-
-                for reply in replies {
-                    chunk.push(json!({
-                        "type": "m.room.message",
-                        "room_id": reply.room_id,
-                        "sender": reply.sender,
-                        "content": reply.content,
-                        "event_id": reply.event_id,
-                        "origin_server_ts": reply.origin_server_ts,
-                    }));
-                }
-            }
-        }
-
-        let root_event = state
-            .services
-            .event_storage
-            .get_event(&event_id)
-            .await
-            .map_err(map_internal!("Failed to get event"))?;
-
-        if let Some(root) = root_event {
-            chunk.insert(
-                0,
-                json!({
-                    "type": root.event_type,
-                    "room_id": root.room_id,
-                    "sender": root.user_id,
-                    "content": root.content,
-                    "event_id": root.event_id,
-                    "origin_server_ts": root.origin_server_ts,
-                }),
-            );
-        }
-    } else {
-        let params = crate::storage::relations::RelationQueryParams {
-            room_id: room_id.clone(),
-            relates_to_event_id: event_id.clone(),
-            relation_type: Some(rel_type.clone()),
-            limit: Some(100),
-            from: None,
-            direction: Some("b".to_string()),
-        };
-        let related_events = state
-            .services
-            .relations_storage
-            .get_relations(params)
-            .await
-            .map_err(map_internal!("Failed to get relations"))?;
-
-        for evt in related_events {
-            chunk.push(json!({
-                "type": "m.room.message",
-                "room_id": evt.room_id,
-                "sender": evt.sender,
-                "content": evt.content,
-                "event_id": evt.event_id,
-                "origin_server_ts": evt.origin_server_ts,
-            }));
-        }
-    }
-
-    Ok(Json(json!({
-        "chunk": chunk,
-        "next_batch": Option::<String>::None,
-        "prev_batch": Option::<String>::None,
-    })))
-}

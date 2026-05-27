@@ -15,12 +15,14 @@ fn create_account_data_compat_router() -> Router<AppState> {
             "/user/{user_id}/account_data/{type}",
             get(get_account_data)
                 .put(set_account_data)
+                .post(set_account_data)
                 .delete(delete_account_data),
         )
         .route(
             "/user/{user_id}/rooms/{room_id}/account_data/{type}",
             get(get_room_account_data)
                 .put(set_room_account_data)
+                .post(set_room_account_data)
                 .delete(delete_room_account_data),
         )
         .route(

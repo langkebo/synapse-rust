@@ -607,7 +607,7 @@ async fn test_federation_get_state_rejects_server_without_joined_member() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -671,13 +671,13 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
         .services
         .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None)
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -977,13 +977,13 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
     state
         .services
         .member_storage
-        .add_member(&target_room_id, &creator, "join", None, None, None)
+        .add_member(&target_room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
         .services
         .member_storage
-        .add_member(&target_room_id, &remote_member, "join", None, None, None)
+        .add_member(&target_room_id, &remote_member, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -996,7 +996,7 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
     state
         .services
         .member_storage
-        .add_member(&other_room_id, &creator, "join", None, None, None)
+        .add_member(&other_room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1107,7 +1107,7 @@ async fn test_federation_get_user_devices_omits_sensitive_metadata() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1224,7 +1224,7 @@ async fn test_federation_keys_query_filters_local_users_without_shared_rooms() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &shared_user_id, "join", None, None, None)
+        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1298,7 +1298,7 @@ async fn test_federation_keys_claim_filters_local_users_without_shared_rooms() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &shared_user_id, "join", None, None, None)
+        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1369,7 +1369,7 @@ async fn test_federation_get_room_members_rejects_server_without_joined_member()
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1427,7 +1427,7 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
@@ -1509,13 +1509,13 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
         .services
         .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None)
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
         .await
         .unwrap();
     state
@@ -1617,7 +1617,7 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1679,7 +1679,7 @@ async fn test_federation_timestamp_to_event_rejects_server_without_joined_member
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1739,7 +1739,7 @@ async fn test_federation_get_joining_rules_rejects_unjoined_server_for_invite_ro
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1803,13 +1803,13 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
         .services
         .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None)
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
         .await
         .unwrap();
     state
@@ -2025,7 +2025,7 @@ async fn test_federation_room_directory_query_rejects_unjoined_server_for_privat
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -2082,7 +2082,7 @@ async fn test_federation_state_rejects_unjoined_server_for_private_room() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -2139,7 +2139,7 @@ async fn test_federation_state_ids_rejects_unjoined_server_for_private_room() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -2196,7 +2196,7 @@ async fn test_federation_backfill_rejects_unjoined_server_for_private_room() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -2257,7 +2257,7 @@ async fn test_federation_query_directory_rejects_unjoined_server_for_private_ali
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
@@ -2324,7 +2324,7 @@ async fn test_federation_query_directory_rejects_non_local_alias() {
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
@@ -3117,7 +3117,7 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -3367,13 +3367,13 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
     state
         .services
         .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None)
+        .add_member(&room_id, &creator, "join", None, None, None, None)
         .await
         .unwrap();
     state
         .services
         .member_storage
-        .add_member(&room_id, &member, "join", None, None, None)
+        .add_member(&room_id, &member, "join", None, None, None, None)
         .await
         .unwrap();
 

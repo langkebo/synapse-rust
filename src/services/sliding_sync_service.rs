@@ -934,6 +934,7 @@ impl SlidingSyncService {
 
             let find_offset = working[index + 1..].iter().position(|s| s.as_deref() == Some(&current.room_ids[index]));
             if let Some(offset) = find_offset {
+                // Delete entries from index to index+offset (they shift left)
                 for (del_idx, item) in working.iter_mut().enumerate().take(index + offset + 1).skip(index) {
                     if item.is_some() {
                         ops.push(json!({
@@ -943,10 +944,26 @@ impl SlidingSyncService {
                         *item = None;
                     }
                 }
+                // After deletions, the target room is now at `index` — insert current room here
+                let room_id = current.room_ids[index].clone();
+                ops.push(json!({
+                    "op": "INSERT",
+                    "index": previous.start + index as u32,
+                    "room_id": room_id,
+                }));
+                working[index] = Some(room_id);
+                index += 1;
                 continue;
             }
 
             let room_id = current.room_ids[index].clone();
+            // If the slot is occupied, delete first before inserting
+            if working[index].is_some() {
+                ops.push(json!({
+                    "op": "DELETE",
+                    "index": previous.start + index as u32,
+                }));
+            }
             ops.push(json!({
                 "op": "INSERT",
                 "index": previous.start + index as u32,

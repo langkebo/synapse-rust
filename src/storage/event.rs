@@ -1322,11 +1322,12 @@ impl EventStorage {
         room_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM room_events WHERE room_id = $1 AND event_type = 'm.room.encryption' LIMIT 1",
+            "SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
+
         Ok(row.is_some())
     }
 

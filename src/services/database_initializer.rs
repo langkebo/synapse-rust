@@ -355,11 +355,12 @@ impl DatabaseInitService {
         )
         .fetch_one(&*self.pool)
         .await?;
+        let mut lock_conn = self.pool.acquire().await?;
         let lock_start = std::time::Instant::now();
         loop {
             let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
                 .bind(lock_key)
-                .fetch_one(&*self.pool)
+                .fetch_one(&mut *lock_conn)
                 .await?;
             if locked {
                 break;
@@ -381,7 +382,7 @@ impl DatabaseInitService {
             info!("未找到迁移目录，跳过迁移");
             let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
                 .bind(lock_key)
-                .execute(&*self.pool)
+                .execute(&mut *lock_conn)
                 .await;
             return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
@@ -390,7 +391,7 @@ impl DatabaseInitService {
         let result = self.run_runtime_migrations(migrations_dir).await;
         let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
             .bind(lock_key)
-            .execute(&*self.pool)
+            .execute(&mut *lock_conn)
             .await;
         result
     }
@@ -1471,6 +1472,147 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
+        // Ensure room_account_data table for per-room account data
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS room_account_data (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                data_type TEXT NOT NULL,
+                content JSONB NOT NULL DEFAULT '{}',
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                CONSTRAINT uq_room_account_data UNIQUE (user_id, room_id, data_type)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_account_data_user ON room_account_data(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_room_account_data_user_room ON room_account_data(user_id, room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure read_markers table for unread counts
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS read_markers (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT NOT NULL,
+                CONSTRAINT uq_read_markers UNIQUE (user_id, room_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_read_markers_user ON read_markers(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_read_markers_user_room ON read_markers(user_id, room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure key_rotation_pending table for E2EE key rotation
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_pending (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                rotation_reason TEXT,
+                created_ts BIGINT NOT NULL,
+                processed BOOLEAN NOT NULL DEFAULT FALSE
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_user ON key_rotation_pending(user_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_unprocessed ON key_rotation_pending(user_id) WHERE processed = FALSE
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure key_rotation_state table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_state (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                rotation_count BIGINT NOT NULL DEFAULT 0,
+                last_rotation_ts BIGINT,
+                CONSTRAINT uq_key_rotation_state UNIQUE (user_id, room_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        // Ensure lazy_loaded_members table for sync optimization
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS lazy_loaded_members (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                member_user_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                CONSTRAINT uq_lazy_loaded_members UNIQUE (user_id, room_id, member_user_id)
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_lazy_loaded_members_user_room ON lazy_loaded_members(user_id, room_id)
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         // Ensure sync_stream_id sequence table for generating stream IDs
         sqlx::query(
             r#"
@@ -1780,6 +1922,30 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+
+        // Seed default captcha templates if not present
+        let captcha_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template")
+            .fetch_one(&*self.pool)
+            .await
+            .unwrap_or(0);
+        if captcha_count == 0 {
+            let now_ts = chrono::Utc::now().timestamp_millis();
+            sqlx::query(
+                r#"
+                INSERT INTO captcha_template (template_name, captcha_type, subject, content, is_default, is_enabled, created_ts, updated_ts)
+                VALUES
+                    ('default_email', 'email', 'Verification Code', 'Your verification code is {{code}}, valid for {{expiry_minutes}} minutes.', true, true, $1, $1),
+                    ('default_sms', 'sms', '', 'Your verification code is {{code}}, valid for {{expiry_minutes}} minutes.', true, true, $1, $1),
+                    ('default_image', 'image', '', 'Your verification code is {{code}}, valid for {{expiry_minutes}} minutes.', true, true, $1, $1)
+                "#,
+            )
+            .bind(now_ts)
+            .execute(&*self.pool)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to seed captcha templates: {}", e);
+            });
+        }
 
         Ok("附加表和列检查完成".to_string())
     }

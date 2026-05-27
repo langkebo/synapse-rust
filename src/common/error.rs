@@ -428,6 +428,9 @@ pub enum ApiError {
     #[error("Missing parameter: {0}")]
     MissingParam(String),
 
+    #[error("Invalid parameter: {0}")]
+    InvalidParam(String),
+
     #[error("Too large: {0}")]
     TooLarge(String),
 
@@ -591,6 +594,10 @@ impl ApiError {
         Self::MissingParam(message.into())
     }
 
+    pub fn invalid_param(message: impl Into<String>) -> Self {
+        Self::InvalidParam(message.into())
+    }
+
     pub fn too_large(message: impl Into<String>) -> Self {
         Self::TooLarge(message.into())
     }
@@ -658,6 +665,7 @@ impl ApiError {
             Self::CaptchaNeeded(_) => MatrixErrorCode::CaptchaNeeded,
             Self::CaptchaInvalid(_) => MatrixErrorCode::CaptchaInvalid,
             Self::MissingParam(_) => MatrixErrorCode::MissingParam,
+            Self::InvalidParam(_) => MatrixErrorCode::InvalidParam,
             Self::TooLarge(_) => MatrixErrorCode::TooLarge,
             Self::Exclusive(_) => MatrixErrorCode::Exclusive,
             Self::ResourceLimitExceeded(_) => MatrixErrorCode::ResourceLimitExceeded,
@@ -719,6 +727,7 @@ impl ApiError {
             Self::CaptchaNeeded(msg) => msg.clone(),
             Self::CaptchaInvalid(msg) => msg.clone(),
             Self::MissingParam(msg) => msg.clone(),
+            Self::InvalidParam(msg) => msg.clone(),
             Self::TooLarge(msg) => msg.clone(),
             Self::Exclusive(msg) => msg.clone(),
             Self::ResourceLimitExceeded(msg) => msg.clone(),

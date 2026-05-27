@@ -464,6 +464,8 @@ impl RoomService {
         // intentionally override e.g. history_visibility. Standard m.room.*
         // events with the same (type, state_key) shadow the earlier event in
         // the timeline, which matches Synapse's behavior.
+        let mut initial_join_rule: Option<String> = None;
+        let mut has_encryption_in_initial_state = false;
         if let Some(extra_state) = config.initial_state.as_ref() {
             for (idx, evt) in extra_state.iter().enumerate() {
                 let Some(obj) = evt.as_object() else { continue };
@@ -476,6 +478,11 @@ impl RoomService {
                     .unwrap_or("")
                     .to_string();
                 let content = obj.get("content").cloned().unwrap_or_else(|| json!({}));
+
+                if event_type == "m.room.encryption" {
+                    has_encryption_in_initial_state = true;
+                }
+
                 let result = self
                     .event_storage
                     .create_event(
@@ -492,12 +499,72 @@ impl RoomService {
                     )
                     .await;
                 if let Err(e) = result {
+                    ::tracing::error!(
+                        "Failed to apply initial_state event {}: {}",
+                        event_type,
+                        e
+                    );
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal(format!(
                         "Failed to apply initial_state event {event_type}: {e}"
                     )));
                 }
+
+                // Track key state changes from initial_state to sync back to storage.
+                match event_type {
+                    "m.room.join_rules" => {
+                        if let Some(jr) = evt.get("content").and_then(|c| c.get("join_rule")).and_then(|v| v.as_str()) {
+                            initial_join_rule = Some(jr.to_string());
+                        }
+                    }
+                    _ => {}
+                }
             }
+        }
+
+        // Handle `config.encryption` — if the client requested encryption via the
+        // top-level `encryption` field (e.g. "m.megolm.v1.aes-sha2") but did NOT
+        // supply an `m.room.encryption` event in `initial_state`, create one now.
+        // This matches Synapse's behaviour where `encryption` is an independent
+        // creation parameter that always takes effect regardless of initial_state.
+        if let Some(ref algorithm) = config.encryption {
+            if !has_encryption_in_initial_state {
+                let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
+                let result = self
+                    .event_storage
+                    .create_event(
+                        CreateEventParams {
+                            event_id: generate_event_id(&self.server_name),
+                            room_id: room_id.clone(),
+                            user_id: user_id.to_string(),
+                            event_type: "m.room.encryption".to_string(),
+                            content: json!({ "algorithm": algorithm }),
+                            state_key: Some("".to_string()),
+                            origin_server_ts: encryption_ts,
+                        },
+                        Some(&mut tx),
+                    )
+                    .await;
+                if let Err(e) = result {
+                    let _ = tx.rollback().await;
+                    return Err(ApiError::internal(format!(
+                        "Failed to create m.room.encryption event: {e}"
+                    )));
+                }
+            }
+        }
+
+        // Sync initial_state key fields back to durable room metadata.
+        if let Some(ref jr) = initial_join_rule {
+            if let Err(e) = sqlx::query("UPDATE rooms SET join_rules = $1 WHERE room_id = $2")
+                .bind(jr)
+                .bind(&room_id)
+                .execute(&mut *tx)
+                .await
+            {
+                ::tracing::warn!("Failed to update join_rules on rooms table: {}", e);
+            }
+            join_rule = jr.as_str();
         }
 
         // Handle trusted private chat specific logic. The standard state
@@ -616,7 +683,7 @@ impl RoomService {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         self.member_storage
-            .add_member(room_id, user_id, "join", None, None, tx)
+            .add_member(room_id, user_id, "join", None, None, None, tx)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add room member: {e}")))?;
 
@@ -738,7 +805,7 @@ impl RoomService {
                         continue;
                     }
                     self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, Some(&mut **t))
+                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), Some(&mut **t))
                         .await
                         .map_err(|e| ApiError::internal(format!("Failed to invite user: {e}")))?;
                     self.event_storage
@@ -772,7 +839,7 @@ impl RoomService {
                         continue;
                     }
                     self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, None)
+                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), None)
                         .await
                         .map_err(|e| ApiError::internal(format!("Failed to invite user: {e}")))?;
                     self.event_storage
@@ -842,6 +909,7 @@ impl RoomService {
             .unwrap_or(0);
         let now = now.max(max_ts + 1);
 
+        // Variable used only when `beacons` feature is enabled.
         #[allow(unused_variables)]
         let beacon_location_params = {
             #[cfg(feature = "beacons")]
@@ -1123,7 +1191,7 @@ impl RoomService {
         }
 
         self.member_storage
-            .add_member(room_id, user_id, "join", None, None, None)
+            .add_member(room_id, user_id, "join", None, None, None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to join room: {e}")))?;
 
@@ -1488,7 +1556,7 @@ impl RoomService {
             .await?;
 
         self.member_storage
-            .add_member(room_id, invitee_id, "invite", None, Some(inviter_id), None)
+            .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create invite event: {e}")))?;
 
@@ -1607,7 +1675,7 @@ impl RoomService {
         }
 
         self.member_storage
-            .add_member(room_id, user_id, "knock", None, reason, None)
+            .add_member(room_id, user_id, "knock", None, reason, None, None)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to create knock event: {e}")))?;
         Ok(())
@@ -2075,7 +2143,7 @@ impl RoomService {
         let should_update_summary = tx.is_none();
         let member = self
             .member_storage
-            .add_member(room_id, user_id, membership, display_name, join_reason, tx)
+            .add_member(room_id, user_id, membership, display_name, join_reason, None, tx)
             .await
             .map_err(|e| ApiError::internal(format!("Failed to add member: {e}")))?;
 

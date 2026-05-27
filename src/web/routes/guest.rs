@@ -126,8 +126,6 @@ pub async fn upgrade_guest(
                 return Err(ApiError::conflict("Username already exists".to_string()));
             }
 
-            let new_user_id = format!("@{}:{}", username, state.services.server_name);
-
             let password_hash = state
                 .services
                 .auth_service
@@ -159,7 +157,7 @@ pub async fn upgrade_guest(
 
             Ok(Json(json!({
                 "success": true,
-                "user_id": new_user_id,
+                "user_id": auth_user.user_id,
                 "access_token": access_token,
             })))
         }

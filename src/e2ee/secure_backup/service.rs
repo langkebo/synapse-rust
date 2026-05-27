@@ -78,6 +78,65 @@ impl SecureBackupService {
         })
     }
 
+    /// Create a secure backup with client-provided algorithm and auth_data
+    /// This supports the standard Matrix backup creation flow where the client
+    /// provides the algorithm and auth_data directly (e.g., m.megolm_backup.v1.curve25519-aes-sha2)
+    pub async fn create_backup_with_data(
+        &self,
+        user_id: &str,
+        algorithm: &str,
+        auth_data_val: &serde_json::Value,
+    ) -> Result<SecureBackupResponse, ApiError> {
+        let backup_id = uuid::Uuid::new_v4().to_string();
+        let version = chrono::Utc::now().timestamp().to_string();
+
+        // Build SecureBackupAuthData from client-provided auth_data
+        let auth_data = SecureBackupAuthData {
+            salt: auth_data_val
+                .get("salt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            iterations: auth_data_val
+                .get("iterations")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0),
+            backup_id: backup_id.clone(),
+            public_key: auth_data_val
+                .get("public_key")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+        };
+
+        // Store backup metadata
+        sqlx::query(
+            r"
+            INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
+            VALUES ($1, $2, $3, $4, $5, 0)
+            ON CONFLICT (user_id, backup_id) DO UPDATE SET
+                version = EXCLUDED.version,
+                auth_data = EXCLUDED.auth_data,
+                updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+            "
+        )
+        .bind(user_id)
+        .bind(&backup_id)
+        .bind(&version)
+        .bind(algorithm)
+        .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+
+        Ok(SecureBackupResponse {
+            backup_id,
+            version,
+            algorithm: algorithm.to_string(),
+            auth_data,
+            key_count: 0,
+        })
+    }
+
     /// Store encrypted session keys
     pub async fn store_session_keys(
         &self,
@@ -158,6 +217,7 @@ impl SecureBackupService {
         user_id: &str,
         backup_id: &str,
         passphrase: &str,
+        rooms: Option<Vec<String>>,
     ) -> Result<RestoreResponse, ApiError> {
         // 1. Get backup auth data
         let row: (String, i64) = sqlx::query_as(
@@ -170,6 +230,7 @@ impl SecureBackupService {
         .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
 
         let auth_data_str = row.0;
+        let total_keys = row.1;
 
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str)
             .map_err(|e| ApiError::internal(format!("Invalid auth data: {e}")))?;
@@ -182,8 +243,8 @@ impl SecureBackupService {
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Get all encrypted session keys
-        let encrypted_keys: Vec<(String, String)> = sqlx::query_as(
-            "SELECT session_id, encrypted_key FROM secure_backup_session_keys 
+        let encrypted_keys: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT room_id, session_id, encrypted_key FROM secure_backup_session_keys 
              WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
@@ -194,9 +255,17 @@ impl SecureBackupService {
         .into_iter()
         .collect();
 
+        let allowed_rooms = rooms.map(|room_ids| room_ids.into_iter().collect::<std::collections::HashSet<_>>());
+
         // 4. Decrypt session keys
         let mut restored_count = 0i64;
-        for (_session_id, encrypted_b64) in encrypted_keys {
+        for (room_id, _session_id, encrypted_b64) in encrypted_keys {
+            if let Some(allowed_rooms) = &allowed_rooms {
+                if !allowed_rooms.contains(&room_id) {
+                    continue;
+                }
+            }
+
             match base64::engine::general_purpose::STANDARD.decode(&encrypted_b64) {
                 Ok(encrypted) => {
                     if Self::decrypt_aes_gcm(&key, &encrypted).is_ok() {
@@ -208,13 +277,8 @@ impl SecureBackupService {
         }
 
         Ok(RestoreResponse {
-            success: restored_count > 0,
-            key_count: restored_count,
-            message: if restored_count > 0 {
-                format!("Successfully restored {restored_count} session keys")
-            } else {
-                "Failed to restore any session keys. Check your passphrase.".to_string()
-            },
+            recovered_keys: restored_count,
+            total_keys,
         })
     }
 
@@ -226,8 +290,8 @@ impl SecureBackupService {
         passphrase: &str,
     ) -> Result<bool, ApiError> {
         // Try to restore - if successful, passphrase is valid
-        let result = self.restore_backup(user_id, backup_id, passphrase).await?;
-        Ok(result.success)
+        let result = self.restore_backup(user_id, backup_id, passphrase, None).await?;
+        Ok(result.recovered_keys > 0)
     }
 
     /// Get backup info

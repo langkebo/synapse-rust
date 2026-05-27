@@ -681,7 +681,7 @@ impl SyncService {
             SELECT COUNT(*)
             FROM events
             WHERE room_id = $1
-              AND user_id != $2
+              AND COALESCE(user_id, sender) != $2
               AND origin_server_ts > $3
               AND state_key IS NULL
             ",
@@ -698,7 +698,7 @@ impl SyncService {
             SELECT COUNT(*)
             FROM events
             WHERE room_id = $1
-              AND user_id != $2
+              AND COALESCE(user_id, sender) != $2
               AND origin_server_ts > $3
               AND state_key IS NULL
               AND (
@@ -751,12 +751,12 @@ impl SyncService {
             SELECT
                 tr.room_id,
                 COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE ev.user_id != $1
+                    WHERE COALESCE(ev.user_id, ev.sender) != $1
                       AND ev.state_key IS NULL
                       AND ev.origin_server_ts > lr.last_read_ts
                 ), 0) AS notification_count,
                 COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE ev.user_id != $1
+                    WHERE COALESCE(ev.user_id, ev.sender) != $1
                       AND ev.state_key IS NULL
                       AND ev.origin_server_ts > lr.last_read_ts
                       AND (
@@ -769,7 +769,7 @@ impl SyncService {
               ON lr.room_id = tr.room_id
             LEFT JOIN events ev
               ON ev.room_id = tr.room_id
-             AND ev.user_id != $1
+             AND COALESCE(ev.user_id, ev.sender) != $1
              AND ev.state_key IS NULL
              AND ev.origin_server_ts > lr.last_read_ts
             GROUP BY tr.room_id, lr.last_read_ts

@@ -1035,10 +1035,18 @@ impl RoomStorage {
         sqlx::query(
             r"
             INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
-            SELECT $1, type, state_key, content, sender, origin_server_ts
-            FROM room_state_events
-            WHERE room_id = $2
-            ON CONFLICT DO NOTHING
+            SELECT $1, event_type, state_key, content, sender, origin_server_ts
+            FROM (
+                SELECT DISTINCT ON (event_type, state_key)
+                    event_type, state_key, content, sender, origin_server_ts
+                FROM events
+                WHERE room_id = $2 AND state_key IS NOT NULL
+                ORDER BY event_type, state_key, origin_server_ts DESC
+            ) sub
+            ON CONFLICT (room_id, type, state_key) DO UPDATE SET
+                content = EXCLUDED.content,
+                sender = EXCLUDED.sender,
+                origin_server_ts = EXCLUDED.origin_server_ts
             "
         )
         .bind(target_room_id)

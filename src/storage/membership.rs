@@ -53,11 +53,13 @@ impl RoomMemberStorage {
         membership: &str,
         display_name: Option<&str>,
         join_reason: Option<&str>,
+        sender: Option<&str>,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomMember, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let event_id = format!("${}", generate_event_id(&self.server_name));
-        let sender = user_id;
+        // Use explicit sender if provided (e.g. inviter), otherwise default to user_id
+        let effective_sender = sender.unwrap_or(user_id);
 
         let query = r"
             INSERT INTO room_memberships (room_id, user_id, sender, membership, event_id, event_type, display_name, join_reason, updated_ts, joined_ts)
@@ -74,7 +76,7 @@ impl RoomMemberStorage {
             sqlx::query_as::<_, RoomMember>(query)
                 .bind(room_id)
                 .bind(user_id)
-                .bind(sender)
+                .bind(effective_sender)
                 .bind(membership)
                 .bind(event_id)
                 .bind("m.room.member")
@@ -88,7 +90,7 @@ impl RoomMemberStorage {
             sqlx::query_as::<_, RoomMember>(query)
                 .bind(room_id)
                 .bind(user_id)
-                .bind(sender)
+                .bind(effective_sender)
                 .bind(membership)
                 .bind(event_id)
                 .bind("m.room.member")

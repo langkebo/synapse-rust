@@ -46,8 +46,8 @@ pub struct CreateSecureBackupRequest {
 /// Request to restore from secure backup
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreSecureBackupRequest {
-    pub backup_id: String,
     pub passphrase: String,
+    pub rooms: Option<Vec<String>>,
 }
 
 /// Request to verify passphrase
@@ -70,9 +70,8 @@ pub struct SecureBackupResponse {
 /// Response for restore operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreResponse {
-    pub success: bool,
-    pub key_count: i64,
-    pub message: String,
+    pub recovered_keys: i64,
+    pub total_keys: i64,
 }
 
 /// Response for passphrase verification

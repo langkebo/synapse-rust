@@ -480,6 +480,123 @@ async fn test_private_profile_subfields_follow_profile_visibility() {
 }
 
 #[tokio::test]
+async fn test_msc4133_extended_profile_fields_support_crud_and_visibility() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (alice_token, alice_id) = register_user(
+        &app,
+        &format!("msc4133_alice_{}", rand::random::<u32>()),
+    )
+    .await;
+    let (bob_token, _) = register_user(
+        &app,
+        &format!("msc4133_bob_{}", rand::random::<u32>()),
+    )
+    .await;
+
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!("blue").to_string()))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let get_all_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_all_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_all_request)
+        .await
+        .unwrap();
+    assert_eq!(get_all_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(get_all_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["favorite_color"], "blue");
+
+    let get_field_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_field_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_field_request)
+        .await
+        .unwrap();
+    assert_eq!(get_field_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(get_field_response.into_body(), 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, json!("blue"));
+
+    set_profile_visibility_private(&pool, &alice_id).await;
+
+    let forbidden_get_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let forbidden_get_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_get_request)
+            .await
+            .unwrap();
+    assert_eq!(forbidden_get_response.status(), StatusCode::FORBIDDEN);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let get_after_delete_request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color",
+            alice_id
+        ))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let get_after_delete_response =
+        ServiceExt::<Request<Body>>::oneshot(app, get_after_delete_request)
+            .await
+            .unwrap();
+    assert_eq!(get_after_delete_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_admin_cannot_update_another_users_profile_via_client_api() {
     let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
         return;

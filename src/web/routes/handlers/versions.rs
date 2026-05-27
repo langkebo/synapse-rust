@@ -1,11 +1,20 @@
 //! 版本相关处理器
 
 use crate::web::AppState;
-use axum::{extract::State, Json};
+use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
+use axum::{extract::{Query, State}, Json};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use url::Url;
 
-const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":false,"org.matrix.msc3886.sliding_sync":true,"org.matrix.msc4261.widget":true,"io.hula.burn_after_read":true}}"#;
+/// Empty query params marker used as the last handler parameter so that
+/// `OptionalAuthenticatedUser` (a `FromRequestParts` type) is not the final
+/// param — axum requires the last param to implement `FromRequest`, and
+/// rust-analyzer cannot follow the cross-crate blanket impl.
+#[derive(Deserialize, Default)]
+pub struct EmptyQuery {}
+
+const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":true,"org.matrix.msc3886.sliding_sync":true,"org.matrix.msc4261.widget":true,"io.hula.burn_after_read":true,"io.hula.friends":true}}"#;
 
 /// 获取客户端 API 版本
 #[allow(clippy::expect_used)]
@@ -95,7 +104,9 @@ pub async fn get_well_known_support() -> impl axum::response::IntoResponse {
 /// 获取服务端能力
 pub async fn get_capabilities(
     State(state): State<AppState>,
-) -> impl axum::response::IntoResponse {
+    auth: OptionalAuthenticatedUser,
+    Query(_): Query<EmptyQuery>,
+) -> Json<serde_json::Value> {
     let saml_enabled = state.services.config.saml.enabled;
     let mut capabilities = json!({
         "m.change_password": { "enabled": true },
@@ -213,6 +224,24 @@ pub async fn get_capabilities(
             caps.insert("io.hula.burn_after_read".to_string(), json!({ "enabled": false }));
         }
     }
+
+    // For unauthenticated users, only return public capabilities
+    let capabilities = if auth.user_id.is_none() {
+        if let Some(caps) = capabilities.as_object_mut() {
+            // Remove sensitive capabilities for unauthenticated access
+            caps.remove("io.hula.friends");
+            caps.remove("io.hula.burn_after_read");
+            caps.remove("io.hula.widget");
+            caps.remove("ai_connection");
+            caps.remove("openclaw");
+            caps.remove("external_services");
+            caps.remove("io.hula.voice_extended");
+            caps.remove("m.sso");
+        }
+        capabilities
+    } else {
+        capabilities
+    };
 
     Json(json!({
         "capabilities": capabilities,

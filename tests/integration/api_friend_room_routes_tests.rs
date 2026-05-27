@@ -328,6 +328,35 @@ async fn test_v1_friend_list_accepts_pagination_and_sort_params() {
 }
 
 #[tokio::test]
+async fn test_create_friend_dm_reuses_existing_room() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (alice_token, _alice_user_id, _bob_token, bob_user_id, existing_dm_room_id) =
+        establish_friend_dm(&app, "friend_reuse_alice", "friend_reuse_bob").await;
+
+    let (status, body) = json_request(
+        &app,
+        "POST",
+        format!("/_matrix/client/v1/friends/dm/{}", bob_user_id),
+        Some(&alice_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create friend dm failed: {body}");
+    assert_eq!(body["room_id"].as_str(), Some(existing_dm_room_id.as_str()));
+
+    let friend_entry = fetch_friend_entry(&app, &alice_token, &bob_user_id).await;
+    assert_eq!(
+        friend_entry["dm_room_id"].as_str(),
+        Some(existing_dm_room_id.as_str())
+    );
+    assert_eq!(friend_entry["dm_room_state"].as_str(), Some("active"));
+    assert_eq!(friend_entry["dm_room_active"].as_bool(), Some(true));
+}
+
+#[tokio::test]
 async fn test_friend_dm_leave_updates_friend_list_state() {
     let Some(app) = setup_test_app().await else {
         return;

@@ -155,7 +155,7 @@ pub(crate) use handlers::room::{
     put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
     search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
     set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event,
-    translate_room_event, unban_user, upgrade_room, verify_room_event,
+    translate_room_event, translate_text, unban_user, upgrade_room, verify_room_event,
 };
 pub use handlers::{
     get_capabilities, get_client_versions, get_server_version, get_well_known_client,

@@ -89,6 +89,34 @@ cargo test --test e2e -- --ignored --nocapture
 - Criterion 基准入口已拆分为 `performance_api_benchmarks` 与 `performance_federation_benchmarks`，对应 `benches/` 目录下的独立基准文件
 - `performance_manual` 属于手动验证套件，不计入常规发布门禁
 
+### 3.2 本地集成测试数据库建议
+
+对于本地回归，优先使用已经迁移完成的 `public` schema 作为测试模板，而不是让每次测试都重新执行 strict schema 初始化。
+
+推荐步骤：
+
+```bash
+# 先确认本地数据库已经迁移到当前代码期望的版本
+bash docker/db_migrate.sh migrate
+bash docker/db_migrate.sh validate
+
+# 然后再执行定向集成测试，直接从 public schema 克隆测试 schema
+TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test integration -- --nocapture
+```
+
+补充说明：
+
+- `TEST_DB_TEMPLATE_SCHEMA=public` 适合本地开发机与回归排查，可显著减少测试卡在 `DatabaseInitService::initialize()` strict 初始化阶段的概率。
+- 使用该变量前，必须先执行 `bash docker/db_migrate.sh migrate`，确保 `public` schema 已经与当前代码所依赖的列/索引契约一致。
+- 若只跑单条高价值回归测试，建议保持定向执行，例如：
+
+```bash
+TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test integration test_create_dm_is_idempotent_for_same_pair -- --nocapture
+TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test integration test_create_friend_dm_reuses_existing_room -- --nocapture
+```
+
+- 若模板 schema 不可用，测试框架仍会退回到 isolated schema 初始化路径，但本地运行时间会明显增加。
+
 ### 2.2 代码覆盖率
 
 ```bash

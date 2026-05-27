@@ -114,6 +114,7 @@ fn create_test_config() -> Config {
             join_max_concurrency: 16,
             join_acquire_timeout_ms: 750,
             admission_mode: false,
+            signing_key_master_key: None,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),
@@ -477,6 +478,145 @@ async fn test_room_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_encrypted_create_room_preserves_creator_membership_and_invite() {
+    let Some(app) = setup_test_app().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let Some(alice_token) =
+        register_user(&app, &format!("enc_owner_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register alice");
+        return;
+    };
+    let Some(bob_token) =
+        register_user(&app, &format!("enc_invitee_{}", rand::random::<u32>())).await
+    else {
+        eprintln!("Skipping test: failed to register bob");
+        return;
+    };
+
+    let bob_user_id = get_user_id(&app, &bob_token)
+        .await
+        .expect("bob user id should be available");
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Encrypted DM",
+                "preset": "private_chat",
+                "is_direct": true,
+                "invite": [bob_user_id],
+                "initial_state": [
+                    {
+                        "type": "m.room.encryption",
+                        "state_key": "",
+                        "content": {
+                            "algorithm": "m.megolm.v1.aes-sha2"
+                        }
+                    }
+                ]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
+        .await
+        .expect("create room request should complete");
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let create_body = axum::body::to_bytes(create_response.into_body(), 4096)
+        .await
+        .expect("create room body should be readable");
+    let create_json: Value = serde_json::from_slice(&create_body).expect("create room json");
+    let room_id = create_json["room_id"]
+        .as_str()
+        .expect("room id should be present")
+        .to_string();
+
+    let joined_rooms_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/joined_rooms")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let joined_rooms_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), joined_rooms_request)
+            .await
+            .expect("joined rooms request should complete");
+    assert_eq!(joined_rooms_response.status(), StatusCode::OK);
+    let joined_rooms_body = axum::body::to_bytes(joined_rooms_response.into_body(), 4096)
+        .await
+        .expect("joined rooms body should be readable");
+    let joined_rooms_json: Value =
+        serde_json::from_slice(&joined_rooms_body).expect("joined rooms json");
+    let joined_rooms = joined_rooms_json["joined_rooms"]
+        .as_array()
+        .expect("joined_rooms should be an array");
+    assert!(
+        joined_rooms.iter().any(|room| room.as_str() == Some(&room_id)),
+        "creator should remain in joined_rooms after encrypted room creation: {joined_rooms_json}"
+    );
+
+    let joined_members_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/r0/rooms/{}/joined_members", room_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let joined_members_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), joined_members_request)
+            .await
+            .expect("joined members request should complete");
+    assert_eq!(joined_members_response.status(), StatusCode::OK);
+
+    let alice_sync_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let alice_sync_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), alice_sync_request)
+        .await
+        .expect("alice sync should complete");
+    assert_eq!(alice_sync_response.status(), StatusCode::OK);
+    let alice_sync_body = axum::body::to_bytes(alice_sync_response.into_body(), 32768)
+        .await
+        .expect("alice sync body should be readable");
+    let alice_sync_json: Value =
+        serde_json::from_slice(&alice_sync_body).expect("alice sync json");
+    assert!(
+        alice_sync_json["rooms"]["join"].get(&room_id).is_some(),
+        "encrypted room should appear under creator join sync response: {alice_sync_json}"
+    );
+
+    let bob_sync_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync")
+        .header("Authorization", format!("Bearer {}", bob_token))
+        .body(Body::empty())
+        .unwrap();
+    let bob_sync_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), bob_sync_request)
+        .await
+        .expect("bob sync should complete");
+    assert_eq!(bob_sync_response.status(), StatusCode::OK);
+    let bob_sync_body = axum::body::to_bytes(bob_sync_response.into_body(), 32768)
+        .await
+        .expect("bob sync body should be readable");
+    let bob_sync_json: Value = serde_json::from_slice(&bob_sync_body).expect("bob sync json");
+    assert!(
+        bob_sync_json["rooms"]["invite"].get(&room_id).is_some(),
+        "encrypted room should appear under invite sync response: {bob_sync_json}"
+    );
 }
 
 #[tokio::test]

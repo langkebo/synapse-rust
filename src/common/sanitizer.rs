@@ -1,118 +1,188 @@
-//! 内容净化模块 - 防止 XSS 攻击 (LEGACY)
-//!
-//! 提供 Matrix 事件内容的净化功能，移除危险的 HTML 和 JavaScript
-//!
-//! # 弃用说明
-//!
-//! 这是基于正则的黑名单实现，无法覆盖所有 XSS 混淆向量
-//! (HTML 实体、注释截断、嵌套大小写等)。所有新代码请使用
-//! [`crate::common::sanitizer_v2`] 中基于 `ammonia` 白名单解析的实现，
-//! 它已通过 `pub use sanitizer_v2::*` 在 `crate::common` 顶层导出。
-#![allow(deprecated)]
+//! 内容净化模块 - 使用 ammonia 防止 XSS 攻击
 
+use ammonia::{Builder, UrlRelative};
+use std::collections::HashSet;
 use std::sync::LazyLock;
-use regex::Regex;
 
-/// 危险的 HTML 标签模式
-#[allow(clippy::expect_used)]
-static DANGEROUS_TAGS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)<(script|iframe|object|embed|form|input|button|meta|link|style)[^>]*>")
-        .expect("DANGEROUS_TAGS regex is valid")
+/// Matrix 消息的默认净化器配置
+static DEFAULT_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
+    let mut builder = Builder::default();
+
+    // 允许的标签（Matrix 富文本格式）
+    let allowed_tags: HashSet<&str> = [
+        "p",
+        "br",
+        "span",
+        "div",
+        "strong",
+        "b",
+        "em",
+        "i",
+        "u",
+        "s",
+        "del",
+        "ins",
+        "code",
+        "pre",
+        "blockquote",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "a",
+        "img",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
+        "font",
+        "sup",
+        "sub",
+        "hr",
+        "details",
+        "summary",
+    ]
+    .iter()
+    .copied()
+    .collect();
+
+    builder.tags(allowed_tags);
+
+    // 允许的属性
+    let mut allowed_attrs: HashSet<&str> = HashSet::new();
+    allowed_attrs.insert("href");
+    allowed_attrs.insert("src");
+    allowed_attrs.insert("alt");
+    allowed_attrs.insert("title");
+    allowed_attrs.insert("class");
+    allowed_attrs.insert("width");
+    allowed_attrs.insert("height");
+    allowed_attrs.insert("start");
+    allowed_attrs.insert("data-mx-bg-color");
+    allowed_attrs.insert("data-mx-color");
+    allowed_attrs.insert("data-mx-spoiler");
+
+    builder.generic_attributes(allowed_attrs);
+
+    // URL 协议白名单
+    builder.url_relative(UrlRelative::Deny);
+    builder.link_rel(Some("noopener noreferrer"));
+
+    // 允许的 URL 协议
+    let allowed_protocols: HashSet<&str> = ["http", "https", "mailto", "matrix"]
+        .iter()
+        .copied()
+        .collect();
+
+    builder.url_schemes(allowed_protocols);
+
+    builder
 });
 
-#[allow(clippy::expect_used)]
-static DANGEROUS_EVENTS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)on\w+\s*=").expect("DANGEROUS_EVENTS regex is valid"));
+/// 严格的净化器配置（用于用户名、房间名等）
+static STRICT_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
+    let mut builder = Builder::default();
 
-#[allow(clippy::expect_used)]
-static JAVASCRIPT_URLS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)javascript\s*:").expect("JAVASCRIPT_URLS regex is valid"));
+    // 只允许纯文本，移除所有 HTML
+    builder.tags(HashSet::new());
+    builder.generic_attributes(HashSet::new());
 
-#[allow(clippy::expect_used)]
-static DATA_URLS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)data\s*:").expect("DATA_URLS regex is valid"));
+    builder
+});
 
 /// 内容净化器配置
-#[derive(Debug, Clone)]
-pub struct SanitizerConfig {
-    /// 是否允许 img 标签
-    pub allow_images: bool,
-    /// 是否允许链接
-    pub allow_links: bool,
-    /// 最大内容长度
-    pub max_length: usize,
-    /// 是否净化 HTML
-    pub sanitize_html: bool,
+#[derive(Debug, Clone, Copy)]
+pub enum SanitizerMode {
+    /// 默认模式 - 允许 Matrix 富文本格式
+    Default,
+    /// 严格模式 - 只允许纯文本
+    Strict,
+    /// 自定义模式
+    Custom,
 }
 
-impl Default for SanitizerConfig {
-    fn default() -> Self {
-        Self {
-            allow_images: true,
-            allow_links: true,
-            max_length: 10_000,
-            sanitize_html: true,
-        }
-    }
-}
-
-/// Matrix 事件内容净化器
+/// 内容净化器
 pub struct ContentSanitizer {
-    config: SanitizerConfig,
+    mode: SanitizerMode,
+    max_length: usize,
 }
 
 impl Default for ContentSanitizer {
     fn default() -> Self {
-        Self::new(SanitizerConfig::default())
+        Self {
+            mode: SanitizerMode::Default,
+            max_length: 10_000,
+        }
     }
 }
 
 impl ContentSanitizer {
-    pub fn new(config: SanitizerConfig) -> Self {
-        Self { config }
+    /// 创建新的净化器
+    pub fn new(mode: SanitizerMode, max_length: usize) -> Self {
+        Self { mode, max_length }
     }
 
-    /// 净化用户输入文本
-    pub fn sanitize_text(&self, text: &str) -> String {
-        if text.len() > self.config.max_length {
-            return text[..self.config.max_length].to_string();
+    /// 创建严格模式净化器
+    pub fn strict() -> Self {
+        Self {
+            mode: SanitizerMode::Strict,
+            max_length: 1_000,
         }
+    }
 
-        if !self.config.sanitize_html {
-            return text.to_string();
+    /// 净化 HTML 内容
+    pub fn sanitize(&self, input: &str) -> String {
+        // 长度限制
+        let input = if input.len() > self.max_length {
+            &input[..self.max_length]
+        } else {
+            input
+        };
+
+        // 根据模式选择净化器
+        match self.mode {
+            SanitizerMode::Default => DEFAULT_SANITIZER.clean(input).to_string(),
+            SanitizerMode::Strict => STRICT_SANITIZER.clean(input).to_string(),
+            SanitizerMode::Custom => {
+                // 自定义配置可以在这里实现
+                DEFAULT_SANITIZER.clean(input).to_string()
+            }
         }
-
-        // 移除危险的 HTML 标签
-        let mut result = DANGEROUS_TAGS.replace_all(text, "").to_string();
-
-        // 移除事件处理器
-        result = DANGEROUS_EVENTS.replace_all(&result, "").to_string();
-
-        // 移除 JavaScript URL
-        result = JAVASCRIPT_URLS.replace_all(&result, "blocked:").to_string();
-
-        // 移除 data URL
-        result = DATA_URLS.replace_all(&result, "blocked:").to_string();
-
-        result
     }
 
-    /// 净化 Matrix 事件内容
-    pub fn sanitize_event_content(&self, content: &str) -> String {
-        self.sanitize_text(content)
+    /// 净化纯文本（移除所有 HTML）
+    pub fn sanitize_plain_text(&self, input: &str) -> String {
+        let input = if input.len() > self.max_length {
+            &input[..self.max_length]
+        } else {
+            input
+        };
+
+        STRICT_SANITIZER.clean(input).to_string()
     }
 
-    /// 检查内容是否包含危险模式
-    pub fn contains_dangerous_content(&self, text: &str) -> bool {
-        DANGEROUS_TAGS.is_match(text)
-            || DANGEROUS_EVENTS.is_match(text)
-            || JAVASCRIPT_URLS.is_match(text)
+    /// 检查内容是否包含 HTML
+    pub fn contains_html(&self, input: &str) -> bool {
+        let cleaned = STRICT_SANITIZER.clean(input).to_string();
+        cleaned.len() != input.len() || cleaned != input
     }
 }
 
-/// 创建默认的内容净化器
+/// 创建默认净化器
 pub fn create_sanitizer() -> ContentSanitizer {
     ContentSanitizer::default()
+}
+
+/// 创建严格净化器
+pub fn create_strict_sanitizer() -> ContentSanitizer {
+    ContentSanitizer::strict()
 }
 
 #[cfg(test)]
@@ -123,15 +193,16 @@ mod tests {
     fn test_sanitize_script_tag() {
         let sanitizer = ContentSanitizer::default();
         let input = "<script>alert('xss')</script>Hello";
-        let output = sanitizer.sanitize_text(input);
+        let output = sanitizer.sanitize(input);
         assert!(!output.contains("<script>"));
+        assert!(output.contains("Hello"));
     }
 
     #[test]
     fn test_sanitize_event_handler() {
         let sanitizer = ContentSanitizer::default();
-        let input = "<img onerror=\"alert(1)\" src=x>";
-        let output = sanitizer.sanitize_text(input);
+        let input = "<img onerror=\"alert(1)\" src=\"x\">";
+        let output = sanitizer.sanitize(input);
         assert!(!output.contains("onerror"));
     }
 
@@ -139,23 +210,85 @@ mod tests {
     fn test_sanitize_javascript_url() {
         let sanitizer = ContentSanitizer::default();
         let input = "<a href=\"javascript:alert(1)\">click</a>";
-        let output = sanitizer.sanitize_text(input);
+        let output = sanitizer.sanitize(input);
         assert!(!output.contains("javascript:"));
     }
 
     #[test]
-    fn test_safe_content_unchanged() {
+    fn test_html_entity_bypass() {
         let sanitizer = ContentSanitizer::default();
-        let input = "Hello, this is a safe message!";
-        let output = sanitizer.sanitize_text(input);
-        assert_eq!(output, input);
+        let input = "<img src=x onerror=\"&#97;&#108;&#101;&#114;&#116;(1)\">";
+        let output = sanitizer.sanitize(input);
+        assert!(!output.contains("onerror"));
     }
 
     #[test]
-    fn test_contains_dangerous_content() {
+    fn test_nested_tags() {
         let sanitizer = ContentSanitizer::default();
-        assert!(sanitizer.contains_dangerous_content("<script>"));
-        assert!(sanitizer.contains_dangerous_content("<img onerror=\"x\">"));
-        assert!(!sanitizer.contains_dangerous_content("safe text"));
+        let input = "<div><script>alert(1)</script></div>";
+        let output = sanitizer.sanitize(input);
+        assert!(!output.contains("<script>"));
+    }
+
+    #[test]
+    fn test_allowed_formatting() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<strong>Bold</strong> <em>Italic</em>";
+        let output = sanitizer.sanitize(input);
+        assert!(output.contains("<strong>"));
+        assert!(output.contains("<em>"));
+    }
+
+    #[test]
+    fn test_strict_mode_removes_all_html() {
+        let sanitizer = ContentSanitizer::strict();
+        let input = "<strong>Bold</strong> text";
+        let output = sanitizer.sanitize(input);
+        assert!(!output.contains("<strong>"));
+        assert!(output.contains("Bold"));
+        assert!(output.contains("text"));
+    }
+
+    #[test]
+    fn test_data_url_blocked() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<img src=\"data:text/html,<script>alert(1)</script>\">";
+        let output = sanitizer.sanitize(input);
+        assert!(!output.contains("data:"));
+    }
+
+    #[test]
+    fn test_safe_links_preserved() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<a href=\"https://example.com\">Link</a>";
+        let output = sanitizer.sanitize(input);
+        assert!(output.contains("https://example.com"));
+        assert!(output.contains("noopener noreferrer"));
+    }
+
+    #[test]
+    fn test_length_limit() {
+        let sanitizer = ContentSanitizer::new(SanitizerMode::Default, 10);
+        let input = "This is a very long string that exceeds the limit";
+        let output = sanitizer.sanitize(input);
+        assert_eq!(output.len(), 10);
+    }
+
+    #[test]
+    fn test_case_insensitive_bypass() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<ScRiPt>alert(1)</sCrIpT>";
+        let output = sanitizer.sanitize(input);
+        assert!(!output.contains("ScRiPt"));
+        assert!(!output.contains("alert"));
+    }
+
+    #[test]
+    fn test_comment_bypass() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<img src=x o<!---->nerror=\"alert(1)\">";
+        let output = sanitizer.sanitize(input);
+        // ammonia removes the dangerous onerror attribute regardless of comments
+        assert!(!output.contains("onerror"));
     }
 }
