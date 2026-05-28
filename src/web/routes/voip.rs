@@ -28,7 +28,7 @@ pub async fn get_turn_server(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.voip_service;
+    let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(TurnServerResponse {
@@ -54,7 +54,7 @@ pub async fn get_voip_config(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
-    let voip_service = &state.services.voip_service;
+    let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(VoipConfigResponse {
@@ -95,7 +95,7 @@ pub async fn get_voip_config(
 pub async fn get_turn_credentials_guest(
     State(state): State<AppState>,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.voip_service;
+    let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Err(ApiError::not_found("VoIP/TURN service is not configured"));
@@ -159,7 +159,7 @@ mod tests {
 // ============================================================================
 
 #[cfg(feature = "voip-tracking")]
-use crate::services::call_service::{
+use crate::services::rtc::call::{
     CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent,
 };
 
@@ -192,7 +192,8 @@ pub async fn call_invite(
 
     let _session = state
         .services
-        .call_service
+        .rtc_domain_service
+        .call
         .handle_invite(&room_id, &auth_user.user_id, content.clone())
         .await?;
 
@@ -234,7 +235,7 @@ pub async fn call_candidates(
 
     state
         .services
-        .call_service
+        .rtc_domain_service.call
         .handle_candidates(&room_id, &auth_user.user_id, content)
         .await?;
 
@@ -254,7 +255,7 @@ pub async fn call_answer(
 
     let _session = state
         .services
-        .call_service
+        .rtc_domain_service.call
         .handle_answer(&room_id, &auth_user.user_id, content.clone())
         .await?;
 
@@ -296,7 +297,7 @@ pub async fn call_hangup(
 
     state
         .services
-        .call_service
+        .rtc_domain_service.call
         .handle_hangup(&room_id, &auth_user.user_id, content)
         .await?;
 
@@ -315,14 +316,14 @@ pub async fn get_call_session(
 
     let session = state
         .services
-        .call_service
+        .rtc_domain_service.call
         .get_session(&call_id, &room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
     let candidates = state
         .services
-        .call_service
+        .rtc_domain_service.call
         .get_candidates(&call_id, &room_id)
         .await?;
 

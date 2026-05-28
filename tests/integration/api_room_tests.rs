@@ -7,8 +7,8 @@ use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
     AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig,
-    FederationConfig, RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig,
-    SmtpConfig, VoipConfig, WorkerConfig,
+    FederationConfig, LivekitConfig, RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig,
+    ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::event_report::EventReportStorage;
@@ -154,6 +154,7 @@ fn create_test_config() -> Config {
         cors: CorsConfig::default(),
         smtp: SmtpConfig::default(),
         voip: VoipConfig::default(),
+        livekit: LivekitConfig::default(),
         push: synapse_rust::common::config::PushConfig::default(),
         url_preview: synapse_rust::common::config::UrlPreviewConfig::default(),
         oidc: synapse_rust::common::config::OidcConfig::default(),

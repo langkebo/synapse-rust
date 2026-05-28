@@ -1,7 +1,5 @@
 use crate::auth::*;
 use crate::cache::*;
-#[cfg(feature = "voip-tracking")]
-use crate::call_service::CallService;
 use crate::common::config::Config;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::common::config::{
@@ -89,8 +87,7 @@ pub struct ServiceContainer {
     pub friend_room_service: Arc<crate::services::friend_room_service::FriendRoomService>,
     #[cfg(feature = "friends")]
     pub friend_federation: Arc<FriendFederation>,
-    #[cfg(feature = "voip-tracking")]
-    pub call_service: Arc<CallService>,
+    pub rtc_domain_service: Arc<crate::services::rtc::RtcDomainService>,
     pub directory_service: Arc<crate::services::directory_service::DirectoryService>,
     pub typing_service: Arc<crate::services::typing_service::TypingService>,
     pub space_storage: SpaceStorage,
@@ -155,7 +152,6 @@ pub struct ServiceContainer {
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadService>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
-    pub voip_service: Arc<crate::services::voip_service::VoipService>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -752,7 +748,25 @@ impl ServiceContainer {
         #[cfg(feature = "voip-tracking")]
         let call_session_storage = crate::storage::call_session::CallSessionStorage::new(pool.clone());
         #[cfg(feature = "voip-tracking")]
-        let call_service = Arc::new(CallService::new(Arc::new(call_session_storage)));
+        let matrixrtc_storage = crate::storage::matrixrtc::MatrixRTCStorage::new(pool.clone());
+
+        // RTC domain service — unified real-time communication
+        let rtc_infra = Arc::new(crate::services::rtc::RtcInfraService::new(Arc::new(config.voip.clone())));
+        #[cfg(feature = "voip-tracking")]
+        let rtc_call = Arc::new(crate::services::rtc::CallOrchestrationService::new(Arc::new(call_session_storage)));
+        #[cfg(feature = "voip-tracking")]
+        let rtc_session = Arc::new(crate::services::rtc::RtcSessionService::new(matrixrtc_storage, cache.clone()));
+        #[cfg(feature = "voip-tracking")]
+        let rtc_sfu = Arc::new(crate::services::rtc::LivekitClient::new(config.livekit.clone()));
+        let rtc_domain_service = Arc::new(crate::services::rtc::RtcDomainService::new(
+            rtc_infra,
+            #[cfg(feature = "voip-tracking")]
+            rtc_call,
+            #[cfg(feature = "voip-tracking")]
+            rtc_session,
+            #[cfg(feature = "voip-tracking")]
+            rtc_sfu,
+        ));
 
         #[cfg(feature = "saml-sso")]
         let saml_storage = crate::storage::saml::SamlStorage::new(pool);
@@ -857,9 +871,6 @@ impl ServiceContainer {
             ::tracing::info!("Translation service disabled (passthrough mode)");
         }
 
-        // VoIP service (singleton — avoids per-request allocation)
-        let voip_service = Arc::new(crate::services::voip_service::VoipService::new(Arc::new(config.voip.clone())));
-
         // Event broadcaster (federation)
         let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_member_storage = rooms.member_storage.clone();
@@ -918,8 +929,7 @@ impl ServiceContainer {
             friend_room_service,
             #[cfg(feature = "friends")]
             friend_federation,
-            #[cfg(feature = "voip-tracking")]
-            call_service,
+            rtc_domain_service,
             directory_service,
             typing_service: rooms.typing_service,
             space_storage: rooms.space_storage,
@@ -984,7 +994,6 @@ impl ServiceContainer {
             #[cfg(feature = "burn-after-read")]
             burn_after_read,
             oidc_service,
-            voip_service,
             builtin_oidc_provider,
             identity_service,
             translation_service,
@@ -1009,6 +1018,15 @@ impl ServiceContainer {
         }
 
         container
+    }
+
+    pub fn voip_service(&self) -> &Arc<crate::services::rtc::RtcInfraService> {
+        &self.rtc_domain_service.infra
+    }
+
+    #[cfg(feature = "voip-tracking")]
+    pub fn call_service(&self) -> &Arc<crate::services::rtc::CallOrchestrationService> {
+        &self.rtc_domain_service.call
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -1197,6 +1215,7 @@ fn build_test_config() -> Config {
         cors: CorsConfig::default(),
         smtp: SmtpConfig::default(),
         voip: crate::common::config::VoipConfig::default(),
+        livekit: crate::common::config::LivekitConfig::default(),
         push: crate::common::config::PushConfig::default(),
         url_preview: crate::common::config::UrlPreviewConfig::default(),
         oidc: crate::common::config::OidcConfig::default(),
