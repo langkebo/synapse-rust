@@ -100,7 +100,7 @@ impl ChunkedUploadService {
         .bind(expires_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to start upload: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to start upload", &e))?;
 
         info!(
             "Started chunked upload: {} for user: {}",
@@ -167,7 +167,7 @@ impl ChunkedUploadService {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to store chunk: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to store chunk", &e))?;
 
         sqlx::query(
             r"
@@ -184,7 +184,7 @@ impl ChunkedUploadService {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update progress: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update progress", &e))?;
 
         let progress = self.get_progress(&upload_id).await?;
 
@@ -208,7 +208,7 @@ impl ChunkedUploadService {
             .bind(upload_id)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get progress: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get progress", &e))?
             .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
@@ -236,7 +236,7 @@ impl ChunkedUploadService {
         .bind(upload_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get chunks: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get chunks", &e))?;
 
         let mut combined_data = Vec::new();
         for row in chunks {
@@ -265,7 +265,7 @@ impl ChunkedUploadService {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to start upload finalization transaction: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to start upload finalization transaction", &e))?;
 
         sqlx::query(
             r"
@@ -278,17 +278,17 @@ impl ChunkedUploadService {
         .bind(now)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to finalize upload status: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to finalize upload status", &e))?;
 
         sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
             .bind(upload_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup finalized upload chunks: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup finalized upload chunks", &e))?;
 
         tx.commit()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to commit upload finalization: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to commit upload finalization", &e))?;
 
         info!(
             "Marked chunked upload as finalized and cleaned chunks: {}",
@@ -330,7 +330,7 @@ impl ChunkedUploadService {
                 .fetch_all(&*self.pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to find expired uploads: {e}"))
+                    ApiError::internal_with_log("Failed to find expired uploads", &e)
                 })?;
 
         let mut cleaned = 0u64;
@@ -364,6 +364,6 @@ impl ChunkedUploadService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list uploads: {e}")))
+        .map_err(|e| ApiError::internal_with_log("Failed to list uploads", &e))
     }
 }

@@ -692,7 +692,7 @@ pub async fn batch_get_room_summaries(
         .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room summaries: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get room summaries", &e))?;
 
     let filtered = if body.is_suggested_only {
         responses

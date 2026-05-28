@@ -486,7 +486,7 @@ impl PushNotificationService {
         for rule in rules {
             if Self::matches_rule(&rule, event)? {
                 let actions: Vec<JsonValue> = serde_json::from_value(rule.actions)
-                    .map_err(|e| ApiError::internal(format!("Invalid actions: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Invalid actions", &e))?;
 
                 let mut notify = false;
 
@@ -525,7 +525,7 @@ impl PushNotificationService {
 
     fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
-            .map_err(|e| ApiError::internal(format!("Invalid conditions: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid conditions", &e))?;
 
         if conditions.is_empty() {
             return Ok(true);

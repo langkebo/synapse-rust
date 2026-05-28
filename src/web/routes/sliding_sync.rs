@@ -1,4 +1,3 @@
-use crate::common::rate_limit_config::RateLimitConfigFile;
 use crate::common::ApiError;
 use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::web::routes::{AppState, AuthenticatedUser};
@@ -59,10 +58,7 @@ async fn sliding_sync(
     // Get device_id or use default
     let device_id = auth_user.device_id.unwrap_or_else(|| "default".to_string());
 
-    let file_config = state
-        .rate_limit_config_manager
-        .as_ref()
-        .map(|manager| manager.get_config());
+    let file_config = state.sync_rate_limit_override();
     let sync_rate_limit_enabled = file_config
         .as_ref()
         .map_or(state.services.config.rate_limit.sync.enabled, |config| config.sync.enabled);
@@ -83,7 +79,7 @@ async fn sliding_sync(
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
             .await
-            .map_err(|e| ApiError::internal(format!("Sliding sync rate limit failed: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Sliding sync rate limit failed", &e))?;
         if !decision.allowed {
             let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));
@@ -102,7 +98,7 @@ async fn sliding_sync(
 
 fn resolve_sliding_sync_rate_limit(
     state: &AppState,
-    file_config: Option<&RateLimitConfigFile>,
+    file_config: Option<&crate::web::routes::state::SyncRateLimitOverride>,
     is_initial: bool,
 ) -> (u32, u32) {
     match file_config {
@@ -135,6 +131,7 @@ mod tests {
     use super::resolve_sliding_sync_rate_limit;
     use crate::cache::CacheConfig;
     use crate::common::rate_limit_config::RateLimitConfigFile;
+    use crate::web::routes::state::SyncRateLimitOverride;
     use crate::web::routes::AppState;
     use std::sync::Arc;
 
@@ -158,13 +155,17 @@ mod tests {
         file_config.sync.initial.burst_size = 22;
         file_config.sync.incremental.per_second = 33;
         file_config.sync.incremental.burst_size = 44;
+        let sync_override = SyncRateLimitOverride {
+            fail_open_on_error: file_config.fail_open_on_error,
+            sync: file_config.sync.clone(),
+        };
 
         assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&file_config), true),
+            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true),
             (11, 22)
         );
         assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&file_config), false),
+            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false),
             (33, 44)
         );
     }
@@ -187,9 +188,13 @@ mod tests {
         file_config.sync.enabled = false;
         file_config.sync.initial.per_second = 99;
         file_config.sync.initial.burst_size = 99;
+        let sync_override = SyncRateLimitOverride {
+            fail_open_on_error: file_config.fail_open_on_error,
+            sync: file_config.sync.clone(),
+        };
 
         assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&file_config), true),
+            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true),
             (5, 50)
         );
         assert_eq!(

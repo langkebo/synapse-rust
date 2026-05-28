@@ -13,8 +13,19 @@ use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+
+#[derive(Debug, Deserialize, Default)]
+pub(crate) struct RoomSyncQueryDto {
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    timeout: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    full_state: Option<bool>,
+    #[serde(default)]
+    since: Option<String>,
+}
 
 pub(crate) async fn get_room_info(
     State(state): State<AppState>,
@@ -716,7 +727,7 @@ pub(crate) async fn get_room_sync(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
-    Query(params): Query<Value>,
+    Query(params): Query<RoomSyncQueryDto>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -732,15 +743,9 @@ pub(crate) async fn get_room_sync(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let timeout = params
-        .get("timeout")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(30000);
-    let full_state = params
-        .get("full_state")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let since = params.get("since").and_then(|v| v.as_str());
+    let timeout = params.timeout.unwrap_or(30000);
+    let full_state = params.full_state.unwrap_or(false);
+    let since = params.since.as_deref();
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -775,6 +780,53 @@ pub(crate) async fn get_room_sync(
                 "Room sync operation timed out".to_string(),
             ))
         }
+    }
+}
+
+fn parse_u64_query_value(raw: &str) -> Option<u64> {
+    raw.parse::<u64>().ok()
+}
+
+fn parse_bool_query_value(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
+fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    Ok(raw.as_deref().and_then(parse_u64_query_value))
+}
+
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    Ok(raw.as_deref().and_then(parse_bool_query_value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_bool_query_value, parse_u64_query_value};
+
+    #[test]
+    fn test_room_sync_parse_u64_query_value_accepts_decimal_string() {
+        assert_eq!(parse_u64_query_value("30000"), Some(30000));
+        assert_eq!(parse_u64_query_value("0"), Some(0));
+    }
+
+    #[test]
+    fn test_room_sync_parse_bool_query_value_accepts_legacy_forms() {
+        assert_eq!(parse_bool_query_value("true"), Some(true));
+        assert_eq!(parse_bool_query_value("1"), Some(true));
+        assert_eq!(parse_bool_query_value("false"), Some(false));
+        assert_eq!(parse_bool_query_value("0"), Some(false));
     }
 }
 

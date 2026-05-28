@@ -158,7 +158,7 @@ pub async fn purge_media_cache(
         .media_service
         .purge_media_cache(before_ts)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to purge media cache: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to purge media cache", &e))?;
 
     Ok(Json(json!({
         "deleted": deleted
@@ -184,13 +184,13 @@ pub async fn get_statistics(
         .user_storage
         .get_user_count()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
     let total_rooms = state
         .services
         .room_storage
         .get_room_count()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.metrics.get_gauge("synapse_total_users") {
@@ -238,7 +238,7 @@ pub async fn whois(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     let devices = state
@@ -246,7 +246,7 @@ pub async fn whois(
         .device_storage
         .get_user_devices(&user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let connections: Vec<Value> = devices
         .iter()
@@ -277,7 +277,7 @@ pub async fn whois_device(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     let device = state
@@ -285,7 +285,7 @@ pub async fn whois_device(
         .device_storage
         .get_user_device(&user.user_id, &device_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match device {
         Some(d) => Ok(Json(json!({
@@ -363,7 +363,7 @@ pub async fn get_invite_blocklist_admin(
         .invite_blocklist_storage
         .get_global_invite_blocklist()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get global blocklist: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get global blocklist", &e))?;
 
     Ok(Json(json!({
         "blocklist": blocklist
@@ -380,7 +380,7 @@ pub async fn get_invite_allowlist_admin(
         .invite_blocklist_storage
         .get_global_invite_allowlist()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get global allowlist: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get global allowlist", &e))?;
 
     Ok(Json(json!({
         "allowlist": allowlist

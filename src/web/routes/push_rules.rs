@@ -14,7 +14,7 @@ pub async fn get_push_rules_default(
     .bind(&auth_user.user_id)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get push rules: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
 
     let username = auth_user
         .user_id

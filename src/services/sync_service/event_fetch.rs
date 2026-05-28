@@ -266,7 +266,7 @@ impl SyncService {
         .fetch_optional(&*self.event_storage.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to poll for device-list updates: {e}"))
+            ApiError::internal_with_log("Failed to poll for device-list updates", &e)
         })?;
 
         Ok(has_device_lists.is_some())

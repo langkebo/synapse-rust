@@ -159,7 +159,7 @@ async fn get_pushers(
     .bind(&auth_user.user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let pushers_list: Vec<Value> = pushers
         .iter()
@@ -223,7 +223,7 @@ async fn set_pusher(
         .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to save pusher: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
 
         Ok(Json(json!({
             "pushkey": body.pushkey,
@@ -237,7 +237,7 @@ async fn set_pusher(
             .bind(&body.pushkey)
             .execute(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
 
         Ok(Json(json!({
             "deleted": true,
@@ -258,7 +258,7 @@ async fn get_push_rules(
     .bind(&auth_user.user_id)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get push rules: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
 
     let username = auth_user
         .user_id
@@ -297,7 +297,7 @@ async fn get_push_rules_scope(
         .bind(&auth_user.user_id)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(row) = result {
             let content: Option<Value> = row.get("content");
@@ -393,7 +393,7 @@ async fn set_push_rule(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save push rule: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -449,7 +449,7 @@ async fn create_push_rule(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to create push rule: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to create push rule", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -473,7 +473,7 @@ async fn delete_push_rule(
     .bind(&rule_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to delete push rule: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Push rule not found".to_string()));
@@ -504,7 +504,7 @@ async fn set_push_rule_actions(
     .bind(&rule_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to update push rule actions: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -527,7 +527,7 @@ async fn get_push_rule_enabled(
     .bind(&rule_id)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => Ok(Json(json!({
@@ -558,7 +558,7 @@ async fn set_push_rule_enabled(
     .bind(&rule_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to update push rule enabled: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -593,7 +593,7 @@ async fn get_notifications(
     .bind(limit as i64)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let notifications_list: Vec<Value> = notifications
         .iter()
@@ -628,7 +628,7 @@ async fn ack_notification(
     .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to ack notification: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
 
     match result {
         Some(_) => Ok(Json(json!({
@@ -659,7 +659,7 @@ async fn get_user_push_rules(
     .bind(kind)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(rules
         .iter()

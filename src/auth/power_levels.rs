@@ -8,7 +8,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if membership.is_none() {
             return Ok(-1);
@@ -28,7 +28,7 @@ impl AuthService {
         .bind(room_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(content) = power_levels_content {
             if let Some(level) = content
@@ -51,7 +51,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(creator) = room_creator {
             if creator == user_id {
@@ -67,7 +67,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         match membership {
             Some(m) if m == "join" => self.get_user_power_level(room_id, user_id).await,
@@ -93,7 +93,7 @@ impl AuthService {
         .bind(room_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
     pub async fn get_required_state_event_power_level(
@@ -503,7 +503,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {
@@ -577,7 +577,7 @@ impl AuthService {
             .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(creator) = room_creator {
             if creator == target_user_id {

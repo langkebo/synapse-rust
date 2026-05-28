@@ -104,7 +104,7 @@ async fn create_session(
         .rendezvous_storage
         .create_session(params)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create session: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
 
     let rendezvous_url = format!(
         "matrix://rendezvous/{}/{}",
@@ -134,7 +134,7 @@ async fn load_rendezvous_session(
         .rendezvous_storage
         .get_session(session_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get session: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get session", &e))?
         .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))
 }
 
@@ -213,7 +213,7 @@ async fn update_session(
         .rendezvous_storage
         .update_session_status(&session_id, status)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update session: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
 
     if status == "connected" {
         let user_id = auth_user
@@ -230,7 +230,7 @@ async fn update_session(
             .rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bind user: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to bind user", &e))?;
     }
 
     if status == "completed" {
@@ -247,7 +247,7 @@ async fn update_session(
                 .auth_service
                 .generate_access_token(user_id, &device_id, false)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to generate token: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
 
             return Ok(Json(json!({
                 "session_id": session.session_id,
@@ -280,7 +280,7 @@ async fn delete_session(
         .rendezvous_storage
         .delete_session(&session_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete session: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;
 
     Ok(Json(json!({})))
 }
@@ -312,7 +312,7 @@ async fn send_message(
     msg_storage
         .store_message(&session_id, "outbound", &message)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to send message: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
 
     // Generate a message ID based on session and timestamp
     let message_id = format!("{}_{}", session_id, chrono::Utc::now().timestamp_millis());
@@ -338,7 +338,7 @@ async fn get_messages(
     let messages = msg_storage
         .get_messages(&session_id, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get messages: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;
 
     let messages_json: Vec<Value> = messages
         .iter()

@@ -236,7 +236,7 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
         .user_storage
         .get_user_by_identifier(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load user: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to load user", &e))?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -720,7 +720,7 @@ pub async fn create_password_auth_provider(
         .create_password_auth_provider(request)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to create password auth provider: {e}"))
+            ApiError::internal_with_log("Failed to create password auth provider", &e)
         })?;
 
     Ok((
@@ -738,7 +738,7 @@ pub async fn get_password_auth_providers(
         .module_storage
         .get_password_auth_providers()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get password auth providers: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get password auth providers", &e))?;
 
     let responses: Vec<PasswordAuthProviderResponse> = providers
         .into_iter()
@@ -766,7 +766,7 @@ pub async fn create_presence_route(
         .module_storage
         .create_presence_route(request)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create presence route: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create presence route", &e))?;
 
     Ok((
         StatusCode::CREATED,
@@ -783,7 +783,7 @@ pub async fn get_presence_routes(
         .module_storage
         .get_presence_routes()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get presence routes: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get presence routes", &e))?;
 
     let responses: Vec<PresenceRouteResponse> = routes
         .into_iter()
@@ -814,7 +814,7 @@ pub async fn create_media_callback(
         .module_storage
         .create_media_callback(request)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create media callback: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create media callback", &e))?;
 
     Ok((
         StatusCode::CREATED,
@@ -832,7 +832,7 @@ pub async fn get_media_callbacks(
         .module_storage
         .get_media_callbacks(Some(&callback_type))
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get media callbacks: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
 
     let responses: Vec<MediaCallbackResponse> = callbacks
         .into_iter()
@@ -851,7 +851,7 @@ pub async fn get_all_media_callbacks(
         .module_storage
         .get_media_callbacks(None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get media callbacks: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
 
     let responses: Vec<MediaCallbackResponse> = callbacks
         .into_iter()
@@ -879,7 +879,7 @@ pub async fn create_rate_limit_callback(
         .module_storage
         .create_rate_limit_callback(request)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create rate limit callback: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create rate limit callback", &e))?;
 
     Ok((
         StatusCode::CREATED,
@@ -896,7 +896,7 @@ pub async fn get_rate_limit_callbacks(
         .module_storage
         .get_rate_limit_callbacks()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get rate limit callbacks: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get rate limit callbacks", &e))?;
 
     let responses: Vec<RateLimitCallbackResponse> = callbacks
         .into_iter()
@@ -925,7 +925,7 @@ pub async fn create_account_data_callback(
         .create_account_data_callback(request)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to create account data callback: {e}"))
+            ApiError::internal_with_log("Failed to create account data callback", &e)
         })?;
 
     Ok((
@@ -943,7 +943,7 @@ pub async fn get_account_data_callbacks(
         .module_storage
         .get_account_data_callbacks()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get account data callbacks: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get account data callbacks", &e))?;
 
     let responses: Vec<AccountDataCallbackResponse> = callbacks
         .into_iter()
