@@ -30,7 +30,7 @@ pub async fn get_qr_code(
         .qr_login_storage
         .create_qr_login(&transaction_id, &auth_user.user_id, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create QR transaction: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create QR transaction", &e))?;
 
     // Return QR code data (in real implementation, would generate actual QR code)
     Ok(Json(json!({
@@ -60,7 +60,7 @@ pub async fn confirm_qr_login(
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get QR transaction: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
@@ -71,7 +71,7 @@ pub async fn confirm_qr_login(
             .qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update status: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
 
         return Err(ApiError::bad_request("QR code expired".to_string()));
     }
@@ -89,7 +89,7 @@ pub async fn confirm_qr_login(
         .qr_login_storage
         .update_qr_status(transaction_id, "confirmed")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update status: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id,
@@ -117,7 +117,7 @@ pub async fn start_qr_login(
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get QR transaction: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
@@ -128,7 +128,7 @@ pub async fn start_qr_login(
             .qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update status: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
 
         return Err(ApiError::bad_request("QR code expired".to_string()));
     }
@@ -156,7 +156,7 @@ pub async fn get_qr_status(
         .qr_login_storage
         .get_qr_transaction(&transaction_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get QR transaction: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
@@ -193,7 +193,7 @@ pub async fn invalidate_qr_login(
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get QR transaction: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Verify the user owns the transaction
@@ -209,7 +209,7 @@ pub async fn invalidate_qr_login(
         .qr_login_storage
         .update_qr_status(transaction_id, "invalidated")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update status: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id,

@@ -39,7 +39,7 @@ impl MatrixRTCService {
             .storage
             .create_session(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create RTC session: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to create RTC session", &e))?;
 
         self.invalidate_room_cache(&session.room_id).await;
 
@@ -61,7 +61,7 @@ impl MatrixRTCService {
             .storage
             .get_session(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get RTC session: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get RTC session", &e))?;
 
         if let Some(ref s) = session {
             let _ = self.cache.set(&cache_key, s, 60).await;
@@ -84,7 +84,7 @@ impl MatrixRTCService {
             .storage
             .get_active_sessions_for_room(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get active sessions: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get active sessions", &e))?;
 
         let _ = self.cache.set(&cache_key, &sessions, 30).await;
 
@@ -104,7 +104,7 @@ impl MatrixRTCService {
                 self.storage
                     .end_session(room_id, session_id)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Failed to end session: {}", e)))?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to end session", &e))?;
 
                 self.invalidate_room_cache(room_id).await;
                 Ok(())
@@ -152,7 +152,7 @@ impl MatrixRTCService {
             .storage
             .create_membership(params)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create membership: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to create membership", &e))?;
 
         self.invalidate_session_cache(&membership.room_id, &membership.session_id)
             .await;
@@ -175,7 +175,7 @@ impl MatrixRTCService {
             .storage
             .get_memberships_for_session(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get memberships: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get memberships", &e))?;
 
         let _ = self.cache.set(&cache_key, &memberships, 30).await;
 
@@ -192,7 +192,7 @@ impl MatrixRTCService {
         self.storage
             .end_membership(room_id, session_id, user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to end membership: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to end membership", &e))?;
 
         self.invalidate_session_cache(room_id, session_id).await;
 
@@ -209,7 +209,7 @@ impl MatrixRTCService {
             .get_session_with_memberships(room_id, session_id)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to get session with memberships: {}", e))
+                ApiError::internal_with_log("Failed to get session with memberships", &e)
             })?;
 
         Ok(result)
@@ -235,7 +235,7 @@ impl MatrixRTCService {
                 sender_device_id,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to store encryption key: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to store encryption key", &e))?;
 
         self.invalidate_key_cache(room_id, session_id).await;
 
@@ -257,7 +257,7 @@ impl MatrixRTCService {
             .storage
             .get_encryption_keys(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get encryption keys: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get encryption keys", &e))?;
 
         let _ = self.cache.set(&cache_key, &keys, 60).await;
 
@@ -270,7 +270,7 @@ impl MatrixRTCService {
             .cleanup_expired_memberships()
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to cleanup expired memberships: {}", e))
+                ApiError::internal_with_log("Failed to cleanup expired memberships", &e)
             })?;
 
         Ok(count)

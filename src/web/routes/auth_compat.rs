@@ -38,7 +38,7 @@ pub(crate) async fn register(
             false,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create guest user: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
         sqlx::query(
             r"
@@ -48,7 +48,7 @@ pub(crate) async fn register(
         .bind(&user.user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark guest user: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
         DeviceStorage::create_device(
             &state.services.device_storage,
@@ -57,14 +57,14 @@ pub(crate) async fn register(
             Some("Guest Device"),
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create device: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
         let access_token = state
             .services
             .auth_service
             .generate_access_token(&user.user_id, &device_id, false)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to generate guest token: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
 
         return Ok(Json(json!({
             "access_token": access_token,
@@ -170,7 +170,7 @@ pub(crate) async fn check_username_availability(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({
         "available": !exists,
@@ -311,7 +311,7 @@ pub(crate) async fn submit_email_token(
         .email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get verification token: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
 
     let verification_token = match verification_token {
         Some(t) => t,
@@ -349,7 +349,7 @@ pub(crate) async fn submit_email_token(
         .email_verification_storage
         .mark_token_used(sid_int)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark token as used: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;
 
     Ok(Json(json!({
         "success": true

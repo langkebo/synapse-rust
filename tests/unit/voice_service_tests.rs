@@ -4,7 +4,11 @@
 use std::sync::Arc;
 
 use sqlx::postgres::PgPoolOptions;
+use synapse_rust::services::media::MediaDomainService;
+use synapse_rust::services::media::chunked_upload::ChunkedUploadService;
+use synapse_rust::services::media_quota_service::MediaQuotaService;
 use synapse_rust::services::voice_service::{VoiceMessageUploadParams, VoiceService};
+use synapse_rust::storage::media_quota::MediaQuotaStorage;
 use synapse_rust::storage::voice::VoiceStorage;
 
 #[test]
@@ -62,17 +66,25 @@ fn test_validate_audio_content_type_invalid() {
     assert!(VoiceService::validate_audio_content_type("").is_err());
 }
 
-#[test]
-fn test_voice_service_new() {
+#[tokio::test]
+async fn test_voice_service_new() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let media_path = temp_dir.path().to_str().unwrap();
-    let media_service =
-        synapse_rust::services::media_service::MediaService::new(media_path, None, "test.server");
-    let voice_storage = VoiceStorage::new(Arc::new(
+    let pool = Arc::new(
         PgPoolOptions::new()
             .max_connections(1)
             .connect_lazy("postgres://localhost/test")
             .unwrap(),
+    );
+    let media_service =
+        synapse_rust::services::media_service::MediaService::new(media_path, None, "test.server");
+    let media_quota_service = Arc::new(MediaQuotaService::new(Arc::new(MediaQuotaStorage::new(&pool))));
+    let chunked_upload_service = Arc::new(ChunkedUploadService::new(pool.clone()));
+    let media_domain_service = Arc::new(MediaDomainService::new(
+        media_service,
+        media_quota_service,
+        chunked_upload_service,
     ));
-    let _voice_service = VoiceService::new(media_service, voice_storage, "test.server");
+    let voice_storage = VoiceStorage::new(pool);
+    let _voice_service = VoiceService::new(media_domain_service, voice_storage, "test.server");
 }

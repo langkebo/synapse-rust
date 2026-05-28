@@ -229,7 +229,7 @@ pub async fn get_destinations(
         sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers")
             .fetch_one(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let destinations = sqlx::query(
         "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name OFFSET $1 LIMIT $2"
@@ -238,11 +238,11 @@ pub async fn get_destinations(
     .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let dest_list: Vec<Value> = destinations
         .iter()
-        .map(|row| build_destination_json(row).map_err(|e| ApiError::internal(format!("Row parse error: {e}"))))
+        .map(|row| build_destination_json(row).map_err(|e| ApiError::internal_with_log("Row parse error", &e)))
         .collect::<Result<_, _>>()?;
 
     let next_from = if offset + (limit as i64) < total {
@@ -271,10 +271,10 @@ pub async fn get_destination(
     .bind(&destination)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match dest {
-        Some(row) => Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal(format!("Row parse error: {e}")))?)),
+        Some(row) => Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal_with_log("Row parse error", &e))?)),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
 }
@@ -291,7 +291,7 @@ pub async fn reset_connection(
     .bind(&destination)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Destination not found".to_string()));
@@ -310,7 +310,7 @@ pub async fn delete_destination(
         .bind(&destination)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Destination not found".to_string()));
@@ -330,7 +330,7 @@ pub async fn get_destination_rooms(
             .bind(&destination)
             .fetch_optional(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .is_some();
 
     if !destination_exists {
@@ -343,7 +343,7 @@ pub async fn get_destination_rooms(
         .bind(&destination)
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
@@ -366,7 +366,7 @@ pub async fn rewrite_federation(
             .bind(from_server)
             .fetch_optional(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .is_some();
 
     if !source_exists {
@@ -379,7 +379,7 @@ pub async fn rewrite_federation(
         .bind(format!("%:{from_server}"))
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let rooms_count = rooms_result.len();
 
@@ -410,7 +410,7 @@ pub async fn resolve_federation(
         .federation_blacklist_storage
         .is_server_blocked(server_name)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let destination = sqlx::query(
         "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
@@ -418,7 +418,7 @@ pub async fn resolve_federation(
     .bind(server_name)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let resolved = destination.is_some() && !is_blocked;
 
@@ -449,7 +449,7 @@ pub async fn confirm_federation(
         .bind(&body.server_name)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let previous_status = match existing {
         Some(row) => row
@@ -478,7 +478,7 @@ pub async fn confirm_federation(
     .bind(&body.server_name)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if !body.accept {
         if let Err(e) = state
@@ -537,13 +537,13 @@ pub async fn list_pending_federation(
     .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let total: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
             .fetch_one(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let list: Vec<Value> = pending
         .iter()
@@ -636,7 +636,7 @@ pub async fn add_to_blacklist(
     .bind(&admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::conflict(
@@ -657,7 +657,7 @@ pub async fn remove_from_blacklist(
         .bind(&server_name)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Blacklist entry not found".to_string()));
@@ -674,7 +674,7 @@ pub async fn get_federation_cache(
     let cache = sqlx::query("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let entries: Vec<Value> = cache
         .iter()
@@ -700,7 +700,7 @@ pub async fn delete_federation_cache_entry(
         .bind(&key)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Cache entry not found".to_string()));
@@ -717,7 +717,7 @@ pub async fn clear_federation_cache(
     let result = sqlx::query("DELETE FROM federation_cache")
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({ "deleted": result.rows_affected() })))
 }

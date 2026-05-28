@@ -105,7 +105,7 @@ impl PushGateway {
             .json(notification)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to send to gateway: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to send to gateway", &e))?;
 
         let status = response.status();
 
@@ -113,7 +113,7 @@ impl PushGateway {
             let body = response
                 .text()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to read response: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
 
             error!("Push gateway returned error: {} - {}", status, body);
             return Err(ApiError::internal(format!(
@@ -124,7 +124,7 @@ impl PushGateway {
         let gateway_response: PushGatewayResponse = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse gateway response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
 
         debug!(
             "Push gateway response: rejected {} devices",

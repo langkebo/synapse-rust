@@ -59,7 +59,7 @@ impl VoipService {
         let lifetime = self.config.lifetime_seconds();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| ApiError::internal(format!("Time error: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Time error", &e))?
             .as_secs() as i64;
 
         let expiry = now + lifetime;
@@ -88,7 +88,7 @@ impl VoipService {
 
     fn generate_turn_password(username: &str, secret: &str) -> Result<String, ApiError> {
         let mut mac = HmacSha1::new_from_slice(secret.as_bytes())
-            .map_err(|e| ApiError::internal(format!("HMAC error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("HMAC error", &e))?;
         mac.update(username.as_bytes());
         let result = mac.finalize();
         Ok(BASE64.encode(result.into_bytes()))

@@ -147,7 +147,7 @@ impl DeviceSyncManager {
             .get(url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("HTTP request failed: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("HTTP request failed", &e))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);
@@ -163,7 +163,7 @@ impl DeviceSyncManager {
         let body: Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
         let devices_json = body
             .get("devices")
@@ -285,7 +285,7 @@ impl DeviceSyncManager {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to fetch devices: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to fetch devices", &e))?;
 
         Ok(devices
             .into_iter()
@@ -350,7 +350,7 @@ impl DeviceSyncManager {
         .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup expired devices: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired devices", &e))?;
 
         let deleted_count = result.rows_affected();
         if deleted_count > 0 {
@@ -403,7 +403,7 @@ impl DeviceSyncManager {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to revoke device: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to revoke device", &e))?;
 
         let cache_pattern = format!("remote_devices:*:{user_id}");
         let mut local = self.local_cache.write().await;

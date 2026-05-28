@@ -470,7 +470,7 @@ impl SamlService {
         let metadata_xml =
             if let Some(ref url) = self.config.metadata_url {
                 let response = self.http_client.get(url).send().await.map_err(|e| {
-                    ApiError::internal(format!("Failed to fetch IdP metadata: {}", e))
+                    ApiError::internal_with_log("Failed to fetch IdP metadata", &e)
                 })?;
 
                 if !response.status().is_success() {
@@ -481,7 +481,7 @@ impl SamlService {
                 }
 
                 response.text().await.map_err(|e| {
-                    ApiError::internal(format!("Failed to read IdP metadata: {}", e))
+                    ApiError::internal_with_log("Failed to read IdP metadata", &e)
                 })?
             } else if let Some(ref xml) = self.config.metadata_xml {
                 xml.clone()
@@ -802,7 +802,7 @@ impl SamlService {
         relay_state: Option<&str>,
     ) -> Result<String, ApiError> {
         let mut url = url::Url::parse(base_url)
-            .map_err(|e| ApiError::internal(format!("Invalid SAML base URL: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid SAML base URL", &e))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("SAMLRequest", saml_request);
@@ -884,7 +884,7 @@ impl SamlService {
 
     fn parse_metadata_xml(xml: &str) -> Result<SamlMetadata, ApiError> {
         let parsed = parse_saml_metadata(xml)
-            .map_err(|e| ApiError::internal(format!("Failed to parse SAML metadata: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse SAML metadata", &e))?;
 
         Ok(SamlMetadata {
             entity_id: parsed.entity_id,

@@ -35,10 +35,7 @@ pub(crate) async fn sync(
     let filter = params.get("filter").and_then(|v| v.as_str());
     let since = params.get("since").and_then(|v| v.as_str());
 
-    let file_config = state
-        .rate_limit_config_manager
-        .as_ref()
-        .map(|m| m.get_config());
+    let file_config = state.sync_rate_limit_override();
     let fail_open_on_error = file_config
         .as_ref()
         .map_or(state.services.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
@@ -91,9 +88,7 @@ pub(crate) async fn sync(
                         remaining: burst_size,
                     }
                 } else {
-                    return Err(ApiError::internal(format!(
-                        "Sync rate limit failed: {error}"
-                    )));
+                    return Err(ApiError::internal_with_log("Sync rate limit failed", &error));
                 }
             }
         };

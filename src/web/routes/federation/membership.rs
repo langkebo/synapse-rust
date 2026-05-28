@@ -18,7 +18,7 @@ pub(super) async fn get_room_members(
         .member_storage
         .get_room_members(&room_id, "join")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room members: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -70,7 +70,7 @@ pub(super) async fn knock_room(
         .event_storage
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create knock event: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -137,7 +137,7 @@ pub(super) async fn thirdparty_invite(
         .event_storage
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create invite event: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -184,7 +184,7 @@ pub(super) async fn get_joined_room_members(
         .member_storage
         .get_room_members(&room_id, "join")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room members: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -223,7 +223,7 @@ pub(super) async fn get_user_devices(
         .device_storage
         .get_user_devices(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user devices: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get user devices", &e))?;
 
     let stream_id: i64 = sqlx::query_scalar(
         r"
@@ -235,7 +235,7 @@ pub(super) async fn get_user_devices(
     .bind(&user_id)
     .fetch_one(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get device stream id: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
 
     let master_key: Option<Value> = sqlx::query_scalar(
         r"
@@ -248,7 +248,7 @@ pub(super) async fn get_user_devices(
     .bind(&user_id)
     .fetch_optional(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get master key: {e}")))?
+    .map_err(|e| ApiError::internal_with_log("Failed to get master key", &e))?
     .flatten()
     .and_then(|raw: String| serde_json::from_str(&raw).ok());
 
@@ -263,7 +263,7 @@ pub(super) async fn get_user_devices(
     .bind(&user_id)
     .fetch_optional(&*state.services.device_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get self-signing key: {e}")))?
+    .map_err(|e| ApiError::internal_with_log("Failed to get self-signing key", &e))?
     .flatten()
     .and_then(|raw: String| serde_json::from_str(&raw).ok());
 
@@ -324,7 +324,7 @@ pub(super) async fn invite_v2(
         .event_storage
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create invite event: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
 
     ::tracing::info!(
         "Processed v2 invite for room {} event {} from {}",
@@ -367,7 +367,7 @@ pub(super) async fn make_join(
             .event_storage
             .get_state_events(&room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get auth events: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
 
         let auth_events_json: Vec<Value> = auth_events
             .iter()
@@ -429,7 +429,7 @@ pub(super) async fn make_leave(
         .event_storage
         .get_state_events(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
 
     let auth_events_json: Vec<Value> = auth_events
         .iter()
@@ -516,14 +516,14 @@ pub(super) async fn send_join(
             .event_storage
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to persist join event: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
 
         state
             .services
             .member_storage
             .add_member(&room_id, user_id, "join", display_name, None, None, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
         ::tracing::info!(
             "Processed join for room {} event {} from {}",
@@ -582,14 +582,14 @@ pub(super) async fn send_leave(
         .event_storage
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist leave event: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
 
     state
         .services
         .member_storage
         .add_member(&room_id, user_id, "leave", None, None, None, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
     ::tracing::info!(
         "Processed leave for room {} event {} from {}",
@@ -674,14 +674,14 @@ pub(super) async fn send_join_v2(
             .event_storage
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to persist join event: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
 
         state
             .services
             .member_storage
             .add_member(&room_id, sender, "join", display_name, None, None, None)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
         ::tracing::info!(
             target: "federation",
@@ -756,14 +756,14 @@ pub(super) async fn send_leave_v2(
         .event_storage
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist leave event: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
 
     state
         .services
         .member_storage
         .remove_member(&room_id, sender)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update membership: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
     ::tracing::info!(
         target: "federation",
@@ -794,7 +794,7 @@ pub(super) async fn exchange_third_party_invite(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let default_event_id = format!(
@@ -1191,7 +1191,7 @@ async fn get_effective_room_join_rule_content(
         .event_storage
         .get_state_events_by_type(room_id, "m.room.join_rules")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room join rules: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
         .into_iter()
         .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         .map(|event| event.content))
@@ -1208,7 +1208,7 @@ async fn validate_federation_join_access(
         .member_storage
         .get_room_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check membership: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
 
     if let Some(member) = existing_member.as_ref() {
         if member.membership == "join" {

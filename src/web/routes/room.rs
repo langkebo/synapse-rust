@@ -460,7 +460,7 @@ async fn get_anti_screenshot(
     let events = state.services.event_storage
         .get_state_events_by_type(&room_id, "com.hula.privacy")
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get anti-screenshot state: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get anti-screenshot state", &e))?;
 
     let enabled = events
         .into_iter()
@@ -497,7 +497,7 @@ async fn set_anti_screenshot(
             None,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to set anti-screenshot state: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to set anti-screenshot state", &e))?;
 
     Ok(Json(serde_json::json!({"enabled": payload.enabled})))
 }

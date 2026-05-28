@@ -16,9 +16,7 @@ pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Val
             .load_or_create_key()
             .await
             .map_err(|e| {
-                ApiError::internal(format!(
-                    "Failed to initialize federation signing key: {e}"
-                ))
+                ApiError::internal_with_log("Failed to initialize federation signing key", &e)
             })?;
     }
 
@@ -200,14 +198,14 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
         .key_rotation_manager
         .get_current_key()
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load federation signing key: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to load federation signing key", &e))?
     {
         return state
             .services
             .key_rotation_manager
             .get_server_keys_response()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build server key response: {e}")))
+            .map_err(|e| ApiError::internal_with_log("Failed to build server key response", &e))
             .or_else(|_| {
                 let key_id_for_sign = current_key.key_id.clone();
                 let secret_key_for_sign = current_key.secret_key.clone();
@@ -317,7 +315,7 @@ async fn fetch_remote_server_keys_response(
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
         .map_err(|e| {
-            ApiError::internal(format!("Failed to build federation HTTP client: {e}"))
+            ApiError::internal_with_log("Failed to build federation HTTP client", &e)
         })?;
 
     let urls = [

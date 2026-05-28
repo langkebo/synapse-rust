@@ -1,6 +1,8 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
-use crate::common::rate_limit_config::RateLimitConfigManager;
+use crate::common::rate_limit_config::{
+    RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile,
+};
 use crate::services::ServiceContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,7 +20,7 @@ pub struct AppState {
     pub federation_join_semaphore: Arc<Semaphore>,
     pub federation_inbound_edu_origin_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
-    pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
     #[cfg(feature = "openclaw-routes")]
@@ -28,6 +30,12 @@ pub struct AppState {
     pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
     #[cfg(feature = "openclaw-routes")]
     pub openclaw_service: Arc<crate::services::openclaw_service::OpenClawService>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncRateLimitOverride {
+    pub fail_open_on_error: bool,
+    pub sync: SyncRateLimitConfigFile,
 }
 
 impl AppState {
@@ -118,5 +126,21 @@ impl AppState {
     pub fn with_rate_limit_config(mut self, manager: Arc<RateLimitConfigManager>) -> Self {
         self.rate_limit_config_manager = Some(manager);
         self
+    }
+
+    pub fn rate_limit_config(&self) -> Option<RateLimitConfigFile> {
+        self.rate_limit_config_manager
+            .as_ref()
+            .map(|manager| manager.get_config())
+    }
+
+    pub fn sync_rate_limit_override(&self) -> Option<SyncRateLimitOverride> {
+        self.rate_limit_config_manager.as_ref().map(|manager| {
+            let config = manager.get_config();
+            SyncRateLimitOverride {
+                fail_open_on_error: config.fail_open_on_error,
+                sync: config.sync,
+            }
+        })
     }
 }

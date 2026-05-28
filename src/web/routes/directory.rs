@@ -55,7 +55,7 @@ async fn ensure_room_alias_write_allowed(
         .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room creator: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
 
     if !is_creator {
         return Err(ApiError::forbidden(
@@ -96,7 +96,7 @@ pub async fn get_directory_room(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to lookup room: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to lookup room", &e))?;
 
     match room_id {
         Some(rid) => Ok(Json(json!({
@@ -124,7 +124,7 @@ pub async fn set_room_alias_handler(
         .directory_service
         .set_room_alias(room_id, &room_alias)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to set alias: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to set alias", &e))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -145,7 +145,7 @@ pub async fn remove_room_alias(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get alias: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get alias", &e))?;
 
     if let Some(room_id) = &existing {
         ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
@@ -156,7 +156,7 @@ pub async fn remove_room_alias(
         .directory_service
         .remove_room_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to remove alias: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to remove alias", &e))?;
 
     Ok(Json(json!({
         "removed": true,
@@ -175,7 +175,7 @@ pub async fn get_alias_servers(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed", &e))?;
 
     match room_id {
         Some(_) => Ok(Json(json!({
@@ -207,7 +207,7 @@ pub async fn get_public_rooms_handler(
                     cursor.map(|(_, room_id)| room_id),
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
+                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
@@ -215,7 +215,7 @@ pub async fn get_public_rooms_handler(
                 .room_storage
                 .count_public_rooms()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
+                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         }
     )?;
 
@@ -278,7 +278,7 @@ pub async fn search_public_rooms(
                     cursor.map(|(_, room_id)| room_id),
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
+                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
@@ -286,7 +286,7 @@ pub async fn search_public_rooms(
                 .room_storage
                 .count_public_rooms()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed: {e}")))
+                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         }
     )?;
 

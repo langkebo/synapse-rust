@@ -176,13 +176,13 @@ const AUTH_CODE_EXPIRY_SECS: i64 = 600;
 impl BuiltinOidcProvider {
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
         let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
-        let der = signing_key.to_pkcs1_der().map_err(|e| ApiError::internal(format!("OIDC RSA serialize: {}", e)))?;
+        let der = signing_key.to_pkcs1_der().map_err(|e| ApiError::internal_with_log("OIDC RSA serialize", &e))?;
         let encoding_key = EncodingKey::from_rsa_der(der.as_bytes());
 
         let public_der = signing_key
             .to_public_key()
             .to_public_key_der()
-            .map_err(|e| ApiError::internal(format!("OIDC RSA pub serialize: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("OIDC RSA pub serialize", &e))?;
         let decoding_key = DecodingKey::from_rsa_der(public_der.as_bytes());
 
         // 计算稳定的 kid: SHA256 over public-key DER, 取前 12B base64url
@@ -208,16 +208,16 @@ impl BuiltinOidcProvider {
         if let Some(p) = path {
             if p.exists() {
                 let pem = std::fs::read_to_string(p)
-                    .map_err(|e| ApiError::internal(format!("OIDC signing key read: {}", e)))?;
+                    .map_err(|e| ApiError::internal_with_log("OIDC signing key read", &e))?;
                 return RsaPrivateKey::from_pkcs8_pem(&pem)
-                    .map_err(|e| ApiError::internal(format!("OIDC signing key parse: {}", e)));
+                    .map_err(|e| ApiError::internal_with_log("OIDC signing key parse", &e));
             }
         }
 
         info!("Generating new RSA-2048 key for builtin OIDC provider");
         let mut rng = rand::thread_rng();
         let key =
-            RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal(format!("OIDC RSA generate: {}", e)))?;
+            RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal_with_log("OIDC RSA generate", &e))?;
 
         if let Some(p) = path {
             use rsa::pkcs8::EncodePrivateKey;
@@ -226,9 +226,9 @@ impl BuiltinOidcProvider {
             }
             let pem = key
                 .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-                .map_err(|e| ApiError::internal(format!("OIDC RSA pem: {}", e)))?;
+                .map_err(|e| ApiError::internal_with_log("OIDC RSA pem", &e))?;
             std::fs::write(p, pem.as_bytes())
-                .map_err(|e| ApiError::internal(format!("OIDC signing key write: {}", e)))?;
+                .map_err(|e| ApiError::internal_with_log("OIDC signing key write", &e))?;
             info!("Persisted builtin OIDC signing key to {}", p.display());
         } else {
             warn!(
@@ -522,7 +522,7 @@ impl BuiltinOidcProvider {
     ) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| ApiError::internal(format!("clock: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("clock", &e))?
             .as_secs() as i64;
 
         let claims = JwtClaims {
@@ -542,14 +542,14 @@ impl BuiltinOidcProvider {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.key_id.clone());
         encode(&header, &claims, &self.encoding_key)
-            .map_err(|e| ApiError::internal(format!("Failed to generate ID token: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to generate ID token", &e))
     }
 
     /// 生成 Access Token (RS256, 与 id_token 算法一致, 防止 alg 混淆)
     fn generate_access_token(&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| ApiError::internal(format!("clock: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("clock", &e))?
             .as_secs() as i64;
 
         let claims = AccessTokenClaims {
@@ -565,7 +565,7 @@ impl BuiltinOidcProvider {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.key_id.clone());
         encode(&header, &claims, &self.encoding_key)
-            .map_err(|e| ApiError::internal(format!("Failed to generate access token: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))
     }
 
     /// 生成 Refresh Token

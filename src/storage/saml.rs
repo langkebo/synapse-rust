@@ -296,7 +296,7 @@ impl SamlStorage {
         .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create SAML session: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create SAML session", &e))?;
 
         info!(
             "Created SAML session: {} for user: {}",
@@ -312,7 +312,7 @@ impl SamlStorage {
         .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML session: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML session", &e))?;
 
         Ok(row)
     }
@@ -334,7 +334,7 @@ impl SamlStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML session by user: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML session by user", &e))?;
 
         Ok(row)
     }
@@ -345,7 +345,7 @@ impl SamlStorage {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to update session last used: {}", e))
+                ApiError::internal_with_log("Failed to update session last used", &e)
             })?;
 
         Ok(())
@@ -356,7 +356,7 @@ impl SamlStorage {
             .bind(session_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to invalidate SAML session: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to invalidate SAML session", &e))?;
 
         info!("Invalidated SAML session: {}", session_id);
         Ok(())
@@ -370,7 +370,7 @@ impl SamlStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup expired sessions: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
 
         let count = result.rows_affected();
         if count > 0 {
@@ -408,7 +408,7 @@ impl SamlStorage {
         .bind(&attributes_json)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create SAML user mapping: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create SAML user mapping", &e))?;
 
         info!(
             "Created/updated SAML user mapping: {} -> {}",
@@ -429,7 +429,7 @@ impl SamlStorage {
         .bind(issuer)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML user mapping: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
 
         Ok(row)
     }
@@ -444,7 +444,7 @@ impl SamlStorage {
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML user mapping: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
 
         Ok(row)
     }
@@ -456,7 +456,7 @@ impl SamlStorage {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to delete SAML user mapping: {}", e))
+                ApiError::internal_with_log("Failed to delete SAML user mapping", &e)
             })?;
 
         info!("Deleted SAML user mapping: {} ({})", name_id, issuer);
@@ -499,7 +499,7 @@ impl SamlStorage {
             .fetch_all(&*self.pool)
             .await
         }
-        .map_err(|e| ApiError::internal(format!("Failed to list SAML user mappings: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to list SAML user mappings", &e))?;
 
         Ok(rows)
     }
@@ -526,7 +526,7 @@ impl SamlStorage {
         .bind(name_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML user mapping: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
 
         Ok(row)
     }
@@ -564,7 +564,7 @@ impl SamlStorage {
         .bind(&existing.issuer)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update SAML user mapping: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update SAML user mapping", &e))?;
 
         if row.is_some() {
             info!(
@@ -584,7 +584,7 @@ impl SamlStorage {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to delete SAML user mappings: {}", e))
+                ApiError::internal_with_log("Failed to delete SAML user mappings", &e)
             })?;
 
         let count = result.rows_affected();
@@ -634,7 +634,7 @@ impl SamlStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create SAML IdP: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create SAML IdP", &e))?;
 
         info!(
             "Created/updated SAML identity provider: {}",
@@ -653,7 +653,7 @@ impl SamlStorage {
         .bind(entity_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML IdP: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdP", &e))?;
 
         Ok(row)
     }
@@ -664,7 +664,7 @@ impl SamlStorage {
         )
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get SAML IdPs: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdPs", &e))?;
 
         Ok(rows)
     }
@@ -677,7 +677,7 @@ impl SamlStorage {
         )
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get enabled SAML IdPs: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get enabled SAML IdPs", &e))?;
 
         Ok(rows)
     }
@@ -705,7 +705,7 @@ impl SamlStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update IdP metadata: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update IdP metadata", &e))?;
 
         debug!("Updated SAML IdP metadata: {}", entity_id);
         Ok(())
@@ -716,7 +716,7 @@ impl SamlStorage {
             .bind(entity_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete SAML IdP: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete SAML IdP", &e))?;
 
         info!("Deleted SAML identity provider: {}", entity_id);
         Ok(())
@@ -754,7 +754,7 @@ impl SamlStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create SAML auth event: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create SAML auth event", &e))?;
 
         debug!(
             "Created SAML auth event: {} - {}",
@@ -780,7 +780,7 @@ impl SamlStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get auth events: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
 
         Ok(rows)
     }
@@ -808,7 +808,7 @@ impl SamlStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create logout request: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create logout request", &e))?;
 
         info!("Created SAML logout request: {}", request.request_id);
         Ok(row)
@@ -824,7 +824,7 @@ impl SamlStorage {
         .bind(request_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get logout request: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get logout request", &e))?;
 
         Ok(row)
     }
@@ -838,7 +838,7 @@ impl SamlStorage {
         .bind(now_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to process logout request: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to process logout request", &e))?;
 
         info!("Processed SAML logout request: {}", request_id);
         Ok(())
@@ -851,7 +851,7 @@ impl SamlStorage {
         .bind(days)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup auth events: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup auth events", &e))?;
 
         let count = result.rows_affected();
         if count > 0 {
@@ -872,7 +872,7 @@ impl SamlStorage {
                 .fetch_all(&*self.pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to load SAML config overrides: {}", e))
+                    ApiError::internal_with_log("Failed to load SAML config overrides", &e)
                 })?;
 
         debug!("Loaded {} SAML config override(s)", rows.len());
@@ -903,7 +903,7 @@ impl SamlStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to upsert SAML config override: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to upsert SAML config override", &e))?;
 
         Ok(())
     }
@@ -917,7 +917,7 @@ impl SamlStorage {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
-                ApiError::internal(format!("Failed to delete SAML config override: {}", e))
+                ApiError::internal_with_log("Failed to delete SAML config override", &e)
             })?;
 
         Ok(())

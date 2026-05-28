@@ -61,7 +61,7 @@ impl MatrixAiConnectionService {
         self.storage
             .get_user_connections(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get user connections: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get user connections", &e))
     }
 
     /// Get a specific AI connection by ID, checking ownership
@@ -74,7 +74,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(ref c) = conn {
             if c.user_id != user_id {
@@ -107,7 +107,7 @@ impl MatrixAiConnectionService {
         self.storage
             .create_connection(&conn)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create connection: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))?;
 
         info!("Created AI connection {} for user {}", id, user_id);
         Ok(conn)
@@ -125,7 +125,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let existing = match existing {
             Some(c) => c,
@@ -142,7 +142,7 @@ impl MatrixAiConnectionService {
                 .update_connection_status(id, is_active)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to update connection status: {}", e))
+                    ApiError::internal_with_log("Failed to update connection status", &e)
                 })?;
         }
 
@@ -151,7 +151,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if updated.is_some() {
             info!("Updated AI connection {}", id);
@@ -167,7 +167,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
         if conn.user_id != user_id {
@@ -177,7 +177,7 @@ impl MatrixAiConnectionService {
         self.storage
             .delete_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete connection: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))?;
 
         info!("Deleted AI connection {} for user {}", id, user_id);
         Ok(true)
@@ -199,7 +199,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_user_provider_connection(user_id, provider)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .ok_or_else(|| {
                 ApiError::not_found(format!(
                     "Active connection for provider {} not found",
@@ -223,7 +223,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_user_provider_connection(user_id, &request.provider)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .ok_or_else(|| {
                 ApiError::not_found(format!(
                     "Active connection for provider {} not found",

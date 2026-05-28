@@ -56,7 +56,7 @@ pub async fn get_ephemeral_events(
     .bind(params.limit)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get ephemeral events: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
 
     let mut events: Vec<Value> = Vec::new();
 

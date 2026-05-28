@@ -85,7 +85,7 @@ impl ThreepidStorage {
         .bind(request.verification_expires_at)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to add threepid: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to add threepid", &e))?;
 
         Ok(threepid)
     }
@@ -117,7 +117,7 @@ impl ThreepidStorage {
         .bind(address)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get threepid: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get threepid", &e))?;
 
         Ok(threepid)
     }
@@ -146,7 +146,7 @@ impl ThreepidStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get threepids: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get threepids", &e))?;
 
         Ok(threepids)
     }
@@ -176,7 +176,7 @@ impl ThreepidStorage {
         .bind(address)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get threepid by address: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get threepid by address", &e))?;
 
         Ok(threepid)
     }
@@ -207,7 +207,7 @@ impl ThreepidStorage {
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to get verified threepid by address: {e}"))
+            ApiError::internal_with_log("Failed to get verified threepid by address", &e)
         })?;
 
         Ok(threepid)
@@ -234,7 +234,7 @@ impl ThreepidStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to verify threepid: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to verify threepid", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -266,7 +266,7 @@ impl ThreepidStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to verify threepid by token: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to verify threepid by token", &e))?;
 
         Ok(threepid)
     }
@@ -288,7 +288,7 @@ impl ThreepidStorage {
         .bind(address)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to remove threepid: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to remove threepid", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -318,7 +318,7 @@ impl ThreepidStorage {
         .bind(added_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to add verified threepid: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to add verified threepid", &e))?;
 
         Ok(result.rows_affected())
     }
@@ -333,7 +333,7 @@ impl ThreepidStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to remove threepids: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to remove threepids", &e))?;
 
         Ok(result.rows_affected())
     }
@@ -350,7 +350,7 @@ impl ThreepidStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to cleanup expired verifications: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired verifications", &e))?;
 
         Ok(result.rows_affected())
     }
@@ -388,7 +388,7 @@ impl ThreepidStorage {
         .fetch_one(&*self.pool)
         .await
         .map(|r: (i64,)| r.0)
-        .map_err(|e| ApiError::internal(format!("Failed to create validation session: {e}")))
+        .map_err(|e| ApiError::internal_with_log("Failed to create validation session", &e))
     }
 
     pub async fn get_validation_session(
@@ -410,7 +410,7 @@ impl ThreepidStorage {
         .bind(chrono::Utc::now().timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get validation session: {e}")))
+        .map_err(|e| ApiError::internal_with_log("Failed to get validation session", &e))
     }
 
     pub async fn get_validation_session_by_token(
@@ -426,7 +426,7 @@ impl ThreepidStorage {
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to get validation session by token: {e}"))
+            ApiError::internal_with_log("Failed to get validation session by token", &e)
         })
     }
 
@@ -442,7 +442,7 @@ impl ThreepidStorage {
         .bind(chrono::Utc::now().timestamp_millis())
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark session validated: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;
 
         Ok(())
     }
@@ -454,7 +454,7 @@ impl ThreepidStorage {
         .bind(id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to increment send attempt: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to increment send attempt", &e))?;
 
         Ok(())
     }
@@ -465,7 +465,7 @@ impl ThreepidStorage {
             .execute(&*self.pool)
             .await
             .map(|r| r.rows_affected())
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup sessions: {e}")))
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup sessions", &e))
     }
 }
 

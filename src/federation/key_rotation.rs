@@ -349,7 +349,7 @@ impl KeyRotationManager {
                     match &self.master_key {
                         Some(mk) => {
                             key.secret_key = decrypt_key(&key.secret_key, mk)
-                                .map_err(|e| ApiError::internal(format!("Failed to decrypt signing key: {e}")))?;
+                                .map_err(|e| ApiError::internal_with_log("Failed to decrypt signing key", &e))?;
                         }
                         None => {
                             return Err(ApiError::internal(
@@ -440,7 +440,7 @@ impl KeyRotationManager {
         // Encrypt the secret key for storage if master key is configured
         let stored_secret_key = match &self.master_key {
             Some(mk) => encrypt_key(secret_key, mk)
-                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}")))?,
+                .map_err(|e| ApiError::internal_with_log("Failed to encrypt signing key", &e))?,
             None => {
                 tracing::warn!(
                     "Storing federation signing key in plaintext - configure signing_key_master_key for encryption"
@@ -697,7 +697,7 @@ impl KeyRotationManager {
             &secret_key,
             &mut response,
         )
-        .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to sign server keys", &e))?;
 
         Ok(response)
     }

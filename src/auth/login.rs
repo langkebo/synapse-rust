@@ -48,7 +48,7 @@ impl AuthService {
             .user_storage
             .get_user_by_identifier(username)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let invalid = || ApiError::forbidden("Invalid credentials".to_string());
 
@@ -201,8 +201,8 @@ impl AuthService {
 
         tokio::task::spawn_blocking(move || auth.verify_password(&password_str, &password_hash_str))
             .await
-            .map_err(|e| ApiError::internal(format!("Verification task panicked: {e}")))?
-            .map_err(|e| ApiError::internal(format!("Password verification failed: {e}")))
+            .map_err(|e| ApiError::internal_with_log("Verification task panicked", &e))?
+            .map_err(|e| ApiError::internal_with_log("Password verification failed", &e))
     }
 
     fn log_login_failure(username: &str, reason: &str) {
@@ -238,7 +238,7 @@ impl AuthService {
             .device_storage
             .get_device(&device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         {
             if existing_device.user_id != user.user_id {
                 return Err(ApiError::forbidden(
@@ -249,7 +249,7 @@ impl AuthService {
             self.device_storage
                 .create_device(&device_id, &user.user_id, initial_display_name)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to create device: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
         }
 
         Ok(device_id)
@@ -276,7 +276,7 @@ impl AuthService {
             .user_storage
             .get_user_by_identifier(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let user = user_opt.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
 

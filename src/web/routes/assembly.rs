@@ -547,7 +547,7 @@ async fn ensure_extended_profile_user_exists(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))?;
 
     if exists {
         Ok(())
@@ -565,7 +565,7 @@ async fn load_extended_profile_document(
         .bind(EXTENDED_PROFILE_DATA_TYPE)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let Some(row) = result else {
         return Ok(serde_json::Map::new());
@@ -613,7 +613,7 @@ async fn save_extended_profile_document(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to save extended profile data: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to save extended profile data", &e))?;
 
     Ok(())
 }
