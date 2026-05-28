@@ -254,7 +254,7 @@ impl DeviceTrustService {
                 &[0u8; 32],
                 "verification",
             )
-            .map_err(|e| ApiError::internal(format!("Failed to compute commitment: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to compute commitment: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         request.commitment = Some(commitment);
         request.pubkey = Some(public_key);

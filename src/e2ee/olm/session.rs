@@ -146,7 +146,7 @@ impl OlmSessionManager {
 
         let result = account
             .create_inbound_session(their_identity_key, &pre_key_message)
-            .map_err(|e| ApiError::internal(format!("Failed to create inbound session: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to create inbound session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let session_id = result.session.session_id();
 
@@ -230,7 +230,7 @@ impl OlmSessionManager {
         let plaintext = entry
             .session
             .decrypt(&message)
-            .map_err(|e| ApiError::internal(format!("Failed to decrypt: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to decrypt: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         entry.dirty = true;
 

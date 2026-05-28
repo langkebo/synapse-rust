@@ -1,6 +1,7 @@
 use super::models::*;
 use crate::error::ApiError;
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -147,10 +148,8 @@ impl DeviceKeyStorage {
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                tracing::error!("Failed to create/update device key: {}", e);
-                Err(ApiError::internal(format!(
-                    "Failed to save device key: {e}"
-                )))
+                tracing::error!("Failed to create/update device key: {e}");
+                Err(ApiError::database("A database error occurred".to_string()))
             }
         }
     }
@@ -195,10 +194,8 @@ impl DeviceKeyStorage {
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                tracing::error!("Failed to create/update fallback key: {}", e);
-                Err(ApiError::internal(format!(
-                    "Failed to save fallback key: {e}"
-                )))
+                tracing::error!("Failed to create/update fallback key: {e}");
+                Err(ApiError::database("A database error occurred".to_string()))
             }
         }
     }
@@ -218,7 +215,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete fallback keys: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to delete fallback keys: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -239,7 +236,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows
             .iter()
@@ -327,7 +324,7 @@ impl DeviceKeyStorage {
         .bind(device_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
     }
@@ -344,9 +341,42 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.iter().map(Self::parse_key_data).collect())
+    }
+
+    pub async fn get_all_device_keys_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, Vec<DeviceKey>>, ApiError> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
+            r"
+            SELECT user_id, device_id, algorithm, key_id, public_key, signatures, display_name, added_ts, ts_updated_ms, key_data
+            FROM device_keys
+            WHERE user_id = ANY($1) AND (is_fallback = FALSE OR is_fallback IS NULL)
+              AND algorithm IN ('ed25519', 'curve25519')
+            "
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+
+        let mut result: HashMap<String, Vec<DeviceKey>> = HashMap::new();
+        for row in rows {
+            let key = Self::parse_key_data(&row);
+            result
+                .entry(key.user_id.clone())
+                .or_default()
+                .push(key);
+        }
+
+        Ok(result)
     }
 
     pub async fn delete_device_key(
@@ -381,7 +411,7 @@ impl DeviceKeyStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(count)
     }
@@ -440,7 +470,7 @@ impl DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let mut counts = std::collections::HashMap::new();
         for row in rows {
@@ -469,7 +499,7 @@ impl DeviceKeyStorage {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to begin transaction: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to begin transaction: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let row = sqlx::query(
             r"
@@ -489,7 +519,8 @@ impl DeviceKeyStorage {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to claim one-time key: {e}"))
+            tracing::error!("Failed to claim one-time key: {e}");
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         if let Some(r) = &row {
@@ -503,7 +534,7 @@ impl DeviceKeyStorage {
             }
             tx.commit()
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {e}")))?;
+                .map_err(|e| { tracing::error!("Failed to commit transaction: {e}"); ApiError::database("A database error occurred".to_string()) })?;
             return Ok(row.as_ref().map(Self::parse_key_data));
         }
 
@@ -520,7 +551,7 @@ impl DeviceKeyStorage {
         .bind(algorithm)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to query fallback key: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to query fallback key: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         if fallback_row.is_some() {
             tracing::warn!(
@@ -532,7 +563,7 @@ impl DeviceKeyStorage {
 
         tx.commit()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to commit transaction: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to commit transaction: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(fallback_row.as_ref().map(Self::parse_key_data))
     }
@@ -575,7 +606,7 @@ impl DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get key changes: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to get key changes: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
 
@@ -597,7 +628,7 @@ impl DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get key changes left: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to get key changes left: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let left: Vec<String> = left_rows.iter().map(|row| row.get("user_id")).collect();
 

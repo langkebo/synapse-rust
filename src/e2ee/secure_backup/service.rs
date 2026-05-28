@@ -67,7 +67,7 @@ impl SecureBackupService {
         .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(SecureBackupResponse {
             backup_id,
@@ -126,7 +126,7 @@ impl SecureBackupService {
         .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(SecureBackupResponse {
             backup_id,
@@ -153,16 +153,16 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str)
-            .map_err(|e| ApiError::internal(format!("Invalid auth data: {e}")))?;
+            .map_err(|e| { tracing::error!("Invalid auth data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         // 2. Derive key
         let salt_bytes = base64::engine::general_purpose::STANDARD
             .decode(&auth_data.salt)
-            .map_err(|e| ApiError::internal(format!("Invalid salt: {e}")))?;
+            .map_err(|e| { tracing::error!("Invalid salt: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
@@ -190,7 +190,7 @@ impl SecureBackupService {
             .bind(&encrypted_b64)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
             key_count += 1;
         }
@@ -206,7 +206,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(key_count)
     }
@@ -233,12 +233,12 @@ impl SecureBackupService {
         let total_keys = row.1;
 
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str)
-            .map_err(|e| ApiError::internal(format!("Invalid auth data: {e}")))?;
+            .map_err(|e| { tracing::error!("Invalid auth data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         // 2. Derive key
         let salt_bytes = base64::engine::general_purpose::STANDARD
             .decode(&auth_data.salt)
-            .map_err(|e| ApiError::internal(format!("Invalid salt: {e}")))?;
+            .map_err(|e| { tracing::error!("Invalid salt: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
@@ -251,7 +251,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .into_iter()
         .collect();
 
@@ -308,12 +308,12 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         match result {
             Some(row) => {
                 let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data)
-                    .map_err(|e| ApiError::internal(format!("Invalid auth data: {e}")))?;
+                    .map_err(|e| { tracing::error!("Invalid auth data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
                 Ok(Some(SecureBackupResponse {
                     backup_id: row.backup_id,
@@ -336,12 +336,12 @@ impl SecureBackupService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let mut backups = Vec::new();
         for row in results {
             let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data)
-                .map_err(|e| ApiError::internal(format!("Invalid auth data: {e}")))?;
+                .map_err(|e| { tracing::error!("Invalid auth data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
             backups.push(SecureBackupResponse {
                 backup_id: row.backup_id,
@@ -363,7 +363,7 @@ impl SecureBackupService {
             .bind(backup_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         // Delete backup
         sqlx::query("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
@@ -371,7 +371,7 @@ impl SecureBackupService {
             .bind(backup_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -387,14 +387,14 @@ impl SecureBackupService {
         _iterations: i64,
     ) -> Result<[u8; 32], ApiError> {
         let params = Params::new(65536, 3, 4, Some(32))
-            .map_err(|e| ApiError::internal(format!("Argon2 params error: {e}")))?;
+            .map_err(|e| { tracing::error!("Argon2 params error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let mut key = [0u8; 32];
         argon2
             .hash_password_into(passphrase.as_bytes(), salt, &mut key)
-            .map_err(|e| ApiError::internal(format!("Key derivation error: {e}")))?;
+            .map_err(|e| { tracing::error!("Key derivation error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(key)
     }
@@ -402,7 +402,7 @@ impl SecureBackupService {
     /// Encrypt data using AES-256-GCM
     fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| ApiError::internal(format!("Cipher error: {e}")))?;
+            .map_err(|e| { tracing::error!("Cipher error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
@@ -412,7 +412,7 @@ impl SecureBackupService {
         // Encrypt
         let ciphertext = cipher
             .encrypt(nonce, plaintext)
-            .map_err(|e| ApiError::internal(format!("Encryption error: {e}")))?;
+            .map_err(|e| { tracing::error!("Encryption error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         // Prepend nonce to ciphertext
         let mut result = nonce_bytes.to_vec();
@@ -428,7 +428,7 @@ impl SecureBackupService {
         }
 
         let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| ApiError::internal(format!("Cipher error: {e}")))?;
+            .map_err(|e| { tracing::error!("Cipher error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let encrypted = &ciphertext[12..];

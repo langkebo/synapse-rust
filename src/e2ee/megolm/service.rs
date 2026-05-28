@@ -157,14 +157,20 @@ impl MegolmService {
         self.storage
             .get_room_sessions(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {e}")))
+            .map_err(|e| {
+                tracing::error!("Failed to get room sessions: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
         self.storage
             .delete_session(session_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete session: {e}")))
+            .map_err(|e| {
+                tracing::error!("Failed to delete session: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })
     }
 
     fn encrypt_session_key(&self, key: &Aes256GcmKey) -> Result<String, ApiError> {
