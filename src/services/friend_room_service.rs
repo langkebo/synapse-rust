@@ -82,6 +82,13 @@ pub struct EnsureDirectRoomResult {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectRoomSnapshot {
+    pub direct_map: Map<String, Value>,
+    pub users: Vec<String>,
+    pub is_direct: bool,
+}
+
 #[derive(Debug, Clone)]
 pub enum DirectMapUpdateAction {
     ReplaceRoomTargets { room_id: String, target_user_ids: Vec<String> },
@@ -126,6 +133,23 @@ fn merge_direct_links(
     for (user_id, room_id) in links {
         ensure_room_in_direct_map(direct_map, &user_id, &room_id);
     }
+}
+
+fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &str) -> Vec<String> {
+    direct_map
+        .iter()
+        .filter_map(|(user_id, value)| {
+            value
+                .as_array()
+                .and_then(|rooms| {
+                    rooms
+                        .iter()
+                        .any(|room| room.as_str() == Some(room_id))
+                        .then_some(user_id)
+                })
+                .cloned()
+        })
+        .collect()
 }
 
 pub struct FriendRoomService {
@@ -705,6 +729,15 @@ impl FriendRoomService {
         Ok(direct_map)
     }
 
+    pub async fn get_direct_room_snapshot(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> ApiResult<DirectRoomSnapshot> {
+        let direct_map = self.get_effective_direct_map(user_id).await?;
+        Ok(Self::build_direct_room_snapshot(direct_map, room_id))
+    }
+
     pub async fn upsert_direct_room_links(
         &self,
         user_id: &str,
@@ -742,6 +775,16 @@ impl FriendRoomService {
                 Ok(direct_map)
             }
         }
+    }
+
+    pub async fn update_direct_room_snapshot(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        action: DirectMapUpdateAction,
+    ) -> ApiResult<DirectRoomSnapshot> {
+        let direct_map = self.apply_direct_map_update(user_id, action).await?;
+        Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
 
     pub async fn replace_direct_room_targets(
@@ -2065,6 +2108,20 @@ impl FriendRoomService {
                     })
                     .then_with(|| left.user_id.cmp(&right.user_id))
             }),
+        }
+    }
+
+    fn build_direct_room_snapshot(
+        direct_map: Map<String, Value>,
+        room_id: &str,
+    ) -> DirectRoomSnapshot {
+        let users = get_room_direct_users(&direct_map, room_id);
+        let is_direct = !users.is_empty();
+
+        DirectRoomSnapshot {
+            direct_map,
+            users,
+            is_direct,
         }
     }
 }

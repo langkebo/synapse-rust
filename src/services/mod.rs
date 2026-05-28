@@ -16,7 +16,8 @@ pub mod admin_registration_service;
 pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
-pub mod cache;
+// Redundant CacheService (Phase P0-1). Replaced by crate::cache::CacheManager.
+// pub mod cache;
 pub mod captcha_service;
 pub mod content_scanner;
 pub mod database_initializer;
@@ -29,7 +30,8 @@ pub mod identity;
 pub mod media;
 pub mod media_quota_service;
 pub mod media_service;
-pub mod message_queue;
+// Redundant MessageQueue (Phase P0-2). Replaced by common::task_queue::RedisTaskQueue.
+// pub mod message_queue;
 pub mod module_service;
 pub mod oidc_service;
 pub mod push;
@@ -50,9 +52,9 @@ pub mod translation_service;
 pub mod directory_service;
 // Compatibility-only in-memory DM helper. Runtime DM semantics now converge on
 // friend_room_service plus m.direct account data, so this legacy helper is only
-// compiled for test-oriented builds and is no longer part of the general
-// services::* surface.
-#[cfg(feature = "test-utils")]
+// compiled for test-oriented builds. It is NO LONGER part of the pub services::* 
+// surface.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod dm_service;
 pub mod typing_service;
 pub mod uia_service;

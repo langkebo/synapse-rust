@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::services::cas_service::CasValidationResponse;
-use crate::storage::cas::{CasService as CasServiceModel, RegisterServiceRequest};
+use crate::storage::cas::{CasRegisteredService, RegisterServiceRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
@@ -103,8 +103,8 @@ struct ServiceResponse {
     is_enabled: bool,
 }
 
-impl From<CasServiceModel> for ServiceResponse {
-    fn from(s: CasServiceModel) -> Self {
+impl From<CasRegisteredService> for ServiceResponse {
+    fn from(s: CasRegisteredService) -> Self {
         Self {
             service_id: s.service_id,
             name: s.name,

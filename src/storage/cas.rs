@@ -43,7 +43,7 @@ pub struct CasProxyGrantingTicket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct CasService {
+pub struct CasRegisteredService {
     pub id: i64,
     pub service_id: String,
     pub name: String,
@@ -324,7 +324,7 @@ impl CasStorage {
     pub async fn register_service(
         &self,
         request: RegisterServiceRequest,
-    ) -> Result<CasService, ApiError> {
+    ) -> Result<CasRegisteredService, ApiError> {
         let allowed_attributes =
             serde_json::to_value(request.allowed_attributes.unwrap_or_default())
                 .unwrap_or(serde_json::json!([]));
@@ -333,7 +333,7 @@ impl CasStorage {
                 .unwrap_or(serde_json::json!([]));
         let now = Utc::now().timestamp_millis();
 
-        let service = sqlx::query_as::<_, CasService>(
+        let service = sqlx::query_as::<_, CasRegisteredService>(
             r#"
             INSERT INTO cas_services (
                 service_id, name, description, service_url_pattern,
@@ -360,9 +360,9 @@ impl CasStorage {
         Ok(service)
     }
 
-    pub async fn get_service(&self, service_id: &str) -> Result<Option<CasService>, ApiError> {
+    pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         let service =
-            sqlx::query_as::<_, CasService>(r#"SELECT * FROM cas_services WHERE service_id = $1"#)
+            sqlx::query_as::<_, CasRegisteredService>(r#"SELECT * FROM cas_services WHERE service_id = $1"#)
                 .bind(service_id)
                 .fetch_optional(&self.pool)
                 .await
@@ -374,8 +374,8 @@ impl CasStorage {
     pub async fn get_service_by_url(
         &self,
         service_url: &str,
-    ) -> Result<Option<CasService>, ApiError> {
-        let service = sqlx::query_as::<_, CasService>(
+    ) -> Result<Option<CasRegisteredService>, ApiError> {
+        let service = sqlx::query_as::<_, CasRegisteredService>(
             r#"SELECT * FROM cas_services WHERE $1 ~ service_url_pattern AND is_enabled = TRUE"#,
         )
         .bind(service_url)
@@ -386,8 +386,8 @@ impl CasStorage {
         Ok(service)
     }
 
-    pub async fn list_services(&self) -> Result<Vec<CasService>, ApiError> {
-        let services = sqlx::query_as::<_, CasService>(
+    pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
+        let services = sqlx::query_as::<_, CasRegisteredService>(
             r#"SELECT * FROM cas_services ORDER BY created_ts DESC"#,
         )
         .fetch_all(&self.pool)
@@ -561,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_cas_service_creation() {
-        let service = CasService {
+        let service = CasRegisteredService {
             id: 1,
             service_id: "app1".to_string(),
             name: "Example App".to_string(),

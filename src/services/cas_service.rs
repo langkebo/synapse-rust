@@ -1,7 +1,6 @@
 use crate::common::ApiError;
-pub use crate::storage::cas::CasService as CasServiceModel;
 use crate::storage::cas::{
-    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStorage, CasTicket, CasUserAttribute,
+    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket, CasUserAttribute,
     CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -216,13 +215,13 @@ impl CasService {
     pub async fn register_service(
         &self,
         request: RegisterServiceRequest,
-    ) -> Result<CasServiceModel, ApiError> {
+    ) -> Result<CasRegisteredService, ApiError> {
         info!("Registering CAS service: {}", request.service_id);
         self.storage.register_service(request).await
     }
 
     #[instrument(skip(self))]
-    pub async fn get_service(&self, service_id: &str) -> Result<Option<CasServiceModel>, ApiError> {
+    pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         self.storage.get_service(service_id).await
     }
 
@@ -230,12 +229,12 @@ impl CasService {
     pub async fn get_service_by_url(
         &self,
         service_url: &str,
-    ) -> Result<Option<CasServiceModel>, ApiError> {
+    ) -> Result<Option<CasRegisteredService>, ApiError> {
         self.storage.get_service_by_url(service_url).await
     }
 
     #[instrument(skip(self))]
-    pub async fn list_services(&self) -> Result<Vec<CasServiceModel>, ApiError> {
+    pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
         self.storage.list_services().await
     }
 

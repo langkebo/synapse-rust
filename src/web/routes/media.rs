@@ -302,7 +302,7 @@ async fn upload_media_common(
     Ok(Json(
         state
             .services
-            .media_service
+            .media_domain_service
             .upload_media(user_id, &content_bytes, content_type, filename)
             .await?,
     ))
@@ -347,7 +347,7 @@ async fn upload_media_with_id_common(
     Ok(Json(
         state
             .services
-            .media_service
+            .media_domain_service
             .upload_media_with_id(user_id, media_id, &content_bytes, content_type, filename)
             .await?,
     ))
@@ -954,8 +954,8 @@ async fn chunked_upload_start(
 
     let upload_id = state
         .services
-        .chunked_upload_service
-        .start_upload(
+        .media_domain_service
+        .start_chunked_upload(
             &auth_user.user_id,
             filename,
             content_type,
@@ -1008,7 +1008,7 @@ async fn chunked_upload_chunk(
 
     let response = state
         .services
-        .chunked_upload_service
+        .media_domain_service
         .upload_chunk(request, &auth_user.user_id)
         .await?;
 
@@ -1036,8 +1036,8 @@ async fn chunked_upload_complete(
 
     let response = state
         .services
-        .chunked_upload_service
-        .complete_upload(upload_id, &auth_user.user_id)
+        .media_domain_service
+        .complete_chunked_upload(upload_id, &auth_user.user_id)
         .await?;
 
     // Fix content_uri to use actual server name instead of localhost
@@ -1064,8 +1064,8 @@ async fn chunked_upload_cancel(
 
     state
         .services
-        .chunked_upload_service
-        .cancel_upload(upload_id, &auth_user.user_id)
+        .media_domain_service
+        .cancel_chunked_upload(upload_id, &auth_user.user_id)
         .await?;
 
     Ok(Json(json!({
@@ -1088,8 +1088,8 @@ async fn chunked_upload_progress(
 
     let progress = state
         .services
-        .chunked_upload_service
-        .get_progress(upload_id)
+        .media_domain_service
+        .get_chunked_upload_progress(upload_id)
         .await?;
 
     if progress.user_id != auth_user.user_id {

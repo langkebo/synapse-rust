@@ -1,3 +1,5 @@
+#![cfg(feature = "widgets")]
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},

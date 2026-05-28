@@ -195,7 +195,9 @@ async fn upload_keys(
 
     // Validate device_keys has required fields when provided as a non-empty object
     if has_device_keys {
-        let dk = body.get("device_keys").unwrap();
+        let Some(dk) = body.get("device_keys") else {
+            return Err(ApiError::bad_request("device_keys field is missing".to_string()));
+        };
         if let Some(obj) = dk.as_object() {
             if !obj.is_empty() {
                 // Non-empty device_keys should have keys field
@@ -612,6 +614,7 @@ async fn device_list_update(
     }
 
     let mut deleted: Vec<Value> = Vec::new();
+    let mut active_pairs: Vec<(String, String)> = Vec::new();
     for ((user_id, device_id), change_type) in latest {
         if change_type == "deleted" {
             deleted.push(json!({
@@ -621,23 +624,30 @@ async fn device_list_update(
             continue;
         }
 
-        let row = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
+        active_pairs.push((user_id, device_id));
+    }
+
+    if !active_pairs.is_empty() {
+        let user_ids: Vec<&str> = active_pairs.iter().map(|(u, _)| u.as_str()).collect();
+        let device_ids: Vec<&str> = active_pairs.iter().map(|(_, d)| d.as_str()).collect();
+
+        let device_rows = sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
             r"
-            SELECT display_name, last_seen_ts
+            SELECT user_id, device_id, display_name, last_seen_ts
             FROM devices
-            WHERE user_id = $1 AND device_id = $2
+            WHERE (user_id, device_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::text[]))
             ",
         )
-        .bind(&user_id)
-        .bind(&device_id)
-        .fetch_optional(&*state.services.device_storage.pool)
+        .bind(&user_ids)
+        .bind(&device_ids)
+        .fetch_all(&*state.services.device_storage.pool)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get device data: {e}");
+            tracing::error!("Failed to batch get device data: {e}");
             ApiError::database("Failed to get device data")
         })?;
 
-        if let Some((display_name, last_seen_ts)) = row {
+        for (user_id, device_id, display_name, last_seen_ts) in device_rows {
             changed.push(json!({
                 "user_id": user_id,
                 "device_id": device_id,

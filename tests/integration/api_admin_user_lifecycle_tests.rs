@@ -4,16 +4,57 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::sync::Arc;
-use synapse_rust::cache::CacheManager;
+use std::sync::{Arc, OnceLock};
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::services::ServiceContainer;
+use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
+static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn test_mutex() -> &'static tokio::sync::Mutex<()> {
+    TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
-    super::setup_test_app_with_pool().await
+    let pool = synapse_rust::test_utils::prepare_shared_test_pool()
+        .await
+        .ok()?;
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+    let state = AppState::new(container, cache.clone());
+    let app = synapse_rust::web::create_router(state);
+    Some((app, pool, cache))
 }
 
 async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheManager) -> String {
-    let (token, username) = super::get_admin_token(app).await;
+    let username = format!("admin_user_lifecycle_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "AdminTest@123",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
+        .await
+        .expect("failed to register lifecycle admin user");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .expect("failed to read lifecycle admin response");
+    let json: Value = serde_json::from_slice(&body).expect("invalid lifecycle admin json");
+    let token = json["access_token"]
+        .as_str()
+        .expect("missing lifecycle admin access token")
+        .to_string();
+
     sqlx::query("UPDATE users SET user_type = 'super_admin', is_admin = TRUE WHERE username = $1")
         .bind(&username)
         .execute(pool)
@@ -26,6 +67,7 @@ async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheM
 
 #[tokio::test]
 async fn test_admin_user_stats_reflect_real_counts() {
+    let _guard = test_mutex().lock().await;
     let Some((app, pool, cache)) = setup_test_context().await else {
         return;
     };
@@ -118,6 +160,7 @@ async fn test_admin_user_stats_reflect_real_counts() {
 /// 测试用户管理完整生命周期：注册 → 查询 → 封禁 → 解封 → 删除
 #[tokio::test]
 async fn test_admin_user_lifecycle_management() {
+    let _guard = test_mutex().lock().await;
     let Some((app, pool, cache)) = setup_test_context().await else {
         return;
     };
@@ -325,10 +368,11 @@ async fn test_admin_user_lifecycle_management() {
 /// 测试批量用户查询的边界条件
 #[tokio::test]
 async fn test_admin_user_list_pagination_and_limits() {
-    let Some(app) = super::setup_test_app().await else {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_context().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
 
     // 1. 创建多个测试用户
     let mut user_ids = Vec::new();

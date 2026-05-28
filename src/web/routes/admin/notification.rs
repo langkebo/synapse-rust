@@ -1,17 +1,23 @@
 use crate::common::ApiError;
+#[cfg(feature = "server-notifications")]
 use crate::storage::server_notification::{
     decode_server_notification_cursor, CreateNotificationRequest, ServerNotification,
 };
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, Query, State},
-    routing::{delete, get, post, put},
+    extract::{Path, State},
+    routing::{delete, get, put},
     Json, Router,
 };
+#[cfg(feature = "server-notifications")]
+use axum::extract::Query;
+#[cfg(feature = "server-notifications")]
+use axum::routing::post;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
 
+#[cfg(feature = "server-notifications")]
 fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
     let cursor = cursor?;
     let (sent_ts, id) = cursor.split_once('|')?;
@@ -20,11 +26,12 @@ fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
     Some((sent_ts, id))
 }
 
+#[cfg(feature = "server-notifications")]
 fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
     format!("{sent_ts}|{id}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server-notifications"))]
 mod cursor_tests {
     use super::{decode_notice_cursor, encode_notice_cursor};
     use crate::storage::server_notification::{
@@ -70,45 +77,8 @@ mod cursor_tests {
 }
 
 pub fn create_notification_router(_state: AppState) -> Router<AppState> {
-    Router::new()
-        .route(
-            "/_synapse/admin/v1/notifications",
-            post(create_notification),
-        )
-        .route("/_synapse/admin/v1/notifications", get(list_notifications))
-        .route(
-            "/_synapse/admin/v1/notifications/{notification_id}",
-            get(get_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/notifications/{notification_id}",
-            put(update_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/notifications/{notification_id}",
-            delete(delete_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
-            put(deactivate_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/notifications/active",
-            get(list_active_notifications),
-        )
-        .route(
-            "/_synapse/admin/v1/send_server_notice",
-            post(send_server_notice),
-        )
-        .route("/_synapse/admin/v1/server_notices", get(get_server_notices))
-        .route(
-            "/_synapse/admin/v1/server_notices/{notice_id}",
-            get(get_server_notice),
-        )
-        .route(
-            "/_synapse/admin/v1/server_notices/{notice_id}",
-            delete(delete_server_notice),
-        )
+    #[allow(unused_mut)]
+    let mut router = Router::new()
         .route(
             "/_synapse/admin/v1/users/{user_id}/notification",
             get(get_user_notification),
@@ -124,39 +94,59 @@ pub fn create_notification_router(_state: AppState) -> Router<AppState> {
         .route(
             "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
             delete(delete_user_pusher),
-        )
+        );
+
+    #[cfg(feature = "server-notifications")]
+    {
+        router = router
+            .route(
+                "/_synapse/admin/v1/notifications",
+                post(create_notification),
+            )
+            .route("/_synapse/admin/v1/notifications", get(list_notifications))
+            .route(
+                "/_synapse/admin/v1/notifications/{notification_id}",
+                get(get_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/notifications/{notification_id}",
+                put(update_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/notifications/{notification_id}",
+                delete(delete_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+                put(deactivate_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/notifications/active",
+                get(list_active_notifications),
+            )
+            .route(
+                "/_synapse/admin/v1/send_server_notice",
+                post(send_server_notice),
+            )
+            .route("/_synapse/admin/v1/server_notices", get(get_server_notices))
+            .route(
+                "/_synapse/admin/v1/server_notices/{notice_id}",
+                get(get_server_notice),
+            )
+            .route(
+                "/_synapse/admin/v1/server_notices/{notice_id}",
+                delete(delete_server_notice),
+            );
+    }
+
+    router
 }
 
 pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
-    [
-        (Method::POST, "/_synapse/admin/v1/notifications"),
-        (Method::GET, "/_synapse/admin/v1/notifications"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/notifications/{notification_id}",
-        ),
-        (
-            Method::PUT,
-            "/_synapse/admin/v1/notifications/{notification_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/notifications/{notification_id}",
-        ),
-        (
-            Method::PUT,
-            "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
-        ),
-        (Method::GET, "/_synapse/admin/v1/notifications/active"),
-        (Method::POST, "/_synapse/admin/v1/send_server_notice"),
-        (Method::GET, "/_synapse/admin/v1/server_notices"),
-        (Method::GET, "/_synapse/admin/v1/server_notices/{notice_id}"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/server_notices/{notice_id}",
-        ),
+    #[allow(unused_mut)]
+    let mut entries = vec![
         (
             Method::GET,
             "/_synapse/admin/v1/users/{user_id}/notification",
@@ -170,10 +160,44 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
             Method::DELETE,
             "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
         ),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::notification"))
-    .collect()
+    ];
+
+    #[cfg(feature = "server-notifications")]
+    {
+        entries.extend_from_slice(&[
+            (Method::POST, "/_synapse/admin/v1/notifications"),
+            (Method::GET, "/_synapse/admin/v1/notifications"),
+            (
+                Method::GET,
+                "/_synapse/admin/v1/notifications/{notification_id}",
+            ),
+            (
+                Method::PUT,
+                "/_synapse/admin/v1/notifications/{notification_id}",
+            ),
+            (
+                Method::DELETE,
+                "/_synapse/admin/v1/notifications/{notification_id}",
+            ),
+            (
+                Method::PUT,
+                "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+            ),
+            (Method::GET, "/_synapse/admin/v1/notifications/active"),
+            (Method::POST, "/_synapse/admin/v1/send_server_notice"),
+            (Method::GET, "/_synapse/admin/v1/server_notices"),
+            (Method::GET, "/_synapse/admin/v1/server_notices/{notice_id}"),
+            (
+                Method::DELETE,
+                "/_synapse/admin/v1/server_notices/{notice_id}",
+            ),
+        ]);
+    }
+
+    entries
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "admin::notification"))
+        .collect()
 }
 
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
@@ -182,7 +206,7 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
         .user_storage
         .get_user_by_identifier(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -191,6 +215,7 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
     Ok(())
 }
 
+#[cfg(feature = "server-notifications")]
 async fn ensure_target_users_exist(state: &AppState, user_ids: &[String]) -> Result<(), ApiError> {
     for user_id in user_ids {
         ensure_user_exists(state, user_id).await?;
@@ -199,12 +224,15 @@ async fn ensure_target_users_exist(state: &AppState, user_ids: &[String]) -> Res
     Ok(())
 }
 
+#[cfg(feature = "server-notifications")]
+#[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct ServerNoticeRequest {
     pub user_id: String,
     pub content: NoticeContent,
 }
 
+#[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct NoticeContent {
     pub msgtype: String,
@@ -216,6 +244,7 @@ pub struct UserNotificationRequest {
     pub enabled: bool,
 }
 
+#[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct UpdateNotificationRequest {
     pub title: Option<String>,
@@ -231,6 +260,7 @@ pub struct UpdateNotificationRequest {
     pub action_text: Option<String>,
 }
 
+#[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct NotificationQuery {
     pub audience: Option<String>,
@@ -238,6 +268,7 @@ pub struct NotificationQuery {
     pub from: Option<String>,
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn create_notification(
     _admin: AdminUser,
@@ -280,6 +311,7 @@ pub async fn create_notification(
     Ok(Json(json!(notification)))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn list_notifications(
     _admin: AdminUser,
@@ -305,6 +337,7 @@ pub async fn list_notifications(
     })))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_notification(
     _admin: AdminUser,
@@ -329,6 +362,7 @@ pub async fn get_notification(
     }
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn update_notification(
     _admin: AdminUser,
@@ -342,7 +376,7 @@ pub async fn update_notification(
     .bind(notification_id)
     .fetch_optional(&state.services.server_notification_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let (current_title, current_content) = match existing {
         Some(row) => (row.0, row.1),
@@ -390,6 +424,7 @@ pub async fn update_notification(
     Ok(Json(json!(notification)))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_notification(
     _admin: AdminUser,
@@ -400,7 +435,7 @@ pub async fn delete_notification(
         .bind(notification_id)
         .execute(&state.services.server_notification_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -409,6 +444,7 @@ pub async fn delete_notification(
     Ok(Json(json!({})))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn deactivate_notification(
     _admin: AdminUser,
@@ -433,6 +469,7 @@ pub async fn deactivate_notification(
     Ok(Json(json!({ "is_enabled": false })))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn list_active_notifications(
     _admin: AdminUser,
@@ -458,6 +495,7 @@ pub async fn list_active_notifications(
     Ok(Json(json!(notifications)))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn send_server_notice(
     _admin: AdminUser,
@@ -469,7 +507,7 @@ pub async fn send_server_notice(
         .user_storage
         .get_user_by_identifier(&body.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
     let Some(target_user) = target_user else {
         return Err(ApiError::not_found("User not found".to_string()));
     };
@@ -487,7 +525,7 @@ pub async fn send_server_notice(
         .pool
         .begin()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let room_result = sqlx::query(
         r#"
@@ -658,7 +696,7 @@ pub async fn send_server_notice(
     .bind(now)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let summary_result = sqlx::query(
         r#"
@@ -729,13 +767,14 @@ pub async fn send_server_notice(
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(
         json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id }),
     ))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_server_notices(
     _admin: AdminUser,
@@ -748,7 +787,7 @@ pub async fn get_server_notices(
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
         .fetch_one(&*state.services.event_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let notices = sqlx::query(
         "SELECT id, user_id, event_id, content, sent_ts
@@ -764,7 +803,7 @@ pub async fn get_server_notices(
     .bind(limit)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let notice_list: Vec<Value> = notices
         .iter()
@@ -803,6 +842,7 @@ pub struct ServerNoticesQuery {
     pub from: Option<String>,
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_server_notice(
     _admin: AdminUser,
@@ -815,7 +855,7 @@ pub async fn get_server_notice(
     .bind(notice_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match notice {
         Some(row) => Ok(Json(json!({
@@ -829,6 +869,7 @@ pub async fn get_server_notice(
     }
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_server_notice(
     _admin: AdminUser,
@@ -848,7 +889,7 @@ pub async fn delete_server_notice(
     .bind(notice_id)
     .fetch_optional(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let Some(row) = notice_info else {
         return Err(ApiError::not_found("Server notice not found".to_string()));
@@ -863,14 +904,14 @@ pub async fn delete_server_notice(
         .pool
         .begin()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // 2. Delete the server notice record
     sqlx::query("DELETE FROM server_notices WHERE id = $1")
         .bind(notice_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // 3. If we found a room_id, delete the room (this will cascade to events, memberships, etc.)
     if let Some(rid) = room_id {
@@ -916,7 +957,7 @@ pub async fn delete_server_notice(
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
@@ -933,7 +974,7 @@ pub async fn get_user_notification(
         .bind(&user_id)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match setting {
         Some(row) => Ok(Json(json!({
@@ -959,7 +1000,7 @@ pub async fn update_user_notification(
     .bind(body.enabled)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({ "enabled": body.enabled })))
 }
@@ -978,7 +1019,7 @@ pub async fn get_user_pushers(
     .bind(&user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let pusher_list: Vec<Value> = pushers
         .iter()
@@ -1014,7 +1055,7 @@ pub async fn delete_user_pusher(
         .bind(&pushkey)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Pusher not found".to_string()));
