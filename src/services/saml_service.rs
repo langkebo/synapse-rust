@@ -474,10 +474,10 @@ impl SamlService {
                 })?;
 
                 if !response.status().is_success() {
-                    return Err(ApiError::internal(format!(
-                        "IdP metadata request failed: {}",
-                        response.status()
-                    )));
+                    return Err(ApiError::internal_with_log(
+                        "IdP metadata request failed",
+                        &response.status(),
+                    ));
                 }
 
                 response.text().await.map_err(|e| {

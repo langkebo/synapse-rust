@@ -154,10 +154,10 @@ impl DeviceSyncManager {
         }
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Remote server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Remote server returned error",
+                &response.status(),
+            ));
         }
 
         let body: Value = response

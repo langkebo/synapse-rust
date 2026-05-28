@@ -29,13 +29,13 @@ macro_rules! impl_api_error {
 #[macro_export]
 macro_rules! map_internal {
     ($result:expr, $msg:literal) => {
-        $result.map_err(|e| $crate::common::ApiError::internal(format!("{}: {}", $msg, e)))
+        $result.map_err(|e| $crate::common::ApiError::internal_with_log($msg, &e))
     };
     ($result:expr, $msg:expr) => {
-        $result.map_err(|e| $crate::common::ApiError::internal(format!("{}: {}", $msg, e)))
+        $result.map_err(|e| $crate::common::ApiError::internal_with_log($msg, &e))
     };
     ($msg:literal) => {
-        |e| $crate::common::ApiError::internal(format!("{}: {}", $msg, e))
+        |e| $crate::common::ApiError::internal_with_log($msg, &e)
     };
 }
 

@@ -176,10 +176,10 @@ impl McpProxyService {
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             warn!("MCP server returned error {}: {}", status, error_text);
-            return Err(ApiError::internal(format!(
-                "MCP server error: {}",
-                error_text
-            )));
+            return Err(ApiError::internal_with_log(
+                "MCP server error",
+                &error_text,
+            ));
         }
 
         let result: Value = response.json().await.map_err(|e| {

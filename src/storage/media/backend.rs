@@ -49,10 +49,10 @@ impl MediaStorageBackendFactory {
                 )))
             }
             StorageBackendType::Memory => Ok(Box::new(MemoryBackend::new())),
-            _ => Err(ApiError::internal(format!(
-                "Unsupported storage backend: {:?}",
-                config.backend_type
-            ))),
+            _ => Err(ApiError::internal_with_log(
+                "Unsupported storage backend",
+                &format!("{:?}", config.backend_type),
+            )),
         }
     }
 }

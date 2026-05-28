@@ -154,10 +154,10 @@ impl ContentScanner {
 
         if !response.status().is_success() {
             if self.config.block_on_scan_failure {
-                return Err(ApiError::internal(format!(
-                    "Webhook scan failed with status: {}",
-                    response.status()
-                )));
+                return Err(ApiError::internal_with_log(
+                    "Webhook scan failed",
+                    &response.status(),
+                ));
             }
             return Ok(ContentScanResult {
                 safe: true,
