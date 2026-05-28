@@ -66,10 +66,10 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to bind 3PID", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Identity server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Identity server returned error",
+                &response.status(),
+            ));
         }
 
         let three_pid = ThirdPartyId::new(&format!("{id_server}:{sid}"), "unknown", user_id);
@@ -104,10 +104,10 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to unbind 3PID", &e))?;
 
         if !response.status().is_success() && response.status().as_u16() != 404 {
-            return Err(ApiError::internal(format!(
-                "Identity server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Identity server returned error",
+                &response.status(),
+            ));
         }
 
         Ok(())
@@ -142,10 +142,10 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to request verification", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Identity server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Identity server returned error",
+                &response.status(),
+            ));
         }
 
         let json: serde_json::Value = response
@@ -259,9 +259,10 @@ impl IdentityService {
                     signed: None,
                 });
             }
-            return Err(ApiError::internal(format!(
-                "Identity server returned error: {status}"
-            )));
+            return Err(ApiError::internal_with_log(
+                "Identity server returned error",
+                &status,
+            ));
         }
 
         let json: serde_json::Value = response

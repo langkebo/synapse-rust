@@ -116,9 +116,10 @@ impl PushGateway {
                 .map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
 
             error!("Push gateway returned error: {} - {}", status, body);
-            return Err(ApiError::internal(format!(
-                "Push gateway error: {status}"
-            )));
+            return Err(ApiError::internal_with_log(
+                "Push gateway error",
+                &status,
+            ));
         }
 
         let gateway_response: PushGatewayResponse = response

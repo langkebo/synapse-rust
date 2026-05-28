@@ -103,10 +103,10 @@ impl GeoIpService {
             .map_err(|e| ApiError::internal_with_log("IPAPI request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "IPAPI returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "IPAPI returned error",
+                &response.status(),
+            ));
         }
 
         let json: serde_json::Value = response
@@ -154,10 +154,10 @@ impl GeoIpService {
             .map_err(|e| ApiError::internal_with_log("IPStack request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "IPStack returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "IPStack returned error",
+                &response.status(),
+            ));
         }
 
         let json: serde_json::Value = response
