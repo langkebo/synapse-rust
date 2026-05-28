@@ -153,10 +153,10 @@ impl FriendFederationClient {
             .map_err(|e| ApiError::internal_with_log("Federation request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Remote server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Remote server returned error",
+                &response.status(),
+            ));
         }
 
         Ok(())
@@ -186,10 +186,10 @@ impl FriendFederationClient {
         }
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Remote server returned error: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Remote server returned error",
+                &response.status(),
+            ));
         }
 
         let body: Value = response

@@ -130,10 +130,10 @@ impl OidcService {
             })?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "Discovery request failed: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "Discovery request failed",
+                &response.status(),
+            ));
         }
 
         let discovery: OidcDiscoveryDocument = response.json().await.map_err(|e| {
@@ -272,9 +272,10 @@ impl OidcService {
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal(format!(
-                "Token exchange failed: {body}"
-            )));
+            return Err(ApiError::internal_with_log(
+                "Token exchange failed",
+                &body,
+            ));
         }
 
         let token_response: OidcTokenResponse = response
@@ -526,9 +527,10 @@ impl OidcService {
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal(format!(
-                "Token refresh failed: {body}"
-            )));
+            return Err(ApiError::internal_with_log(
+                "Token refresh failed",
+                &body,
+            ));
         }
 
         response
@@ -558,10 +560,10 @@ impl OidcService {
             .map_err(|e| ApiError::internal_with_log("UserInfo request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal(format!(
-                "UserInfo request failed: {}",
-                response.status()
-            )));
+            return Err(ApiError::internal_with_log(
+                "UserInfo request failed",
+                &response.status(),
+            ));
         }
 
         response

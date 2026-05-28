@@ -280,9 +280,10 @@ impl ApplicationServiceManager {
                     .await
                     .map_err(|e| error!("Failed to fail transaction: {}", e));
 
-                Err(ApiError::internal(format!(
-                    "Application service returned error: HTTP {status}"
-                )))
+                Err(ApiError::internal_with_log(
+                    "Application service returned error",
+                    &format!("HTTP {status}"),
+                ))
             }
             Err(e) => {
                 let _ = self
