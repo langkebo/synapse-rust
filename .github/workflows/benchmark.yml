@@ -114,6 +114,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: benchmark
     if: github.event_name == 'pull_request'
+    permissions:
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -145,6 +147,30 @@ jobs:
           else
             echo "No baseline found for comparison"
           fi
+
+      - name: Post performance comparison
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 📊 Performance Comparison\n\n';
+            if (fs.existsSync('current/benchmark.txt')) {
+              const current = fs.readFileSync('current/benchmark.txt', 'utf8');
+              body += '### Current Results\n```\n' + current + '\n```\n\n';
+            }
+            if (fs.existsSync('baseline/benchmark.txt')) {
+              const baseline = fs.readFileSync('baseline/benchmark.txt', 'utf8');
+              body += '### Baseline (main)\n```\n' + baseline + '\n```\n';
+            } else {
+              body += 'No baseline found for comparison.\n';
+            }
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
 
   performance-manual:
     name: Run manual performance tests

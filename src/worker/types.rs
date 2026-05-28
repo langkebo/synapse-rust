@@ -110,7 +110,7 @@ impl FromStr for WorkerStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerConfig {
+pub struct WorkerRuntimeConfig {
     pub worker_id: String,
     pub worker_name: String,
     pub worker_type: WorkerType,
@@ -128,7 +128,10 @@ pub struct WorkerConfig {
     pub extra_config: HashMap<String, serde_json::Value>,
 }
 
-impl Default for WorkerConfig {
+#[deprecated(since = "0.1.0", note = "Use WorkerRuntimeConfig instead to avoid confusion with config::WorkerConfig")]
+pub type WorkerConfig = WorkerRuntimeConfig;
+
+impl Default for WorkerRuntimeConfig {
     fn default() -> Self {
         Self {
             worker_id: uuid::Uuid::new_v4().to_string(),
@@ -475,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_worker_config_default() {
-        let config = WorkerConfig::default();
+        let config = WorkerRuntimeConfig::default();
         assert!(!config.worker_id.is_empty());
         assert_eq!(config.worker_type, WorkerType::Frontend);
         assert_eq!(config.host, "localhost");

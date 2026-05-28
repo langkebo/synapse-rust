@@ -5,6 +5,12 @@ use axum::{
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+async fn setup_fresh_test_app() -> Option<axum::Router> {
+    super::setup_test_app_with_config(|_| {})
+        .await
+        .map(|(app, _state)| app)
+}
+
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()
         .method("POST")
@@ -59,7 +65,7 @@ fn encode_room_id(room_id: &str) -> String {
 
 #[tokio::test]
 async fn test_room_sync_requires_membership() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -86,7 +92,7 @@ async fn test_room_sync_requires_membership() {
 
 #[tokio::test]
 async fn test_room_sync_returns_minimal_shape() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -134,7 +140,7 @@ async fn test_room_sync_returns_minimal_shape() {
 
 #[tokio::test]
 async fn test_room_sync_incremental_omits_state() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 

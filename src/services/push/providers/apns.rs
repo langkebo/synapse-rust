@@ -7,7 +7,7 @@ use std::time::Duration;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
-pub struct ApnsConfig {
+pub struct ApnsProviderConfig {
     pub topic: String,
     pub endpoint: String,
     pub key_id: Option<String>,
@@ -16,7 +16,10 @@ pub struct ApnsConfig {
     pub timeout_secs: u64,
 }
 
-impl Default for ApnsConfig {
+#[deprecated(since = "0.1.0", note = "Use ApnsProviderConfig instead to avoid confusion with config::ApnsConfig")]
+pub type ApnsConfig = ApnsProviderConfig;
+
+impl Default for ApnsProviderConfig {
     fn default() -> Self {
         Self {
             topic: String::new(),
@@ -29,7 +32,7 @@ impl Default for ApnsConfig {
     }
 }
 
-impl ApnsConfig {
+impl ApnsProviderConfig {
     pub fn sandbox() -> Self {
         Self {
             endpoint: "https://api.sandbox.push.apple.com".to_string(),
@@ -70,13 +73,13 @@ struct ApnsJwtClaims {
 
 #[derive(Debug)]
 pub struct ApnsProvider {
-    config: ApnsConfig,
+    config: ApnsProviderConfig,
     client: Client,
     enabled: bool,
 }
 
 impl ApnsProvider {
-    pub fn new(config: ApnsConfig) -> Self {
+    pub fn new(config: ApnsProviderConfig) -> Self {
         let enabled = !config.topic.is_empty();
 
         let client = Client::builder()
@@ -92,7 +95,7 @@ impl ApnsProvider {
     }
 
     pub fn with_topic(topic: String) -> Self {
-        let config = ApnsConfig {
+        let config = ApnsProviderConfig {
             topic,
             ..Default::default()
         };
@@ -251,15 +254,15 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 -----END PRIVATE KEY-----\n";
 
     #[test]
-    fn test_apns_config_default() {
-        let config = ApnsConfig::default();
+    fn test_apns_provider_config_default() {
+        let config = ApnsProviderConfig::default();
         assert_eq!(config.endpoint, "https://api.push.apple.com");
         assert_eq!(config.timeout_secs, 30);
     }
 
     #[test]
-    fn test_apns_config_sandbox() {
-        let config = ApnsConfig::sandbox();
+    fn test_apns_provider_config_sandbox() {
+        let config = ApnsProviderConfig::sandbox();
         assert_eq!(config.endpoint, "https://api.sandbox.push.apple.com");
     }
 
@@ -272,7 +275,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_apns_provider_disabled() {
-        let config = ApnsConfig::default();
+        let config = ApnsProviderConfig::default();
         let provider = ApnsProvider::new(config);
         assert!(!provider.is_enabled());
     }
@@ -306,7 +309,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_generate_jwt_signs_real_token() {
-        let provider = ApnsProvider::new(ApnsConfig {
+        let provider = ApnsProvider::new(ApnsProviderConfig {
             topic: "com.example.app".to_string(),
             key_id: Some("ABC123DEFG".to_string()),
             team_id: Some("TEAM123456".to_string()),
@@ -324,7 +327,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[tokio::test]
     async fn test_send_when_disabled() {
-        let config = ApnsConfig::default();
+        let config = ApnsProviderConfig::default();
         let provider = ApnsProvider::new(config);
 
         let payload = NotificationPayload {
