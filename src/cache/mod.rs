@@ -26,7 +26,7 @@ pub use invalidation::{
     CacheInvalidationMessage, CacheInvalidationSubscriber, InvalidationReceiver, InvalidationType,
     CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
 };
-pub use query_cache::{CacheConfig as QueryCacheConfig, CacheEntry, CacheStats, QueryCache};
+pub use query_cache::{CacheEntry, CacheStats, QueryCache, QueryCacheConfig};
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
 const DEFAULT_REDIS_TIMEOUT_MS: u64 = 500;

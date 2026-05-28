@@ -36,7 +36,7 @@ impl<T> CacheEntry<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CacheConfig {
+pub struct QueryCacheConfig {
     pub room_ttl: Duration,
     pub user_ttl: Duration,
     pub event_ttl: Duration,
@@ -49,7 +49,10 @@ pub struct CacheConfig {
     pub warm_on_startup: bool,
 }
 
-impl Default for CacheConfig {
+#[deprecated(since = "0.1.0", note = "Use QueryCacheConfig instead to avoid confusion with cache::CacheConfig")]
+pub type CacheConfig = QueryCacheConfig;
+
+impl Default for QueryCacheConfig {
     fn default() -> Self {
         Self {
             room_ttl: Duration::from_secs(1800), // 30 min - rooms change infrequently
@@ -118,7 +121,7 @@ impl Default for CacheWarmupConfig {
 }
 
 pub struct QueryCache {
-    config: CacheConfig,
+    config: QueryCacheConfig,
     warmup_config: RwLock<CacheWarmupConfig>,
     rooms: RwLock<HashMap<String, CacheEntry<serde_json::Value>>>,
     users: RwLock<HashMap<String, CacheEntry<serde_json::Value>>>,
@@ -131,7 +134,7 @@ pub struct QueryCache {
 }
 
 impl QueryCache {
-    pub fn new(config: CacheConfig) -> Self {
+    pub fn new(config: QueryCacheConfig) -> Self {
         Self {
             config,
             warmup_config: RwLock::new(CacheWarmupConfig::default()),
@@ -149,7 +152,7 @@ impl QueryCache {
 
 impl Default for QueryCache {
     fn default() -> Self {
-        Self::new(CacheConfig::default())
+        Self::new(QueryCacheConfig::default())
     }
 }
 
@@ -586,7 +589,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_cache_expiration() {
-        let cache = QueryCache::new(CacheConfig {
+        let cache = QueryCache::new(QueryCacheConfig {
             room_ttl: Duration::from_millis(100),
             user_ttl: Duration::from_millis(100),
             event_ttl: Duration::from_millis(100),

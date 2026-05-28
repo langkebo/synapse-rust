@@ -330,10 +330,10 @@ pub struct StreamWriterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worker::bus::RedisConfig;
+    use crate::worker::bus::RedisBusConfig;
 
     fn create_test_bus() -> Arc<WorkerBus> {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         Arc::new(WorkerBus::new(
             config,
             "test.com".to_string(),

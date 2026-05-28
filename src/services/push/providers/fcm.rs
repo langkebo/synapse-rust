@@ -6,14 +6,17 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone)]
-pub struct FcmConfig {
+pub struct FcmProviderConfig {
     pub api_key: String,
     pub endpoint: String,
     pub timeout_secs: u64,
     pub max_retries: u32,
 }
 
-impl Default for FcmConfig {
+#[deprecated(since = "0.1.0", note = "Use FcmProviderConfig instead to avoid confusion with config::FcmConfig")]
+pub type FcmConfig = FcmProviderConfig;
+
+impl Default for FcmProviderConfig {
     fn default() -> Self {
         Self {
             api_key: String::new(),
@@ -73,13 +76,13 @@ struct FcmResult {
 
 #[derive(Debug)]
 pub struct FcmProvider {
-    config: FcmConfig,
+    config: FcmProviderConfig,
     client: Client,
     enabled: bool,
 }
 
 impl FcmProvider {
-    pub fn new(config: FcmConfig) -> Self {
+    pub fn new(config: FcmProviderConfig) -> Self {
         let enabled = !config.api_key.is_empty();
 
         let client = Client::builder()
@@ -95,7 +98,7 @@ impl FcmProvider {
     }
 
     pub fn with_api_key(api_key: String) -> Self {
-        let config = FcmConfig {
+        let config = FcmProviderConfig {
             api_key,
             ..Default::default()
         };
@@ -215,8 +218,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fcm_config_default() {
-        let config = FcmConfig::default();
+    fn test_fcm_provider_config_default() {
+        let config = FcmProviderConfig::default();
         assert_eq!(config.endpoint, "https://fcm.googleapis.com/fcm/send");
         assert_eq!(config.timeout_secs, 30);
     }
@@ -230,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_fcm_provider_disabled() {
-        let config = FcmConfig::default();
+        let config = FcmProviderConfig::default();
         let provider = FcmProvider::new(config);
         assert!(!provider.is_enabled());
     }
@@ -261,7 +264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_when_disabled() {
-        let config = FcmConfig::default();
+        let config = FcmProviderConfig::default();
         let provider = FcmProvider::new(config);
 
         let payload = NotificationPayload {

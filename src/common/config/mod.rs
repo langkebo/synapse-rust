@@ -3786,53 +3786,6 @@ fn default_state_event_limit() -> u64 {
 */
 
 /*
-/// 消息保留配置。
-///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#retention
-///
-/// 配置自动删除旧消息的策略。
-///
-/// # 待实现功能
-/// - 保留策略配置
-/// - 状态事件保留
-/// - 默认保留策略
-/// - 最大保留期
-///
-/// # 配置示例
-/// ```yaml
-/// retention:
-///   enabled: true
-///   default_policy:
-///     min_lifetime: "1d"
-///     max_lifetime: "365d"
-///   allowed_lifetime_min: "1d"
-///   allowed_lifetime_max: "365d"
-/// ```
-#[derive(Debug, Clone, Deserialize)]
-pub struct RetentionConfig {
-    /// 是否启用消息保留
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// 默认保留策略
-    #[serde(default)]
-    pub default_policy: Option<RetentionPolicy>,
-
-    /// 最小允许保留期
-    pub allowed_lifetime_min: Option<String>,
-
-    /// 最大允许保留期
-    pub allowed_lifetime_max: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RetentionPolicy {
-    pub min_lifetime: Option<String>,
-    pub max_lifetime: Option<String>,
-}
-*/
-
-/*
 /// 用户目录配置。
 ///
 /// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#user_directory
@@ -4043,32 +3996,6 @@ pub struct ThirdPartyRule {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ThirdPartyField {
     pub network: String,
-}
-*/
-
-/*
-/// 实验性功能配置。
-///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#experimental
-///
-/// 配置 MSC (Matrix Spec Change) 实验性功能。
-///
-/// # 待实现功能
-/// - MSC 编号列表
-/// - 功能开关
-///
-/// # 配置示例
-/// ```yaml
-/// experimental:
-///   mscs:
-///     - "msc2815"  # Broadcast to device
-///     - "msc3785"  # Read receipts
-/// ```
-#[derive(Debug, Clone, Deserialize)]
-pub struct ExperimentalConfig {
-    /// 启用的 MSC 列表
-    #[serde(default)]
-    pub mscs: Vec<String>,
 }
 */
 

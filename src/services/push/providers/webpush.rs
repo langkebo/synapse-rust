@@ -7,14 +7,17 @@ use std::time::Duration;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
-pub struct WebPushConfig {
+pub struct WebPushProviderConfig {
     pub vapid_public_key: String,
     pub vapid_private_key: String,
     pub subject: String,
     pub timeout_secs: u64,
 }
 
-impl Default for WebPushConfig {
+#[deprecated(since = "0.1.0", note = "Use WebPushProviderConfig instead to avoid confusion with config::WebPushConfig")]
+pub type WebPushConfig = WebPushProviderConfig;
+
+impl Default for WebPushProviderConfig {
     fn default() -> Self {
         Self {
             vapid_public_key: String::new(),
@@ -53,13 +56,13 @@ struct VapidClaims {
 
 #[derive(Debug)]
 pub struct WebPushProvider {
-    config: WebPushConfig,
+    config: WebPushProviderConfig,
     client: Client,
     enabled: bool,
 }
 
 impl WebPushProvider {
-    pub fn new(config: WebPushConfig) -> Self {
+    pub fn new(config: WebPushProviderConfig) -> Self {
         let enabled = !config.vapid_public_key.is_empty() && !config.vapid_private_key.is_empty();
 
         let client = Client::builder()
@@ -75,7 +78,7 @@ impl WebPushProvider {
     }
 
     pub fn with_vapid_keys(public_key: String, private_key: String) -> Self {
-        let config = WebPushConfig {
+        let config = WebPushProviderConfig {
             vapid_public_key: public_key,
             vapid_private_key: private_key,
             ..Default::default()
@@ -255,8 +258,8 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 -----END PRIVATE KEY-----\n";
 
     #[test]
-    fn test_webpush_config_default() {
-        let config = WebPushConfig::default();
+    fn test_webpush_provider_config_default() {
+        let config = WebPushProviderConfig::default();
         assert!(config.vapid_public_key.is_empty());
         assert!(config.vapid_private_key.is_empty());
         assert_eq!(config.subject, "mailto:admin@example.com");
@@ -272,7 +275,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_webpush_provider_disabled() {
-        let config = WebPushConfig::default();
+        let config = WebPushProviderConfig::default();
         let provider = WebPushProvider::new(config);
         assert!(!provider.is_enabled());
     }
@@ -297,7 +300,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_generate_vapid_jwt_signs_real_token() {
-        let provider = WebPushProvider::new(WebPushConfig {
+        let provider = WebPushProvider::new(WebPushProviderConfig {
             vapid_public_key: "test_public_key".to_string(),
             vapid_private_key: TEST_EC_PRIVATE_KEY.to_string(),
             subject: "mailto:test@example.com".to_string(),
@@ -316,7 +319,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[tokio::test]
     async fn test_send_when_disabled() {
-        let config = WebPushConfig::default();
+        let config = WebPushProviderConfig::default();
         let provider = WebPushProvider::new(config);
 
         let payload = NotificationPayload {
