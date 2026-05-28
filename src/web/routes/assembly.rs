@@ -490,7 +490,7 @@ async fn get_rtc_transports(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let voip_service = &state.services.voip_service;
+    let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({ "transports": [] })));

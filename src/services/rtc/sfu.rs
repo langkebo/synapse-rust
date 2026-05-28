@@ -1,12 +1,5 @@
+use crate::common::config::LivekitConfig;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LivekitConfig {
-    pub api_key: String,
-    pub api_secret: String,
-    pub host: String,
-    pub ws_url: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitRoom {

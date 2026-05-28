@@ -95,6 +95,26 @@ impl VoipConfig {
     }
 }
 
+/// Livekit SFU configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LivekitConfig {
+    pub api_key: String,
+    pub api_secret: String,
+    pub host: String,
+    pub ws_url: Option<String>,
+}
+
+impl Default for LivekitConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            api_secret: String::new(),
+            host: String::new(),
+            ws_url: None,
+        }
+    }
+}
+
 fn parse_duration(s: &str) -> Option<i64> {
     let s = s.trim();
     if s.is_empty() {
@@ -845,6 +865,9 @@ pub struct Config {
     /// VoIP/TURN configuration
     #[serde(default)]
     pub voip: VoipConfig,
+    /// Livekit SFU configuration
+    #[serde(default)]
+    pub livekit: LivekitConfig,
     /// Push notification configuration
     #[serde(default)]
     pub push: PushConfig,
