@@ -21,3 +21,19 @@
       - 修复了 `dm_service_tests.rs` 中的可见性与类型推断错误，确保单元测试集通过 `cargo check`。
       - 抑制了 `dm_service.rs` 中的 `dead_code` 警告。
       - 确认并验证了 DM 核心测试（幂等性、账号数据持久化、好友 DM 复用）在清理后依然通过。
+
+## 2026-05-28 (第二轮)
+
+- **代码质量深层修复**
+  - **错误泄露清零**: 全量替换 ~1200 处 `ApiError::internal(format!("...: {e}"))` → `internal_with_log`/`database_with_log` 辅助方法，119 个文件，0 残留
+  - **N+1 查询消除**: `query_keys_internal` 和 `get_verified_devices_batch` 改为批量查询，2 次 SQL 替代 N 次
+  - **直接 SQL 迁移**: `e2ee_routes.rs`(3处)、`dm.rs`(2处)、`account_compat.rs`(5处) 全部迁移到 Storage 层
+  - **轮转参数持久化**: 6 个硬编码常量改为 DB 可配置，添加 `key_rotation_config` 表和迁移脚本
+  - **管理员权限检查**: 6 个 key_rotation 路由添加 `is_admin` 检查
+  - **联邦密钥加密**: 签名私钥改为 AES-256-GCM 加密存储
+
+- **matrix-js-sdk 同步优化**
+  - `Record<string, unknown>` 从 601 降至 166 (72.4% 减少)
+  - `@deprecated` 从 82 降至 35 (57.3% 减少)
+  - ESLint 警告从 1271 降至 97 (92.4% 减少)
+  - 修复 19 个失败测试，测试通过率 99.6%

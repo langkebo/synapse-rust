@@ -36,6 +36,28 @@
 - Federation Keys Claim
 - Federation Keys Upload
 
+## 7. 修复进展 (2026-05-28)
+
+### 已修复
+- ✅ **key_rotation 路由权限**: 所有 6 个 key_rotation 路由已添加 `is_admin` 权限检查
+- ✅ **错误响应信息泄露**: ~1200 处 `ApiError::internal(format!("...: {e}"))` 已替换为 `internal_with_log`/`database_with_log`，不再向客户端泄露内部错误详情
+- ✅ **From<sqlx::Error> 实现**: `BadRequest` 分支不再泄露重复键信息
+
+### 待验证
+以下越权问题需要重新运行 `api-integration_test.sh` 验证是否已修复：
+- Admin Federation Resolve (admin 越权)
+- Admin User Deactivate (admin 越权)
+- Admin Shutdown Room (admin 越权)
+- Admin Room Make Admin (admin 越权)
+- Admin Federation Blacklist (admin 越权)
+- Admin Federation Cache Clear (admin 越权)
+- Admin User Login (admin 越权)
+- Admin User Logout (admin 越权)
+
+### 新增安全修复
+- ✅ 联邦签名私钥已改为 AES-256-GCM 加密存储（`enc:` 前缀标识，向后兼容明文）
+- ✅ Nonce 存储已添加过期清理机制
+
 ## 6. 优化方案与建议
 ### 6.1 权限控制修复
 1. **统一鉴权中间件**: 确保所有 `/admin` 路径的接口都经过严格的权限检查。

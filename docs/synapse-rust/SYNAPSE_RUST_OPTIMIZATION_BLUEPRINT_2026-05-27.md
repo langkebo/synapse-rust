@@ -95,6 +95,13 @@
 - 开发者很难判断新功能该接哪一套缓存
 - 性能调优时无法快速确定瓶颈
 
+### 4.1.5 进展 (2026-05-28)
+
+- ✅ `CacheService` 及 `src/services/cache/` 目录已彻底移除，所有调用已迁至 `CacheManager`
+- ✅ `RoomSummaryCache` 已随 CacheService 一并移除
+- ✅ `MessageQueue` (`src/services/message_queue/`) 已彻底移除，已被 `RedisTaskQueue` 取代
+- 当前状态：缓存双轨已收敛为 `CacheManager` 单轨
+
 ## 4.2 高风险: DMService 与 FriendRoomService 双轨维护用户关系
 
 ### 4.2.1 现状
@@ -121,6 +128,13 @@
 
 - 重启后 `DMService` 状态消失，和持久化好友域可能失配
 - 后续要做私聊治理、未读数、关系变更审计时，边界会持续混乱
+
+### 4.2.5 进展 (2026-05-28)
+
+- ✅ `DMService` 已收缩为 `pub(crate)` + `#[cfg(any(test, feature = "test-utils"))]`，移出公开 re-export
+- ✅ `dm.rs` 路由层已收敛：`update_dm_room`/`create_dm_room`/`get_dm_rooms` 均委托给服务层
+- ✅ 路由层辅助函数已添加 `#[cfg(not(feature = "friends"))]` 隔离
+- 当前状态：DMService 已降级为测试/兼容层，FriendRoomService 为持久化主实现
 
 ## 4.3 高风险: 媒体上传双轨
 
@@ -184,6 +198,12 @@
 
 - 后台任务丢失、幂等、重试、优先级、监控指标难统一
 - worker 扩容价值会被多套旁路队列稀释
+
+### 4.4.5 进展 (2026-05-28)
+
+- ✅ `MessageQueue` 已彻底移除，已被 `RedisTaskQueue` 取代
+- ✅ `TaskQueue`/`BackgroundTaskManager` 已限缩至 `#[cfg(test)]`，生产环境统一使用 `RedisTaskQueue`
+- 当前状态：生产任务主链路已统一为 `RedisTaskQueue + worker/*`
 
 ## 4.5 中高风险: RTC / 语音 / 通话领域边界过碎
 
@@ -607,14 +627,48 @@
 - 增加 deployment checklist
 - 对 worker、Redis、媒体、SSO 给出单独运行手册
 
+## 10.5 2026-05-28 代码质量修复进展
+
+本轮修复覆盖了优化蓝图中未涉及的深层代码质量问题：
+
+### 10.5.1 错误响应泄露内部详情 (P0)
+
+- **问题**: ~1200 处 `ApiError::internal(format!("...: {e}"))` 将数据库错误详情直接返回给客户端
+- **修复**: 全量替换为 `ApiError::internal_with_log("Context", &e)` / `ApiError::database_with_log("Context", &e)` 辅助方法
+- **效果**: 服务端日志保留完整错误详情，客户端仅返回通用消息 "An internal error occurred"
+- **覆盖**: 119 个文件，0 残留
+
+### 10.5.2 N+1 查询消除 (P0)
+
+- **问题**: `query_keys_internal` 和 `get_verified_devices_batch` 存在 N+1 查询
+- **修复**: 添加 `get_cross_signing_keys_batch` + `get_all_device_keys_batch` 批量方法
+- **效果**: 2 次 SQL 替代 N 次 SQL
+
+### 10.5.3 路由层直接 SQL 迁移 (P1)
+
+- **问题**: `e2ee_routes.rs`、`dm.rs`、`account_compat.rs` 中存在 10+ 处直接 SQL 查询
+- **修复**: 全部迁移到 Storage 层，新增 `get_device_list_changes`/`get_devices_by_user_device_pairs`/`get_account_data_content`/`batch_can_view_profile` 等方法
+- **效果**: 路由层零直接 SQL
+
+### 10.5.4 密钥轮转参数持久化 (P0)
+
+- **问题**: `configure_key_rotation` 未持久化 `interval_ms`，3 个轮转常量硬编码
+- **修复**: 全部 6 个轮转参数持久化到 `key_rotation_config` 表，添加迁移脚本
+- **效果**: 轮转参数可运行时配置，重启后不丢失
+
+### 10.5.5 管理员权限检查 (P0)
+
+- **问题**: 6 个 key_rotation 路由缺少 `is_admin` 权限检查
+- **修复**: 所有路由添加管理员权限验证
+
 ## 11. 推荐执行路线图
 
-## 第一阶段: 2-3 周
+## 第一阶段: 2-3 周 → ✅ 已完成
 
-- 完成缓存收敛设计
-- 完成队列/worker 主链路定义
-- 完成 DM/Friend 关系域设计评审
-- 建立首版指标清单
+- ✅ 完成缓存收敛设计 → CacheService/RoomSummaryCache/MessageQueue 已移除
+- ✅ 完成队列/worker 主链路定义 → TaskQueue 限缩为 test-only，RedisTaskQueue 为生产主路径
+- ✅ 完成 DM/Friend 关系域设计评审 → DMService 收缩为兼容层
+- ✅ 建立首版指标清单 → 错误泄露/N+1/直接 SQL 等质量指标已建立基线
 
 ## 第二阶段: 3-4 周
 
