@@ -293,6 +293,36 @@ impl ThreepidStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn add_verified_threepid(
+        &self,
+        user_id: &str,
+        medium: &str,
+        address: &str,
+        validated_ts: i64,
+        added_ts: i64,
+    ) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r"
+            INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts, is_verified)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            ON CONFLICT (medium, address) DO UPDATE
+            SET validated_ts = EXCLUDED.validated_ts,
+                is_verified = TRUE
+            WHERE user_threepids.user_id = EXCLUDED.user_id
+            ",
+        )
+        .bind(user_id)
+        .bind(medium)
+        .bind(address)
+        .bind(validated_ts)
+        .bind(added_ts)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to add verified threepid: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+
     pub async fn remove_threepids_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"

@@ -256,6 +256,49 @@ impl PrivacyStorage {
 
         Ok(in_same_room)
     }
+
+    pub async fn batch_can_view_profile(
+        &self,
+        requester_id: Option<&str>,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, bool>, sqlx::Error> {
+        let mut result = std::collections::HashMap::with_capacity(user_ids.len());
+        if user_ids.is_empty() {
+            return Ok(result);
+        }
+
+        for uid in user_ids {
+            result.insert(uid.clone(), true);
+        }
+
+        let rows = sqlx::query(
+            "SELECT user_id, profile_visibility, allow_profile_lookup FROM user_privacy_settings WHERE user_id = ANY($1)"
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        for row in rows {
+            use sqlx::Row;
+            let uid: String = row.try_get("user_id").unwrap_or_default();
+            let is_self = requester_id == Some(uid.as_str());
+
+            let visible = if let Ok(visibility) = row.try_get::<String, _>("profile_visibility") {
+                match visibility.as_str() {
+                    "private" | "contacts" => is_self,
+                    _ => true,
+                }
+            } else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup") {
+                allow_lookup || is_self
+            } else {
+                true
+            };
+
+            result.insert(uid, visible);
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

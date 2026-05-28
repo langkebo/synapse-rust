@@ -1136,6 +1136,79 @@ impl SpaceStorage {
         path.reverse();
         Ok(path)
     }
+
+    pub async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r"SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+        )
+        .bind(identifier)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
+    pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error> {
+        sqlx::query_as::<_, Space>(
+            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces ORDER BY created_ts DESC",
+        )
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, sqlx::Error> {
+        sqlx::query_as::<_, Space>(
+            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+        )
+        .bind(identifier)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
+        )
+        .bind(space_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"SELECT room_id FROM space_children WHERE space_id = $1",
+        )
+        .bind(space_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), sqlx::Error> {
+        let member_count: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
+        )
+        .bind(space_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let child_count: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(*) FROM space_children WHERE space_id = $1",
+        )
+        .bind(space_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok((member_count, child_count))
+    }
+
+    pub async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
 }
 
 #[cfg(test)]

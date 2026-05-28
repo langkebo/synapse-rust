@@ -583,6 +583,50 @@ impl RoomMemberStorage {
 
         Ok(rows.into_iter().collect())
     }
+
+    pub async fn set_ban_reason(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            UPDATE room_memberships
+            SET ban_reason = $3
+            WHERE room_id = $1 AND user_id = $2
+            ",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(reason)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn force_leave_membership(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            UPDATE room_memberships
+            SET membership = 'leave',
+                left_ts = $3,
+                updated_ts = $3
+            WHERE room_id = $1 AND user_id = $2
+            ",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

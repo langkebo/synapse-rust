@@ -10,8 +10,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-#[cfg(not(feature = "friends"))]
-use sqlx::Row;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -42,20 +40,16 @@ enum DirectMapUpdateAction {
 
 #[cfg(not(feature = "friends"))]
 async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let row = sqlx::query(
-        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'",
-    )
-    .bind(user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to load m.direct account data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let content = state
+        .services
+        .user_storage
+        .get_account_data_content(user_id, "m.direct")
+        .await
+        .map_err(|e| { tracing::error!("Failed to load m.direct account data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    match row {
-        Some(row) => match row.get::<Option<Value>, _>("content") {
-            Some(Value::Object(map)) => Ok(map),
-            Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
-            None => Ok(Map::new()),
-        },
+    match content {
+        Some(Value::Object(map)) => Ok(map),
+        Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
         None => Ok(Map::new()),
     }
 }
@@ -66,20 +60,12 @@ async fn save_direct_map(
     user_id: &str,
     direct_map: &Map<String, Value>,
 ) -> Result<(), ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
-        r"
-        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
-        VALUES ($1, 'm.direct', $2, $3, $3)
-        ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-        ",
-    )
-    .bind(user_id)
-    .bind(Value::Object(direct_map.clone()))
-    .bind(now)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to save m.direct account data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .user_storage
+        .upsert_account_data_content(user_id, "m.direct", &Value::Object(direct_map.clone()))
+        .await
+        .map_err(|e| { tracing::error!("Failed to save m.direct account data: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(())
 }

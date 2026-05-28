@@ -1430,6 +1430,159 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await
     }
+
+    pub async fn upsert_power_levels_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+        sender: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
+            VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
+            ON CONFLICT (event_id) DO UPDATE SET content = $4
+            ",
+        )
+        .bind(event_id)
+        .bind(room_id)
+        .bind(user_id)
+        .bind(content)
+        .bind(origin_server_ts)
+        .bind(sender)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_events_before_context(
+        &self,
+        room_id: &str,
+        before_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+            FROM events
+            WHERE room_id = $1 AND origin_server_ts < $2
+            ORDER BY origin_server_ts DESC
+            LIMIT $3
+            ",
+        )
+        .bind(room_id)
+        .bind(before_ts)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "event_id": r.get::<String, _>("event_id"),
+                    "type": r.get::<String, _>("type"),
+                    "sender": r.get::<String, _>("sender"),
+                    "content": r.get::<serde_json::Value, _>("content"),
+                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                })
+            })
+            .collect())
+    }
+
+    pub async fn get_events_after_context(
+        &self,
+        room_id: &str,
+        after_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+            FROM events
+            WHERE room_id = $1 AND origin_server_ts > $2
+            ORDER BY origin_server_ts ASC
+            LIMIT $3
+            ",
+        )
+        .bind(room_id)
+        .bind(after_ts)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "event_id": r.get::<String, _>("event_id"),
+                    "type": r.get::<String, _>("type"),
+                    "sender": r.get::<String, _>("sender"),
+                    "content": r.get::<serde_json::Value, _>("content"),
+                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                })
+            })
+            .collect())
+    }
+
+    pub async fn search_room_messages_admin(
+        &self,
+        room_id: &str,
+        search_pattern: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT event_id, event_type, sender, content, origin_server_ts
+            FROM events
+            WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2 AND is_redacted = false
+            ORDER BY origin_server_ts DESC
+            LIMIT $3
+            ",
+        )
+        .bind(room_id)
+        .bind(search_pattern)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "event_id": r.get::<String, _>("event_id"),
+                    "type": r.get::<String, _>("event_type"),
+                    "sender": r.get::<String, _>("sender"),
+                    "content": r.get::<serde_json::Value, _>("content"),
+                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                })
+            })
+            .collect())
+    }
+
+    pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            r"
+            SELECT COUNT(*) FROM events
+            WHERE room_id = $1
+            AND state_key IS NOT NULL
+            AND event_id NOT IN (
+                SELECT content->>'prev_event_id' FROM events
+                WHERE room_id = $1 AND content->>'prev_event_id' IS NOT NULL
+            )
+            ",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
 }
 
 // ---------------------------------------------------------------------------

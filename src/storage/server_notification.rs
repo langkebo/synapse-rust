@@ -662,6 +662,465 @@ impl ServerNotificationStorage {
 
         Ok(result.rows_affected() > 0)
     }
+
+    pub async fn get_user_notification_setting(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<bool>, ApiError> {
+        let row = sqlx::query(
+            "SELECT enabled FROM user_notification_settings WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get notification setting: {}", e)))?;
+
+        match row {
+            Some(row) => {
+                use sqlx::Row;
+                Ok(Some(row.get::<Option<bool>, _>("enabled").unwrap_or(true)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn upsert_user_notification_setting(
+        &self,
+        user_id: &str,
+        enabled: bool,
+    ) -> Result<(), ApiError> {
+        sqlx::query(
+            "INSERT INTO user_notification_settings (user_id, enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET enabled = $2",
+        )
+        .bind(user_id)
+        .bind(enabled)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to upsert notification setting: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_user_pushers(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<serde_json::Value>, ApiError> {
+        let rows = sqlx::query(
+            "SELECT pushkey, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get pushers: {}", e)))?;
+
+        use sqlx::Row;
+        let pusher_list: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "pushkey": row.get::<Option<String>, _>("pushkey"),
+                    "kind": row.get::<Option<String>, _>("kind"),
+                    "app_id": row.get::<Option<String>, _>("app_id"),
+                    "app_display_name": row.get::<Option<String>, _>("app_display_name"),
+                    "device_display_name": row.get::<Option<String>, _>("device_display_name"),
+                    "profile_tag": row.get::<Option<String>, _>("profile_tag"),
+                    "lang": row.get::<Option<String>, _>("lang"),
+                    "data": row.get::<Option<serde_json::Value>, _>("data").unwrap_or(serde_json::json!({}))
+                })
+            })
+            .collect();
+
+        Ok(pusher_list)
+    }
+
+    pub async fn delete_user_pusher(
+        &self,
+        user_id: &str,
+        pushkey: &str,
+    ) -> Result<bool, ApiError> {
+        let result = sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
+            .bind(user_id)
+            .bind(pushkey)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn get_server_notices_count(&self) -> Result<i64, ApiError> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to count server notices: {}", e)))?;
+
+        Ok(count)
+    }
+
+    pub async fn get_server_notices_paginated(
+        &self,
+        cursor: Option<(i64, i64)>,
+        limit: i64,
+    ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), ApiError> {
+        let total = self.get_server_notices_count().await?;
+
+        let rows = sqlx::query(
+            "SELECT id, user_id, event_id, content, sent_ts
+             FROM server_notices
+             WHERE ($1::BIGINT IS NULL AND $2::BIGINT IS NULL)
+                OR sent_ts < $1
+                OR (sent_ts = $1 AND id < $2)
+             ORDER BY sent_ts DESC, id DESC
+             LIMIT $3",
+        )
+        .bind(cursor.map(|(sent_ts, _)| sent_ts))
+        .bind(cursor.map(|(_, id)| id))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get server notices: {}", e)))?;
+
+        use sqlx::Row;
+        let notice_list: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.get::<Option<i64>, _>("id"),
+                    "user_id": row.get::<Option<String>, _>("user_id"),
+                    "event_id": row.get::<Option<String>, _>("event_id"),
+                    "content": row.get::<Option<String>, _>("content"),
+                    "sent_ts": row.get::<Option<i64>, _>("sent_ts")
+                })
+            })
+            .collect();
+
+        let next_batch = if rows.len() as i64 == limit {
+            rows.last().map(|row| {
+                format!(
+                    "{}|{}",
+                    row.get::<Option<i64>, _>("sent_ts").unwrap_or_default(),
+                    row.get::<Option<i64>, _>("id").unwrap_or_default()
+                )
+            })
+        } else {
+            None
+        };
+
+        Ok((notice_list, total, next_batch))
+    }
+
+    pub async fn get_server_notice_by_id(
+        &self,
+        notice_id: i64,
+    ) -> Result<Option<serde_json::Value>, ApiError> {
+        let row = sqlx::query(
+            "SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1",
+        )
+        .bind(notice_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get server notice: {}", e)))?;
+
+        use sqlx::Row;
+        match row {
+            Some(row) => Ok(Some(serde_json::json!({
+                "id": row.get::<Option<i64>, _>("id"),
+                "user_id": row.get::<Option<String>, _>("user_id"),
+                "event_id": row.get::<Option<String>, _>("event_id"),
+                "content": row.get::<Option<String>, _>("content"),
+                "sent_ts": row.get::<Option<i64>, _>("sent_ts")
+            }))),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_server_notice_with_room(
+        &self,
+        notice_id: i64,
+    ) -> Result<Option<(Option<String>, Option<String>)>, ApiError> {
+        let row = sqlx::query(
+            r#"
+            SELECT sn.event_id, e.room_id
+            FROM server_notices sn
+            LEFT JOIN events e ON e.event_id = sn.event_id
+            WHERE sn.id = $1
+            "#,
+        )
+        .bind(notice_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to get server notice info: {}", e)))?;
+
+        use sqlx::Row;
+        match row {
+            Some(row) => Ok(Some((
+                row.get("event_id"),
+                row.get("room_id"),
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn delete_server_notice_by_id(&self, notice_id: i64) -> Result<bool, ApiError> {
+        let result = sqlx::query("DELETE FROM server_notices WHERE id = $1")
+            .bind(notice_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete server notice: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete_room_cascade(&self, room_id: &str) -> Result<(), ApiError> {
+        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete room: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn delete_event_by_id(&self, event_id: &str) -> Result<(), ApiError> {
+        sqlx::query("DELETE FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete event: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn send_server_notice(
+        &self,
+        room_id: &str,
+        server_user: &str,
+        target_user_id: &str,
+        target_displayname: &Option<String>,
+        target_avatar_url: &Option<String>,
+        message_event_id: &str,
+        create_event_id: &str,
+        membership_event_id: &str,
+        msgtype: &str,
+        body: &str,
+        now: i64,
+    ) -> Result<i64, ApiError> {
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            ApiError::internal(format!("Failed to begin transaction: {}", e))
+        })?;
+
+        let room_result = sqlx::query(
+            r#"
+            INSERT INTO rooms (
+                room_id, name, topic, creator, is_public, join_rules,
+                room_version, history_visibility, created_ts, last_activity_ts
+            )
+            VALUES ($1, $2, $3, $4, false, 'private', '6', 'joined', $5, $5)
+            ON CONFLICT (room_id) DO NOTHING
+            "#,
+        )
+        .bind(room_id)
+        .bind("Server Notice")
+        .bind("System notifications")
+        .bind(server_user)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create server notice room: {}", e)))?;
+
+        if room_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to create server notice room".to_string()));
+        }
+
+        let create_result = sqlx::query(
+            r#"
+            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
+            VALUES ($1, $2, $3, 'm.room.create', $4, $5, $6, '')
+            ON CONFLICT (event_id) DO NOTHING
+            "#,
+        )
+        .bind(create_event_id)
+        .bind(room_id)
+        .bind(server_user)
+        .bind(serde_json::json!({"creator": server_user}))
+        .bind(now)
+        .bind(server_user)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create server notice create event: {}", e)))?;
+
+        if create_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to create server notice create event".to_string()));
+        }
+
+        let membership_result = sqlx::query(
+            r#"
+            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
+            VALUES ($1, $2, $3, 'm.room.member', $4, $5, $6, $7)
+            ON CONFLICT (event_id) DO NOTHING
+            "#,
+        )
+        .bind(membership_event_id)
+        .bind(room_id)
+        .bind(target_user_id)
+        .bind(serde_json::json!({ "membership": "join" }))
+        .bind(now)
+        .bind(server_user)
+        .bind(target_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create server notice membership event: {}", e)))?;
+
+        if membership_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to create server notice membership event".to_string()));
+        }
+
+        let member_result = sqlx::query(
+            r#"
+            INSERT INTO room_memberships (
+                room_id, user_id, sender, membership, event_id, event_type,
+                display_name, avatar_url, updated_ts, joined_ts
+            )
+            VALUES ($1, $2, $3, 'join', $4, 'm.room.member', $5, $6, $7, $7)
+            ON CONFLICT (room_id, user_id) DO NOTHING
+            "#,
+        )
+        .bind(room_id)
+        .bind(target_user_id)
+        .bind(server_user)
+        .bind(membership_event_id)
+        .bind(target_displayname)
+        .bind(target_avatar_url)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist server notice member: {}", e)))?;
+
+        if member_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to persist server notice member".to_string()));
+        }
+
+        let message_result = sqlx::query(
+            r#"
+            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender)
+            VALUES ($1, $2, $3, 'm.room.message', $4, $5, $6)
+            "#,
+        )
+        .bind(message_event_id)
+        .bind(room_id)
+        .bind(target_user_id)
+        .bind(serde_json::json!({
+            "msgtype": msgtype,
+            "body": body
+        }))
+        .bind(now)
+        .bind(server_user)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist m.room.message event for server notice: {}", e)))?;
+
+        if message_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to persist m.room.message event for server notice".to_string()));
+        }
+
+        let notice_content = serde_json::json!({
+            "msgtype": msgtype,
+            "body": body
+        });
+        let notice_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO server_notices (user_id, event_id, content, sent_ts)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+            "#,
+        )
+        .bind(target_user_id)
+        .bind(message_event_id)
+        .bind(notice_content.to_string())
+        .bind(now)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create server notice record: {}", e)))?;
+
+        let summary_result = sqlx::query(
+            r#"
+            INSERT INTO room_summaries (
+                room_id, name, topic, join_rules, history_visibility, guest_access,
+                is_direct, is_space, is_encrypted, member_count, joined_member_count,
+                invited_member_count, hero_users, last_event_id, last_event_ts,
+                last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            )
+            VALUES (
+                $1, $2, $3, 'private', 'joined', 'forbidden',
+                false, false, false, 1, 1,
+                0, '[]'::jsonb, $4, $5,
+                $5, 0, 0, $5, $5
+            )
+            ON CONFLICT (room_id) DO NOTHING
+            "#,
+        )
+        .bind(room_id)
+        .bind("Server Notice")
+        .bind("System notifications")
+        .bind(message_event_id)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist server notice room summary: {}", e)))?;
+
+        if summary_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to persist server notice room summary".to_string()));
+        }
+
+        let summary_member_result = sqlx::query(
+            r#"
+            INSERT INTO room_summary_members (
+                room_id, user_id, display_name, avatar_url, membership, is_hero,
+                last_active_ts, updated_ts, created_ts
+            )
+            VALUES ($1, $2, $3, $4, 'join', false, $5, $5, $5)
+            ON CONFLICT (room_id, user_id) DO NOTHING
+            "#,
+        )
+        .bind(room_id)
+        .bind(target_user_id)
+        .bind(target_displayname)
+        .bind(target_avatar_url)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to persist server notice room summary member: {}", e)))?;
+
+        if summary_member_result.rows_affected() == 0 {
+            return Err(ApiError::internal("Failed to persist server notice room summary member".to_string()));
+        }
+
+        tx.commit().await.map_err(|e| {
+            ApiError::internal(format!("Failed to commit server notice transaction: {}", e))
+        })?;
+
+        Ok(notice_id)
+    }
 }
 
 #[cfg(test)]

@@ -1700,6 +1700,447 @@ impl RoomStorage {
 
         Ok(result.rows_affected())
     }
+
+    pub async fn block_room(
+        &self,
+        room_id: &str,
+        blocked_at: i64,
+        blocked_by: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by, reason)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2, reason = $4
+            ",
+        )
+        .bind(room_id)
+        .bind(blocked_at)
+        .bind(blocked_by)
+        .bind(reason)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        let result: Option<(i64,)> = sqlx::query_as(
+            r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
+    pub async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r"DELETE FROM blocked_rooms WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
+        let total_rooms: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
+                .fetch_one(&*self.pool)
+                .await?;
+
+        let encrypted_rooms: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(DISTINCT room_id) FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)",
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let public_rooms: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true")
+                .fetch_one(&*self.pool)
+                .await?;
+
+        let total_messages: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_type = 'm.room.message'")
+                .fetch_one(&*self.pool)
+                .await?;
+
+        let total_members: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships")
+                .fetch_one(&*self.pool)
+                .await?;
+
+        let active_rooms: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1",
+        )
+        .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(json!({
+            "total_rooms": total_rooms,
+            "encrypted_rooms": encrypted_rooms,
+            "public_rooms": public_rooms,
+            "total_messages": total_messages,
+            "total_members": total_members,
+            "active_rooms": active_rooms,
+            "average_messages_per_room": if total_rooms > 0 { total_messages / total_rooms } else { 0 }
+        }))
+    }
+
+    pub async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let room_exists: Option<(String,)> = sqlx::query_as(
+            r"SELECT room_id FROM rooms WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        if room_exists.is_none() {
+            return Ok(None);
+        }
+
+        let member_count: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let message_count: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let last_message_ts: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?
+                .flatten();
+
+        let is_encrypted: bool = sqlx::query_scalar(
+            r"SELECT EXISTS(SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL)",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let admin_count: i64 = sqlx::query_scalar(
+            r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(Some(json!({
+            "room_id": room_id,
+            "member_count": member_count,
+            "message_count": message_count,
+            "last_message_ts": last_message_ts,
+            "is_encrypted": is_encrypted,
+            "admin_count": admin_count
+        })))
+    }
+
+    pub async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
+        let is_public: Option<bool> =
+            sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+
+        let Some(is_public) = is_public else {
+            return Ok(None);
+        };
+
+        let in_directory: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+                .bind(room_id)
+                .fetch_one(&*self.pool)
+                .await?;
+
+        Ok(Some((is_public, in_directory)))
+    }
+
+    pub async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"INSERT INTO room_directory (room_id, is_public, added_ts) VALUES ($1, true, $2) ON CONFLICT (room_id) DO UPDATE SET is_public = true",
+        )
+        .bind(room_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(true)
+    }
+
+    pub async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        sqlx::query("DELETE FROM room_directory WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&*self.pool)
+            .await?;
+
+        Ok(true)
+    }
+
+    pub async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r"SELECT room_version FROM rooms WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.map(|r| r.0))
+    }
+
+    pub async fn search_all_rooms_admin(
+        &self,
+        search_term: Option<&str>,
+        limit: i64,
+        order_by: RoomSearchOrder,
+        cursor: Option<RoomSearchCursor>,
+        is_public: Option<bool>,
+        is_encrypted: Option<bool>,
+    ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), sqlx::Error> {
+        let search_pattern = search_term.map(|term| format!("%{term}%"));
+        let search_term_owned = search_term.map(|term| term.to_string());
+
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            r"
+            SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts as creation_ts,
+                   COUNT(DISTINCT rm.user_id) as member_count,
+                   CASE WHEN COUNT(DISTINCT e.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
+            FROM rooms r
+            LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
+            LEFT JOIN events e ON r.room_id = e.room_id AND e.event_type = 'm.room.encryption' AND e.state_key IS NOT NULL
+            WHERE 1=1
+            ",
+        );
+
+        if let Some(pattern) = &search_pattern {
+            if let Some(term) = &search_term_owned {
+                if term.len() >= 3 {
+                    query.push(" AND (r.name ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.name % ");
+                    query.push_bind(term);
+                    query.push(" OR r.topic ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.canonical_alias ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.canonical_alias % ");
+                    query.push_bind(term);
+                    query.push(" OR r.room_id ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(")");
+                } else {
+                    query.push(" AND (r.name ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.topic ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.canonical_alias ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(" OR r.room_id ILIKE ");
+                    query.push_bind(pattern);
+                    query.push(")");
+                }
+            } else {
+                query.push(" AND (r.name ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.topic ILIKE ");
+                query.push_bind(pattern);
+                query.push(" OR r.room_id ILIKE ");
+                query.push_bind(pattern);
+                query.push(")");
+            }
+        }
+
+        if let Some(is_pub) = is_public {
+            query.push(" AND r.is_public = ");
+            query.push_bind(is_pub);
+        }
+
+        if let Some(is_enc) = is_encrypted {
+            if is_enc {
+                query.push(
+                    " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
+                );
+            } else {
+                query.push(
+                    " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
+                );
+            }
+        }
+
+        query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts");
+
+        match &cursor {
+            Some(RoomSearchCursor::Created { created_ts, room_id }) => {
+                query.push(" HAVING (r.created_ts < ");
+                query.push_bind(*created_ts);
+                query.push(" OR (r.created_ts = ");
+                query.push_bind(*created_ts);
+                query.push(" AND r.room_id < ");
+                query.push_bind(room_id);
+                query.push("))");
+            }
+            Some(RoomSearchCursor::Name { name, created_ts, room_id }) => {
+                match name {
+                    Some(name) => {
+                        query.push(" HAVING (r.name IS NULL OR r.name > ");
+                        query.push_bind(name);
+                        query.push(" OR (r.name = ");
+                        query.push_bind(name);
+                        query.push(" AND (r.created_ts < ");
+                        query.push_bind(*created_ts);
+                        query.push(" OR (r.created_ts = ");
+                        query.push_bind(*created_ts);
+                        query.push(" AND r.room_id < ");
+                        query.push_bind(room_id);
+                        query.push("))))");
+                    }
+                    None => {
+                        query.push(" HAVING r.name IS NULL AND (r.created_ts < ");
+                        query.push_bind(*created_ts);
+                        query.push(" OR (r.created_ts = ");
+                        query.push_bind(*created_ts);
+                        query.push(" AND r.room_id < ");
+                        query.push_bind(room_id);
+                        query.push("))");
+                    }
+                };
+            }
+            Some(RoomSearchCursor::Size { member_count, created_ts, room_id }) => {
+                query.push(" HAVING (COUNT(DISTINCT rm.user_id) < ");
+                query.push_bind(*member_count);
+                query.push(" OR (COUNT(DISTINCT rm.user_id) = ");
+                query.push_bind(*member_count);
+                query.push(" AND r.created_ts < ");
+                query.push_bind(*created_ts);
+                query.push(") OR (COUNT(DISTINCT rm.user_id) = ");
+                query.push_bind(*member_count);
+                query.push(" AND r.created_ts = ");
+                query.push_bind(*created_ts);
+                query.push(" AND r.room_id < ");
+                query.push_bind(room_id);
+                query.push("))");
+            }
+            None => {}
+        }
+
+        let order_by_clause = match order_by {
+            RoomSearchOrder::Name => " ORDER BY r.name ASC NULLS LAST, r.created_ts DESC, r.room_id DESC",
+            RoomSearchOrder::Size => " ORDER BY member_count DESC, r.created_ts DESC, r.room_id DESC",
+            RoomSearchOrder::Created => " ORDER BY r.created_ts DESC, r.room_id DESC",
+        };
+        query.push(order_by_clause);
+
+        query.push(" LIMIT ");
+        query.push_bind(limit);
+
+        let rooms = query
+            .build()
+            .fetch_all(&*self.pool)
+            .await?;
+
+        let mut count_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT COUNT(*) as total FROM rooms r WHERE 1=1",
+        );
+
+        if let Some(pattern) = &search_pattern {
+            count_query.push(" AND (r.name ILIKE ");
+            count_query.push_bind(pattern);
+            count_query.push(" OR r.topic ILIKE ");
+            count_query.push_bind(pattern);
+            count_query.push(" OR r.room_id ILIKE ");
+            count_query.push_bind(pattern);
+            count_query.push(")");
+        }
+
+        if let Some(is_pub) = is_public {
+            count_query.push(" AND r.is_public = ");
+            count_query.push_bind(is_pub);
+        }
+
+        if let Some(is_enc) = is_encrypted {
+            if is_enc {
+                count_query.push(
+                    " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
+                );
+            } else {
+                count_query.push(
+                    " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
+                );
+            }
+        }
+
+        let total_row = count_query
+            .build()
+            .fetch_one(&*self.pool)
+            .await?;
+        let total: i64 = total_row.get("total");
+
+        use sqlx::Row;
+        let results: Vec<serde_json::Value> = rooms
+            .iter()
+            .map(|r| {
+                json!({
+                    "room_id": r.get::<String, _>("room_id"),
+                    "name": r.get::<Option<String>, _>("name"),
+                    "topic": r.get::<Option<String>, _>("topic"),
+                    "creator": r.get::<Option<String>, _>("creator"),
+                    "is_public": r.get::<bool, _>("is_public"),
+                    "member_count": r.get::<i64, _>("member_count"),
+                    "is_encrypted": r.get::<bool, _>("is_encrypted"),
+                    "creation_ts": r.get::<i64, _>("creation_ts")
+                })
+            })
+            .collect();
+
+        let next_batch = if rooms.len() as i64 == limit {
+            rooms.last().map(|r| match order_by {
+                RoomSearchOrder::Created => encode_room_search_cursor(&RoomSearchCursor::Created {
+                    created_ts: r.get::<i64, _>("creation_ts"),
+                    room_id: r.get::<String, _>("room_id"),
+                }),
+                RoomSearchOrder::Name => encode_room_search_cursor(&RoomSearchCursor::Name {
+                    name: r.get::<Option<String>, _>("name"),
+                    created_ts: r.get::<i64, _>("creation_ts"),
+                    room_id: r.get::<String, _>("room_id"),
+                }),
+                RoomSearchOrder::Size => encode_room_search_cursor(&RoomSearchCursor::Size {
+                    member_count: r.get::<i64, _>("member_count"),
+                    created_ts: r.get::<i64, _>("creation_ts"),
+                    room_id: r.get::<String, _>("room_id"),
+                }),
+            })
+        } else {
+            None
+        };
+
+        Ok((results, total, next_batch))
+    }
 }
 
 #[cfg(test)]
