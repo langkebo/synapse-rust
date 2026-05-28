@@ -24,10 +24,7 @@ pub async fn rate_limit_middleware(
     next: Next,
 ) -> Response {
     let config = state.services.config.rate_limit.clone();
-    let file_config = state
-        .rate_limit_config_manager
-        .as_ref()
-        .map(|m| m.get_config());
+    let file_config = state.rate_limit_config();
 
     let enabled = file_config
         .as_ref()

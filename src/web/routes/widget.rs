@@ -206,7 +206,7 @@ async fn create_widget(
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to validate room: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to validate room", &e))?;
         if !room_exists {
             return Err(ApiError::not_found("Room not found"));
         }

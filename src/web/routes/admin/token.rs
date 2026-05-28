@@ -94,7 +94,7 @@ async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiEr
         .user_storage
         .get_user_by_identifier(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -189,7 +189,7 @@ pub async fn create_registration_token(
     .bind(admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({
         "token": token,
@@ -213,7 +213,7 @@ pub async fn get_registration_token(
     .bind(&token)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => {
@@ -241,7 +241,7 @@ pub async fn delete_registration_token(
         .bind(&token)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Token not found".to_string()));
@@ -266,7 +266,7 @@ pub async fn update_registration_token(
     .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => {
@@ -298,7 +298,7 @@ pub async fn get_user_tokens(
     .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -331,7 +331,7 @@ pub async fn delete_user_token(
         .bind(&user_id)
         .execute(&*state.services.token_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Token not found".to_string()));
@@ -354,7 +354,7 @@ pub async fn get_user_refresh_tokens(
     .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -387,7 +387,7 @@ pub async fn delete_refresh_token(
         .bind(&user_id)
         .execute(&*state.services.token_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Refresh token not found".to_string()));

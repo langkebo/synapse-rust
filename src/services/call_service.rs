@@ -106,7 +106,7 @@ impl CallService {
             .storage
             .get_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to check call session: {}", e)))?
+            .map_err(|e| ApiError::database_with_log("Failed to check call session", &e))?
         {
             if existing.state != "ended" {
                 return Err(ApiError::conflict("Call session already exists"));
@@ -130,7 +130,7 @@ impl CallService {
             .storage
             .create_session(params)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to create call session: {}", e)))?;
+            .map_err(|e| ApiError::database_with_log("Failed to create call session", &e))?;
 
         Ok(session)
     }
@@ -147,7 +147,7 @@ impl CallService {
             .storage
             .get_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get call session: {}", e)))?
+            .map_err(|e| ApiError::database_with_log("Failed to get call session", &e))?
             .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
         // 验证发送者是呼叫的参与者
@@ -165,11 +165,11 @@ impl CallService {
                     room_id,
                     sender_id,
                     serde_json::to_value(candidate).map_err(|e| {
-                        ApiError::internal(format!("Failed to serialize candidate: {}", e))
+                        ApiError::internal_with_log("Failed to serialize candidate", &e)
                     })?,
                 )
                 .await
-                .map_err(|e| ApiError::database(format!("Failed to add candidate: {}", e)))?;
+                .map_err(|e| ApiError::database_with_log("Failed to add candidate", &e))?;
         }
 
         Ok(())
@@ -187,7 +187,7 @@ impl CallService {
             .storage
             .get_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get call session: {}", e)))?
+            .map_err(|e| ApiError::database_with_log("Failed to get call session", &e))?
             .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
         // 验证发送者是被邀请方
@@ -199,13 +199,13 @@ impl CallService {
         self.storage
             .set_answer(&content.call_id, room_id, &content.answer.sdp)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to set answer: {}", e)))?;
+            .map_err(|e| ApiError::database_with_log("Failed to set answer", &e))?;
 
         // 返回更新后的会话
         self.storage
             .get_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get updated session: {}", e)))?
+            .map_err(|e| ApiError::database_with_log("Failed to get updated session", &e))?
             .ok_or_else(|| ApiError::not_found("Call session not found after answer"))
     }
 
@@ -221,7 +221,7 @@ impl CallService {
             .storage
             .get_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get call session: {}", e)))?
+            .map_err(|e| ApiError::database_with_log("Failed to get call session", &e))?
             .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
         // 验证发送者是呼叫的参与者
@@ -233,7 +233,7 @@ impl CallService {
         self.storage
             .end_session(&content.call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to end call session: {}", e)))?;
+            .map_err(|e| ApiError::database_with_log("Failed to end call session", &e))?;
 
         Ok(())
     }
@@ -247,7 +247,7 @@ impl CallService {
         self.storage
             .get_session(call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get call session: {}", e)))
+            .map_err(|e| ApiError::database_with_log("Failed to get call session", &e))
     }
 
     /// 获取会话的候选人
@@ -260,7 +260,7 @@ impl CallService {
             .storage
             .get_candidates(call_id, room_id)
             .await
-            .map_err(|e| ApiError::database(format!("Failed to get candidates: {}", e)))?;
+            .map_err(|e| ApiError::database_with_log("Failed to get candidates", &e))?;
 
         Ok(candidates.into_iter().map(|c| c.candidate).collect())
     }

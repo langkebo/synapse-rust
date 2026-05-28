@@ -17,7 +17,7 @@ impl AuthService {
                 .user_storage
                 .get_user_by_id(user_id)
                 .await
-                .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+                .map_err(|e| ApiError::internal_with_log("Database error", &e))?
                 .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
             let password_hash = user.password_hash.as_deref().ok_or_else(|| {
@@ -43,35 +43,35 @@ impl AuthService {
         self.user_storage
             .update_password(user_id, &password_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update password: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update password", &e))?;
 
         if let Some(device_id) = current_device_id {
             self.token_storage
                 .delete_user_tokens_except_device(user_id, device_id)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate access tokens: {e}"))
+                    ApiError::internal_with_log("Failed to invalidate access tokens", &e)
                 })?;
 
             self.refresh_token_storage
                 .revoke_all_user_tokens_except_device(user_id, device_id, "password_changed")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate refresh tokens: {e}"))
+                    ApiError::internal_with_log("Failed to invalidate refresh tokens", &e)
                 })?;
         } else {
             self.token_storage
                 .delete_user_tokens(user_id)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate access tokens: {e}"))
+                    ApiError::internal_with_log("Failed to invalidate access tokens", &e)
                 })?;
 
             self.refresh_token_storage
                 .revoke_all_user_tokens(user_id, "password_changed")
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to invalidate refresh tokens: {e}"))
+                    ApiError::internal_with_log("Failed to invalidate refresh tokens", &e)
                 })?;
         }
 
@@ -89,12 +89,12 @@ impl AuthService {
         self.user_storage
             .deactivate_user(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to deactivate user: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to deactivate user", &e))?;
 
         self.token_storage
             .delete_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete tokens: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete tokens", &e))?;
 
         if let Err(e) = self
             .refresh_token_storage
@@ -108,15 +108,13 @@ impl AuthService {
                 error = %e,
                 "Failed to revoke refresh tokens during account deactivation"
             );
-            return Err(ApiError::internal(format!(
-                "Failed to invalidate refresh tokens: {e}"
-            )));
+            return Err(ApiError::internal_with_log("Failed to invalidate refresh tokens", &e));
         }
 
         self.device_storage
             .delete_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 
         self.cache.delete(&format!("user:active:{user_id}")).await;
         self.cache.delete(&format!("user:admin:{user_id}")).await;
@@ -136,7 +134,7 @@ impl AuthService {
             .device_storage
             .delete_user_device(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete device: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete device", &e))?;
 
         if rows == 0 {
             return Ok(0);
@@ -145,7 +143,7 @@ impl AuthService {
         self.token_storage
             .delete_device_tokens(device_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete device tokens: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete device tokens", &e))?;
 
         if let Err(e) = self
             .refresh_token_storage
@@ -160,9 +158,7 @@ impl AuthService {
                 error = %e,
                 "Failed to revoke device refresh tokens after device delete"
             );
-            return Err(ApiError::internal(format!(
-                "Failed to invalidate refresh tokens: {e}"
-            )));
+            return Err(ApiError::internal_with_log("Failed to invalidate refresh tokens", &e));
         }
 
         ::tracing::info!(
@@ -185,7 +181,7 @@ impl AuthService {
             .device_storage
             .delete_user_devices_batch(user_id, device_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete devices: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 
         if rows == 0 {
             return Ok(0);
@@ -205,9 +201,7 @@ impl AuthService {
                     error = %e,
                     "Failed to delete access tokens after batch device delete"
                 );
-                return Err(ApiError::internal(format!(
-                    "Failed to delete device tokens: {e}"
-                )));
+                return Err(ApiError::internal_with_log("Failed to delete device tokens", &e));
             }
 
             if let Err(e) = self
@@ -223,9 +217,7 @@ impl AuthService {
                     error = %e,
                     "Failed to revoke device refresh tokens after batch delete"
                 );
-                return Err(ApiError::internal(format!(
-                    "Failed to invalidate refresh tokens: {e}"
-                )));
+                return Err(ApiError::internal_with_log("Failed to invalidate refresh tokens", &e));
             }
         }
 
@@ -256,7 +248,7 @@ impl AuthService {
 
         tokio::task::spawn_blocking(move || auth.hash_password(&password_str))
             .await
-            .map_err(|e| ApiError::internal(format!("Hashing task panicked: {e}")))?
+            .map_err(|e| ApiError::internal_with_log("Hashing task panicked", &e))?
     }
 
     pub(crate) fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
@@ -276,13 +268,13 @@ impl AuthService {
             migrate_password_hash(&password_str, m_cost, t_cost, p_cost)
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Migration task panicked: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Migration task panicked", &e))?
         .map_err(ApiError::internal)?;
 
         self.user_storage
             .update_password(user_id, &new_hash)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update password hash: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update password hash", &e))?;
 
         let duration = start.elapsed().as_secs_f64();
 

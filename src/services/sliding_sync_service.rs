@@ -72,7 +72,7 @@ impl SlidingSyncService {
                 .storage
                 .validate_pos(user_id, device_id, conn_id, pos_str)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to validate pos: {e}")))?
+                .map_err(|e| ApiError::internal_with_log("Failed to validate pos", &e))?
             {
                 return Err(ApiError::bad_request("Invalid position token"));
             }
@@ -94,7 +94,7 @@ impl SlidingSyncService {
                     &ranges,
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to save list: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to save list", &e))?;
         }
 
         if let Some(unsubs) = &request.unsubscribe_rooms {
@@ -102,7 +102,7 @@ impl SlidingSyncService {
                 self.storage
                     .delete_room(user_id, device_id, room_id, conn_id)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Failed to unsubscribe room: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to unsubscribe room", &e))?;
             }
         }
 
@@ -117,12 +117,12 @@ impl SlidingSyncService {
         let lists_response = self
             .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build lists response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to build lists response", &e))?;
 
         let rooms_response = self
             .build_rooms_response(user_id, device_id, conn_id, &request)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build rooms response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to build rooms response", &e))?;
 
         let extensions_response = self
             .build_extensions_response(
@@ -134,13 +134,13 @@ impl SlidingSyncService {
                 request.extensions.as_ref(),
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to build extensions response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to build extensions response", &e))?;
 
         let new_token = self
             .storage
             .create_or_update_token(user_id, device_id, conn_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update token: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update token", &e))?;
 
         Ok(SlidingSyncResponse {
             pos: new_token.pos.to_string(),
@@ -585,7 +585,7 @@ impl SlidingSyncService {
                 bump_stamp,
             )
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update room state: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update room state", &e))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
@@ -603,7 +603,7 @@ impl SlidingSyncService {
         self.storage
             .bump_room(user_id, device_id, room_id, conn_id, bump_stamp)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bump room: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to bump room", &e))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
@@ -622,7 +622,7 @@ impl SlidingSyncService {
         self.storage
             .update_notification_counts(user_id, device_id, room_id, conn_id, highlight_count, notification_count)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update notifications: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update notifications", &e))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
@@ -639,7 +639,7 @@ impl SlidingSyncService {
         self.storage
             .delete_room(user_id, device_id, room_id, conn_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to remove room: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to remove room", &e))?;
 
         self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
 
@@ -651,7 +651,7 @@ impl SlidingSyncService {
             .storage
             .cleanup_expired_tokens()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to cleanup tokens: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup tokens", &e))?;
 
         Ok(count)
     }
@@ -666,13 +666,13 @@ impl SlidingSyncService {
             .storage
             .list_room_token_sync(room_id, limit, from.as_ref())
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to list room token sync: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to list room token sync", &e))?;
 
         let total = self
             .storage
             .count_room_token_sync(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to count room token sync: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to count room token sync", &e))?;
 
         Ok((entries, total))
     }

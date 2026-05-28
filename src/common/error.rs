@@ -482,6 +482,16 @@ impl ApiError {
         Self::Internal(message.into())
     }
 
+    pub fn internal_with_log(context: &str, err: &dyn std::fmt::Display) -> Self {
+        tracing::error!("{context}: {err}");
+        Self::Internal("An internal error occurred".to_string())
+    }
+
+    pub fn database_with_log(context: &str, err: &dyn std::fmt::Display) -> Self {
+        tracing::error!("{context}: {err}");
+        Self::Database("A database error occurred".to_string())
+    }
+
     pub fn database(message: impl Into<String>) -> Self {
         Self::Database(message.into())
     }

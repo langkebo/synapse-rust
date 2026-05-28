@@ -108,7 +108,7 @@ pub async fn get_all_media(
     .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let media_list: Vec<Value> = media
         .iter()
@@ -158,7 +158,7 @@ pub async fn get_media_info(
     .bind(&media_id)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match media {
         Some(row) => Ok(Json(json!({
@@ -185,7 +185,7 @@ pub async fn delete_media(
         .bind(&media_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Media not found".to_string()));
@@ -203,12 +203,12 @@ pub async fn get_media_quota(
         sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
             .fetch_one(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_metadata")
         .fetch_one(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({
         "total_size": total_size,
@@ -229,7 +229,7 @@ pub async fn get_user_media(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -241,7 +241,7 @@ pub async fn get_user_media(
     .bind(&user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let media_list: Vec<Value> = media
         .iter()
@@ -272,7 +272,7 @@ pub async fn delete_user_media(
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -282,7 +282,7 @@ pub async fn delete_user_media(
         .bind(&user_id)
         .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({ "deleted": result.rows_affected() })))
 }

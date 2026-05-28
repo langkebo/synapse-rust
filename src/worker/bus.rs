@@ -88,7 +88,7 @@ impl WorkerBus {
         };
 
         let encoded = serde_json::to_vec(&bus_message)
-            .map_err(|e| ApiError::internal(format!("Failed to encode message: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to encode message", &e))?;
 
         debug!("Publishing to channel {}: {} bytes", channel, encoded.len());
 
@@ -128,7 +128,7 @@ impl WorkerBus {
 
     pub async fn broadcast_command(&self, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal(format!("Failed to encode command: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         self.publish("broadcast", &encoded).await
     }
@@ -139,7 +139,7 @@ impl WorkerBus {
         command: &ReplicationCommand,
     ) -> Result<(), ApiError> {
         let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal(format!("Failed to encode command: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         let channel = format!("worker:{worker_id}");
         self.publish(&channel, &encoded).await
@@ -151,7 +151,7 @@ impl WorkerBus {
         command: &ReplicationCommand,
     ) -> Result<(), ApiError> {
         let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal(format!("Failed to encode command: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         let channel = format!("stream:{stream_name}");
         self.publish(&channel, &encoded).await

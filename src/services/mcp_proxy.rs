@@ -169,7 +169,7 @@ impl McpProxyService {
             .await
             .map_err(|e| {
                 error!("MCP request failed: {}", e);
-                ApiError::internal(format!("Failed to connect to MCP server: {}", e))
+                ApiError::internal_with_log("Failed to connect to MCP server", &e)
             })?;
 
         let status = response.status();
@@ -190,7 +190,7 @@ impl McpProxyService {
         // 检查 JSON-RPC 错误
         if let Some(err) = result.get("error") {
             warn!("MCP tool execution error: {}", err);
-            return Err(ApiError::internal(format!("MCP error: {}", err)));
+            return Err(ApiError::internal_with_log("MCP error", &err));
         }
 
         Ok(result)

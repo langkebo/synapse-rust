@@ -345,7 +345,7 @@ async fn search_room_events(
         .member_storage
         .get_joined_rooms(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get joined rooms: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))?;
 
     let mut query_builder = sqlx::QueryBuilder::new(
         "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
@@ -449,7 +449,7 @@ async fn search_room_events(
         .build()
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let next_batch = if rows.len() > limit as usize {
         rows.get(limit as usize).map(|row| {
@@ -534,7 +534,7 @@ async fn search_users(
         .user_storage
         .search_directory_users(&search.search_term, limit, false)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = rows.iter().map(|r| r.user_id.clone()).collect();
@@ -583,7 +583,7 @@ async fn build_room_hierarchy_response(
         .room_storage
         .get_room(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load room: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
     if let Some(space) = state
         .services
@@ -605,7 +605,7 @@ async fn build_room_hierarchy_response(
             .await?;
 
         let mut response_value = serde_json::to_value(response)
-            .map_err(|e| ApiError::internal(format!("Failed to serialize hierarchy: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to serialize hierarchy", &e))?;
 
         if let Some(obj) = response_value.as_object_mut() {
             let rooms = obj
@@ -626,7 +626,7 @@ async fn build_room_hierarchy_response(
                     .event_storage
                     .get_state_events(room_id)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
 
                 let mut children_state = Vec::new();
                 let mut child_room_ids = Vec::new();
@@ -666,7 +666,7 @@ async fn build_room_hierarchy_response(
                         .room_storage
                         .get_rooms_batch(&child_room_ids)
                         .await
-                        .map_err(|e| ApiError::internal(format!("Failed to load child rooms: {e}")))?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
                     let mut map = HashMap::new();
                     for room in rooms_batch {
                         map.insert(room.room_id.clone(), room);
@@ -770,7 +770,7 @@ async fn build_room_hierarchy_response(
         .event_storage
         .get_state_events(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get state: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
 
     let room_type = state_events
         .iter()
@@ -817,7 +817,7 @@ async fn build_room_hierarchy_response(
             .room_storage
             .get_rooms_batch(&child_room_ids)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to load child rooms: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
         let mut map = HashMap::new();
         for room in rooms_batch {
             map.insert(room.room_id.clone(), room);
@@ -993,7 +993,7 @@ async fn timestamp_to_event(
         .fetch_optional(&*state.services.user_storage.pool)
         .await
     }
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match event {
         Some(row) => Ok(Json(json!({
@@ -1031,7 +1031,7 @@ async fn get_event_context(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get event: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if target_event.room_id != room_id {
@@ -1048,7 +1048,7 @@ async fn get_event_context(
     .bind(limit as i64)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let events_after = sqlx::query(
         "SELECT event_id, sender, event_type AS type, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts > $2 ORDER BY origin_server_ts ASC LIMIT $3"
@@ -1058,7 +1058,7 @@ async fn get_event_context(
     .bind(limit as i64)
     .fetch_all(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let events_before_list: Vec<Value> = events_before
         .iter()
@@ -1385,7 +1385,7 @@ async fn search_recipients(
         .user_storage
         .search_directory_users(search_term, limit, false)
         .await
-        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = users.iter().map(|r| r.user_id.clone()).collect();
@@ -1467,7 +1467,7 @@ async fn search_rooms(
     .bind(limit)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
     let results: Vec<Value> = rooms
         .iter()

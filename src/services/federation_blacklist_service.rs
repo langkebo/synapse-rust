@@ -168,13 +168,13 @@ impl FederationBlacklistService {
             "domain" => Ok(server_name == rule.pattern),
             "regex" => {
                 let re = Regex::new(&rule.pattern)
-                    .map_err(|e| ApiError::internal(format!("Invalid regex pattern: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e))?;
                 Ok(re.is_match(server_name))
             }
             "wildcard" => {
                 let pattern = rule.pattern.replace('*', ".*");
                 let re = Regex::new(&format!("^{pattern}$"))
-                    .map_err(|e| ApiError::internal(format!("Invalid wildcard pattern: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Invalid wildcard pattern", &e))?;
                 Ok(re.is_match(server_name))
             }
             "cidr" => Ok(false),

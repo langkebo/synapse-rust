@@ -100,7 +100,7 @@ impl GeoIpService {
             .get(&url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("IPAPI request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("IPAPI request failed", &e))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -112,7 +112,7 @@ impl GeoIpService {
         let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse IPAPI response: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse IPAPI response", &e))?;
 
         Ok(GeoIpResult {
             country: json
@@ -151,7 +151,7 @@ impl GeoIpService {
             .get(&url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("IPStack request failed: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("IPStack request failed", &e))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal(format!(
@@ -163,7 +163,7 @@ impl GeoIpService {
         let json: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse IPStack response: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse IPStack response", &e))?;
 
         Ok(GeoIpResult {
             country: json

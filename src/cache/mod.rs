@@ -1042,7 +1042,7 @@ impl CacheManager {
                 return redis
                     .hincrby(key, field, delta)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Redis error: {e}")));
+                    .map_err(|e| ApiError::internal_with_log("Redis error", &e));
             }
         }
         Ok(0) // Local cache doesn't support HINCRBY yet, just return 0 or implement later
@@ -1054,7 +1054,7 @@ impl CacheManager {
                 return redis
                     .hgetall(key)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Redis error: {e}")));
+                    .map_err(|e| ApiError::internal_with_log("Redis error", &e));
             }
         }
         Ok(HashMap::new())

@@ -172,7 +172,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create notification", &e))?;
 
         Ok(notification)
     }
@@ -187,7 +187,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get notification", &e))?;
 
         Ok(notification)
     }
@@ -208,7 +208,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list active notifications: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to list active notifications", &e))?;
 
         Ok(notifications)
     }
@@ -239,7 +239,7 @@ impl ServerNotificationStorage {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list notifications: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to list notifications", &e))?;
 
         let next_batch = if notifications.len() as i64 == limit {
             notifications.last().map(|notification| {
@@ -303,7 +303,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to update notification", &e))?;
 
         Ok(notification)
     }
@@ -313,7 +313,7 @@ impl ServerNotificationStorage {
             .bind(notification_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete notification: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete notification", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -325,7 +325,7 @@ impl ServerNotificationStorage {
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to deactivate notification: {}", e))
+                    ApiError::internal_with_log("Failed to deactivate notification", &e)
                 })?;
 
         Ok(result.rows_affected() > 0)
@@ -357,7 +357,7 @@ impl ServerNotificationStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user notifications: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get user notifications", &e))?;
 
         let mut result = Vec::new();
         for notification in notifications {
@@ -389,7 +389,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create notification status: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create notification status", &e))?;
 
         if let Some(status) = status {
             return Ok(status);
@@ -406,7 +406,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get notification status: {}", e)))
+        .map_err(|e| ApiError::internal_with_log("Failed to get notification status", &e))
     }
 
     pub async fn mark_as_read(
@@ -420,7 +420,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to check notification", &e))?;
 
         if exists == 0 {
             return Err(ApiError::not_found("Notification not found"));
@@ -440,7 +440,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark notification as read: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to mark notification as read", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -456,7 +456,7 @@ impl ServerNotificationStorage {
         .bind(notification_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to check notification", &e))?;
 
         if exists == 0 {
             return Err(ApiError::not_found("Notification not found"));
@@ -476,7 +476,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to dismiss notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to dismiss notification", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -536,7 +536,7 @@ impl ServerNotificationStorage {
         .bind(&variables)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create template: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create template", &e))?;
 
         Ok(template)
     }
@@ -548,7 +548,7 @@ impl ServerNotificationStorage {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get template: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get template", &e))?;
 
         Ok(template)
     }
@@ -559,7 +559,7 @@ impl ServerNotificationStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to list templates: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to list templates", &e))?;
 
         Ok(templates)
     }
@@ -570,7 +570,7 @@ impl ServerNotificationStorage {
                 .bind(name)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to delete template: {}", e)))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to delete template", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -598,7 +598,7 @@ impl ServerNotificationStorage {
         .bind(error_message)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to log delivery: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to log delivery", &e))?;
 
         Ok(())
     }
@@ -619,7 +619,7 @@ impl ServerNotificationStorage {
         .bind(scheduled_for)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to schedule notification: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to schedule notification", &e))?;
 
         Ok(scheduled)
     }
@@ -640,10 +640,7 @@ impl ServerNotificationStorage {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!(
-                "Failed to get pending scheduled notifications: {}",
-                e
-            ))
+            ApiError::internal_with_log("Failed to get pending scheduled notifications", &e)
         })?;
 
         Ok(scheduled)
@@ -658,7 +655,7 @@ impl ServerNotificationStorage {
         .bind(scheduled_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to mark scheduled as sent: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to mark scheduled as sent", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -673,7 +670,7 @@ impl ServerNotificationStorage {
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get notification setting: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get notification setting", &e))?;
 
         match row {
             Some(row) => {
@@ -696,7 +693,7 @@ impl ServerNotificationStorage {
         .bind(enabled)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to upsert notification setting: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to upsert notification setting", &e))?;
 
         Ok(())
     }
@@ -711,7 +708,7 @@ impl ServerNotificationStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get pushers: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get pushers", &e))?;
 
         use sqlx::Row;
         let pusher_list: Vec<serde_json::Value> = rows
@@ -743,7 +740,7 @@ impl ServerNotificationStorage {
             .bind(pushkey)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete pusher: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -752,7 +749,7 @@ impl ServerNotificationStorage {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to count server notices: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to count server notices", &e))?;
 
         Ok(count)
     }
@@ -778,7 +775,7 @@ impl ServerNotificationStorage {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get server notices: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get server notices", &e))?;
 
         use sqlx::Row;
         let notice_list: Vec<serde_json::Value> = rows
@@ -819,7 +816,7 @@ impl ServerNotificationStorage {
         .bind(notice_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get server notice: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get server notice", &e))?;
 
         use sqlx::Row;
         match row {
@@ -849,7 +846,7 @@ impl ServerNotificationStorage {
         .bind(notice_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get server notice info: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get server notice info", &e))?;
 
         use sqlx::Row;
         match row {
@@ -866,7 +863,7 @@ impl ServerNotificationStorage {
             .bind(notice_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete server notice: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete server notice", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -896,7 +893,7 @@ impl ServerNotificationStorage {
             .bind(room_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete room: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete room", &e))?;
 
         Ok(())
     }
@@ -906,7 +903,7 @@ impl ServerNotificationStorage {
             .bind(event_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete event: {}", e)))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete event", &e))?;
 
         Ok(())
     }
@@ -926,7 +923,7 @@ impl ServerNotificationStorage {
         now: i64,
     ) -> Result<i64, ApiError> {
         let mut tx = self.pool.begin().await.map_err(|e| {
-            ApiError::internal(format!("Failed to begin transaction: {}", e))
+            ApiError::internal_with_log("Failed to begin transaction", &e)
         })?;
 
         let room_result = sqlx::query(
@@ -946,7 +943,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create server notice room: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create server notice room", &e))?;
 
         if room_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to create server notice room".to_string()));
@@ -967,7 +964,7 @@ impl ServerNotificationStorage {
         .bind(server_user)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create server notice create event: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create server notice create event", &e))?;
 
         if create_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to create server notice create event".to_string()));
@@ -989,7 +986,7 @@ impl ServerNotificationStorage {
         .bind(target_user_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create server notice membership event: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create server notice membership event", &e))?;
 
         if membership_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to create server notice membership event".to_string()));
@@ -1014,7 +1011,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist server notice member: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist server notice member", &e))?;
 
         if member_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to persist server notice member".to_string()));
@@ -1037,7 +1034,7 @@ impl ServerNotificationStorage {
         .bind(server_user)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist m.room.message event for server notice: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist m.room.message event for server notice", &e))?;
 
         if message_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to persist m.room.message event for server notice".to_string()));
@@ -1060,7 +1057,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to create server notice record: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create server notice record", &e))?;
 
         let summary_result = sqlx::query(
             r#"
@@ -1086,7 +1083,7 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist server notice room summary: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist server notice room summary", &e))?;
 
         if summary_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to persist server notice room summary".to_string()));
@@ -1109,14 +1106,14 @@ impl ServerNotificationStorage {
         .bind(now)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to persist server notice room summary member: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to persist server notice room summary member", &e))?;
 
         if summary_member_result.rows_affected() == 0 {
             return Err(ApiError::internal("Failed to persist server notice room summary member".to_string()));
         }
 
         tx.commit().await.map_err(|e| {
-            ApiError::internal(format!("Failed to commit server notice transaction: {}", e))
+            ApiError::internal_with_log("Failed to commit server notice transaction", &e)
         })?;
 
         Ok(notice_id)

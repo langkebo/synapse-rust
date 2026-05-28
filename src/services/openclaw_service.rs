@@ -179,7 +179,7 @@ impl OpenClawService {
         self.storage
             .get_user_connections(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get connections: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get connections", &e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -207,7 +207,7 @@ impl OpenClawService {
                 is_default,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create connection: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))
     }
 
     pub async fn get_connection_for_user(
@@ -219,7 +219,7 @@ impl OpenClawService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get connection: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get connection", &e))?
             .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
         self.ensure_resource_owner(&conn.user_id, auth_user_id, "Connection not found")?;
@@ -258,7 +258,7 @@ impl OpenClawService {
                 is_active,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update connection: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to update connection", &e))
     }
 
     pub async fn delete_connection(
@@ -272,7 +272,7 @@ impl OpenClawService {
         self.storage
             .delete_connection(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete connection: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))
     }
 
     pub async fn test_connection(
@@ -308,7 +308,7 @@ impl OpenClawService {
         self.storage
             .get_user_conversations(user_id, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get conversations: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get conversations", &e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -338,7 +338,7 @@ impl OpenClawService {
                 max_tokens,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create conversation: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to create conversation", &e))
     }
 
     pub async fn get_conversation_for_user(
@@ -350,7 +350,7 @@ impl OpenClawService {
             .storage
             .get_conversation(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get conversation: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get conversation", &e))?
             .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
         self.ensure_resource_owner(&conv.user_id, auth_user_id, "Conversation not found")?;
@@ -374,7 +374,7 @@ impl OpenClawService {
         self.storage
             .update_conversation(id, title, system_prompt, temperature, max_tokens, is_pinned)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update conversation: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to update conversation", &e))
     }
 
     pub async fn delete_conversation(
@@ -388,7 +388,7 @@ impl OpenClawService {
         self.storage
             .delete_conversation(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete conversation: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to delete conversation", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -410,7 +410,7 @@ impl OpenClawService {
         self.storage
             .get_conversation_messages(conversation_id, limit, before)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get messages: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))
     }
 
     pub async fn send_message(
@@ -432,7 +432,7 @@ impl OpenClawService {
         self.storage
             .create_message(conversation_id, role, content, None, tool_calls, tool_call_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create message: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to create message", &e))
     }
 
     pub async fn delete_message(
@@ -444,7 +444,7 @@ impl OpenClawService {
             .storage
             .get_message(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get message: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get message", &e))?
             .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
         // Ownership check via conversation
@@ -455,7 +455,7 @@ impl OpenClawService {
         self.storage
             .delete_message(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete message: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to delete message", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -477,7 +477,7 @@ impl OpenClawService {
         self.storage
             .get_user_generations(user_id, gen_type, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get generations: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get generations", &e))
     }
 
     pub async fn create_generation(
@@ -495,7 +495,7 @@ impl OpenClawService {
         self.storage
             .create_generation(user_id, conversation_id, gen_type, prompt)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create generation: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to create generation", &e))
     }
 
     pub async fn get_generation_for_user(
@@ -507,7 +507,7 @@ impl OpenClawService {
             .storage
             .get_generation(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get generation: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get generation", &e))?
             .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
         self.ensure_resource_owner(&gen.user_id, auth_user_id, "Generation not found")?;
@@ -525,7 +525,7 @@ impl OpenClawService {
         self.storage
             .delete_generation(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete generation: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to delete generation", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -539,7 +539,7 @@ impl OpenClawService {
         self.storage
             .get_user_chat_roles(user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get chat roles: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to get chat roles", &e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -570,7 +570,7 @@ impl OpenClawService {
                 is_public,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create chat role: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to create chat role", &e))
     }
 
     pub async fn get_chat_role_for_user(
@@ -582,7 +582,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         // Public roles are visible to everyone; private roles require ownership
@@ -612,7 +612,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         self.ensure_resource_owner(&existing.user_id, auth_user_id, "Chat role not found")?;
@@ -631,7 +631,7 @@ impl OpenClawService {
                 is_public,
             })
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update chat role: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to update chat role", &e))
     }
 
     pub async fn delete_chat_role(
@@ -644,7 +644,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get chat role: {}", e)))?
+            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         self.ensure_resource_owner(&existing.user_id, auth_user_id, "Chat role not found")?;
@@ -652,7 +652,7 @@ impl OpenClawService {
         self.storage
             .delete_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete chat role: {}", e)))
+            .map_err(|e| ApiError::internal_with_log("Failed to delete chat role", &e))
     }
 }
 
@@ -681,7 +681,7 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
 
     let ciphertext = cipher
         .encrypt(nonce, key.as_bytes())
-        .map_err(|e| ApiError::internal(format!("Encryption failed: {}", e)))?;
+        .map_err(|e| ApiError::internal_with_log("Encryption failed", &e))?;
 
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);

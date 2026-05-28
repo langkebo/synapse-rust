@@ -106,14 +106,14 @@ impl SyncService {
                 .get_state_events_since_stream_batch(room_ids, stream_ord)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room state events: {e}"))
+                    ApiError::internal_with_log("Failed to get room state events", &e)
                 })?
         } else {
             self.event_storage
                 .get_state_events_since_batch(room_ids, params.since_ts)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!("Failed to get room state events: {e}"))
+                    ApiError::internal_with_log("Failed to get room state events", &e)
                 })?
         };
 
@@ -144,9 +144,7 @@ impl SyncService {
                 .get_state_events_batch(&newly_visible_rooms)
                 .await
                 .map_err(|e| {
-                    ApiError::internal(format!(
-                        "Failed to get full state for newly visible rooms: {e}"
-                    ))
+                    ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e)
                 })?
         };
 

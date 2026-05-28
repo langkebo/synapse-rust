@@ -341,7 +341,7 @@ pub async fn cleanup_abnormal_rooms(
         .room_storage
         .cleanup_abnormal_data(min_age_ms)
         .await
-        .map_err(|e| ApiError::internal(format!("Cleanup failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Cleanup failed", &e))?;
 
     Ok(Json(results))
 }
@@ -842,7 +842,7 @@ pub async fn purge_history(
         .event_storage
         .delete_events_before(room_id, timestamp)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to purge history: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to purge history", &e))?;
 
     Ok(Json(json!({
         "success": true,
@@ -894,7 +894,7 @@ pub async fn purge_room(
         .room_storage
         .delete_room(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to purge room: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to purge room", &e))?;
 
     Ok(Json(json!({
         "purge_id": uuid::Uuid::new_v4().to_string(),
@@ -928,7 +928,7 @@ pub async fn shutdown_room(
         .room_storage
         .shutdown_room(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to shutdown room: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to shutdown room", &e))?;
 
     state
         .services
@@ -1166,7 +1166,7 @@ async fn join_room_member_internal(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1176,7 +1176,7 @@ async fn join_room_member_internal(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1214,7 +1214,7 @@ async fn remove_room_member_internal(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1224,7 +1224,7 @@ async fn remove_room_member_internal(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1264,7 +1264,7 @@ async fn ban_user_internal(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1274,7 +1274,7 @@ async fn ban_user_internal(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1292,7 +1292,7 @@ async fn ban_user_internal(
         .user_storage
         .get_user_by_id(actor_user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check actor: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check actor", &e))?
         .is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
@@ -1301,7 +1301,7 @@ async fn ban_user_internal(
             .member_storage
             .ban_member(room_id, user_id, actor_user_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to ban user: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to ban user", &e))?;
     } else {
         state
             .services
@@ -1316,7 +1316,7 @@ async fn ban_user_internal(
             .room_storage
             .decrement_member_count(room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to update member count: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update member count", &e))?;
     }
 
     if let Some(reason) = reason {
@@ -1360,7 +1360,7 @@ async fn unban_user_internal(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1370,7 +1370,7 @@ async fn unban_user_internal(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1409,7 +1409,7 @@ async fn kick_user_internal(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check room: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -1419,7 +1419,7 @@ async fn kick_user_internal(
         .user_storage
         .user_exists(user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user: {e}")))?
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
@@ -1851,7 +1851,7 @@ pub async fn search_room_messages_admin(
         .event_storage
         .search_room_messages_admin(&room_id, &search_pattern, limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
     let results: Vec<Value> = events
         .iter()
@@ -1990,7 +1990,7 @@ async fn search_all_rooms_impl(
             body.is_encrypted,
         )
         .await
-        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
     Ok(Json(json!({
         "results": results,

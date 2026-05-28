@@ -28,7 +28,7 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
         false,
     )
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to create guest user: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
     sqlx::query(
         r"
@@ -38,7 +38,7 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
     .bind(&user.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to mark guest user: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
     DeviceStorage::create_device(
         &state.services.device_storage,
@@ -47,14 +47,14 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
         Some("Guest Device"),
     )
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to create device: {e}")))?;
+    .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
     let access_token = state
         .services
         .auth_service
         .generate_access_token(&user.user_id, &device_id, false)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to generate guest token: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
 
     Ok(Json(json!({
         "access_token": access_token,
@@ -70,7 +70,7 @@ pub async fn get_guest_info(
 ) -> Result<Json<Value>, ApiError> {
     let user = UserStorage::get_user_by_id(&state.services.user_storage, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?;
 
     match user {
         Some(u) if u.is_guest => Ok(Json(json!({
@@ -113,14 +113,14 @@ pub async fn upgrade_guest(
 
     let user = UserStorage::get_user_by_id(&state.services.user_storage, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get user: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?;
 
     match user {
         Some(u) if u.is_guest => {
             let existing =
                 UserStorage::get_user_by_username(&state.services.user_storage, username)
                     .await
-                    .map_err(|e| ApiError::internal(format!("Failed to check username: {e}")))?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to check username", &e))?;
 
             if existing.is_some() {
                 return Err(ApiError::conflict("Username already exists".to_string()));
@@ -142,7 +142,7 @@ pub async fn upgrade_guest(
             .bind(&auth_user.user_id)
             .execute(&*state.services.user_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to upgrade account: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to upgrade account", &e))?;
 
             let access_token = state
                 .services
@@ -153,7 +153,7 @@ pub async fn upgrade_guest(
                     false,
                 )
                 .await
-                .map_err(|e| ApiError::internal(format!("Failed to generate token: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
 
             Ok(Json(json!({
                 "success": true,

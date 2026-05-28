@@ -223,9 +223,7 @@ impl MediaService {
             );
             if let Err(e) = std::fs::create_dir_all(&self.media_path) {
                 ::tracing::error!("Failed to create media directory: {}", e);
-                return Err(ApiError::internal(format!(
-                    "Media storage not available: {e}. Please ensure the media directory exists and has correct permissions."
-                )));
+                return Err(ApiError::internal("An internal error occurred".to_string()));
             }
         }
 
@@ -239,7 +237,7 @@ impl MediaService {
         let write_result =
             tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
                 .await
-                .map_err(|e| ApiError::internal(format!("Write task panicked: {e}")))?;
+                .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
 
         if let Err(e) = write_result {
             ::tracing::error!("Failed to save media file - Error: {}", e);
@@ -326,7 +324,7 @@ impl MediaService {
             None
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))
     }
 
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
@@ -433,7 +431,7 @@ impl MediaService {
         let mut output = Vec::new();
         thumbnail
             .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Jpeg)
-            .map_err(|e| ApiError::internal(format!("Failed to encode thumbnail: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to encode thumbnail", &e))?;
 
         Ok(output)
     }
@@ -502,7 +500,7 @@ impl MediaService {
             deleted_count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         Ok(result)
     }
@@ -632,7 +630,7 @@ impl MediaService {
             None
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         result.ok_or(ApiError::not_found("Media not found".to_string()))
     }
@@ -665,7 +663,7 @@ impl MediaService {
             Err("Media not found".to_string())
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         result.map_err(ApiError::not_found)
     }
@@ -697,7 +695,7 @@ impl MediaService {
             count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         deleted_count += media_deleted;
 
@@ -721,7 +719,7 @@ impl MediaService {
             count
         })
         .await
-        .map_err(|e| ApiError::internal(format!("Task error: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         deleted_count += thumb_deleted;
         ::tracing::info!(

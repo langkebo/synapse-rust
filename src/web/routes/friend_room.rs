@@ -404,7 +404,7 @@ async fn get_friends(
         )
         .await?;
     let items = serde_json::to_value(&page.items)
-        .map_err(|e| ApiError::internal(format!("Failed to serialize friend list: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to serialize friend list", &e))?;
 
     Ok(Json(json!({
         "friends": items,
@@ -451,7 +451,7 @@ async fn search_friend_directory(
         .user_storage
         .search_directory_users(&search_term, search_limit as i64, exact_only)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to search users: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to search users", &e))?;
 
     let target_user_ids: Vec<String> =
         results.iter().filter(|r| r.user_id != auth_user.user_id).map(|r| r.user_id.clone()).collect();

@@ -251,7 +251,7 @@ impl SearchService {
             .fetch_all(pool)
             .await
         }
-        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
         let has_more = rows.len() > limit as usize;
         let visible_rows = if has_more {
@@ -327,7 +327,7 @@ impl SearchService {
         sqlx::query(sql)
             .execute(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to create FTS index: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to create FTS index", &e))?;
 
         ::tracing::info!("PostgreSQL FTS index created successfully");
         Ok(())
@@ -412,7 +412,7 @@ impl SearchService {
             .json(&doc)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to index event: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to index event", &e))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal("Failed to index event".to_string()));
@@ -454,7 +454,7 @@ impl SearchService {
             .body(body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to bulk index: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to bulk index", &e))?;
 
         if !response.status().is_success() {
             ::tracing::warn!("Bulk index returned non-success status");
@@ -474,7 +474,7 @@ impl SearchService {
             .delete(&url)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete event: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete event", &e))?;
 
         let status = response.status();
         if !status.is_success() && status.as_u16() != 404 {
@@ -626,12 +626,12 @@ impl SearchService {
             .json(&search_body)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
         let response_json: Value = response
             .json()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to parse search response: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to parse search response", &e))?;
 
         let hits_array = response_json
             .get("hits")
@@ -742,7 +742,7 @@ impl SearchService {
             .json(&delete_by_query)
             .send()
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to delete room index: {e}")))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete room index", &e))?;
 
         if !response.status().is_success() {
             ::tracing::warn!("Delete room index returned non-success status");
