@@ -1,6 +1,23 @@
 //! 内置 OIDC Provider 服务
 //!
-//! 提供简单的内置 OIDC 认证服务，用于开发测试环境
+//! 提供简单的内置 OIDC 认证服务，用于开发测试环境。
+//!
+//! # 适用场景
+//!
+//! - **开发/测试环境**: 快速搭建认证服务，无需外部 IdP
+//! - **内部部署**: 不需要对接外部身份提供商的小型私有部署
+//!
+//! # 不适用场景
+//!
+//! - **生产环境**: 应使用外部 IdP（如 Keycloak、Auth0）通过 `OidcService` 接入
+//! - **需要高安全性的场景**: 内置 Provider 的密钥管理较为简单
+//!
+//! # 与 OidcService 的关系
+//!
+//! - `OidcService`: 外部 IdP 客户端模式，通过 discovery URL 对接外部身份提供商
+//! - `BuiltinOidcProvider`: 内置 Provider 模式，自身充当 OIDC Provider
+//!
+//! 两者不应同时启用。启动时会检测冲突并发出警告。
 
 use crate::common::error::ApiError;
 use crate::common::{BuiltinOidcConfig, BuiltinOidcUser};

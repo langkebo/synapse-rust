@@ -821,6 +821,26 @@ impl ServiceContainer {
         #[cfg(not(feature = "builtin-oidc"))]
         let builtin_oidc_provider: Option<()> = None;
 
+        // OIDC dual-mode startup check
+        #[cfg(feature = "builtin-oidc")]
+        {
+            let external_enabled = oidc_service.is_some();
+            let builtin_enabled = builtin_oidc_provider.is_some();
+            if external_enabled && builtin_enabled {
+                ::tracing::warn!(
+                    "Both external OIDC (oidc.issuer) and builtin OIDC provider are enabled. \
+                     Builtin OIDC is intended for development/testing only. \
+                     In production, use an external IdP and disable builtin OIDC."
+                );
+            }
+        }
+        #[cfg(not(feature = "builtin-oidc"))]
+        {
+            if oidc_service.is_some() {
+                ::tracing::info!("External OIDC provider enabled (builtin OIDC not compiled).");
+            }
+        }
+
         // Identity service
         let identity_storage = crate::services::identity::IdentityStorage::new(pool);
         let identity_service = Arc::new(crate::services::identity::IdentityService::new(
