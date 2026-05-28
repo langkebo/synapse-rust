@@ -1,3 +1,4 @@
+use super::metrics::RtcMetrics;
 use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::matrixrtc::{
@@ -7,12 +8,12 @@ use crate::storage::matrixrtc::{
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct MatrixRTCService {
+pub struct RtcSessionService {
     storage: MatrixRTCStorage,
     cache: Arc<CacheManager>,
 }
 
-impl MatrixRTCService {
+impl RtcSessionService {
     pub fn new(storage: MatrixRTCStorage, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
@@ -29,7 +30,7 @@ impl MatrixRTCService {
         let params = CreateSessionParams {
             room_id,
             session_id,
-            application,
+            application: application.clone(),
             call_id,
             creator,
             config,
@@ -40,6 +41,8 @@ impl MatrixRTCService {
             .create_session(params)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create RTC session", &e))?;
+
+        RtcMetrics::increment_session_created(&application);
 
         self.invalidate_room_cache(&session.room_id).await;
 
@@ -153,6 +156,8 @@ impl MatrixRTCService {
             .create_membership(params)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create membership", &e))?;
+
+        RtcMetrics::increment_membership_created();
 
         self.invalidate_session_cache(&membership.room_id, &membership.session_id)
             .await;

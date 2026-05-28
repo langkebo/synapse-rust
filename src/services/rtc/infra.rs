@@ -1,3 +1,4 @@
+use super::metrics::RtcMetrics;
 use crate::common::config::VoipConfig;
 use crate::common::error::ApiError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -18,18 +19,20 @@ pub struct TurnCredentials {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VoipSettings {
+pub struct RtcInfraSettings {
     pub turn_uris: Vec<String>,
     pub turn_username: Option<String>,
     pub turn_password: Option<String>,
     pub stun_uris: Vec<String>,
 }
 
-pub struct VoipService {
+pub type VoipSettings = RtcInfraSettings;
+
+pub struct RtcInfraService {
     config: Arc<VoipConfig>,
 }
 
-impl VoipService {
+impl RtcInfraService {
     pub fn new(config: Arc<VoipConfig>) -> Self {
         Self { config }
     }
@@ -38,8 +41,8 @@ impl VoipService {
         self.config.is_enabled()
     }
 
-    pub fn get_settings(&self) -> VoipSettings {
-        VoipSettings {
+    pub fn get_settings(&self) -> RtcInfraSettings {
+        RtcInfraSettings {
             turn_uris: self.config.turn_uris.clone(),
             turn_username: self.config.turn_username.clone(),
             turn_password: self.config.turn_password.clone(),
@@ -77,6 +80,8 @@ impl VoipService {
                 "TURN credentials not configured. Set turn_shared_secret or turn_username/turn_password",
             ));
         };
+
+        RtcMetrics::increment_turn_credentials_issued();
 
         Ok(TurnCredentials {
             username,
@@ -157,7 +162,7 @@ mod tests {
     #[test]
     fn test_generate_turn_credentials() {
         let config = Arc::new(create_test_config());
-        let service = VoipService::new(config);
+        let service = RtcInfraService::new(config);
 
         let creds = service
             .generate_turn_credentials("@alice:example.com")
@@ -179,7 +184,7 @@ mod tests {
             turn_password: Some("static_pass".to_string()),
             ..Default::default()
         });
-        let service = VoipService::new(config);
+        let service = RtcInfraService::new(config);
 
         let creds = service
             .generate_turn_credentials("@alice:example.com")
@@ -192,11 +197,11 @@ mod tests {
     #[test]
     fn test_turn_password_generation() {
         let config = Arc::new(create_test_config());
-        let _service = VoipService::new(config);
+        let _service = RtcInfraService::new(config);
 
-        let password1 = VoipService::generate_turn_password("test_user", "secret")
+        let password1 = RtcInfraService::generate_turn_password("test_user", "secret")
             .unwrap();
-        let password2 = VoipService::generate_turn_password("test_user", "secret")
+        let password2 = RtcInfraService::generate_turn_password("test_user", "secret")
             .unwrap();
 
         assert_eq!(password1, password2);
@@ -206,14 +211,14 @@ mod tests {
     #[test]
     fn test_guest_access() {
         let config = Arc::new(create_test_config());
-        let service = VoipService::new(config);
+        let service = RtcInfraService::new(config);
         assert!(service.can_guest_use_turn());
     }
 
     #[test]
     fn test_get_uris() {
         let config = Arc::new(create_test_config());
-        let service = VoipService::new(config);
+        let service = RtcInfraService::new(config);
 
         assert_eq!(service.get_turn_uris().len(), 2);
         assert_eq!(service.get_stun_uris().len(), 1);

@@ -954,7 +954,7 @@ pub(crate) async fn get_room_turn_server(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let voip_service = &state.services.voip_service;
+    let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({

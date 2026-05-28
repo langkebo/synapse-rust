@@ -1,3 +1,4 @@
+use super::metrics::RtcMetrics;
 use crate::common::ApiError;
 use crate::storage::call_session::{CallSession, CallSessionStorage, CreateCallSessionParams};
 use serde::{Deserialize, Serialize};
@@ -85,11 +86,11 @@ pub struct CallHangupEvent {
     pub version: i32,
 }
 
-pub struct CallService {
+pub struct CallOrchestrationService {
     storage: Arc<CallSessionStorage>,
 }
 
-impl CallService {
+impl CallOrchestrationService {
     pub fn new(storage: Arc<CallSessionStorage>) -> Self {
         Self { storage }
     }
@@ -131,6 +132,8 @@ impl CallService {
             .create_session(params)
             .await
             .map_err(|e| ApiError::database_with_log("Failed to create call session", &e))?;
+
+        RtcMetrics::increment_call_started();
 
         Ok(session)
     }
@@ -234,6 +237,8 @@ impl CallService {
             .end_session(&content.call_id, room_id)
             .await
             .map_err(|e| ApiError::database_with_log("Failed to end call session", &e))?;
+
+        RtcMetrics::increment_call_ended();
 
         Ok(())
     }

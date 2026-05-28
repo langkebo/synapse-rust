@@ -124,19 +124,36 @@ pub mod beacon_service;
 #[cfg(feature = "beacons")]
 pub use beacon_service::*;
 
+// =============================================================================
+// RTC domain — unified real-time communication (TURN/STUN, calls, sessions, SFU)
+// =============================================================================
+pub mod rtc;
+
+// Backward-compatible re-exports from rtc domain
+pub use rtc::RtcInfraService as VoipService;
+pub use rtc::RtcInfraService;
+pub use rtc::RtcInfraSettings;
+pub use rtc::TurnCredentials;
+pub use rtc::VoipSettings;
 #[cfg(feature = "voip-tracking")]
-pub mod call_service;
+pub use rtc::CallOrchestrationService as CallService;
 #[cfg(feature = "voip-tracking")]
-pub mod livekit_client;
+pub use rtc::CallOrchestrationService;
 #[cfg(feature = "voip-tracking")]
-pub mod matrixrtc_service;
+pub use rtc::RtcSessionService as MatrixRTCService;
 #[cfg(feature = "voip-tracking")]
-pub use livekit_client::*;
+pub use rtc::RtcSessionService;
 #[cfg(feature = "voip-tracking")]
-pub use matrixrtc_service::*;
-// L1 — VoipService provides TURN server config (standard Matrix) — always available
-pub mod voip_service;
-pub use voip_service::*;
+pub use rtc::LivekitClient;
+#[cfg(feature = "voip-tracking")]
+pub use rtc::{
+    CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
+    CallState, IceCandidate, CreateRoomRequest, CreateRoomResponse, JoinRoomRequest,
+    JoinRoomResponse, LivekitCodec, LivekitError, LivekitParticipant, LivekitRoom,
+    LivekitTrack, RoomParticipant, TrackInfo, to_matrix_event,
+};
+#[cfg(feature = "voip-tracking")]
+pub use crate::common::config::LivekitConfig;
 
 #[cfg(feature = "widgets")]
 pub mod widget_service;
