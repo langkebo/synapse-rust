@@ -353,7 +353,7 @@ async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, 
     .bind(identifier)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     space_id.ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
@@ -369,7 +369,7 @@ pub async fn get_room_aliases_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -425,14 +425,14 @@ pub async fn get_rooms(
         .room_storage
         .get_all_rooms_with_members(limit, cursor, order)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let total = state
         .services
         .room_storage
         .get_room_count()
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let room_list: Vec<Value> = rooms_with_members
         .iter()
@@ -467,7 +467,7 @@ pub async fn get_room(
         .room_storage
         .get_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match room {
         Some(r) => Ok(Json(json!({
@@ -496,7 +496,7 @@ pub async fn delete_room(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -506,7 +506,7 @@ pub async fn delete_room(
         .room_storage
         .delete_room(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -525,7 +525,7 @@ pub async fn get_room_members_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -535,7 +535,7 @@ pub async fn get_room_members_admin(
         .member_storage
         .get_room_members(&room_id, "join")
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let member_list: Vec<Value> = members
         .iter()
@@ -566,7 +566,7 @@ pub async fn get_room_state_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -576,7 +576,7 @@ pub async fn get_room_state_admin(
         .event_storage
         .get_state_events(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let state_events: Vec<Value> = events
         .iter()
@@ -606,7 +606,7 @@ pub async fn get_room_messages_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -622,7 +622,7 @@ pub async fn get_room_messages_admin(
         .event_storage
         .get_room_events(&room_id, limit)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let messages: Vec<Value> = events
         .iter()
@@ -657,7 +657,7 @@ pub async fn block_room(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -677,7 +677,7 @@ pub async fn block_room(
     .bind(&body.reason)
     .execute(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     record_audit_event(
         &state,
@@ -707,7 +707,7 @@ pub async fn get_room_block_status(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -716,7 +716,7 @@ pub async fn get_room_block_status(
         .bind(&room_id)
         .fetch_optional(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match result {
         Some(row) => Ok(Json(json!({
@@ -739,7 +739,7 @@ pub async fn unblock_room(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -748,7 +748,7 @@ pub async fn unblock_room(
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     record_audit_event(
         &state,
@@ -777,7 +777,7 @@ pub async fn make_room_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -787,7 +787,7 @@ pub async fn make_room_admin(
         .user_storage
         .get_user_by_id(&body.user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .is_none()
     {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -825,7 +825,7 @@ pub async fn make_room_admin(
     .bind(&admin_user)
     .execute(&*state.services.event_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
@@ -850,7 +850,7 @@ pub async fn purge_history(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -902,7 +902,7 @@ pub async fn purge_room(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -936,7 +936,7 @@ pub async fn shutdown_room(
         .room_storage
         .room_exists(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -953,7 +953,7 @@ pub async fn shutdown_room(
         .member_storage
         .remove_all_members(room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "kicked_users": [],
@@ -972,7 +972,7 @@ pub async fn get_spaces(
     )
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let space_list: Vec<Value> = spaces
         .iter()
@@ -1005,7 +1005,7 @@ pub async fn get_space(
     .bind(&space_id)
     .fetch_optional(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match space {
         Some(row) => Ok(Json(json!({
@@ -1031,7 +1031,7 @@ pub async fn delete_space(
         .bind(&resolved_space_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Space not found".to_string()));
@@ -1054,7 +1054,7 @@ pub async fn get_space_users(
     .bind(&resolved_space_id)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let user_list: Vec<String> = users.iter().map(|r| r.get("user_id")).collect();
 
@@ -1075,7 +1075,7 @@ pub async fn get_space_rooms(
         .bind(&resolved_space_id)
         .fetch_all(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
@@ -1098,14 +1098,14 @@ pub async fn get_space_stats(
     .bind(&resolved_space_id)
     .fetch_one(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let child_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1")
             .bind(&resolved_space_id)
             .fetch_one(&*state.services.room_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "space_id": resolved_space_id,
@@ -1126,7 +1126,7 @@ pub async fn get_room_stats(
     let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
         .fetch_one(pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Encrypted rooms
     let encrypted_rooms: i64 = sqlx::query_scalar(
@@ -1134,26 +1134,26 @@ pub async fn get_room_stats(
     )
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Public rooms
     let public_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true")
         .fetch_one(pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Total messages
     let total_messages: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE type = 'm.room.message'")
             .fetch_one(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Total members
     let total_members: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships")
         .fetch_one(pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Active rooms (rooms with messages in last 7 days)
     let active_rooms: i64 = sqlx::query_scalar(
@@ -1162,7 +1162,7 @@ pub async fn get_room_stats(
     .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "total_rooms": total_rooms,
@@ -1190,7 +1190,7 @@ pub async fn get_single_room_stats(
             .bind(&room_id)
             .fetch_optional(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if room_exists.is_none() {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -1203,7 +1203,7 @@ pub async fn get_single_room_stats(
     .bind(&room_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Message count
     let message_count: i64 = sqlx::query_scalar(
@@ -1212,7 +1212,7 @@ pub async fn get_single_room_stats(
     .bind(&room_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Last message timestamp
     let last_message_ts: Option<i64> =
@@ -1220,7 +1220,7 @@ pub async fn get_single_room_stats(
             .bind(&room_id)
             .fetch_optional(pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Room state
     let is_encrypted: bool = sqlx::query_scalar(
@@ -1229,7 +1229,7 @@ pub async fn get_single_room_stats(
     .bind(&room_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     // Admin count
     let admin_count: i64 = sqlx::query_scalar(
@@ -1238,7 +1238,7 @@ pub async fn get_single_room_stats(
     .bind(&room_id)
     .fetch_one(pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1316,7 +1316,7 @@ async fn join_room_member_internal(
         .member_storage
         .get_room_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .map(|member| member.membership);
 
     if existing_membership.as_deref() != Some("join") {
@@ -1364,7 +1364,7 @@ async fn remove_room_member_internal(
         .member_storage
         .get_room_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .map(|member| member.membership);
 
     if existing_membership.as_deref() == Some("join") {
@@ -1414,7 +1414,7 @@ async fn ban_user_internal(
         .member_storage
         .get_room_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .map(|member| member.membership);
 
     let actor_is_admin = state
@@ -1462,7 +1462,7 @@ async fn ban_user_internal(
         .bind(reason)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
     }
 
     #[cfg(feature = "friends")]
@@ -1517,7 +1517,7 @@ async fn unban_user_internal(
         .member_storage
         .unban_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(json!({
         "user_id": user_id,
@@ -1538,7 +1538,7 @@ async fn kick_user_internal(
         .member_storage
         .get_room_member(room_id, user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .map(|member| member.membership);
 
     if !state
@@ -1585,7 +1585,7 @@ async fn kick_user_internal(
             .bind(now)
             .execute(&*state.services.room_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
         }
         None => {}
     }
@@ -1712,7 +1712,7 @@ pub async fn get_room_listings(
             .bind(&room_id)
             .fetch_optional(&*state.services.room_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let Some(is_public) = is_public else {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -1723,7 +1723,7 @@ pub async fn get_room_listings(
             .bind(&room_id)
             .fetch_one(&*state.services.room_storage.pool)
             .await
-            .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1743,7 +1743,7 @@ pub async fn set_room_public(
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -1758,7 +1758,7 @@ pub async fn set_room_public(
     .bind(now)
     .execute(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1777,7 +1777,7 @@ pub async fn set_room_private(
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -1788,7 +1788,7 @@ pub async fn set_room_private(
         .bind(&room_id)
         .execute(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1811,7 +1811,7 @@ pub async fn get_event_context_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -1822,7 +1822,7 @@ pub async fn get_event_context_admin(
         .event_storage
         .get_event(&event_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
@@ -1844,7 +1844,7 @@ pub async fn get_event_context_admin(
     .bind(event.origin_server_ts)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     .iter()
     .map(|r| {
         json!({
@@ -1870,7 +1870,7 @@ pub async fn get_event_context_admin(
     .bind(event.origin_server_ts)
     .fetch_all(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
     .iter()
     .map(|r| {
         json!({
@@ -1918,7 +1918,7 @@ pub async fn get_room_token_sync_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -2044,7 +2044,7 @@ pub async fn search_room_messages_admin(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -2101,7 +2101,7 @@ pub async fn get_room_version(
         .bind(&room_id)
         .fetch_optional(&*state.services.room_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match row {
         Some(row) => {
@@ -2127,7 +2127,7 @@ pub async fn get_room_forward_extremities(
         .room_storage
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -2147,7 +2147,7 @@ pub async fn get_room_forward_extremities(
     .bind(&room_id)
     .fetch_one(&*state.services.room_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,

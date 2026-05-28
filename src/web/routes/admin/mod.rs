@@ -2,7 +2,6 @@ pub mod audit;
 pub mod cleanup;
 pub mod federation;
 pub mod media;
-#[cfg(feature = "server-notifications")]
 pub mod notification;
 pub mod register;
 pub mod report;
@@ -21,7 +20,6 @@ pub use audit::create_audit_router;
 pub use cleanup::create_cleanup_router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
-#[cfg(feature = "server-notifications")]
 pub use notification::create_notification_router;
 pub use register::create_register_router;
 pub use report::create_report_router;
@@ -44,7 +42,6 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
 }
 
 pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
-    // `mut` needed when `server-notifications` feature is enabled; unused otherwise.
     #[allow(unused_mut)]
     let mut admin_router = Router::new()
         .merge(create_audit_router(state.clone()))
@@ -52,11 +49,8 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_room_router(state.clone()))
         .merge(create_server_router(state.clone()))
         .merge(create_security_router(state.clone()))
-        .merge(create_cleanup_router(state.clone()));
-    #[cfg(feature = "server-notifications")]
-    {
-        admin_router = admin_router.merge(create_notification_router(state.clone()));
-    }
+        .merge(create_cleanup_router(state.clone()))
+        .merge(create_notification_router(state.clone()));
     let protected = admin_router
         .merge(create_token_router(state.clone()))
         .merge(create_federation_router(state.clone()))
@@ -83,10 +77,7 @@ pub fn admin_module_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     entries.extend(cleanup::admin_cleanup_route_manifest());
     entries.extend(federation::admin_federation_route_manifest());
     entries.extend(media::admin_media_route_manifest());
-    #[cfg(feature = "server-notifications")]
-    {
-        entries.extend(notification::admin_notification_route_manifest());
-    }
+    entries.extend(notification::admin_notification_route_manifest());
     entries.extend(register::admin_register_route_manifest());
     entries.extend(report::admin_report_route_manifest());
     entries.extend(retention::admin_retention_route_manifest());

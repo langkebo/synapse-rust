@@ -48,7 +48,6 @@ pub struct ServiceContainer {
     pub qr_login_storage: QrLoginStorage,
     pub invite_blocklist_storage: InviteBlocklistStorage,
     pub sticky_event_storage: StickyEventStorage,
-    pub presence_service: PresenceStorage,
     pub auth_service: AuthService,
     pub device_keys_service: DeviceKeyService,
     pub key_request_service: KeyRequestService,
@@ -138,7 +137,7 @@ pub struct ServiceContainer {
     pub cas_service: Arc<crate::services::cas_service::CasService>,
     pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
     pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
-    pub chunked_upload_service: Arc<crate::services::media::chunked_upload::ChunkedUploadService>,
+    pub media_domain_service: Arc<crate::services::media::MediaDomainService>,
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
     #[cfg(feature = "server-notifications")]
@@ -649,9 +648,7 @@ impl ServiceContainer {
         // Core storage
         let user_storage = UserStorage::new(pool, cache.clone());
         let threepid_storage = ThreepidStorage::new(pool);
-        let presence_pool = pool.clone();
-        let presence_storage = PresenceStorage::new(presence_pool.clone(), cache.clone());
-        let presence_service = PresenceStorage::new(presence_pool, cache.clone());
+        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
@@ -694,6 +691,12 @@ impl ServiceContainer {
             task_queue.clone(),
             &config.server.name,
         );
+        let chunked_upload_service =
+            Arc::new(crate::services::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
+        let media_domain_service = Arc::new(crate::services::media::MediaDomainService::new(
+            media_service.clone(),
+            chunked_upload_service.clone(),
+        ));
 
         #[cfg(feature = "voice-extended")]
         let voice_storage = crate::storage::voice::VoiceStorage::new(pool.clone());
@@ -852,7 +855,6 @@ impl ServiceContainer {
             qr_login_storage,
             invite_blocklist_storage,
             sticky_event_storage,
-            presence_service,
             auth_service,
             device_keys_service: e2ee.device_keys_service,
             key_request_service: e2ee.key_request_service,
@@ -942,9 +944,7 @@ impl ServiceContainer {
             cas_service,
             media_quota_storage: admin.media_quota_storage,
             media_quota_service: admin.media_quota_service,
-            chunked_upload_service: Arc::new(crate::services::media::chunked_upload::ChunkedUploadService::new(
-                pool.clone(),
-            )),
+            media_domain_service,
             #[cfg(feature = "openclaw-routes")]
             ai_connection_storage,
             #[cfg(feature = "server-notifications")]

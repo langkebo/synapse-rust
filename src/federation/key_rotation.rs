@@ -628,7 +628,10 @@ impl KeyRotationManager {
         .bind(&self.server_name)
         .fetch_all(&*self.pool)
         .await
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to fetch known federation servers: {e}");
+            Vec::new()
+        });
         Ok(servers.into_iter().map(|(s,)| s).collect())
     }
 

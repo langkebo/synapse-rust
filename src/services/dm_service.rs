@@ -47,6 +47,7 @@ use tokio::sync::RwLock;
 ///
 /// 存储直接消息房间的元数据。
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DMRoom {
     /// 房间 ID（例如：!dm:example.com）
     pub room_id: String,
@@ -61,6 +62,7 @@ pub struct DMRoom {
 /// 兼容性内存 DM 服务。
 ///
 /// 该类型仍对外保留，但主要用于测试和旧接口兼容，不再承担主运行时事实来源。
+#[allow(dead_code)]
 pub struct DMService {
     /// DM 房间映射（room_id -> DMRoom）
     dm_rooms: Arc<RwLock<HashMap<String, DMRoom>>>,
@@ -68,6 +70,7 @@ pub struct DMService {
     user_dms: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
+#[allow(dead_code)]
 impl DMService {
     /// 创建新的 DM 服务实例
     ///
