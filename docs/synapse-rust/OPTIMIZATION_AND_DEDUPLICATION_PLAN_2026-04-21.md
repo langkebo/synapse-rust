@@ -830,3 +830,44 @@ docs/
 | 扩展 schema 拆分 | 0 文件 | 5 个 `00000001_extensions_*.sql` | cas/saml/voice/friends/privacy |
 | 扩展 schema 对齐 | 未审计 | CAS 6 表 + SAML 5 修复 + Privacy 重写 | 全部对齐代码 |
 | E2EE 审查修复 | N/A | 3 个 P0 bug + 6 个 schema 对齐修复 | algorithms/cross_signing/olm/fallback |
+
+---
+
+## 附录 B：2026-05-28 代码质量修复进展
+
+> 本节记录优化蓝图实施后，在代码质量层面的深层修复进展。
+
+### B.1 错误响应安全加固
+
+| 维度 | 修复前 | 修复后 |
+|------|--------|--------|
+| `ApiError::internal(format!("...: {e}"))` | ~1200 处 | **0 处** |
+| 涉及文件 | 119 个 | - |
+| 新增辅助方法 | 0 | `internal_with_log()` + `database_with_log()` |
+| 客户端可见错误详情 | 包含 DB 错误/SQL/连接信息 | 仅 "An internal error occurred" |
+
+### B.2 数据库查询优化
+
+| 优化项 | 修复前 | 修复后 |
+|--------|--------|--------|
+| N+1 查询 | 2 处（query_keys + verified_devices） | **0 处** |
+| 新增批量方法 | 0 | `get_cross_signing_keys_batch` + `get_all_device_keys_batch` |
+| 路由层直接 SQL | 10+ 处 | **0 处** |
+| 新增 Storage 方法 | 0 | `get_device_list_changes`/`get_devices_by_user_device_pairs`/`get_account_data_content`/`batch_can_view_profile`/`add_verified_threepid` |
+
+### B.3 密钥轮转持久化
+
+| 维度 | 修复前 | 修复后 |
+|------|--------|--------|
+| 硬编码常量 | 3 个（interval_days/threshold_days/grace_period_minutes） | 0（全部从 DB 加载） |
+| 持久化参数 | 1 个（interval_ms） | **6 个**（+rotation_interval_days/rotation_threshold_days/grace_period_minutes/olm_rotation_days/megolm_rotation_messages/max_session_age_days） |
+| 迁移脚本 | 0 | `20260528000001_key_rotation_config_table.sql` |
+
+### B.4 权限与安全
+
+| 修复项 | 状态 |
+|--------|------|
+| key_rotation 路由 is_admin 检查 | ✅ 6 个路由已添加 |
+| 联邦签名私钥加密存储 | ✅ AES-256-GCM，`enc:` 前缀 |
+| Nonce 存储过期清理 | ✅ 已添加 |
+| `From<sqlx::Error>` 重复键信息泄露 | ✅ 已修复 |

@@ -292,6 +292,40 @@ impl SyncService {
         Ok(serde_json::Value::Object(result))
     }
 
+    pub async fn room_sync_with_timeout(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        timeout: u64,
+        is_full_state: bool,
+        since: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.room_sync(user_id, room_id, timeout, is_full_state, since),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => {
+                ::tracing::error!(
+                    "Room sync error for user {} in room {}: {}",
+                    user_id,
+                    room_id,
+                    error
+                );
+                Err(error)
+            }
+            Err(_) => {
+                ::tracing::error!("Room sync timeout for user {} in room {}", user_id, room_id);
+                Err(ApiError::internal(
+                    "Room sync operation timed out".to_string(),
+                ))
+            }
+        }
+    }
+
     pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let (highlight_count, notification_count) =
             self.get_unread_counts(room_id, user_id).await?;
