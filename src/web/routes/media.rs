@@ -347,50 +347,47 @@ async fn download_media_common(
     state: &AppState,
     server_name: &str,
     media_id: &str,
-) -> Result<(String, Vec<u8>, Option<String>), ApiError> {
+    response_filename: Option<&str>,
+) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
     ensure_local_media_server_name(state, server_name)?;
 
-    let content = state
+    state
         .services
-        .media_service
-        .download_media(server_name, media_id)
-        .await?;
-
-    let metadata = state
-        .services
-        .media_service
-        .get_media_metadata(server_name, media_id)
+        .media_domain_service
+        .download_media(server_name, media_id, response_filename)
         .await
-        .unwrap_or(serde_json::Value::Null);
-
-    let stored_content_type = metadata
-        .get("content_type")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    let stored_filename = metadata
-        .get("filename")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-
-    let content_type = stored_content_type
-        .or_else(|| {
-            let guess_src = stored_filename.as_deref().unwrap_or(media_id);
-            Some(guess_content_type(guess_src, &content).to_string())
-        })
-        .unwrap_or_else(|| "application/octet-stream".to_string());
-
-    Ok((content_type, content, stored_filename))
 }
 
-fn media_response_headers(
-    content_type: String,
-    content_length: usize,
-    filename: Option<&str>,
-) -> HeaderMap {
-    build_media_headers(content_type, content_length, filename)
+fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders) -> HeaderMap {
+    use axum::http::HeaderValue;
+
+    let mut out = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&headers.content_type) {
+        out.insert(header::CONTENT_TYPE, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&headers.content_length.to_string()) {
+        out.insert(header::CONTENT_LENGTH, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&headers.content_disposition) {
+        out.insert(header::CONTENT_DISPOSITION, v);
+    }
+    out.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static(headers.x_content_type_options),
+    );
+    out.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(headers.content_security_policy),
+    );
+    out.insert(
+        axum::http::HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static(headers.cross_origin_resource_policy),
+    );
+    out.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static(headers.referrer_policy),
+    );
+    out
 }
 
 fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -415,126 +412,39 @@ fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
     (status, headers, error_body)
 }
 
-// 媒体下载响应必须像 Synapse 上游那样在所有浏览器路径上锁死 XSS：
-// 1) 仅对一组明确的"惰性"媒体类型保留原始 Content-Type 并允许 inline；
-//    其余类型一律强制改写为 application/octet-stream + Content-Disposition: attachment，
-//    这样即便用户上传 .svg / .html / .js / .xhtml，浏览器也只会下载、不会执行。
-// 2) 永远附带 X-Content-Type-Options: nosniff，阻止旧版 Edge/IE 的 MIME 嗅探回退到 HTML。
-// 3) 永远附带强 sandbox CSP，封掉脚本/插件/同源对象，作为最后一道兜底——
-//    历史上多次的媒体 XSS（CVE-2018-16868 等）都是因为缺这层防御才被打穿。
-// 4) Cross-Origin-Resource-Policy: cross-origin 让客户端 SDK 仍可跨源加载缩略图，
-//    Referrer-Policy: no-referrer 防止媒体 URL 把房间/用户标识泄给第三方。
-const MEDIA_CONTENT_SECURITY_POLICY: &str = "sandbox; default-src 'none'; script-src 'none'; \
-plugin-types application/pdf; style-src 'unsafe-inline'; media-src 'self'; \
-object-src 'self'; img-src 'self';";
+fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
+    let width = params
+        .get("width")
+        .and_then(|v| v.as_u64())
+        .filter(|&w| w <= 10000)
+        .unwrap_or(800) as u32;
+    let height = params
+        .get("height")
+        .and_then(|v| v.as_u64())
+        .filter(|&h| h <= 10000)
+        .unwrap_or(600) as u32;
+    let method = params
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("scale");
 
-const SAFE_INLINE_MEDIA_TYPES: &[&str] = &[
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "audio/mpeg",
-    "audio/wav",
-    "audio/ogg",
-    "audio/flac",
-    "video/mp4",
-    "video/webm",
-    "application/pdf",
-];
-
-fn sanitize_attachment_filename(filename: &str) -> String {
-    filename
-        .chars()
-        .filter(|c| !c.is_control() && !matches!(*c, '"' | '\\' | '/' | '\0'))
-        .take(200)
-        .collect::<String>()
-        .trim()
-        .to_string()
+    (width, height, method)
 }
 
-fn encode_rfc5987(value: &str) -> String {
-    value
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric()
-                || matches!(
-                    c,
-                    '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
-                )
-            {
-                c.to_string()
-            } else {
-                format!("{}{:02X}", "%", c as u32)
-            }
-        })
-        .collect()
-}
+async fn thumbnail_response_common(
+    state: &AppState,
+    server_name: &str,
+    media_id: &str,
+    params: &Value,
+) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+    ensure_local_media_server_name(state, server_name)?;
+    let (width, height, method) = thumbnail_request_params(params);
 
-fn build_media_headers(
-    content_type: String,
-    content_length: usize,
-    filename: Option<&str>,
-) -> HeaderMap {
-    use axum::http::HeaderValue;
-
-    let primary_type = content_type
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    let inline_safe = SAFE_INLINE_MEDIA_TYPES
-        .iter()
-        .any(|safe| *safe == primary_type);
-
-    let (final_type, disposition_kind) = if inline_safe {
-        (content_type, "inline")
-    } else {
-        (content_type, "attachment")
-    };
-
-    let disposition = match filename {
-        Some(name) if !name.is_empty() => {
-            let safe = sanitize_attachment_filename(name);
-            if safe.is_empty() {
-                disposition_kind.to_string()
-            } else {
-                let encoded = encode_rfc5987(&safe);
-                format!(
-                    "{disposition_kind}; filename=\"{safe}\"; filename*=UTF-8''{encoded}"
-                )
-            }
-        }
-        _ => disposition_kind.to_string(),
-    };
-
-    let mut headers = HeaderMap::new();
-    if let Ok(v) = HeaderValue::from_str(&final_type) {
-        headers.insert(header::CONTENT_TYPE, v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&content_length.to_string()) {
-        headers.insert(header::CONTENT_LENGTH, v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&disposition) {
-        headers.insert(header::CONTENT_DISPOSITION, v);
-    }
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(MEDIA_CONTENT_SECURITY_POLICY),
-    );
-    headers.insert(
-        axum::http::HeaderName::from_static("cross-origin-resource-policy"),
-        HeaderValue::from_static("cross-origin"),
-    );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    headers
+    state
+        .services
+        .media_domain_service
+        .get_thumbnail(server_name, media_id, width, height, method)
+        .await
 }
 
 async fn upload_media_v3(
@@ -559,7 +469,7 @@ pub async fn check_quota(
 ) -> Result<Json<Value>, ApiError> {
     let quota_info = state
         .services
-        .media_quota_service
+        .media_domain_service
         .get_user_quota(&auth_user.user_id)
         .await?;
 
@@ -581,12 +491,12 @@ pub async fn quota_stats(
 ) -> Result<Json<Value>, ApiError> {
     let quota_info = state
         .services
-        .media_quota_service
+        .media_domain_service
         .get_user_quota(&auth_user.user_id)
         .await?;
     let stats = state
         .services
-        .media_quota_service
+        .media_domain_service
         .get_usage_stats(&auth_user.user_id)
         .await?;
 
@@ -605,7 +515,7 @@ pub async fn quota_alerts(
 ) -> Result<Json<Value>, ApiError> {
     let alerts = state
         .services
-        .media_quota_service
+        .media_domain_service
         .get_user_alerts(&auth_user.user_id, false)
         .await?;
 
@@ -654,19 +564,19 @@ async fn download_media(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, stored_filename) =
-        download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
-    Ok((StatusCode::OK, headers, content))
+    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_with_filename(
     State(state): State<AppState>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, _) = download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len(), Some(&filename));
-    Ok((StatusCode::OK, headers, content))
+    let response =
+        download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_authenticated(
@@ -674,10 +584,9 @@ async fn download_media_authenticated(
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, stored_filename) =
-        download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len(), stored_filename.as_deref());
-    Ok((StatusCode::OK, headers, content))
+    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_authenticated_with_filename(
@@ -685,9 +594,10 @@ async fn download_media_authenticated_with_filename(
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let (content_type, content, _) = download_media_common(&state, &server_name, &media_id).await?;
-    let headers = media_response_headers(content_type, content.len(), Some(&filename));
-    Ok((StatusCode::OK, headers, content))
+    let response =
+        download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn get_thumbnail_authenticated(
@@ -696,33 +606,9 @@ async fn get_thumbnail_authenticated(
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_local_media_server_name(&state, &server_name)?;
-
-    let width = params.get("width")
-        .and_then(|v| v.as_u64())
-        .filter(|&w| w <= 10000)
-        .unwrap_or(800) as u32;
-    let height = params.get("height")
-        .and_then(|v| v.as_u64())
-        .filter(|&h| h <= 10000)
-        .unwrap_or(600) as u32;
-    let method = params
-        .get("method")
-        .and_then(|v| v.as_str())
-        .unwrap_or("scale");
-
-    match state
-        .services
-        .media_service
-        .get_thumbnail(&server_name, &media_id, width, height, method)
-        .await
-    {
-        Ok(content) => {
-            let headers = media_response_headers("image/jpeg".to_string(), content.len(), None);
-            Ok((StatusCode::OK, headers, content))
-        }
-        Err(e) => Err(e),
-    }
+    let response = thumbnail_response_common(&state, &server_name, &media_id, &params).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 #[allow(clippy::unused_async)]
@@ -747,35 +633,9 @@ async fn get_thumbnail(
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_local_media_server_name(&state, &server_name)?;
-
-    let width = params.get("width")
-        .and_then(|v| v.as_u64())
-        .filter(|&w| w <= 10000)
-        .unwrap_or(800) as u32;
-    let height = params.get("height")
-        .and_then(|v| v.as_u64())
-        .filter(|&h| h <= 10000)
-        .unwrap_or(600) as u32;
-    let method = params
-        .get("method")
-        .and_then(|v| v.as_str())
-        .unwrap_or("scale");
-
-    match state
-        .services
-        .media_service
-        .get_thumbnail(&server_name, &media_id, width, height, method)
-        .await
-    {
-        // 缩略图始终编码为 JPEG（generate_thumbnail 内固定 ImageFormat::Jpeg），
-        // 走与 download_media 同一套安全头，避免出现"主资源加固、缩略图裸奔"的不对称。
-        Ok(content) => {
-            let headers = media_response_headers("image/jpeg".to_string(), content.len(), None);
-            Ok((StatusCode::OK, headers, content))
-        }
-        Err(e) => Err(e),
-    }
+    let response = thumbnail_response_common(&state, &server_name, &media_id, &params).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn upload_media_v1(
@@ -792,11 +652,10 @@ async fn download_media_v1(
     State(state): State<AppState>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    match download_media_common(&state, &server_name, &media_id).await {
-        Ok((content_type, content, stored_filename)) => {
-            let headers =
-                media_response_headers(content_type, content.len(), stored_filename.as_deref());
-            (StatusCode::OK, headers, content)
+    match download_media_common(&state, &server_name, &media_id, None).await {
+        Ok(response) => {
+            let headers = media_response_headers(&response.headers);
+            (StatusCode::OK, headers, response.content)
         }
         Err(error) => media_error_response(&error),
     }
@@ -806,40 +665,12 @@ async fn download_media_v1_with_filename(
     State(state): State<AppState>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    match download_media_common(&state, &server_name, &media_id).await {
-        Ok((content_type, content, _)) => {
-            let headers = media_response_headers(content_type, content.len(), Some(&filename));
-            (StatusCode::OK, headers, content)
+    match download_media_common(&state, &server_name, &media_id, Some(&filename)).await {
+        Ok(response) => {
+            let headers = media_response_headers(&response.headers);
+            (StatusCode::OK, headers, response.content)
         }
         Err(error) => media_error_response(&error),
-    }
-}
-
-fn guess_content_type(filename: &str, data: &[u8]) -> &'static str {
-    if let Some(kind) = infer::get(data) {
-        return kind.mime_type();
-    }
-
-    let ext = filename.rsplit('.').next().unwrap_or("");
-    match ext {
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "pdf" => "application/pdf",
-        "txt" => "text/plain",
-        "json" => "application/json",
-        "xml" => "application/xml",
-        "html" | "htm" => "text/html",
-        "css" => "text/css",
-        "js" | "mjs" => "application/javascript",
-        _ => "application/octet-stream",
     }
 }
 
@@ -863,7 +694,7 @@ async fn preview_url(
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    match state.services.media_service.preview_url(url, ts) {
+    match state.services.media_domain_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),
         Err(e) => Ok(Json(json!({
             "url": url,
@@ -880,27 +711,10 @@ async fn delete_media(
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    let media_info = state
-        .services
-        .media_service
-        .get_media_info(&server_name, &media_id)
-        .await?;
-
-    let uploader = media_info
-        .get("uploader")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if uploader != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "You can only delete your own media".to_string(),
-        ));
-    }
-
     state
         .services
-        .media_service
-        .delete_media(&server_name, &media_id)
+        .media_domain_service
+        .delete_media_for_user(&server_name, &media_id, &auth_user.user_id)
         .await?;
 
     Ok(Json(json!({

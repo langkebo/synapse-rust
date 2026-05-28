@@ -517,11 +517,11 @@ impl MediaService {
         }
 
         if let Some(pool) = &self.pool {
-            if let Ok(Some((content_type, file_name, size))) = sqlx::query_as::<
+            if let Ok(Some((content_type, file_name, size, uploader_user_id))) = sqlx::query_as::<
                 _,
-                (String, Option<String>, i64),
+                (String, Option<String>, i64, Option<String>),
             >(
-                r"SELECT content_type, file_name, size FROM media_metadata WHERE media_id = $1",
+                r"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1",
             )
             .bind(media_id)
             .fetch_optional(pool.as_ref())
@@ -531,7 +531,8 @@ impl MediaService {
                     "media_id": media_id,
                     "content_type": content_type,
                     "filename": file_name,
-                    "size": size
+                    "size": size,
+                    "uploader_user_id": uploader_user_id
                 }));
             }
         }
