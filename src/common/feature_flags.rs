@@ -106,11 +106,11 @@ impl Default for VerificationFlags {
 }
 
 #[derive(Clone)]
-pub struct FeatureFlagService {
+pub struct RuntimeFeatureFlagService {
     flags: Arc<RwLock<FeatureFlags>>,
 }
 
-impl FeatureFlagService {
+impl RuntimeFeatureFlagService {
     pub fn new() -> Self {
         Self {
             flags: Arc::new(RwLock::new(FeatureFlags::default())),
@@ -147,7 +147,7 @@ impl FeatureFlagService {
     }
 }
 
-impl Default for FeatureFlagService {
+impl Default for RuntimeFeatureFlagService {
     fn default() -> Self {
         Self::new()
     }
@@ -159,7 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_feature_flags_default() {
-        let service = FeatureFlagService::new();
+        let service = RuntimeFeatureFlagService::new();
         let flags = service.get_flags().await;
 
         assert!(!flags.room_summary.realtime_sync);
@@ -171,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_flags() {
-        let service = FeatureFlagService::new();
+        let service = RuntimeFeatureFlagService::new();
 
         let new_flags = FeatureFlags {
             room_summary: RoomSummaryFlags {
@@ -203,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_individual_flag_checks() {
-        let service = FeatureFlagService::new();
+        let service = RuntimeFeatureFlagService::new();
 
         assert!(!service.is_room_summary_realtime_sync_enabled().await);
         assert!(!service.is_dm_stable_mode_enabled().await);

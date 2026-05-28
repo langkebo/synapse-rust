@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
-pub struct RateLimitConfig {
+pub struct RateLimitState {
     pub requests_per_second: u32,
     pub burst_size: u32,
     pub per_user: bool,
@@ -13,7 +13,10 @@ pub struct RateLimitConfig {
     pub window_seconds: u64,
 }
 
-impl Default for RateLimitConfig {
+#[deprecated(since = "0.1.0", note = "Use RateLimitState instead to avoid confusion with config::RateLimitConfig")]
+pub type RateLimitConfig = RateLimitState;
+
+impl Default for RateLimitState {
     fn default() -> Self {
         Self {
             requests_per_second: 10,
@@ -74,14 +77,14 @@ pub struct RateLimitInfo {
 }
 
 pub struct RateLimiter {
-    config: RateLimitConfig,
+    config: RateLimitState,
     user_entries: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
     ip_entries: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
     endpoint_entries: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
 }
 
 impl RateLimiter {
-    pub fn new(config: RateLimitConfig) -> Self {
+    pub fn new(config: RateLimitState) -> Self {
         Self {
             config,
             user_entries: Arc::new(RwLock::new(HashMap::new())),
@@ -118,7 +121,7 @@ impl RateLimiter {
     async fn check_entry(
         &self,
         key: &str,
-        config: &RateLimitConfig,
+        config: &RateLimitState,
     ) -> Result<RateLimitInfo, RateLimitInfo> {
         let entries = if key.starts_with("user:") {
             self.user_entries.clone()
@@ -168,23 +171,23 @@ impl RateLimiter {
         }
     }
 
-    fn get_endpoint_config(&self, endpoint: &str) -> RateLimitConfig {
+    fn get_endpoint_config(&self, endpoint: &str) -> RateLimitState {
         if endpoint.contains("/login") || endpoint.contains("/register") {
-            RateLimitConfig {
+            RateLimitState {
                 requests_per_second: 1,
                 burst_size: 5,
                 window_seconds: 300,
                 ..Default::default()
             }
         } else if endpoint.contains("/sync") {
-            RateLimitConfig {
+            RateLimitState {
                 requests_per_second: 5,
                 burst_size: 50,
                 window_seconds: 60,
                 ..Default::default()
             }
         } else if endpoint.contains("/send") {
-            RateLimitConfig {
+            RateLimitState {
                 requests_per_second: 20,
                 burst_size: 200,
                 window_seconds: 60,
@@ -242,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_allows_within_limit() {
-        let config = RateLimitConfig {
+        let config = RateLimitState {
             requests_per_second: 10,
             burst_size: 5,
             ..Default::default()
@@ -259,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_blocks_over_limit() {
-        let config = RateLimitConfig {
+        let config = RateLimitState {
             requests_per_second: 1,
             burst_size: 2,
             ..Default::default()
@@ -283,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_info() {
-        let config = RateLimitConfig {
+        let config = RateLimitState {
             requests_per_second: 10,
             burst_size: 100,
             ..Default::default()
@@ -301,7 +304,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_endpoint_specific_limits() {
-        let config = RateLimitConfig::default();
+        let config = RateLimitState::default();
         let limiter = RateLimiter::new(config);
 
         let login_config = limiter.get_endpoint_config("/login");
@@ -316,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_stats() {
-        let config = RateLimitConfig::default();
+        let config = RateLimitState::default();
         let limiter = RateLimiter::new(config);
 
         limiter

@@ -13,13 +13,16 @@ pub struct BusMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct RedisConfig {
+pub struct RedisBusConfig {
     pub url: String,
     pub pool_size: u32,
     pub channel_prefix: String,
 }
 
-impl Default for RedisConfig {
+#[deprecated(since = "0.1.0", note = "Use RedisBusConfig instead to avoid confusion with config::RedisConfig")]
+pub type RedisConfig = RedisBusConfig;
+
+impl Default for RedisBusConfig {
     fn default() -> Self {
         Self {
             url: "redis://127.0.0.1:6379".to_string(),
@@ -30,7 +33,7 @@ impl Default for RedisConfig {
 }
 
 pub struct WorkerBus {
-    config: RedisConfig,
+    config: RedisBusConfig,
     server_name: String,
     instance_name: String,
     subscribers: RwLock<Vec<broadcast::Sender<BusMessage>>>,
@@ -40,7 +43,7 @@ pub struct WorkerBus {
 }
 
 impl WorkerBus {
-    pub fn new(config: RedisConfig, server_name: String, instance_name: String) -> Self {
+    pub fn new(config: RedisBusConfig, server_name: String, instance_name: String) -> Self {
         let (command_tx, command_rx) = mpsc::channel(1000);
 
         Self {
@@ -263,8 +266,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_redis_config_default() {
-        let config = RedisConfig::default();
+    fn test_redis_bus_config_default() {
+        let config = RedisBusConfig::default();
         assert_eq!(config.url, "redis://127.0.0.1:6379");
         assert_eq!(config.pool_size, 10);
         assert_eq!(config.channel_prefix, "synapse");
@@ -290,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_bus_creation() {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
         assert!(!bus.is_connected().await);
@@ -298,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_bus_connect() {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
         bus.connect().await.unwrap();
@@ -310,7 +313,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_bus_publish_without_connect() {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
         let result = bus.publish("test", b"message").await;
@@ -319,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_bus_subscribe_without_connect() {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
         let result = bus.subscribe(&["test"]).await;
@@ -328,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_bus_stats() {
-        let config = RedisConfig::default();
+        let config = RedisBusConfig::default();
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
         bus.connect().await.unwrap();

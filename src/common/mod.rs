@@ -8,6 +8,7 @@ pub mod crypto;
 pub mod early_exit;
 pub mod error;
 pub mod event_utils;
+pub mod feature_flags;
 pub mod federation_test_keys;
 pub mod health;
 pub mod logging;
@@ -54,6 +55,10 @@ pub use early_exit::*;
 pub use error::*;
 #[allow(ambiguous_glob_reexports)]
 pub use event_utils::*;
+#[allow(ambiguous_glob_reexports)]
+pub use feature_flags::*;
+#[allow(ambiguous_glob_reexports)]
+pub use federation_test_keys::*;
 #[allow(ambiguous_glob_reexports)]
 pub use health::*;
 #[allow(ambiguous_glob_reexports)]

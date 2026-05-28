@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::worker::bus::{RedisConfig, WorkerBus};
+use crate::worker::bus::{RedisBusConfig, WorkerBus};
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
 use crate::worker::protocol::ReplicationCommand;
@@ -58,7 +58,7 @@ impl WorkerManager {
         self
     }
 
-    pub fn enable_bus(&mut self, config: RedisConfig, instance_name: String) {
+    pub fn enable_bus(&mut self, config: RedisBusConfig, instance_name: String) {
         self.bus = Some(Arc::new(WorkerBus::new(
             config,
             self.server_name.clone(),

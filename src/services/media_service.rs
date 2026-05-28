@@ -26,14 +26,17 @@ impl FromStr for ThumbnailMethod {
 }
 
 #[derive(Debug, Clone)]
-pub struct ThumbnailConfig {
+pub struct ThumbnailSettings {
     pub width: u32,
     pub height: u32,
     pub method: ThumbnailMethod,
     pub quality: u8,
 }
 
-impl Default for ThumbnailConfig {
+#[deprecated(since = "0.1.0", note = "Use ThumbnailSettings instead to avoid confusion with config::ThumbnailConfig")]
+pub type ThumbnailConfig = ThumbnailSettings;
+
+impl Default for ThumbnailSettings {
     fn default() -> Self {
         Self {
             width: 800,
@@ -49,7 +52,7 @@ pub struct MediaService {
     media_path: PathBuf,
     thumbnail_path: PathBuf,
     task_queue: Option<Arc<RedisTaskQueue>>,
-    default_thumbnail_configs: Vec<ThumbnailConfig>,
+    default_thumbnail_configs: Vec<ThumbnailSettings>,
     server_name: String,
     pool: Option<Arc<PgPool>>,
 }
@@ -117,31 +120,31 @@ impl MediaService {
         }
 
         let default_thumbnail_configs = vec![
-            ThumbnailConfig {
+            ThumbnailSettings {
                 width: 32,
                 height: 32,
                 method: ThumbnailMethod::Crop,
                 quality: 70,
             },
-            ThumbnailConfig {
+            ThumbnailSettings {
                 width: 96,
                 height: 96,
                 method: ThumbnailMethod::Crop,
                 quality: 70,
             },
-            ThumbnailConfig {
+            ThumbnailSettings {
                 width: 320,
                 height: 240,
                 method: ThumbnailMethod::Scale,
                 quality: 80,
             },
-            ThumbnailConfig {
+            ThumbnailSettings {
                 width: 640,
                 height: 480,
                 method: ThumbnailMethod::Scale,
                 quality: 80,
             },
-            ThumbnailConfig {
+            ThumbnailSettings {
                 width: 800,
                 height: 600,
                 method: ThumbnailMethod::Scale,
@@ -469,7 +472,7 @@ impl MediaService {
         Ok(generated)
     }
 
-    pub fn get_thumbnail_configurations(&self) -> Vec<ThumbnailConfig> {
+    pub fn get_thumbnail_configurations(&self) -> Vec<ThumbnailSettings> {
         self.default_thumbnail_configs.clone()
     }
 
@@ -764,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_config_default() {
-        let config = ThumbnailConfig::default();
+        let config = ThumbnailSettings::default();
         assert_eq!(config.width, 800);
         assert_eq!(config.height, 600);
         assert_eq!(config.method, ThumbnailMethod::Scale);
@@ -833,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_config_custom() {
-        let config = ThumbnailConfig {
+        let config = ThumbnailSettings {
             width: 1024,
             height: 768,
             method: ThumbnailMethod::Crop,
@@ -882,7 +885,7 @@ mod tests {
     fn test_thumbnail_config_quality_range() {
         let valid_qualities: Vec<u8> = vec![1, 50, 80, 100];
         for quality in valid_qualities {
-            let config = ThumbnailConfig {
+            let config = ThumbnailSettings {
                 width: 100,
                 height: 100,
                 method: ThumbnailMethod::Scale,
@@ -894,7 +897,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_config_dimension_boundaries() {
-        let config = ThumbnailConfig {
+        let config = ThumbnailSettings {
             width: 1,
             height: 1,
             method: ThumbnailMethod::Scale,
@@ -903,7 +906,7 @@ mod tests {
         assert_eq!(config.width, 1);
         assert_eq!(config.height, 1);
 
-        let config_large = ThumbnailConfig {
+        let config_large = ThumbnailSettings {
             width: 10000,
             height: 10000,
             method: ThumbnailMethod::Crop,
