@@ -976,17 +976,17 @@ impl CrossSigningService {
             .get_device_signatures_batch(user_ids)
             .await?;
 
-        // 3. Batch-fetch device keys for all users (N queries but only if
+        // 3. Batch-fetch device keys for all users (1 query if
         //    device_keys_storage is present; we collect unique device_ids per
         //    user from the signatures we already have as a fallback)
         let mut device_ids_by_user: HashMap<String, HashSet<String>> = HashMap::new();
         if let Some(dk_storage) = &self.device_keys_storage {
-            for user_id in user_ids {
-                if let Ok(all_keys) = dk_storage.get_all_device_keys(user_id).await {
+            if let Ok(all_keys_by_user) = dk_storage.get_all_device_keys_batch(user_ids).await {
+                for (user_id, all_keys) in all_keys_by_user {
                     let ids: HashSet<String> =
                         all_keys.iter().map(|k| k.device_id.clone()).collect();
                     if !ids.is_empty() {
-                        device_ids_by_user.insert(user_id.clone(), ids);
+                        device_ids_by_user.insert(user_id, ids);
                     }
                 }
             }

@@ -34,7 +34,7 @@ impl SecretStorage {
         .bind(key.created_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -55,7 +55,7 @@ impl SecretStorage {
         .bind(key_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.map(|r| SecretStorageKey {
             key_id: r.get("key_id"),
@@ -81,7 +81,7 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows
             .into_iter()
@@ -110,7 +110,7 @@ impl SecretStorage {
         .bind(key_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -132,7 +132,7 @@ impl SecretStorage {
         .bind(&secret.key_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -153,7 +153,7 @@ impl SecretStorage {
         .bind(secret_name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.map(|r| StoredSecret {
             secret_name: r.get("secret_name"),
@@ -182,7 +182,7 @@ impl SecretStorage {
         .bind(secret_names)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows
             .into_iter()
@@ -205,7 +205,7 @@ impl SecretStorage {
         .bind(secret_name)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -229,7 +229,7 @@ impl SecretStorage {
         .bind(secret_names)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -243,7 +243,7 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let count: i64 = row.get("count");
         Ok(count > 0)

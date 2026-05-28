@@ -686,17 +686,14 @@ impl ServiceContainer {
         );
 
         // Media service
-        let media_service = crate::services::media_service::MediaService::new(
+        let media_service = crate::services::media_service::MediaService::with_pool(
             media_path.as_str(),
             task_queue.clone(),
             &config.server.name,
+            Some(pool.clone()),
         );
         let chunked_upload_service =
             Arc::new(crate::services::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
-        let media_domain_service = Arc::new(crate::services::media::MediaDomainService::new(
-            media_service.clone(),
-            chunked_upload_service.clone(),
-        ));
 
         #[cfg(feature = "voice-extended")]
         let voice_storage = crate::storage::voice::VoiceStorage::new(pool.clone());
@@ -710,6 +707,11 @@ impl ServiceContainer {
 
         // Admin & support services — domain assembly
         let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service);
+        let media_domain_service = Arc::new(crate::services::media::MediaDomainService::new(
+            media_service.clone(),
+            admin.media_quota_service.clone(),
+            chunked_upload_service.clone(),
+        ));
 
         // Federation — domain assembly
         let federation = assemble_federation(pool, &cache, &config, &task_queue);

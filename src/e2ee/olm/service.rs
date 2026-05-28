@@ -92,7 +92,7 @@ impl OlmService {
                 &account_data.serialized_account,
                 get_pickle_key(),
             )
-            .map_err(|e| ApiError::internal(format!("Failed to decode account pickle: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to decode account pickle: {e}"); ApiError::database("A database error occurred".to_string()) })?;
             let account = Account::from_pickle(pickle);
 
             {

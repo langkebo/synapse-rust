@@ -571,39 +571,27 @@ async fn device_list_update(
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
-    let max_stream_id: i64 = sqlx::query_scalar(
-        r"
-        SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        ",
-    )
-    .fetch_one(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get device list stream position: {e}");
-        ApiError::database("Failed to get device list stream position")
-    })?;
+    let max_stream_id: i64 = state
+        .services
+        .device_storage
+        .get_max_device_list_stream_id()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get device list stream position: {e}");
+            ApiError::database("Failed to get device list stream position")
+        })?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
-    let change_rows = sqlx::query_as::<_, (String, Option<String>, String, i64)>(
-        r"
-        SELECT user_id, device_id, change_type, stream_id
-        FROM device_lists_changes
-        WHERE stream_id > $1
-          AND stream_id <= $2
-          AND user_id = ANY($3)
-        ORDER BY stream_id ASC
-        ",
-    )
-    .bind(since)
-    .bind(to)
-    .bind(&users)
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get device list changes: {e}");
-        ApiError::database("Failed to get device list changes")
-    })?;
+    let change_rows = state
+        .services
+        .device_storage
+        .get_device_list_changes(since, to, &users)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get device list changes: {e}");
+            ApiError::database("Failed to get device list changes")
+        })?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -631,21 +619,15 @@ async fn device_list_update(
         let user_ids: Vec<&str> = active_pairs.iter().map(|(u, _)| u.as_str()).collect();
         let device_ids: Vec<&str> = active_pairs.iter().map(|(_, d)| d.as_str()).collect();
 
-        let device_rows = sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
-            r"
-            SELECT user_id, device_id, display_name, last_seen_ts
-            FROM devices
-            WHERE (user_id, device_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::text[]))
-            ",
-        )
-        .bind(&user_ids)
-        .bind(&device_ids)
-        .fetch_all(&*state.services.device_storage.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to batch get device data: {e}");
-            ApiError::database("Failed to get device data")
-        })?;
+        let device_rows = state
+            .services
+            .device_storage
+            .get_devices_by_user_device_pairs(&user_ids, &device_ids)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to batch get device data: {e}");
+                ApiError::database("Failed to get device data")
+            })?;
 
         for (user_id, device_id, display_name, last_seen_ts) in device_rows {
             changed.push(json!({

@@ -171,6 +171,12 @@ pub async fn configure_key_rotation(
 
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
     let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
+    let rotation_interval_days = body.get("rotation_interval_days").and_then(|v| v.as_i64());
+    let rotation_threshold_days = body.get("rotation_threshold_days").and_then(|v| v.as_i64());
+    let grace_period_minutes = body.get("grace_period_minutes").and_then(|v| v.as_i64());
+    let olm_rotation_days = body.get("olm_rotation_days").and_then(|v| v.as_i64());
+    let megolm_rotation_messages = body.get("megolm_rotation_messages").and_then(|v| v.as_i64());
+    let max_session_age_days = body.get("max_session_age_days").and_then(|v| v.as_i64());
 
     let rotation_manager = &state.services.key_rotation_manager;
 
@@ -190,9 +196,69 @@ pub async fn configure_key_rotation(
             })?;
     }
 
+    if let Some(days) = rotation_interval_days {
+        rotation_manager
+            .set_rotation_config_value("rotation_interval_days", &days.to_string())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to persist rotation_interval_days: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
+    }
+
+    if let Some(days) = rotation_threshold_days {
+        rotation_manager
+            .set_rotation_config_value("rotation_threshold_days", &days.to_string())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to persist rotation_threshold_days: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
+    }
+
+    if let Some(minutes) = grace_period_minutes {
+        rotation_manager
+            .set_rotation_config_value("grace_period_minutes", &minutes.to_string())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to persist grace_period_minutes: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
+    }
+
+    if olm_rotation_days.is_some() || megolm_rotation_messages.is_some() || max_session_age_days.is_some() {
+        let storage = &state.services.key_rotation_storage;
+        if let Some(days) = olm_rotation_days {
+            storage
+                .set_rotation_config("olm_rotation_days", &days.to_string())
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to persist olm_rotation_days: {e}");
+                    ApiError::internal("Internal server error".to_string())
+                })?;
+        }
+        if let Some(msgs) = megolm_rotation_messages {
+            storage
+                .set_rotation_config("megolm_rotation_messages", &msgs.to_string())
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to persist megolm_rotation_messages: {e}");
+                    ApiError::internal("Internal server error".to_string())
+                })?;
+        }
+        if let Some(days) = max_session_age_days {
+            storage
+                .set_rotation_config("max_session_age_days", &days.to_string())
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to persist max_session_age_days: {e}");
+                    ApiError::internal("Internal server error".to_string())
+                })?;
+        }
+    }
+
     let status = rotation_manager.get_rotation_status().await;
 
-    // Read persisted interval_ms if not provided in this request
     let persisted_interval_ms: Option<i64> = if interval_ms.is_some() {
         interval_ms
     } else {
@@ -209,6 +275,9 @@ pub async fn configure_key_rotation(
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
         "interval_ms": persisted_interval_ms.unwrap_or(state.services.config.federation.key_rotation_grace_period_ms as i64),
+        "rotation_interval_days": status.get("rotation_interval_days"),
+        "rotation_threshold_days": status.get("rotation_threshold_days"),
+        "grace_period_minutes": status.get("grace_period_minutes"),
     })))
 }
 

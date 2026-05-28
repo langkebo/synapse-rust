@@ -1588,6 +1588,18 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
+        // Ensure key_rotation_config table for persisted rotation parameters
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS key_rotation_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&*self.pool)
+        .await?;
+
         // Ensure lazy_loaded_members table for sync optimization
         sqlx::query(
             r#"

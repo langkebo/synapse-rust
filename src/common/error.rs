@@ -939,9 +939,11 @@ impl From<sqlx::Error> for ApiError {
             || error_msg.contains("23505")
             || error_msg.contains("violates unique constraint")
         {
-            Self::BadRequest(format!("Duplicate entry: {err}"))
+            tracing::error!("Duplicate database entry: {err}");
+            Self::BadRequest("A duplicate entry was found".to_string())
         } else {
-            Self::Database(err.to_string())
+            tracing::error!("Database error: {err}");
+            Self::Database("A database error occurred".to_string())
         }
     }
 }
