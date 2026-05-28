@@ -677,11 +677,11 @@
 - ✅ 改造 `DMService` 为兼容层 → DMService 收缩为 `pub(crate)` + `#[cfg(test)]`，FriendRoomService 为持久化主实现
 - ✅ 梳理 `MessageQueue` 使用点 → MessageQueue 已彻底移除，已被 RedisTaskQueue 取代
 
-## 第三阶段: 3-4 周 → 🔄 进行中
+## 第三阶段: 3-4 周 → ✅ 已完成
 
 - ✅ 建立统一媒体域入口 → `MediaDomainService` 已创建，统一普通上传/分块上传/配额/缩略图入口，路由层已切换
-- ⬜ 建立 `rtc/` 统一域 → 未开始，VoipService/CallService/MatrixRTCService/VoiceService 仍独立
-- 🔄 完成 OIDC 双模式文档和启动检查 → Feature gate 已隔离，缺少启动冲突检查和文档
+- ✅ 建立 `rtc/` 统一域 → `RtcDomainService` 门面已创建，4 个服务已迁移（RtcInfraService/CallOrchestrationService/RtcSessionService/LivekitClient），统一指标已添加，MatrixRTCService 已接入容器
+- ✅ 完成 OIDC 双模式文档和启动检查 → 启动冲突检查已添加，文档已补充（适用场景/不适用场景/与对方关系）
 
 ## 第四阶段: 2 周
 
