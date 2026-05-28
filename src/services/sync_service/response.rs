@@ -413,6 +413,11 @@ impl SyncService {
                 enabled: lazy_load_members,
             })
             .await;
+        let state_list = if is_incremental {
+            Vec::new()
+        } else {
+            state_list
+        };
         let ephemeral_events = Self::apply_sync_filter_to_values(
             ephemeral_events,
             room_filter.and_then(|f| f.ephemeral.as_ref()),

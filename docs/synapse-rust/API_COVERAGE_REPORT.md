@@ -2,6 +2,8 @@
 
 > 基于 element-hq/synapse v1.149.1 对比
 
+> **版本基准更新提示**: 本报告基于 element-hq/synapse v1.149.1 对比。上游最新稳定版为 v1.153.0，新增了 quarantined media changes、event reports API、MSC4163/3266/4311/4242/4450/4445 等规范能力。建议在下一轮覆盖率审计中更新基线版本。
+
 ## 一、当前状态
 
 ### Client API 统计
@@ -103,3 +105,22 @@ Admin API: ~174 路由
 
 *创建日期: 2026-03-19*
 *最后更新: 2026-03-22*
+
+## 三、2026-05-28 修复进展
+
+### 安全与质量修复
+- ✅ 错误响应不再泄露内部详情（~1200 处 `ApiError::internal(format!(...))` 已替换）
+- ✅ key_rotation 路由已添加管理员权限检查
+- ✅ 联邦签名私钥已改为加密存储
+
+### 新增 API 端点
+- ✅ `POST /_synapse/admin/v1/key_rotation/configure` — 轮转参数持久化（6 个参数）
+- ✅ `GET /_synapse/admin/v1/key_rotation/status` — 轮转状态查询（含运行时配置值）
+- ✅ `POST /_synapse/room_summary/v1/summaries/batch` — 批量房间摘要
+
+### 缺失 API 端点（待实现）
+以下端点在上游 v1.153.0 中存在但 synapse-rust 尚未实现：
+- `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` — 隔离媒体变更列表
+- `GET /_synapse/admin/v1/rooms/{room_id}/reports` — 房间举报列表
+- `DELETE /_synapse/admin/v1/rooms/{room_id}/reports/{report_id}` — 删除举报
+- `POST /_matrix/client/v3/keys/upload` 拒绝 `device_keys: null` — 规范收紧

@@ -747,40 +747,13 @@ pub(crate) async fn get_room_sync(
     let full_state = params.full_state.unwrap_or(false);
     let since = params.since.as_deref();
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        state.services.sync_service.room_sync(
-            &auth_user.user_id,
-            &room_id,
-            timeout,
-            full_state,
-            since,
-        ),
-    )
-    .await;
+    let result = state
+        .services
+        .sync_service
+        .room_sync_with_timeout(&auth_user.user_id, &room_id, timeout, full_state, since)
+        .await?;
 
-    match result {
-        Ok(Ok(value)) => Ok(Json(value)),
-        Ok(Err(e)) => {
-            ::tracing::error!(
-                "Room sync error for user {} in room {}: {}",
-                auth_user.user_id,
-                room_id,
-                e
-            );
-            Err(e)
-        }
-        Err(_) => {
-            ::tracing::error!(
-                "Room sync timeout for user {} in room {}",
-                auth_user.user_id,
-                room_id
-            );
-            Err(ApiError::internal(
-                "Room sync operation timed out".to_string(),
-            ))
-        }
-    }
+    Ok(Json(result))
 }
 
 fn parse_u64_query_value(raw: &str) -> Option<u64> {
