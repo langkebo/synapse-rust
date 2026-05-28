@@ -434,6 +434,52 @@ impl UserStorage {
         Ok(())
     }
 
+    pub async fn get_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
+        )
+        .bind(user_id)
+        .bind(data_type)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match row {
+            Some(row) => {
+                use sqlx::Row;
+                let content: Option<serde_json::Value> = row.get("content");
+                Ok(content)
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn upsert_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(user_id)
+        .bind(data_type)
+        .bind(content)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn search_users(
         &self,
         query: &str,

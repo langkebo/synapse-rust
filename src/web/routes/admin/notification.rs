@@ -1,21 +1,26 @@
+#[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
 use crate::storage::server_notification::{
-    decode_server_notification_cursor, CreateNotificationRequest, ServerNotification,
+    decode_server_notification_cursor, CreateNotificationRequest,
 };
-use crate::web::routes::{AdminUser, AppState};
+#[cfg(feature = "server-notifications")]
+use crate::web::routes::AdminUser;
+use crate::web::routes::AppState;
+#[cfg(feature = "server-notifications")]
 use axum::{
     extract::{Path, State},
     routing::{delete, get, put},
-    Json, Router,
+    Json,
 };
+use axum::Router;
 #[cfg(feature = "server-notifications")]
 use axum::extract::Query;
 #[cfg(feature = "server-notifications")]
 use axum::routing::post;
 use serde::Deserialize;
+#[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
-use sqlx::Row;
 
 #[cfg(feature = "server-notifications")]
 fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
@@ -78,23 +83,28 @@ mod cursor_tests {
 
 pub fn create_notification_router(_state: AppState) -> Router<AppState> {
     #[allow(unused_mut)]
-    let mut router = Router::new()
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/notification",
-            get(get_user_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/notification",
-            put(update_user_notification),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/pushers",
-            get(get_user_pushers),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
-            delete(delete_user_pusher),
-        );
+    let mut router = Router::new();
+
+    #[cfg(feature = "server-notifications")]
+    {
+        router = router
+            .route(
+                "/_synapse/admin/v1/users/{user_id}/notification",
+                get(get_user_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/users/{user_id}/notification",
+                put(update_user_notification),
+            )
+            .route(
+                "/_synapse/admin/v1/users/{user_id}/pushers",
+                get(get_user_pushers),
+            )
+            .route(
+                "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
+                delete(delete_user_pusher),
+            );
+    }
 
     #[cfg(feature = "server-notifications")]
     {
@@ -200,6 +210,8 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
         .collect()
 }
 
+#[cfg(feature = "server-notifications")]
+#[cfg(feature = "server-notifications")]
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let user = state
         .services
@@ -224,7 +236,6 @@ async fn ensure_target_users_exist(state: &AppState, user_ids: &[String]) -> Res
     Ok(())
 }
 
-#[cfg(feature = "server-notifications")]
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct ServerNoticeRequest {
@@ -278,35 +289,11 @@ pub async fn create_notification(
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
     ensure_target_users_exist(&state, &requested_target_user_ids).await?;
 
-    let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
-        .unwrap_or(serde_json::json!([]));
-
-    let notification = sqlx::query_as::<_, ServerNotification>(
-        r#"
-        INSERT INTO server_notifications (
-            title, content, notification_type, priority, target_audience,
-            target_user_ids, starts_at, expires_at, is_dismissable,
-            action_url, action_text, created_by
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
-        "#,
-    )
-    .bind(&body.title)
-    .bind(&body.content)
-    .bind(body.notification_type.unwrap_or_else(|| "info".to_string()))
-    .bind(body.priority.unwrap_or(0))
-    .bind(body.target_audience.unwrap_or_else(|| "all".to_string()))
-    .bind(&target_user_ids)
-    .bind(body.starts_at)
-    .bind(body.expires_at)
-    .bind(body.is_dismissable.unwrap_or(true))
-    .bind(&body.action_url)
-    .bind(&body.action_text)
-    .bind(&body.created_by)
-    .fetch_one(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to create notification: {}", e)))?;
+    let notification = state
+        .services
+        .server_notification_storage
+        .create_notification(body)
+        .await?;
 
     Ok(Json(json!(notification)))
 }
@@ -344,17 +331,11 @@ pub async fn get_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notification = sqlx::query_as::<_, ServerNotification>(
-        r#"
-        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
-        FROM server_notifications
-        WHERE id = $1
-        "#,
-    )
-    .bind(notification_id)
-    .fetch_optional(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to get notification: {}", e)))?;
+    let notification = state
+        .services
+        .server_notification_storage
+        .get_notification(notification_id)
+        .await?;
 
     match notification {
         Some(n) => Ok(Json(json!(n))),
@@ -370,56 +351,40 @@ pub async fn update_notification(
     Path(notification_id): Path<i64>,
     Json(body): Json<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = sqlx::query_as::<_, (String, String)>(
-        "SELECT title, content FROM server_notifications WHERE id = $1",
-    )
-    .bind(notification_id)
-    .fetch_optional(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let existing = state
+        .services
+        .server_notification_storage
+        .get_notification(notification_id)
+        .await?;
 
-    let (current_title, current_content) = match existing {
-        Some(row) => (row.0, row.1),
+    let existing = match existing {
+        Some(n) => n,
         None => return Err(ApiError::not_found("Notification not found".to_string())),
     };
 
-    let title = body.title.unwrap_or(current_title);
-    let content = body.content.unwrap_or(current_content);
-    let notification_type = body.notification_type.unwrap_or_else(|| "info".to_string());
-    let priority = body.priority.unwrap_or(0);
-    let target_audience = body.target_audience.unwrap_or_else(|| "all".to_string());
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
     ensure_target_users_exist(&state, &requested_target_user_ids).await?;
-    let target_user_ids = serde_json::to_value(body.target_user_ids.unwrap_or_default())
-        .unwrap_or(serde_json::json!([]));
-    let now = chrono::Utc::now().timestamp_millis();
 
-    let notification = sqlx::query_as::<_, ServerNotification>(
-        r#"
-        UPDATE server_notifications
-        SET title = $2, content = $3, notification_type = $4, priority = $5,
-            target_audience = $6, target_user_ids = $7, starts_at = $8, expires_at = $9,
-            is_dismissable = $10, action_url = $11, action_text = $12, updated_ts = $13
-        WHERE id = $1
-        RETURNING id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
-        "#,
-    )
-    .bind(notification_id)
-    .bind(&title)
-    .bind(&content)
-    .bind(&notification_type)
-    .bind(priority)
-    .bind(&target_audience)
-    .bind(&target_user_ids)
-    .bind(body.starts_at)
-    .bind(body.expires_at)
-    .bind(body.is_dismissable.unwrap_or(true))
-    .bind(&body.action_url)
-    .bind(&body.action_text)
-    .bind(now)
-    .fetch_one(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to update notification: {}", e)))?;
+    let update_request = CreateNotificationRequest {
+        title: body.title.unwrap_or(existing.title),
+        content: body.content.unwrap_or(existing.content),
+        notification_type: body.notification_type.or(Some(existing.notification_type)),
+        priority: body.priority.or(Some(existing.priority)),
+        target_audience: body.target_audience.or(Some(existing.target_audience)),
+        target_user_ids: body.target_user_ids,
+        starts_at: body.starts_at.or(existing.starts_at),
+        expires_at: body.expires_at.or(existing.expires_at),
+        is_dismissable: body.is_dismissable.or(Some(existing.is_dismissable)),
+        action_url: body.action_url.or(existing.action_url),
+        action_text: body.action_text.or(existing.action_text),
+        created_by: existing.created_by,
+    };
+
+    let notification = state
+        .services
+        .server_notification_storage
+        .update_notification(notification_id, update_request)
+        .await?;
 
     Ok(Json(json!(notification)))
 }
@@ -431,13 +396,13 @@ pub async fn delete_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM server_notifications WHERE id = $1")
-        .bind(notification_id)
-        .execute(&state.services.server_notification_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let deleted = state
+        .services
+        .server_notification_storage
+        .delete_notification(notification_id)
+        .await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Notification not found".to_string()));
     }
 
@@ -451,18 +416,13 @@ pub async fn deactivate_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
+    let deactivated = state
+        .services
+        .server_notification_storage
+        .deactivate_notification(notification_id)
+        .await?;
 
-    let result = sqlx::query(
-        "UPDATE server_notifications SET is_enabled = FALSE, updated_ts = $2 WHERE id = $1",
-    )
-    .bind(notification_id)
-    .bind(now)
-    .execute(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to disable notification: {}", e)))?;
-
-    if result.rows_affected() == 0 {
+    if !deactivated {
         return Err(ApiError::not_found("Notification not found".to_string()));
     }
 
@@ -475,22 +435,11 @@ pub async fn list_active_notifications(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
-
-    let notifications = sqlx::query_as::<_, ServerNotification>(
-        r#"
-        SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts
-        FROM server_notifications
-        WHERE is_enabled = TRUE
-        AND (starts_at IS NULL OR starts_at <= $1)
-        AND (expires_at IS NULL OR expires_at >= $1)
-        ORDER BY priority DESC, created_ts DESC
-        "#,
-    )
-    .bind(now)
-    .fetch_all(&state.services.server_notification_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to list active notifications: {}", e)))?;
+    let notifications = state
+        .services
+        .server_notification_storage
+        .list_active_notifications()
+        .await?;
 
     Ok(Json(json!(notifications)))
 }
@@ -519,255 +468,39 @@ pub async fn send_server_notice(
     );
     let now = chrono::Utc::now().timestamp_millis();
     let server_user = format!("@server:{}", state.services.config.server.name);
-    let mut tx = state
-        .services
-        .event_storage
-        .pool
-        .begin()
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let room_result = sqlx::query(
-        r#"
-        INSERT INTO rooms (
-            room_id, name, topic, creator, is_public, join_rules,
-            room_version, history_visibility, created_ts, last_activity_ts
-        )
-        VALUES ($1, $2, $3, $4, false, 'private', '6', 'joined', $5, $5)
-        ON CONFLICT (room_id) DO NOTHING
-        "#,
-    )
-    .bind(&room_id)
-    .bind("Server Notice")
-    .bind("System notifications")
-    .bind(&server_user)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to create server notice room: {}", e)))?;
-
-    if room_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to create server notice room".to_string(),
-        ));
-    }
-
     let message_event_id = format!(
         "${}:{}",
         uuid::Uuid::new_v4(),
         state.services.config.server.name
     );
-
     let create_event_id = format!(
         "${}:{}",
         uuid::Uuid::new_v4(),
         state.services.config.server.name
     );
-    let create_result = sqlx::query(
-        r#"
-        INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
-        VALUES ($1, $2, $3, 'm.room.create', $4, $5, $6, '')
-        ON CONFLICT (event_id) DO NOTHING
-        "#
-    )
-    .bind(&create_event_id)
-    .bind(&room_id)
-    .bind(&server_user)
-    .bind(json!({"creator": server_user}))
-    .bind(now)
-    .bind(&server_user)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!("Failed to create server notice create event: {}", e))
-    })?;
-
-    if create_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to create server notice create event".to_string(),
-        ));
-    }
-
     let membership_event_id = format!(
         "${}:{}",
         uuid::Uuid::new_v4(),
         state.services.config.server.name
     );
-    let membership_result = sqlx::query(
-        r#"
-        INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
-        VALUES ($1, $2, $3, 'm.room.member', $4, $5, $6, $7)
-        ON CONFLICT (event_id) DO NOTHING
-        "#,
-    )
-    .bind(&membership_event_id)
-    .bind(&room_id)
-    .bind(&target_user.user_id)
-    .bind(json!({ "membership": "join" }))
-    .bind(now)
-    .bind(&server_user)
-    .bind(&target_user.user_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!(
-            "Failed to create server notice membership event: {}",
-            e
-        ))
-    })?;
 
-    if membership_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to create server notice membership event".to_string(),
-        ));
-    }
-
-    let member_result = sqlx::query(
-        r#"
-        INSERT INTO room_memberships (
-            room_id, user_id, sender, membership, event_id, event_type,
-            display_name, avatar_url, updated_ts, joined_ts
+    let notice_id = state
+        .services
+        .server_notification_storage
+        .send_server_notice(
+            &room_id,
+            &server_user,
+            &target_user.user_id,
+            &target_user.displayname,
+            &target_user.avatar_url,
+            &message_event_id,
+            &create_event_id,
+            &membership_event_id,
+            &body.content.msgtype,
+            &body.content.body,
+            now,
         )
-        VALUES ($1, $2, $3, 'join', $4, 'm.room.member', $5, $6, $7, $7)
-        ON CONFLICT (room_id, user_id) DO NOTHING
-        "#,
-    )
-    .bind(&room_id)
-    .bind(&target_user.user_id)
-    .bind(&server_user)
-    .bind(&membership_event_id)
-    .bind(&target_user.displayname)
-    .bind(&target_user.avatar_url)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to persist server notice member: {}", e)))?;
-
-    if member_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to persist server notice member".to_string(),
-        ));
-    }
-
-    let message_result = sqlx::query(
-        r#"
-        INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender)
-        VALUES ($1, $2, $3, 'm.room.message', $4, $5, $6)
-        "#
-    )
-    .bind(&message_event_id)
-    .bind(&room_id)
-    .bind(&body.user_id)
-    .bind(json!({
-        "msgtype": body.content.msgtype,
-        "body": body.content.body
-    }))
-    .bind(now)
-    .bind(&server_user)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!(
-            "Failed to persist m.room.message event for server notice: {}",
-            e
-        ))
-    })?;
-
-    if message_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to persist m.room.message event for server notice".to_string(),
-        ));
-    }
-
-    let notice_content = json!({
-        "msgtype": body.content.msgtype,
-        "body": body.content.body
-    });
-    let notice_id: i64 = sqlx::query_scalar(
-        r#"
-        INSERT INTO server_notices (user_id, event_id, content, sent_ts)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
-        "#,
-    )
-    .bind(&body.user_id)
-    .bind(&message_event_id)
-    .bind(notice_content.to_string())
-    .bind(now)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let summary_result = sqlx::query(
-        r#"
-        INSERT INTO room_summaries (
-            room_id, name, topic, join_rules, history_visibility, guest_access,
-            is_direct, is_space, is_encrypted, member_count, joined_member_count,
-            invited_member_count, hero_users, last_event_id, last_event_ts,
-            last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
-        )
-        VALUES (
-            $1, $2, $3, 'private', 'joined', 'forbidden',
-            false, false, false, 1, 1,
-            0, '[]'::jsonb, $4, $5,
-            $5, 0, 0, $5, $5
-        )
-        ON CONFLICT (room_id) DO NOTHING
-        "#,
-    )
-    .bind(&room_id)
-    .bind("Server Notice")
-    .bind("System notifications")
-    .bind(&message_event_id)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!(
-            "Failed to persist server notice room summary: {}",
-            e
-        ))
-    })?;
-
-    if summary_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to persist server notice room summary".to_string(),
-        ));
-    }
-
-    let summary_member_result = sqlx::query(
-        r#"
-        INSERT INTO room_summary_members (
-            room_id, user_id, display_name, avatar_url, membership, is_hero,
-            last_active_ts, updated_ts, created_ts
-        )
-        VALUES ($1, $2, $3, $4, 'join', false, $5, $5, $5)
-        ON CONFLICT (room_id, user_id) DO NOTHING
-        "#,
-    )
-    .bind(&room_id)
-    .bind(&target_user.user_id)
-    .bind(&target_user.displayname)
-    .bind(&target_user.avatar_url)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!(
-            "Failed to persist server notice room summary member: {}",
-            e
-        ))
-    })?;
-
-    if summary_member_result.rows_affected() == 0 {
-        return Err(ApiError::internal(
-            "Failed to persist server notice room summary member".to_string(),
-        ));
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .await?;
 
     Ok(Json(
         json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id }),
@@ -784,50 +517,11 @@ pub async fn get_server_notices(
     let limit = query.limit.unwrap_or(10).min(50) as i64;
     let cursor = decode_notice_cursor(query.from.as_deref());
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM server_notices")
-        .fetch_one(&*state.services.event_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let notices = sqlx::query(
-        "SELECT id, user_id, event_id, content, sent_ts
-         FROM server_notices
-         WHERE ($1::BIGINT IS NULL AND $2::BIGINT IS NULL)
-            OR sent_ts < $1
-            OR (sent_ts = $1 AND id < $2)
-         ORDER BY sent_ts DESC, id DESC
-         LIMIT $3",
-    )
-    .bind(cursor.map(|(sent_ts, _)| sent_ts))
-    .bind(cursor.map(|(_, id)| id))
-    .bind(limit)
-    .fetch_all(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let notice_list: Vec<Value> = notices
-        .iter()
-        .map(|row| {
-            json!({
-                "id": row.get::<Option<i64>, _>("id"),
-                "user_id": row.get::<Option<String>, _>("user_id"),
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "content": row.get::<Option<String>, _>("content"),
-                "sent_ts": row.get::<Option<i64>, _>("sent_ts")
-            })
-        })
-        .collect();
-
-    let next_batch = if notices.len() as i64 == limit {
-        notices.last().map(|row| {
-            encode_notice_cursor(
-                row.get::<Option<i64>, _>("sent_ts").unwrap_or_default(),
-                row.get::<Option<i64>, _>("id").unwrap_or_default(),
-            )
-        })
-    } else {
-        None
-    };
+    let (notice_list, total, next_batch) = state
+        .services
+        .server_notification_storage
+        .get_server_notices_paginated(cursor, limit)
+        .await?;
 
     Ok(Json(json!({
         "notices": notice_list,
@@ -849,22 +543,14 @@ pub async fn get_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice = sqlx::query(
-        "SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1",
-    )
-    .bind(notice_id)
-    .fetch_optional(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let notice = state
+        .services
+        .server_notification_storage
+        .get_server_notice_by_id(notice_id)
+        .await?;
 
     match notice {
-        Some(row) => Ok(Json(json!({
-            "id": row.get::<Option<i64>, _>("id"),
-            "user_id": row.get::<Option<String>, _>("user_id"),
-            "event_id": row.get::<Option<String>, _>("event_id"),
-            "content": row.get::<Option<String>, _>("content"),
-            "sent_ts": row.get::<Option<i64>, _>("sent_ts")
-        }))),
+        Some(notice) => Ok(Json(notice)),
         None => Err(ApiError::not_found("Server notice not found".to_string())),
     }
 }
@@ -876,92 +562,40 @@ pub async fn delete_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    // 1. Get the event_id and room_id from the server notice
-    // We try to find the room_id via the event if possible
-    let notice_info = sqlx::query(
-        r#"
-        SELECT sn.event_id, e.room_id
-        FROM server_notices sn
-        LEFT JOIN events e ON e.event_id = sn.event_id
-        WHERE sn.id = $1
-        "#,
-    )
-    .bind(notice_id)
-    .fetch_optional(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let notice_info = state
+        .services
+        .server_notification_storage
+        .get_server_notice_with_room(notice_id)
+        .await?;
 
-    let Some(row) = notice_info else {
+    let Some((event_id, room_id)) = notice_info else {
         return Err(ApiError::not_found("Server notice not found".to_string()));
     };
 
-    let event_id: Option<String> = row.get("event_id");
-    let room_id: Option<String> = row.get("room_id");
-
-    let mut tx = state
+    state
         .services
-        .event_storage
-        .pool
-        .begin()
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .server_notification_storage
+        .delete_server_notice_by_id(notice_id)
+        .await?;
 
-    // 2. Delete the server notice record
-    sqlx::query("DELETE FROM server_notices WHERE id = $1")
-        .bind(notice_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // 3. If we found a room_id, delete the room (this will cascade to events, memberships, etc.)
     if let Some(rid) = room_id {
-        sqlx::query("DELETE FROM rooms WHERE room_id = $1")
-            .bind(&rid)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to clean server notice room: {}", e))
-            })?;
-
-        // Explicitly clean up other related tables to be sure, as the test checks them
-        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")
-            .bind(&rid)
-            .execute(&mut *tx)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
-            .bind(&rid)
-            .execute(&mut *tx)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")
-            .bind(&rid)
-            .execute(&mut *tx)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&rid)
-            .execute(&mut *tx)
-            .await
-            .ok();
+        state
+            .services
+            .server_notification_storage
+            .delete_room_cascade(&rid)
+            .await?;
     } else if let Some(eid) = event_id {
-        // If we only have event_id but no room_id was found in join, try to delete the event directly
-        sqlx::query("DELETE FROM events WHERE event_id = $1")
-            .bind(&eid)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!("Failed to clean server notice event: {}", e))
-            })?;
+        state
+            .services
+            .server_notification_storage
+            .delete_event_by_id(&eid)
+            .await?;
     }
-
-    tx.commit()
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_user_notification(
     _admin: AdminUser,
@@ -970,20 +604,19 @@ pub async fn get_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let setting = sqlx::query("SELECT enabled FROM user_notification_settings WHERE user_id = $1")
-        .bind(&user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let setting = state
+        .services
+        .server_notification_storage
+        .get_user_notification_setting(&user_id)
+        .await?;
 
     match setting {
-        Some(row) => Ok(Json(json!({
-            "enabled": row.get::<Option<bool>, _>("enabled").unwrap_or(true)
-        }))),
+        Some(enabled) => Ok(Json(json!({ "enabled": enabled }))),
         None => Ok(Json(json!({ "enabled": true }))),
     }
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn update_user_notification(
     _admin: AdminUser,
@@ -993,18 +626,16 @@ pub async fn update_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    sqlx::query(
-        "INSERT INTO user_notification_settings (user_id, enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET enabled = $2"
-    )
-    .bind(&user_id)
-    .bind(body.enabled)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .server_notification_storage
+        .upsert_user_notification_setting(&user_id, body.enabled)
+        .await?;
 
     Ok(Json(json!({ "enabled": body.enabled })))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_user_pushers(
     _admin: AdminUser,
@@ -1013,35 +644,18 @@ pub async fn get_user_pushers(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let pushers = sqlx::query(
-        "SELECT pushkey, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1"
-    )
-    .bind(&user_id)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let pusher_list: Vec<Value> = pushers
-        .iter()
-        .map(|row| {
-            json!({
-                "pushkey": row.get::<Option<String>, _>("pushkey"),
-                "kind": row.get::<Option<String>, _>("kind"),
-                "app_id": row.get::<Option<String>, _>("app_id"),
-                "app_display_name": row.get::<Option<String>, _>("app_display_name"),
-                "device_display_name": row.get::<Option<String>, _>("device_display_name"),
-                "profile_tag": row.get::<Option<String>, _>("profile_tag"),
-                "lang": row.get::<Option<String>, _>("lang"),
-                "data": row.get::<Option<Value>, _>("data").unwrap_or(json!({}))
-            })
-        })
-        .collect();
+    let pusher_list = state
+        .services
+        .server_notification_storage
+        .get_user_pushers(&user_id)
+        .await?;
 
     Ok(Json(
         json!({ "pushers": pusher_list, "total": pusher_list.len() }),
     ))
 }
 
+#[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_user_pusher(
     _admin: AdminUser,
@@ -1050,14 +664,13 @@ pub async fn delete_user_pusher(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let result = sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
-        .bind(&user_id)
-        .bind(&pushkey)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let deleted = state
+        .services
+        .server_notification_storage
+        .delete_user_pusher(&user_id, &pushkey)
+        .await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Pusher not found".to_string()));
     }
 

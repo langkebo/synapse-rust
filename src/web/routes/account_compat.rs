@@ -10,7 +10,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 
 pub(crate) async fn whoami(
     State(_state): State<AppState>,
@@ -37,40 +36,30 @@ pub(crate) async fn can_view_profile_for_requester_batch(
     requester_id: Option<&str>,
     user_ids: &[String],
 ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
-    let mut result = std::collections::HashMap::with_capacity(user_ids.len());
-    if user_ids.is_empty() {
-        return Ok(result);
+    #[cfg(feature = "privacy-ext")]
+    {
+        return state
+            .services
+            .privacy_storage
+            .batch_can_view_profile(requester_id, user_ids)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {e}");
+                ApiError::database("A database error occurred".to_string())
+            });
     }
 
-    for uid in user_ids {
-        result.insert(uid.clone(), true);
+    #[cfg(not(feature = "privacy-ext"))]
+    {
+        let _ = state;
+        let _ = requester_id;
+        let results = user_ids
+            .iter()
+            .cloned()
+            .map(|user_id| (user_id, true))
+            .collect();
+        Ok(results)
     }
-
-    let rows = sqlx::query("SELECT user_id, profile_visibility, allow_profile_lookup FROM user_privacy_settings WHERE user_id = ANY($1)")
-        .bind(user_ids)
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    for row in rows {
-        let uid: String = row.try_get("user_id").unwrap_or_default();
-        let is_self = requester_id == Some(uid.as_str());
-
-        let visible = if let Ok(visibility) = row.try_get::<String, _>("profile_visibility") {
-            match visibility.as_str() {
-                "private" | "contacts" => is_self,
-                _ => true,
-            }
-        } else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup") {
-            allow_lookup || is_self
-        } else {
-            true
-        };
-
-        result.insert(uid, visible);
-    }
-
-    Ok(result)
 }
 
 pub(crate) async fn enforce_profile_visibility(
@@ -510,26 +499,21 @@ pub(crate) async fn get_threepids(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let threepids = sqlx::query(
-        r"
-        SELECT medium, address, validated_ts, added_ts
-        FROM user_threepids
-        WHERE user_id = $1
-        ",
-    )
-    .bind(user_id)
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to get threepids: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let threepids = state
+        .services
+        .threepid_storage
+        .get_threepids_by_user(user_id)
+        .await
+        .map_err(|e| { tracing::error!("Failed to get threepids: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let threepids_list: Vec<Value> = threepids
         .iter()
-        .map(|row| {
+        .map(|t| {
             json!({
-                "medium": row.get::<String, _>("medium"),
-                "address": row.get::<String, _>("address"),
-                "validated_ts": row.get::<Option<i64>, _>("validated_ts").unwrap_or(0),
-                "added_at": row.get::<Option<i64>, _>("added_ts").unwrap_or(0)
+                "medium": t.medium,
+                "address": t.address,
+                "validated_ts": t.validated_at.unwrap_or(0),
+                "added_at": t.added_ts
             })
         })
         .collect();
@@ -624,28 +608,14 @@ pub(crate) async fn add_threepid(
     let medium = "email";
     let address = verification_token.email.as_str();
 
-    // ON CONFLICT 上的 WHERE 谓词保证：地址若已被另一个账户占用，UPDATE 不会
-    // 命中——rows_affected == 0，路由抛 409。本账户重复绑定则幂等更新时间戳。
-    let result = sqlx::query(
-        r"
-        INSERT INTO user_threepids (user_id, medium, address, validated_ts, added_ts, is_verified)
-        VALUES ($1, $2, $3, $4, $5, TRUE)
-        ON CONFLICT (medium, address) DO UPDATE
-        SET validated_ts = EXCLUDED.validated_ts,
-            is_verified = TRUE
-        WHERE user_threepids.user_id = EXCLUDED.user_id
-        ",
-    )
-    .bind(user_id)
-    .bind(medium)
-    .bind(address)
-    .bind(now)
-    .bind(now)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to add threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let rows_affected = state
+        .services
+        .threepid_storage
+        .add_verified_threepid(user_id, medium, address, now, now)
+        .await
+        .map_err(|e| { tracing::error!("Failed to add threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    if result.rows_affected() == 0 {
+    if rows_affected == 0 {
         ::tracing::warn!(
             target: "security_audit",
             event = "threepid_add_address_already_bound",
@@ -715,18 +685,12 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    sqlx::query(
-        r"
-        DELETE FROM user_threepids
-        WHERE user_id = $1 AND medium = $2 AND address = $3
-        ",
-    )
-    .bind(user_id)
-    .bind(&body.medium)
-    .bind(&body.address)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to delete threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .threepid_storage
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| { tracing::error!("Failed to delete threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
@@ -738,18 +702,12 @@ pub(crate) async fn unbind_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    sqlx::query(
-        r"
-        DELETE FROM user_threepids
-        WHERE user_id = $1 AND medium = $2 AND address = $3
-        ",
-    )
-    .bind(user_id)
-    .bind(&body.medium)
-    .bind(&body.address)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Failed to unbind threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .threepid_storage
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| { tracing::error!("Failed to unbind threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }

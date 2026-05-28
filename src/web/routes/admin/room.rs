@@ -2,7 +2,7 @@ use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
 use crate::storage::room::{
-    decode_room_search_cursor, encode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
+    decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
 };
 use crate::storage::sliding_sync::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
@@ -16,13 +16,13 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 
 #[cfg(test)]
 mod cursor_tests {
+    use crate::storage::room::encode_room_search_cursor;
     use super::{
-        decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_search_cursor,
-        encode_room_token_sync_cursor, RoomSearchCursor, RoomTokenSyncCursor,
+        decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor,
+        RoomSearchCursor, RoomTokenSyncCursor,
     };
 
     #[test]
@@ -347,15 +347,13 @@ pub async fn cleanup_abnormal_rooms(
 }
 
 async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, ApiError> {
-    let space_id: Option<String> = sqlx::query_scalar(
-        "SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
-    )
-    .bind(identifier)
-    .fetch_optional(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    space_id.ok_or_else(|| ApiError::not_found("Space not found".to_string()))
+    state
+        .services
+        .space_storage
+        .resolve_space_id(identifier)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
+        .ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
 
 #[axum::debug_handler]
@@ -664,20 +662,12 @@ pub async fn block_room(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
-        r"
-        INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by, reason)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2, reason = $4
-        ",
-    )
-    .bind(&room_id)
-    .bind(now)
-    .bind(&admin.user_id)
-    .bind(&body.reason)
-    .execute(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .room_storage
+        .block_room(&room_id, now, &admin.user_id, body.reason.as_deref())
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     record_audit_event(
         &state,
@@ -712,16 +702,17 @@ pub async fn get_room_block_status(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let result = sqlx::query("SELECT room_id, blocked_at FROM blocked_rooms WHERE room_id = $1")
-        .bind(&room_id)
-        .fetch_optional(&*state.services.room_storage.pool)
+    let blocked_at = state
+        .services
+        .room_storage
+        .get_room_block_status(&room_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    match result {
-        Some(row) => Ok(Json(json!({
+    match blocked_at {
+        Some(blocked_at) => Ok(Json(json!({
             "block": true,
-            "blocked_at": row.get::<Option<i64>, _>("blocked_at")
+            "blocked_at": blocked_at
         }))),
         None => Ok(Json(json!({ "block": false }))),
     }
@@ -744,9 +735,10 @@ pub async fn unblock_room(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    sqlx::query("DELETE FROM blocked_rooms WHERE room_id = $1")
-        .bind(&room_id)
-        .execute(&*state.services.room_storage.pool)
+    state
+        .services
+        .room_storage
+        .unblock_room(&room_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
@@ -810,22 +802,12 @@ pub async fn make_room_admin(
         "invite": 0
     });
 
-    sqlx::query(
-        r"
-        INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
-        VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
-        ON CONFLICT (event_id) DO UPDATE SET content = $4
-        "
-    )
-    .bind(&event_id)
-    .bind(&room_id)
-    .bind(&user_id)
-    .bind(power_levels)
-    .bind(now)
-    .bind(&admin_user)
-    .execute(&*state.services.event_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    state
+        .services
+        .event_storage
+        .upsert_power_levels_event(&event_id, &room_id, &user_id, power_levels, now, &admin_user)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
@@ -967,23 +949,23 @@ pub async fn get_spaces(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let spaces = sqlx::query(
-        "SELECT space_id, room_id, name, topic, creator, created_ts FROM spaces ORDER BY created_ts DESC",
-    )
-    .fetch_all(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let spaces = state
+        .services
+        .space_storage
+        .get_all_spaces_for_admin()
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let space_list: Vec<Value> = spaces
         .iter()
-        .map(|row| {
+        .map(|s| {
             json!({
-                "space_id": row.get::<String, _>("space_id"),
-                "room_id": row.get::<String, _>("room_id"),
-                "name": row.get::<Option<String>, _>("name"),
-                "topic": row.get::<Option<String>, _>("topic"),
-                "creator": row.get::<String, _>("creator"),
-                "created_ts": row.get::<i64, _>("created_ts")
+                "space_id": s.space_id,
+                "room_id": s.room_id,
+                "name": s.name,
+                "topic": s.topic,
+                "creator": s.creator,
+                "created_ts": s.created_ts
             })
         })
         .collect();
@@ -999,22 +981,21 @@ pub async fn get_space(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let space = sqlx::query(
-        "SELECT space_id, room_id, name, topic, creator, created_ts FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
-    )
-    .bind(&space_id)
-    .fetch_optional(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let space = state
+        .services
+        .space_storage
+        .get_space_by_identifier(&space_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     match space {
-        Some(row) => Ok(Json(json!({
-            "space_id": row.get::<String, _>("space_id"),
-            "room_id": row.get::<String, _>("room_id"),
-            "name": row.get::<Option<String>, _>("name"),
-            "topic": row.get::<Option<String>, _>("topic"),
-            "creator": row.get::<String, _>("creator"),
-            "created_ts": row.get::<i64, _>("created_ts")
+        Some(s) => Ok(Json(json!({
+            "space_id": s.space_id,
+            "room_id": s.room_id,
+            "name": s.name,
+            "topic": s.topic,
+            "creator": s.creator,
+            "created_ts": s.created_ts
         }))),
         None => Err(ApiError::not_found("Space not found".to_string())),
     }
@@ -1027,13 +1008,14 @@ pub async fn delete_space(
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
-    let result = sqlx::query("DELETE FROM spaces WHERE space_id = $1")
-        .bind(&resolved_space_id)
-        .execute(&*state.services.room_storage.pool)
+    let rows_affected = state
+        .services
+        .space_storage
+        .delete_space_returning_count(&resolved_space_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    if result.rows_affected() == 0 {
+    if rows_affected == 0 {
         return Err(ApiError::not_found("Space not found".to_string()));
     }
 
@@ -1048,15 +1030,12 @@ pub async fn get_space_users(
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
-    let users = sqlx::query(
-        "SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
-    )
-    .bind(&resolved_space_id)
-    .fetch_all(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let user_list: Vec<String> = users.iter().map(|r| r.get("user_id")).collect();
+    let user_list = state
+        .services
+        .space_storage
+        .get_space_user_ids(&resolved_space_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(
         json!({ "users": user_list, "total": user_list.len() }),
@@ -1071,13 +1050,12 @@ pub async fn get_space_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
-    let rooms = sqlx::query("SELECT room_id FROM space_children WHERE space_id = $1")
-        .bind(&resolved_space_id)
-        .fetch_all(&*state.services.room_storage.pool)
+    let room_list = state
+        .services
+        .space_storage
+        .get_space_room_ids(&resolved_space_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
     Ok(Json(
         json!({ "rooms": room_list, "total": room_list.len() }),
@@ -1092,20 +1070,12 @@ pub async fn get_space_stats(
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
-    let member_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'",
-    )
-    .bind(&resolved_space_id)
-    .fetch_one(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    let child_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1")
-            .bind(&resolved_space_id)
-            .fetch_one(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let (member_count, child_count) = state
+        .services
+        .space_storage
+        .get_space_member_and_child_count(&resolved_space_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "space_id": resolved_space_id,
@@ -1120,59 +1090,14 @@ pub async fn get_room_stats(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let pool = &*state.services.room_storage.pool;
-
-    // Total rooms
-    let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
-        .fetch_one(pool)
+    let stats = state
+        .services
+        .room_storage
+        .get_room_stats_overview()
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    // Encrypted rooms
-    let encrypted_rooms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT room_id) FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)"
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Public rooms
-    let public_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Total messages
-    let total_messages: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE type = 'm.room.message'")
-            .fetch_one(pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Total members
-    let total_members: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Active rooms (rooms with messages in last 7 days)
-    let active_rooms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1",
-    )
-    .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    Ok(Json(json!({
-        "total_rooms": total_rooms,
-        "encrypted_rooms": encrypted_rooms,
-        "public_rooms": public_rooms,
-        "total_messages": total_messages,
-        "total_members": total_members,
-        "active_rooms": active_rooms,
-        "average_messages_per_room": if total_rooms > 0 { total_messages / total_rooms } else { 0 }
-    })))
+    Ok(Json(stats))
 }
 
 /// Get statistics for a single room
@@ -1182,72 +1107,17 @@ pub async fn get_single_room_stats(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let pool = &*state.services.room_storage.pool;
+    let stats = state
+        .services
+        .room_storage
+        .get_single_room_stats(&room_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    // Check if room exists
-    let room_exists: Option<String> =
-        sqlx::query_scalar("SELECT room_id FROM rooms WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    if room_exists.is_none() {
-        return Err(ApiError::not_found("Room not found".to_string()));
+    match stats {
+        Some(stats) => Ok(Json(stats)),
+        None => Err(ApiError::not_found("Room not found".to_string())),
     }
-
-    // Member count
-    let member_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
-    )
-    .bind(&room_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Message count
-    let message_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'",
-    )
-    .bind(&room_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Last message timestamp
-    let last_message_ts: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Room state
-    let is_encrypted: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL)"
-    )
-    .bind(&room_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    // Admin count
-    let admin_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)"
-    )
-    .bind(&room_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
-
-    Ok(Json(json!({
-        "room_id": room_id,
-        "member_count": member_count,
-        "message_count": message_count,
-        "last_message_ts": last_message_ts,
-        "is_encrypted": is_encrypted,
-        "admin_count": admin_count
-    })))
 }
 
 /// Join a user to a room (force join)
@@ -1450,19 +1320,12 @@ async fn ban_user_internal(
     }
 
     if let Some(reason) = reason {
-        sqlx::query(
-            r"
-            UPDATE room_memberships
-            SET ban_reason = $3
-            WHERE room_id = $1 AND user_id = $2
-            ",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(reason)
-        .execute(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        state
+            .services
+            .member_storage
+            .set_ban_reason(room_id, user_id, reason)
+            .await
+            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
     }
 
     #[cfg(feature = "friends")]
@@ -1571,21 +1434,12 @@ async fn kick_user_internal(
         }
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
-            sqlx::query(
-                r"
-                UPDATE room_memberships
-                SET membership = 'leave',
-                    left_ts = $3,
-                    updated_ts = $3
-                WHERE room_id = $1 AND user_id = $2
-                ",
-            )
-            .bind(room_id)
-            .bind(user_id)
-            .bind(now)
-            .execute(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+            state
+                .services
+                .member_storage
+                .force_leave_membership(room_id, user_id, now)
+                .await
+                .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
         }
         None => {}
     }
@@ -1707,23 +1561,16 @@ pub async fn get_room_listings(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let is_public: Option<bool> =
-        sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_optional(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let listing = state
+        .services
+        .room_storage
+        .get_room_listings_status(&room_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    let Some(is_public) = is_public else {
+    let Some((is_public, in_directory)) = listing else {
         return Err(ApiError::not_found("Room not found".to_string()));
     };
-
-    let in_directory: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
-            .bind(&room_id)
-            .fetch_one(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1739,26 +1586,16 @@ pub async fn set_room_public(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
-        .bind(&room_id)
-        .execute(&*state.services.room_storage.pool)
+    let found = state
+        .services
+        .room_storage
+        .set_room_public_with_directory(&room_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    if result.rows_affected() == 0 {
+    if !found {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-
-    // Add to directory
-    let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
-        "INSERT INTO room_directory (room_id, is_public, added_ts) VALUES ($1, true, $2) ON CONFLICT (room_id) DO UPDATE SET is_public = true"
-    )
-    .bind(&room_id)
-    .bind(now)
-    .execute(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1773,22 +1610,16 @@ pub async fn set_room_private(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
-        .bind(&room_id)
-        .execute(&*state.services.room_storage.pool)
+    let found = state
+        .services
+        .room_storage
+        .set_room_private_with_directory(&room_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    if result.rows_affected() == 0 {
+    if !found {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-
-    // Remove from directory
-    sqlx::query("DELETE FROM room_directory WHERE room_id = $1")
-        .bind(&room_id)
-        .execute(&*state.services.room_storage.pool)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1831,57 +1662,19 @@ pub async fn get_event_context_admin(
         ));
     }
 
-    let events_before: Vec<Value> = sqlx::query(
-        r"
-        SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
-        FROM events
-        WHERE room_id = $1 AND origin_server_ts < $2
-        ORDER BY origin_server_ts DESC
-        LIMIT 5
-        ",
-    )
-    .bind(&room_id)
-    .bind(event.origin_server_ts)
-    .fetch_all(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
-    .iter()
-    .map(|r| {
-        json!({
-            "event_id": r.get::<String, _>("event_id"),
-            "type": r.get::<String, _>("type"),
-            "sender": r.get::<String, _>("sender"),
-            "content": r.get::<Value, _>("content"),
-            "origin_server_ts": r.get::<i64, _>("origin_server_ts")
-        })
-    })
-    .collect();
+    let events_before = state
+        .services
+        .event_storage
+        .get_events_before_context(&room_id, event.origin_server_ts, 5)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    let events_after: Vec<Value> = sqlx::query(
-        r"
-        SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
-        FROM events
-        WHERE room_id = $1 AND origin_server_ts > $2
-        ORDER BY origin_server_ts ASC
-        LIMIT 5
-        ",
-    )
-    .bind(&room_id)
-    .bind(event.origin_server_ts)
-    .fetch_all(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
-    .iter()
-    .map(|r| {
-        json!({
-            "event_id": r.get::<String, _>("event_id"),
-            "type": r.get::<String, _>("type"),
-            "sender": r.get::<String, _>("sender"),
-            "content": r.get::<Value, _>("content"),
-            "origin_server_ts": r.get::<i64, _>("origin_server_ts")
-        })
-    })
-    .collect();
+    let events_after = state
+        .services
+        .event_storage
+        .get_events_after_context(&room_id, event.origin_server_ts, 5)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "event": {
@@ -2053,33 +1846,21 @@ pub async fn search_room_messages_admin(
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
-    let events = sqlx::query(
-        r"
-        SELECT event_id, event_type, sender, content, origin_server_ts
-        FROM events
-        WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2 AND is_redacted = false
-        ORDER BY origin_server_ts DESC
-        LIMIT $3
-        ",
-    )
-    .bind(&room_id)
-    .bind(&search_pattern)
-    .bind(limit)
-    .fetch_all(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
+    let events = state
+        .services
+        .event_storage
+        .search_room_messages_admin(&room_id, &search_pattern, limit)
+        .await
+        .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
 
     let results: Vec<Value> = events
         .iter()
-        .map(|r| {
-            json!({
-                "event_id": r.get::<String, _>("event_id"),
-                "type": r.get::<String, _>("event_type"),
-                "sender": r.get::<String, _>("sender"),
-                "content": r.get::<Value, _>("content"),
-                "origin_server_ts": r.get::<i64, _>("origin_server_ts"),
-                "room_id": room_id
-            })
+        .map(|e| {
+            let mut event = e.clone();
+            if let Some(obj) = event.as_object_mut() {
+                obj.insert("room_id".to_string(), Value::String(room_id.clone()));
+            }
+            event
         })
         .collect();
 
@@ -2097,20 +1878,18 @@ pub async fn get_room_version(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = sqlx::query("SELECT room_version FROM rooms WHERE room_id = $1")
-        .bind(&room_id)
-        .fetch_optional(&*state.services.room_storage.pool)
+    let version = state
+        .services
+        .room_storage
+        .get_room_version_only(&room_id)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-    match row {
-        Some(row) => {
-            let version: String = row.get("room_version");
-            Ok(Json(json!({
-                "room_id": room_id,
-                "room_version": version
-            })))
-        }
+    match version {
+        Some(version) => Ok(Json(json!({
+            "room_id": room_id,
+            "room_version": version
+        }))),
         None => Err(ApiError::not_found(format!("Room {room_id} not found"))),
     }
 }
@@ -2133,21 +1912,12 @@ pub async fn get_room_forward_extremities(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let count: i64 = sqlx::query_scalar(
-        r"
-        SELECT COUNT(*) FROM events
-        WHERE room_id = $1
-        AND state_key IS NOT NULL
-        AND event_id NOT IN (
-            SELECT content->>'prev_event_id' FROM events
-            WHERE room_id = $1 AND content->>'prev_event_id' IS NOT NULL
-        )
-        ",
-    )
-    .bind(&room_id)
-    .fetch_one(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let count = state
+        .services
+        .event_storage
+        .get_forward_extremities_count(&room_id)
+        .await
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -2189,7 +1959,6 @@ async fn search_all_rooms_impl(
     body: SearchAllRoomsRequest,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(50).min(200) as i64;
-    let pool = &*state.services.room_storage.pool;
     let order = RoomSearchOrder::from_query(body.order_by.as_deref());
     let cursor = decode_room_search_cursor(body.from.as_deref());
 
@@ -2209,238 +1978,19 @@ async fn search_all_rooms_impl(
         }
     }
 
-    let search_pattern = body.search_term.as_ref().map(|term| format!("%{term}%"));
-    let search_term = body.search_term.as_ref().map(|term| term.clone());
-
-    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-        r"
-        SELECT r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts as creation_ts,
-               COUNT(DISTINCT rm.user_id) as member_count,
-               CASE WHEN COUNT(DISTINCT e.event_id) > 0 THEN TRUE ELSE FALSE END as is_encrypted
-        FROM rooms r
-        LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
-        LEFT JOIN events e ON r.room_id = e.room_id AND e.event_type = 'm.room.encryption' AND e.state_key IS NOT NULL
-        WHERE 1=1
-        ",
-    );
-
-    if let Some(pattern) = &search_pattern {
-        // Use pg_trgm similarity operator (%) for GIN index support when search term
-        // is long enough (>=3 chars), combined with ILIKE for exact substring matching.
-        // The % operator leverages the GIN trigram index for efficient filtering.
-        if let Some(term) = &search_term {
-            if term.len() >= 3 {
-                query.push(" AND (r.name ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.name % ");
-                query.push_bind(term);
-                query.push(" OR r.topic ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.canonical_alias ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.canonical_alias % ");
-                query.push_bind(term);
-                query.push(" OR r.room_id ILIKE ");
-                query.push_bind(pattern);
-                query.push(")");
-            } else {
-                query.push(" AND (r.name ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.topic ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.canonical_alias ILIKE ");
-                query.push_bind(pattern);
-                query.push(" OR r.room_id ILIKE ");
-                query.push_bind(pattern);
-                query.push(")");
-            }
-        } else {
-            query.push(" AND (r.name ILIKE ");
-            query.push_bind(pattern);
-            query.push(" OR r.topic ILIKE ");
-            query.push_bind(pattern);
-            query.push(" OR r.room_id ILIKE ");
-            query.push_bind(pattern);
-            query.push(")");
-        }
-    }
-
-    if let Some(is_public) = body.is_public {
-        query.push(" AND r.is_public = ");
-        query.push_bind(is_public);
-    }
-
-    if let Some(is_encrypted) = body.is_encrypted {
-        if is_encrypted {
-            query.push(
-                " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
-            );
-        } else {
-            query.push(
-                " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
-            );
-        }
-    }
-
-    query.push(" GROUP BY r.room_id, r.name, r.topic, r.creator, r.is_public, r.created_ts");
-
-    match &cursor {
-        Some(RoomSearchCursor::Created {
-            created_ts,
-            room_id,
-        }) => {
-            query.push(" HAVING (r.created_ts < ");
-            query.push_bind(*created_ts);
-            query.push(" OR (r.created_ts = ");
-            query.push_bind(*created_ts);
-            query.push(" AND r.room_id < ");
-            query.push_bind(room_id);
-            query.push("))");
-        }
-        Some(RoomSearchCursor::Name {
-            name,
-            created_ts,
-            room_id,
-        }) => {
-            match name {
-                Some(name) => {
-                    query.push(" HAVING (r.name IS NULL OR r.name > ");
-                    query.push_bind(name);
-                    query.push(" OR (r.name = ");
-                    query.push_bind(name);
-                    query.push(" AND (r.created_ts < ");
-                    query.push_bind(*created_ts);
-                    query.push(" OR (r.created_ts = ");
-                    query.push_bind(*created_ts);
-                    query.push(" AND r.room_id < ");
-                    query.push_bind(room_id);
-                    query.push("))))");
-                }
-                None => {
-                    query.push(" HAVING r.name IS NULL AND (r.created_ts < ");
-                    query.push_bind(*created_ts);
-                    query.push(" OR (r.created_ts = ");
-                    query.push_bind(*created_ts);
-                    query.push(" AND r.room_id < ");
-                    query.push_bind(room_id);
-                    query.push("))");
-                }
-            };
-        }
-        Some(RoomSearchCursor::Size {
-            member_count,
-            created_ts,
-            room_id,
-        }) => {
-            query.push(" HAVING (COUNT(DISTINCT rm.user_id) < ");
-            query.push_bind(*member_count);
-            query.push(" OR (COUNT(DISTINCT rm.user_id) = ");
-            query.push_bind(*member_count);
-            query.push(" AND r.created_ts < ");
-            query.push_bind(*created_ts);
-            query.push(") OR (COUNT(DISTINCT rm.user_id) = ");
-            query.push_bind(*member_count);
-            query.push(" AND r.created_ts = ");
-            query.push_bind(*created_ts);
-            query.push(" AND r.room_id < ");
-            query.push_bind(room_id);
-            query.push("))");
-        }
-        None => {}
-    }
-
-    let order_by_clause = match order {
-        RoomSearchOrder::Name => {
-            " ORDER BY r.name ASC NULLS LAST, r.created_ts DESC, r.room_id DESC"
-        }
-        RoomSearchOrder::Size => " ORDER BY member_count DESC, r.created_ts DESC, r.room_id DESC",
-        RoomSearchOrder::Created => " ORDER BY r.created_ts DESC, r.room_id DESC",
-    };
-    query.push(order_by_clause);
-
-    query.push(" LIMIT ");
-    query.push_bind(limit);
-
-    let rooms = query
-        .build()
-        .fetch_all(pool)
+    let (results, total, next_batch) = state
+        .services
+        .room_storage
+        .search_all_rooms_admin(
+            body.search_term.as_deref(),
+            limit,
+            order,
+            cursor,
+            body.is_public,
+            body.is_encrypted,
+        )
         .await
         .map_err(|e| ApiError::internal(format!("Search failed: {e}")))?;
-
-    let mut count_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-        "SELECT COUNT(*) as total FROM rooms r WHERE 1=1",
-    );
-
-    if let Some(pattern) = &search_pattern {
-        count_query.push(" AND (r.name ILIKE ");
-        count_query.push_bind(pattern);
-        count_query.push(" OR r.topic ILIKE ");
-        count_query.push_bind(pattern);
-        count_query.push(" OR r.room_id ILIKE ");
-        count_query.push_bind(pattern);
-        count_query.push(")");
-    }
-
-    if let Some(is_public) = body.is_public {
-        count_query.push(" AND r.is_public = ");
-        count_query.push_bind(is_public);
-    }
-
-    if let Some(is_encrypted) = body.is_encrypted {
-        if is_encrypted {
-            count_query.push(
-                " AND EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
-            );
-        } else {
-            count_query.push(
-                " AND NOT EXISTS (SELECT 1 FROM events encryption_events WHERE encryption_events.room_id = r.room_id AND encryption_events.event_type = 'm.room.encryption' AND encryption_events.state_key IS NOT NULL)",
-            );
-        }
-    }
-
-    let total_row = count_query
-        .build()
-        .fetch_one(pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Count failed: {e}")))?;
-    let total: i64 = total_row.get("total");
-
-    let results: Vec<Value> = rooms
-        .iter()
-        .map(|r| {
-            json!({
-                "room_id": r.get::<String, _>("room_id"),
-                "name": r.get::<Option<String>, _>("name"),
-                "topic": r.get::<Option<String>, _>("topic"),
-                "creator": r.get::<Option<String>, _>("creator"),
-                "is_public": r.get::<bool, _>("is_public"),
-                "member_count": r.get::<i64, _>("member_count"),
-                "is_encrypted": r.get::<bool, _>("is_encrypted"),
-                "creation_ts": r.get::<i64, _>("creation_ts")
-            })
-        })
-        .collect();
-
-    let next_batch = if rooms.len() as i64 == limit {
-        rooms.last().map(|r| match order {
-            RoomSearchOrder::Created => encode_room_search_cursor(&RoomSearchCursor::Created {
-                created_ts: r.get::<i64, _>("creation_ts"),
-                room_id: r.get::<String, _>("room_id"),
-            }),
-            RoomSearchOrder::Name => encode_room_search_cursor(&RoomSearchCursor::Name {
-                name: r.get::<Option<String>, _>("name"),
-                created_ts: r.get::<i64, _>("creation_ts"),
-                room_id: r.get::<String, _>("room_id"),
-            }),
-            RoomSearchOrder::Size => encode_room_search_cursor(&RoomSearchCursor::Size {
-                member_count: r.get::<i64, _>("member_count"),
-                created_ts: r.get::<i64, _>("creation_ts"),
-                room_id: r.get::<String, _>("room_id"),
-            }),
-        })
-    } else {
-        None
-    };
 
     Ok(Json(json!({
         "results": results,
