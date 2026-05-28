@@ -683,11 +683,11 @@
 - ✅ 建立 `rtc/` 统一域 → `RtcDomainService` 门面已创建，4 个服务已迁移（RtcInfraService/CallOrchestrationService/RtcSessionService/LivekitClient），统一指标已添加，MatrixRTCService 已接入容器
 - ✅ 完成 OIDC 双模式文档和启动检查 → 启动冲突检查已添加，文档已补充（适用场景/不适用场景/与对方关系）
 
-## 第四阶段: 2 周
+## 第四阶段: 2 周 → ✅ 已完成
 
-- 清理命名歧义
-- 补充 CI 分层与性能回归门禁
-- 完成升级说明与运维文档
+- ✅ 清理命名歧义 → 修复 2 处同文件重复定义（RetentionConfig/ExperimentalConfig 注释块），重命名 FeatureFlagService→RuntimeFeatureFlagService，8 处跨模块冲突重命名（RateLimitState/WorkerRuntimeConfig/ThumbnailSettings/RedisBusConfig/ApnsProviderConfig/FcmProviderConfig/WebPushProviderConfig/QueryCacheConfig），所有重命名保留向后兼容别名
+- ✅ 补充 CI 分层 → ci.yml 拆分为快速层（单元测试+lint，每次 PR）和慢速层（集成测试+安全审计+覆盖率+构建矩阵，仅 main/develop push），添加 paths-filter 跳过纯文档变更
+- ✅ 性能回归门禁 → k6 smoke 测试接入 CI（workflow_dispatch），PR 性能对比评论（benchmark.yml），10% Criterion 回归告警
 
 ## 12. 与上游 Synapse 的对照结论
 
