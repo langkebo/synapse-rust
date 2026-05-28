@@ -670,18 +670,18 @@
 - ✅ 完成 DM/Friend 关系域设计评审 → DMService 收缩为兼容层
 - ✅ 建立首版指标清单 → 错误泄露/N+1/直接 SQL 等质量指标已建立基线
 
-## 第二阶段: 3-4 周
+## 第二阶段: 3-4 周 → ✅ 已完成
 
-- 落地缓存统一接口
-- 下线或冻结 `CacheService` 新增使用
-- 改造 `DMService` 为兼容层
-- 梳理 `MessageQueue` 使用点
+- ✅ 落地缓存统一接口 → CacheManager 为唯一通用缓存底座，CacheService/RoomSummaryCache 已移除
+- ✅ 下线或冻结 `CacheService` 新增使用 → CacheService 已彻底移除，无残留调用
+- ✅ 改造 `DMService` 为兼容层 → DMService 收缩为 `pub(crate)` + `#[cfg(test)]`，FriendRoomService 为持久化主实现
+- ✅ 梳理 `MessageQueue` 使用点 → MessageQueue 已彻底移除，已被 RedisTaskQueue 取代
 
-## 第三阶段: 3-4 周
+## 第三阶段: 3-4 周 → 🔄 进行中
 
-- 建立统一媒体域入口
-- 建立 `rtc/` 统一域
-- 完成 OIDC 双模式文档和启动检查
+- ✅ 建立统一媒体域入口 → `MediaDomainService` 已创建，统一普通上传/分块上传/配额/缩略图入口，路由层已切换
+- ⬜ 建立 `rtc/` 统一域 → 未开始，VoipService/CallService/MatrixRTCService/VoiceService 仍独立
+- 🔄 完成 OIDC 双模式文档和启动检查 → Feature gate 已隔离，缺少启动冲突检查和文档
 
 ## 第四阶段: 2 周
 

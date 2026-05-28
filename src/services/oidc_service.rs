@@ -1,3 +1,20 @@
+//! 外部 OIDC 客户端服务
+//!
+//! 通过 OIDC Discovery URL 对接外部身份提供商（如 Keycloak、Auth0、Okta 等），
+//! 实现 Authorization Code Flow + PKCE 认证流程。
+//!
+//! # 适用场景
+//!
+//! - **生产环境**: 对接企业级身份提供商
+//! - **多租户场景**: 需要统一身份管理的部署
+//!
+//! # 与 BuiltinOidcProvider 的关系
+//!
+//! - `OidcService`: 外部 IdP 客户端模式（本服务）
+//! - `BuiltinOidcProvider`: 内置 Provider 模式，自身充当 OIDC Provider
+//!
+//! 两者不应同时启用。启动时会检测冲突并发出警告。
+
 use crate::common::config::OidcConfig;
 use crate::common::error::ApiError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
