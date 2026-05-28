@@ -9,13 +9,16 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct KeyRotationService {
-    // Kept for future OLM session rotation; not yet wired into any public method.
     #[allow(dead_code)]
     olm_service: Arc<OlmService>,
     megolm_service: Arc<MegolmService>,
     storage: Arc<KeyRotationStorage>,
-    config: KeyRotationConfig,
+    config: Arc<tokio::sync::RwLock<KeyRotationConfig>>,
 }
+
+const DEFAULT_OLM_ROTATION_DAYS: i64 = 7;
+const DEFAULT_MEGOLM_ROTATION_MESSAGES: i64 = 100;
+const DEFAULT_MAX_SESSION_AGE_DAYS: i64 = 90;
 
 #[derive(Clone, Debug)]
 pub struct KeyRotationConfig {
@@ -28,11 +31,62 @@ pub struct KeyRotationConfig {
 impl Default for KeyRotationConfig {
     fn default() -> Self {
         Self {
-            olm_rotation_days: 7,
-            megolm_rotation_messages: 100,
-            max_session_age_days: 90,
+            olm_rotation_days: DEFAULT_OLM_ROTATION_DAYS,
+            megolm_rotation_messages: DEFAULT_MEGOLM_ROTATION_MESSAGES,
+            max_session_age_days: DEFAULT_MAX_SESSION_AGE_DAYS,
             enable_auto_rotation: true,
         }
+    }
+}
+
+impl KeyRotationConfig {
+    pub async fn load_from_storage(storage: &KeyRotationStorage) -> Result<Self, ApiError> {
+        let olm_rotation_days: i64 = storage
+            .get_rotation_config("olm_rotation_days")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_OLM_ROTATION_DAYS);
+
+        let megolm_rotation_messages: i64 = storage
+            .get_rotation_config("megolm_rotation_messages")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_MEGOLM_ROTATION_MESSAGES);
+
+        let max_session_age_days: i64 = storage
+            .get_rotation_config("max_session_age_days")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_MAX_SESSION_AGE_DAYS);
+
+        let enable_auto_rotation: bool = storage
+            .get_rotation_config("enable_auto_rotation")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(true);
+
+        Ok(Self {
+            olm_rotation_days,
+            megolm_rotation_messages,
+            max_session_age_days,
+            enable_auto_rotation,
+        })
+    }
+
+    pub async fn persist_to_storage(&self, storage: &KeyRotationStorage) -> Result<(), ApiError> {
+        storage
+            .set_rotation_config("olm_rotation_days", &self.olm_rotation_days.to_string())
+            .await?;
+        storage
+            .set_rotation_config("megolm_rotation_messages", &self.megolm_rotation_messages.to_string())
+            .await?;
+        storage
+            .set_rotation_config("max_session_age_days", &self.max_session_age_days.to_string())
+            .await?;
+        storage
+            .set_rotation_config("enable_auto_rotation", &self.enable_auto_rotation.to_string())
+            .await?;
+        Ok(())
     }
 }
 
@@ -68,17 +122,57 @@ impl KeyRotationService {
             olm_service,
             megolm_service,
             storage,
-            config,
+            config: Arc::new(tokio::sync::RwLock::new(config)),
         }
     }
 
-    pub fn should_rotate(&self, session: &MegolmSession) -> Result<bool, ApiError> {
+    pub async fn new_with_db_config(
+        olm_service: Arc<OlmService>,
+        megolm_service: Arc<MegolmService>,
+        storage: Arc<KeyRotationStorage>,
+        fallback_config: KeyRotationConfig,
+    ) -> Self {
+        let config = KeyRotationConfig::load_from_storage(&storage)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to load KeyRotationConfig from database, using defaults: {e}"
+                );
+                fallback_config
+            });
+
+        Self {
+            olm_service,
+            megolm_service,
+            storage,
+            config: Arc::new(tokio::sync::RwLock::new(config)),
+        }
+    }
+
+    pub async fn reload_config(&self) -> Result<(), ApiError> {
+        let new_config = KeyRotationConfig::load_from_storage(&self.storage).await?;
+        *self.config.write().await = new_config;
+        Ok(())
+    }
+
+    pub async fn update_config(&self, new_config: KeyRotationConfig) -> Result<(), ApiError> {
+        new_config.persist_to_storage(&self.storage).await?;
+        *self.config.write().await = new_config;
+        Ok(())
+    }
+
+    pub async fn get_config(&self) -> KeyRotationConfig {
+        self.config.read().await.clone()
+    }
+
+    pub async fn should_rotate(&self, session: &MegolmSession) -> Result<bool, ApiError> {
+        let config = self.config.read().await;
         let age_days = (Utc::now() - session.last_used_ts).num_days();
-        if age_days >= self.config.olm_rotation_days {
+        if age_days >= config.olm_rotation_days {
             return Ok(true);
         }
 
-        if session.message_index >= self.config.megolm_rotation_messages {
+        if session.message_index >= config.megolm_rotation_messages {
             return Ok(true);
         }
 
@@ -144,8 +238,8 @@ impl KeyRotationService {
             .record_key_share(room_id, &session.session_id, "rotated")
             .await
             .map_err(|e| {
-                tracing::warn!("Failed to record key share for rotation: {}", e);
-                ApiError::internal(format!("Failed to record key share: {e}"))
+                tracing::warn!("Failed to record key share for rotation: {e}");
+                ApiError::database("A database error occurred".to_string())
             })
     }
 
@@ -159,15 +253,15 @@ impl KeyRotationService {
             .mark_rotated(user_id, room_id)
             .await
             .map_err(|e| {
-                tracing::warn!("Failed to mark session as rotated: {}", e);
-                ApiError::internal(format!("Failed to mark session as rotated: {e}"))
+                tracing::warn!("Failed to mark session as rotated: {e}");
+                ApiError::database("A database error occurred".to_string())
             })
     }
 
     async fn should_rotate_for_room(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
         let sessions = self.megolm_service.get_room_sessions(room_id).await?;
         for session in &sessions {
-            if self.should_rotate(session)? {
+            if self.should_rotate(session).await? {
                 return Ok(true);
             }
         }
@@ -217,8 +311,8 @@ impl KeyRotationService {
                 .record_key_share(room_id, &session.session_id, "new_member")
                 .await
                 .map_err(|e| {
-                    tracing::warn!("Failed to record key share for new member: {}", e);
-                    ApiError::internal(format!("Failed to record key share: {e}"))
+                    tracing::warn!("Failed to record key share for new member: {e}");
+                    ApiError::database("A database error occurred".to_string())
                 })?;
         }
 
@@ -274,7 +368,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -295,7 +389,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -318,7 +412,7 @@ impl KeyRotationStorage {
         .bind(share_reason)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -335,7 +429,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -351,7 +445,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.as_ref().is_none_or(|r| !r.0))
     }
@@ -362,7 +456,7 @@ impl KeyRotationStorage {
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -380,7 +474,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         use sqlx::Row;
         Ok(RotationStatus {
@@ -409,7 +503,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -432,7 +526,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -453,7 +547,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -470,7 +564,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -488,7 +582,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to query key rotation log: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         Ok(result)
@@ -516,7 +610,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to get rotation history: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         Ok(rows
@@ -551,7 +645,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to query rotation log by key_id: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?
         .flatten();
 
@@ -576,7 +670,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to query rotation log: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         Ok(result)
@@ -601,7 +695,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to persist key rotation config: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         Ok(())
@@ -620,7 +714,7 @@ impl KeyRotationStorage {
         .await
         .map_err(|e| {
             tracing::error!("Failed to query key rotation config: {e}");
-            ApiError::internal(format!("Database error: {e}"))
+            ApiError::database("A database error occurred".to_string())
         })?
         .flatten();
 

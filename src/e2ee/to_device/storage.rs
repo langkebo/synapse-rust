@@ -45,7 +45,7 @@ impl ToDeviceStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.is_some())
     }
@@ -67,7 +67,7 @@ impl ToDeviceStorage {
         .bind(message_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.is_some())
     }
@@ -92,7 +92,7 @@ impl ToDeviceStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -108,7 +108,7 @@ impl ToDeviceStorage {
         .bind(cutoff)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.rows_affected())
     }
@@ -153,7 +153,7 @@ impl ToDeviceStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -175,7 +175,7 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -214,7 +214,7 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -247,7 +247,7 @@ impl ToDeviceStorage {
         .bind(ids)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -271,7 +271,7 @@ impl ToDeviceStorage {
         .bind(stream_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }

@@ -63,7 +63,7 @@ impl ToDeviceService {
                     if !user_storage
                         .user_exists(user_id)
                         .await
-                        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?
+                        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
                     {
                         tracing::warn!(
                             "Skipping to-device message for non-existent user: {}",

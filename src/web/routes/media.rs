@@ -281,24 +281,6 @@ async fn upload_media_common(
         ));
     }
 
-    let quota_info = state
-        .services
-        .media_quota_service
-        .get_user_quota(user_id)
-        .await?;
-
-    if quota_info.max_storage_bytes > 0 {
-        let new_total = quota_info.current_storage_bytes + content_bytes.len() as i64;
-        if new_total > quota_info.max_storage_bytes {
-            return Err(ApiError::bad_request(format!(
-                "Media quota exceeded: {} bytes used, {} bytes limit, {} bytes would be added",
-                quota_info.current_storage_bytes,
-                quota_info.max_storage_bytes,
-                content_bytes.len()
-            )));
-        }
-    }
-
     Ok(Json(
         state
             .services
@@ -1040,11 +1022,8 @@ async fn chunked_upload_complete(
         .complete_chunked_upload(upload_id, &auth_user.user_id)
         .await?;
 
-    // Fix content_uri to use actual server name instead of localhost
-    let content_uri = format!("mxc://{}/{}", state.services.server_name, response.media_id);
-
     Ok(Json(json!({
-        "content_uri": content_uri,
+        "content_uri": response.content_uri,
         "media_id": response.media_id,
         "size": response.size
     })))

@@ -50,7 +50,7 @@ pub(crate) async fn can_view_profile_for_requester_batch(
         .bind(user_ids)
         .fetch_all(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     for row in rows {
         let uid: String = row.try_get("user_id").unwrap_or_default();
@@ -130,7 +130,7 @@ pub(crate) async fn get_displayname(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to get profile: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let displayname = profile
         .get("displayname")
@@ -152,7 +152,7 @@ pub(crate) async fn get_avatar_url(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get profile: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to get profile: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let avatar_url = profile
         .get("avatar_url")
@@ -189,7 +189,7 @@ pub(crate) async fn update_displayname(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to check user existence: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -231,7 +231,7 @@ pub(crate) async fn update_avatar(
         .user_storage
         .user_exists(&user_id)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to check user existence: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to check user existence: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if !user_exists {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -343,9 +343,7 @@ pub(crate) async fn change_password_uia(
                 .email_verification_storage
                 .claim_used_token(sid_int)
                 .await
-                .map_err(|e| {
-                    ApiError::internal(format!("Failed to claim verification token: {e}"))
-                })?
+                .map_err(|e| { tracing::error!("Failed to claim verification token: {e}"); ApiError::database("A database error occurred".to_string()) })?
                 .ok_or_else(|| {
                     ApiError::bad_request(
                         "Verification session is invalid, expired, or has not been submitted"
@@ -522,7 +520,7 @@ pub(crate) async fn get_threepids(
     .bind(user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to get threepids: {e}")))?;
+    .map_err(|e| { tracing::error!("Failed to get threepids: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     let threepids_list: Vec<Value> = threepids
         .iter()
@@ -569,7 +567,7 @@ pub(crate) async fn add_threepid(
         .email_verification_storage
         .claim_used_token(sid_int)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to claim verification token: {e}")))?
+        .map_err(|e| { tracing::error!("Failed to claim verification token: {e}"); ApiError::database("A database error occurred".to_string()) })?
         .ok_or_else(|| {
             ApiError::bad_request(
                 "Verification session is invalid, expired, or has not been submitted".to_string(),
@@ -645,7 +643,7 @@ pub(crate) async fn add_threepid(
     .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to add threepid: {e}")))?;
+    .map_err(|e| { tracing::error!("Failed to add threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     if result.rows_affected() == 0 {
         ::tracing::warn!(
@@ -728,7 +726,7 @@ pub(crate) async fn delete_threepid(
     .bind(&body.address)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to delete threepid: {e}")))?;
+    .map_err(|e| { tracing::error!("Failed to delete threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }
@@ -751,7 +749,7 @@ pub(crate) async fn unbind_threepid(
     .bind(&body.address)
     .execute(&*state.services.user_storage.pool)
     .await
-    .map_err(|e| ApiError::internal(format!("Failed to unbind threepid: {e}")))?;
+    .map_err(|e| { tracing::error!("Failed to unbind threepid: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
     Ok(Json(json!({})))
 }

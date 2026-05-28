@@ -122,7 +122,7 @@ impl KeyRequestService {
             .megolm_service
             .get_room_sessions(&request.room_id)
             .await
-            .map_err(|e| ApiError::internal(format!("Failed to get room sessions: {e}")))?;
+            .map_err(|e| { tracing::error!("Failed to get room sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
             Some(s) => s,

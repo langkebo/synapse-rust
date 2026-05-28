@@ -35,7 +35,7 @@ impl DeviceTrustStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.map(|r| r.into()))
     }
@@ -61,7 +61,7 @@ impl DeviceTrustStorage {
         .bind(status.updated_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -96,7 +96,7 @@ impl DeviceTrustStorage {
         .bind(now_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -115,7 +115,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
@@ -134,7 +134,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
@@ -152,7 +152,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let verified: i64 = row.get("verified");
         let unverified: i64 = row.get("unverified");
@@ -189,7 +189,7 @@ impl DeviceTrustStorage {
         .bind(request.completed_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -208,7 +208,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.map(|r| r.into()))
     }
@@ -229,7 +229,7 @@ impl DeviceTrustStorage {
         .bind(new_device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.map(|r| r.into()))
     }
@@ -252,7 +252,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -274,7 +274,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -288,7 +288,7 @@ impl DeviceTrustStorage {
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -314,7 +314,7 @@ impl DeviceTrustStorage {
         .bind(log.rotated_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -339,7 +339,7 @@ impl DeviceTrustStorage {
         .bind(event.created_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -361,7 +361,7 @@ impl DeviceTrustStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
@@ -397,7 +397,7 @@ impl DeviceTrustStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -411,7 +411,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result > 0)
     }

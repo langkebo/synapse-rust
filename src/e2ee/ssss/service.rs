@@ -65,7 +65,7 @@ impl SecretStorageService {
 
         let session_key = Aes256GcmKey::generate();
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, key_data.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
+            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         let encrypted_key = format!(
             "{}.{}",
@@ -228,7 +228,7 @@ impl SecretStorageService {
         let key = Aes256GcmKey::from_bytes(key_arr);
 
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
+            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(BASE64.encode(&encrypted))
     }
@@ -255,7 +255,7 @@ impl SecretStorageService {
 
         let key = Aes256GcmKey::from_bytes(key_arr);
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| ApiError::internal(format!("Encryption failed: {e}")))?;
+            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(BASE64.encode(&encrypted))
     }

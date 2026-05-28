@@ -711,6 +711,55 @@ impl DeviceStorage {
         Ok(max_id)
     }
 
+    pub async fn get_device_list_changes(
+        &self,
+        since: i64,
+        to: i64,
+        user_ids: &[String],
+    ) -> Result<Vec<(String, Option<String>, String, i64)>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, (String, Option<String>, String, i64)>(
+            r"
+            SELECT user_id, device_id, change_type, stream_id
+            FROM device_lists_changes
+            WHERE stream_id > $1
+              AND stream_id <= $2
+              AND user_id = ANY($3)
+            ORDER BY stream_id ASC
+            ",
+        )
+        .bind(since)
+        .bind(to)
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_devices_by_user_device_pairs(
+        &self,
+        user_ids: &[&str],
+        device_ids: &[&str],
+    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
+        if user_ids.is_empty() || device_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
+            r"
+            SELECT user_id, device_id, display_name, last_seen_ts
+            FROM devices
+            WHERE (user_id, device_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::text[]))
+            ",
+        )
+        .bind(user_ids)
+        .bind(device_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     /// Get the distinct user IDs whose device lists changed in the given stream
     /// range, excluding the requesting user.
     pub async fn get_device_list_changed_users(

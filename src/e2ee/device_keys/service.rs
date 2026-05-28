@@ -159,29 +159,35 @@ impl DeviceKeyService {
         let mut user_signing_keys = serde_json::Map::new();
 
         if let Some(cs_storage) = &self.cross_signing_storage {
-            for user_id in device_keys.keys() {
-                if let Ok(keys) = cs_storage.get_cross_signing_keys(user_id).await {
-                    for key in keys {
-                        let key_value = key.key_json.clone().unwrap_or_else(|| {
-                            serde_json::json!({
-                                "user_id": key.user_id,
-                                "usage": key.usage,
-                                "keys": { format!("ed25519:{}", key.public_key): key.public_key },
-                                "signatures": key.signatures,
-                            })
-                        });
+            let user_ids: Vec<String> = device_keys.keys().cloned().collect();
+            if !user_ids.is_empty() {
+                if let Ok(cs_keys_by_user) = cs_storage
+                    .get_cross_signing_keys_batch(&user_ids)
+                    .await
+                {
+                    for (user_id, keys) in cs_keys_by_user {
+                        for key in keys {
+                            let key_value = key.key_json.clone().unwrap_or_else(|| {
+                                serde_json::json!({
+                                    "user_id": key.user_id,
+                                    "usage": key.usage,
+                                    "keys": { format!("ed25519:{}", key.public_key): key.public_key },
+                                    "signatures": key.signatures,
+                                })
+                            });
 
-                        match key.key_type.as_str() {
-                            "master" => {
-                                master_keys.insert(user_id.clone(), key_value);
+                            match key.key_type.as_str() {
+                                "master" => {
+                                    master_keys.insert(user_id.clone(), key_value);
+                                }
+                                "self_signing" => {
+                                    self_signing_keys.insert(user_id.clone(), key_value);
+                                }
+                                "user_signing" => {
+                                    user_signing_keys.insert(user_id.clone(), key_value);
+                                }
+                                _ => {}
                             }
-                            "self_signing" => {
-                                self_signing_keys.insert(user_id.clone(), key_value);
-                            }
-                            "user_signing" => {
-                                user_signing_keys.insert(user_id.clone(), key_value);
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -211,9 +217,7 @@ impl DeviceKeyService {
             let device_id = device_keys.device_id.clone();
             record_target = Some((user_id.clone(), device_id.clone()));
 
-            let device_keys_value = serde_json::to_value(device_keys).map_err(|e| {
-                ApiError::internal(format!("Failed to serialize device keys: {e}"))
-            })?;
+            let device_keys_value = serde_json::to_value(device_keys).map_err(|e| { tracing::error!("Failed to serialize device keys: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
             let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
             let has_signatures = device_keys

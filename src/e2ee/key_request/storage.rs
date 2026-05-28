@@ -34,7 +34,7 @@ impl KeyRequestStorage {
         .bind(request.is_fulfilled)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -51,7 +51,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.map(|r| KeyRequestInfo {
             request_id: r.get("request_id"),
@@ -85,7 +85,7 @@ impl KeyRequestStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.iter().map(map_request_row).collect())
     }
@@ -103,7 +103,7 @@ impl KeyRequestStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows.iter().map(map_request_row).collect())
     }
@@ -123,7 +123,7 @@ impl KeyRequestStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -139,7 +139,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -163,7 +163,7 @@ impl KeyRequestStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -177,7 +177,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -192,7 +192,7 @@ impl KeyRequestStorage {
         .bind(older_than_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Database error: {e}")))?;
+        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.rows_affected())
     }

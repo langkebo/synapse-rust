@@ -48,10 +48,10 @@ pub struct CompleteUploadRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MediaUploadResponse {
-    pub media_id: String,
-    pub content_uri: String,
-    pub size: i64,
+pub struct CompletedUploadData {
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub data: Vec<u8>,
 }
 
 pub struct ChunkedUploadService {
@@ -212,11 +212,11 @@ impl ChunkedUploadService {
             .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
-    pub async fn complete_upload(
+    pub async fn load_completed_upload(
         &self,
         upload_id: &str,
         user_id: &str,
-    ) -> Result<MediaUploadResponse, ApiError> {
+    ) -> Result<CompletedUploadData, ApiError> {
         let progress = self.get_progress(upload_id).await?;
 
         if progress.user_id != user_id {
@@ -252,33 +252,50 @@ impl ChunkedUploadService {
             )));
         }
 
-        let media_id = Uuid::new_v4().to_string();
-        let content_uri = format!("mxc://localhost/{media_id}");
-        let size = combined_data.len() as i64;
+        Ok(CompletedUploadData {
+            filename: progress.filename,
+            content_type: progress.content_type,
+            data: combined_data,
+        })
+    }
+
+    pub async fn mark_upload_finalized(&self, upload_id: &str) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to start upload finalization transaction: {e}")))?;
 
         sqlx::query(
             r"
-            UPDATE upload_progress 
+            UPDATE upload_progress
             SET status = 'finalized', updated_ts = $2
             WHERE upload_id = $1
             ",
         )
         .bind(upload_id)
-        .bind(chrono::Utc::now().timestamp_millis())
-        .execute(&*self.pool)
+        .bind(now)
+        .execute(&mut *tx)
         .await
-        .ok();
+        .map_err(|e| ApiError::internal(format!("Failed to finalize upload status: {e}")))?;
+
+        sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
+            .bind(upload_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to cleanup finalized upload chunks: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to commit upload finalization: {e}")))?;
 
         info!(
-            "Completed chunked upload: {} as media: {}, size: {}",
-            upload_id, media_id, size
+            "Marked chunked upload as finalized and cleaned chunks: {}",
+            upload_id
         );
 
-        Ok(MediaUploadResponse {
-            media_id,
-            content_uri,
-            size,
-        })
+        Ok(())
     }
 
     pub async fn cancel_upload(&self, upload_id: &str, user_id: &str) -> Result<(), ApiError> {

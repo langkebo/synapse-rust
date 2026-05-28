@@ -12,9 +12,26 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration as TokioDuration};
 
-const KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
-const KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
-const KEY_GRACE_PERIOD_MINUTES: i64 = 5;
+const DEFAULT_KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
+const DEFAULT_KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
+const DEFAULT_KEY_GRACE_PERIOD_MINUTES: i64 = 5;
+
+#[derive(Debug, Clone)]
+struct FederationRotationConfig {
+    rotation_interval_days: i64,
+    rotation_threshold_days: i64,
+    grace_period_minutes: i64,
+}
+
+impl Default for FederationRotationConfig {
+    fn default() -> Self {
+        Self {
+            rotation_interval_days: DEFAULT_KEY_ROTATION_INTERVAL_DAYS,
+            rotation_threshold_days: DEFAULT_KEY_ROTATION_THRESHOLD_DAYS,
+            grace_period_minutes: DEFAULT_KEY_GRACE_PERIOD_MINUTES,
+        }
+    }
+}
 
 /// Build a fresh ed25519 key id of form `ed25519:<ms-timestamp>_<rand-hex>`.
 ///
@@ -53,6 +70,7 @@ pub struct KeyRotationManager {
     signing_keys_table_ready: Arc<AtomicBool>,
     signing_key_path: Option<String>,
     master_key: Option<Vec<u8>>,
+    rotation_config: Arc<RwLock<FederationRotationConfig>>,
 }
 
 impl KeyRotationManager {
@@ -90,6 +108,7 @@ impl KeyRotationManager {
             signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
             signing_key_path,
             master_key,
+            rotation_config: Arc::new(RwLock::new(FederationRotationConfig::default())),
         }
     }
 
@@ -185,12 +204,98 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    async fn ensure_key_rotation_config_table(&self) -> Result<(), ApiError> {
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS key_rotation_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            ",
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_rotation_config(&self) -> Result<(), ApiError> {
+        self.ensure_key_rotation_config_table().await?;
+
+        let interval_days: i64 = sqlx::query_scalar(
+            r"SELECT value FROM key_rotation_config WHERE key = 'rotation_interval_days'",
+        )
+        .fetch_optional(&*self.pool)
+        .await?
+        .flatten()
+        .and_then(|v: String| v.parse().ok())
+        .unwrap_or(DEFAULT_KEY_ROTATION_INTERVAL_DAYS);
+
+        let threshold_days: i64 = sqlx::query_scalar(
+            r"SELECT value FROM key_rotation_config WHERE key = 'rotation_threshold_days'",
+        )
+        .fetch_optional(&*self.pool)
+        .await?
+        .flatten()
+        .and_then(|v: String| v.parse().ok())
+        .unwrap_or(DEFAULT_KEY_ROTATION_THRESHOLD_DAYS);
+
+        let grace_period_minutes: i64 = sqlx::query_scalar(
+            r"SELECT value FROM key_rotation_config WHERE key = 'grace_period_minutes'",
+        )
+        .fetch_optional(&*self.pool)
+        .await?
+        .flatten()
+        .and_then(|v: String| v.parse().ok())
+        .unwrap_or(DEFAULT_KEY_GRACE_PERIOD_MINUTES);
+
+        let new_config = FederationRotationConfig {
+            rotation_interval_days: interval_days,
+            rotation_threshold_days: threshold_days,
+            grace_period_minutes,
+        };
+
+        let mut config = self.rotation_config.write().await;
+        tracing::info!(
+            "Loaded federation rotation config: interval={}d, threshold={}d, grace={}m",
+            new_config.rotation_interval_days,
+            new_config.rotation_threshold_days,
+            new_config.grace_period_minutes
+        );
+        *config = new_config;
+
+        Ok(())
+    }
+
+    pub async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError> {
+        self.ensure_key_rotation_config_table().await?;
+
+        sqlx::query(
+            r"
+            INSERT INTO key_rotation_config (key, value)
+            VALUES ($1, $2)
+            ON CONFLICT (key) DO UPDATE SET value = $2
+            ",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&*self.pool)
+        .await?;
+
+        self.load_rotation_config().await?;
+
+        Ok(())
+    }
+
     pub async fn start_auto_rotation(&self) {
         let manager = Arc::new(self.clone());
 
         let init_result = manager.load_or_create_key().await;
         if let Err(e) = init_result {
             tracing::error!("Failed to initialize key rotation: {}", e);
+        }
+
+        if let Err(e) = manager.load_rotation_config().await {
+            tracing::warn!("Failed to load rotation config from database, using defaults: {}", e);
         }
 
         let mut interval = interval(TokioDuration::from_secs(3600));
@@ -310,8 +415,9 @@ impl KeyRotationManager {
         self.ensure_signing_keys_table().await?;
 
         let created_ts = Utc::now().timestamp_millis();
+        let interval_days = self.rotation_config.read().await.rotation_interval_days;
         let expires_at =
-            (Utc::now() + Duration::days(KEY_ROTATION_INTERVAL_DAYS)).timestamp_millis();
+            (Utc::now() + Duration::days(interval_days)).timestamp_millis();
 
         let public_key = self.derive_public_key(secret_key)?;
 
@@ -383,7 +489,8 @@ impl KeyRotationManager {
     pub async fn should_rotate_keys(&self) -> bool {
         if let Some(key) = &*self.current_key.read().await {
             let now = Utc::now().timestamp_millis();
-            let rotation_threshold = Duration::days(KEY_ROTATION_THRESHOLD_DAYS).num_milliseconds();
+            let threshold_days = self.rotation_config.read().await.rotation_threshold_days;
+            let rotation_threshold = Duration::days(threshold_days).num_milliseconds();
             key.expires_at.saturating_sub(now) <= rotation_threshold
         } else {
             true
@@ -454,7 +561,7 @@ impl KeyRotationManager {
         }
 
         if let Some(historical) = self.historical_keys.read().await.get(key_id) {
-            if self.is_within_grace_period(historical) {
+            if self.is_within_grace_period(historical).await {
                 if let Ok(()) = self
                     .verify_signature(&historical.public_key, signature, content)
                 {
@@ -466,10 +573,11 @@ impl KeyRotationManager {
         self.verify_from_database(key_id, signature, content).await
     }
 
-    fn is_within_grace_period(&self, key: &SigningKey) -> bool {
+    async fn is_within_grace_period(&self, key: &SigningKey) -> bool {
         let now = Utc::now().timestamp_millis();
+        let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
         let grace_end =
-            key.expires_at + Duration::minutes(KEY_GRACE_PERIOD_MINUTES).num_milliseconds();
+            key.expires_at + Duration::minutes(grace_minutes).num_milliseconds();
         now <= grace_end
     }
 
@@ -524,12 +632,14 @@ impl KeyRotationManager {
                 let expires_at: i64 = record.get("expires_at");
                 let now = Utc::now().timestamp_millis();
 
-                if expires_at > 0
-                    && now
+                if expires_at > 0 {
+                    let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
+                    if now
                         > expires_at
-                            + Duration::minutes(KEY_GRACE_PERIOD_MINUTES).num_milliseconds()
-                {
-                    return Ok(false);
+                            + Duration::minutes(grace_minutes).num_milliseconds()
+                    {
+                        return Ok(false);
+                    }
                 }
 
                 let public_key: String = record.get("public_key");
@@ -700,12 +810,16 @@ impl KeyRotationManager {
     pub async fn get_rotation_status(&self) -> serde_json::Value {
         let current_key = &*self.current_key.read().await;
         let should_rotate = self.should_rotate_keys().await;
+        let config = self.rotation_config.read().await;
 
         json!({
             "rotation_enabled": *self.rotation_enabled.read().await,
             "has_current_key": current_key.is_some(),
             "should_rotate": should_rotate,
-            "server_name": self.server_name
+            "server_name": self.server_name,
+            "rotation_interval_days": config.rotation_interval_days,
+            "rotation_threshold_days": config.rotation_threshold_days,
+            "grace_period_minutes": config.grace_period_minutes
         })
     }
 }
@@ -811,13 +925,13 @@ mod tests {
             ts_valid_until_ms: 0,
         };
 
-        assert!(manager.is_within_grace_period(&expired_key));
+        assert!(manager.is_within_grace_period(&expired_key).await);
     }
 
     #[test]
     fn test_key_rotation_constants() {
-        assert_eq!(KEY_ROTATION_INTERVAL_DAYS, 7);
-        assert_eq!(KEY_GRACE_PERIOD_MINUTES, 5);
+        assert_eq!(DEFAULT_KEY_ROTATION_INTERVAL_DAYS, 7);
+        assert_eq!(DEFAULT_KEY_GRACE_PERIOD_MINUTES, 5);
     }
 
     #[test]

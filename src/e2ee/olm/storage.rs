@@ -100,7 +100,7 @@ impl OlmStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to save olm account: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to save olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -122,7 +122,7 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load olm account: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to load olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.map(|r| OlmAccountData {
             user_id: r.get("user_id"),
@@ -145,7 +145,7 @@ impl OlmStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete olm account: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to delete olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         self.delete_sessions_for_device(user_id, device_id).await?;
 
@@ -179,7 +179,7 @@ impl OlmStorage {
         .bind(session.expires_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to save olm session: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to save olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -202,7 +202,7 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load olm sessions: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to load olm sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(rows
             .into_iter()
@@ -233,7 +233,7 @@ impl OlmStorage {
         .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to load olm session: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to load olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.map(|r| OlmSessionData {
             session_id: r.get("session_id"),
@@ -271,7 +271,8 @@ impl OlmStorage {
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
-            ApiError::internal(format!("Failed to load olm session by sender key: {e}"))
+            tracing::error!("Failed to load olm session by sender key: {e}");
+            ApiError::database("A database error occurred".to_string())
         })?;
 
         Ok(row.map(|r| OlmSessionData {
@@ -298,7 +299,7 @@ impl OlmStorage {
         .bind(session_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete olm session: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to delete olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -318,7 +319,7 @@ impl OlmStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete olm sessions: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to delete olm sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -335,7 +336,7 @@ impl OlmStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to delete expired sessions: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to delete expired sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(result.rows_affected())
     }
@@ -354,7 +355,7 @@ impl OlmStorage {
         .bind(session_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to update session last used: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to update session last used: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(())
     }
@@ -371,7 +372,7 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal(format!("Failed to get session count: {e}")))?;
+        .map_err(|e| { tracing::error!("Failed to get session count: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
         Ok(row.get("count"))
     }

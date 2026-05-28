@@ -54,11 +54,17 @@ impl VerificationService {
     ) -> Result<[u8; 32], ApiError> {
         let secret_bytes = base64::engine::general_purpose::STANDARD
             .decode(our_secret)
-            .map_err(|e| ApiError::internal(format!("Invalid secret key: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("Invalid secret key: {e}");
+                ApiError::internal("An internal error occurred".to_string())
+            })?;
 
         let public_bytes = base64::engine::general_purpose::STANDARD
             .decode(their_public)
-            .map_err(|e| ApiError::internal(format!("Invalid public key: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("Invalid public key: {e}");
+                ApiError::internal("An internal error occurred".to_string())
+            })?;
 
         if secret_bytes.len() != 32 || public_bytes.len() != 32 {
             return Err(ApiError::internal("Invalid key length".to_string()));
@@ -96,7 +102,10 @@ impl VerificationService {
         info: &str,
     ) -> Result<String, ApiError> {
         let mut mac = HmacSha256::new_from_slice(shared_secret)
-            .map_err(|e| ApiError::internal(format!("MAC error: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("MAC error: {e}");
+                ApiError::internal("An internal error occurred".to_string())
+            })?;
 
         for key in keys {
             mac.update(key.as_bytes());
@@ -190,7 +199,10 @@ impl VerificationService {
                 &[0u8; 32],
                 "verification.commitment",
             )
-            .map_err(|e| ApiError::internal(format!("Failed to compute commitment: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("Failed to compute commitment: {e}");
+                ApiError::internal("An internal error occurred".to_string())
+            })?;
 
         let sas_data = SasData {
             transaction_id: transaction_id.to_string(),
