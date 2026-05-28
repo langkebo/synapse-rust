@@ -1,9 +1,13 @@
 use super::background_job::BackgroundJob;
 use std::future::Future;
+#[cfg(test)]
 use std::pin::Pin;
+#[cfg(test)]
 use std::sync::Arc;
 use thiserror::Error;
+#[cfg(test)]
 use tokio::sync::{mpsc, Semaphore};
+#[cfg(test)]
 use tokio::task::JoinHandle;
 
 #[cfg(test)]
@@ -19,38 +23,30 @@ pub enum TaskQueueError {
     SubmissionError(String),
 }
 
-pub type TaskResult<T = ()> = Result<T, TaskQueueError>;
-
+#[cfg(test)]
 pub type TaskId = u64;
 
-pub enum TaskPriority {
-    Low,
-    Normal,
-    High,
-    Critical,
-}
-
-pub struct Task {
-    pub id: TaskId,
-    pub priority: TaskPriority,
-    pub name: String,
-}
-
+#[cfg(test)]
 pub struct TaskResultValue {
     pub task_id: TaskId,
     pub success: bool,
     pub message: String,
 }
 
+// Legacy in-memory queue helpers are kept only for tests and local semantics
+// validation. Production background execution goes through RedisTaskQueue.
+#[cfg(test)]
 pub struct TaskQueue {
     sender: mpsc::Sender<Box<dyn TaskHandler>>,
     _handle: JoinHandle<()>,
 }
 
+#[cfg(test)]
 pub trait TaskHandler: Send + 'static {
     fn execute(self: Box<Self>) -> Pin<Box<dyn Future<Output = TaskResultValue> + Send>>;
 }
 
+#[cfg(test)]
 impl<F, Fut> TaskHandler for F
 where
     F: FnOnce() -> Fut + Send + 'static,
@@ -61,6 +57,7 @@ where
     }
 }
 
+#[cfg(test)]
 impl TaskQueue {
     pub fn new(max_concurrent: usize) -> Self {
         let (sender, receiver) = mpsc::channel(1000);
@@ -136,11 +133,13 @@ impl TaskQueue {
     }
 }
 
+#[cfg(test)]
 pub struct BackgroundTaskManager {
     task_queue: TaskQueue,
     task_counter: std::sync::atomic::AtomicU64,
 }
 
+#[cfg(test)]
 impl BackgroundTaskManager {
     pub fn new(max_concurrent: usize) -> Self {
         Self {
@@ -413,9 +412,10 @@ pub struct QueueMetrics {
     pub consumers: Vec<(String, u64)>,
 }
 
+#[cfg(test)]
 impl Default for BackgroundTaskManager {
     fn default() -> Self {
-        Self::new(10)
+        Self::new(2)
     }
 }
 

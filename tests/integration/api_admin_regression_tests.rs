@@ -2,6 +2,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+#[cfg(feature = "external-services")]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Value};
 use sqlx::Row;
@@ -828,6 +829,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
     assert_eq!(json["expiration_ts"], expiration_ts);
 }
 
+#[cfg(feature = "cas-sso")]
 #[tokio::test]
 async fn test_cas_admin_endpoints_require_admin_role() {
     let _guard = test_mutex().lock().await;
@@ -892,6 +894,7 @@ async fn test_cas_admin_endpoints_require_admin_role() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[cfg(feature = "cas-sso")]
 #[tokio::test]
 async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
     let _guard = test_mutex().lock().await;
@@ -2009,6 +2012,7 @@ async fn test_scattered_admin_routes_apply_request_id_middleware() {
     );
 }
 
+#[cfg(feature = "external-services")]
 #[tokio::test]
 async fn test_external_service_update_enforces_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
@@ -2116,6 +2120,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
     assert!(!row.3);
 }
 
+#[cfg(feature = "external-services")]
 #[tokio::test]
 async fn test_external_service_delete_enforces_unauth_user_admin_states() {
     let _guard = test_mutex().lock().await;
@@ -2202,6 +2207,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
     assert!(deleted.is_none());
 }
 
+#[cfg(feature = "external-services")]
 #[tokio::test]
 async fn test_external_webhook_requires_persisted_service_token() {
     let _guard = test_mutex().lock().await;
@@ -2273,6 +2279,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[cfg(feature = "external-services")]
 #[tokio::test]
 async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
     let _guard = test_mutex().lock().await;
@@ -2379,6 +2386,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+#[cfg(feature = "external-services")]
 #[tokio::test]
 async fn test_external_webhook_accepts_payload_embedded_signature() {
     let _guard = test_mutex().lock().await;

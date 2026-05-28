@@ -69,7 +69,7 @@ pub async fn rotate_keys(
             Ok(Json(json!({
                 "success": true,
                 "message": "Keys rotated successfully",
-                "has_new_key": current.is_ok() && current.unwrap().is_some(),
+                "has_new_key": current.ok().flatten().is_some(),
             })))
         }
         Err(e) => {

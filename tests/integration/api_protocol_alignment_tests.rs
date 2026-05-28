@@ -3,12 +3,16 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+#[cfg(feature = "server-notifications")]
 use std::sync::Arc;
+#[cfg(feature = "server-notifications")]
 use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
+#[cfg(feature = "server-notifications")]
 type RoomSummaryCounts = (i64, i64, Option<String>, Option<i64>, Option<i64>);
 
+#[cfg(feature = "server-notifications")]
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
 {
     super::setup_test_app_with_pool().await
@@ -49,6 +53,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     )
 }
 
+#[cfg(feature = "server-notifications")]
 async fn promote_to_super_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE, user_type = 'super_admin' WHERE user_id = $1")
         .bind(user_id)
@@ -778,6 +783,7 @@ async fn test_admin_pusher_query_requires_existing_user_and_returns_created_push
     assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
 }
 
+#[cfg(feature = "server-notifications")]
 #[tokio::test]
 async fn test_admin_send_server_notice_persists_notice_for_target_user() {
     let Some((app, pool, cache)) = setup_test_app_with_pool().await else {
@@ -909,6 +915,7 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
         }));
 }
 
+#[cfg(feature = "server-notifications")]
 #[tokio::test]
 async fn test_admin_delete_server_notice_cleans_room_artifacts() {
     let Some((app, pool, cache)) = setup_test_app_with_pool().await else {

@@ -398,7 +398,7 @@ async fn test_add_member_join() {
     insert_room(&pool, &room_id).await;
 
     let member = storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -424,7 +424,7 @@ async fn test_add_member_with_display_name() {
     insert_room(&pool, &room_id).await;
 
     let member = storage
-        .add_member(&room_id, &user_id, "join", Some("Alice"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("Alice"), None, None, None)
         .await
         .unwrap();
 
@@ -446,7 +446,7 @@ async fn test_add_member_with_join_reason() {
     insert_room(&pool, &room_id).await;
 
     let member = storage
-        .add_member(&room_id, &user_id, "join", None, Some("Invited by friend"), None)
+        .add_member(&room_id, &user_id, "join", None, Some("Invited by friend"), None, None)
         .await
         .unwrap();
 
@@ -468,13 +468,13 @@ async fn test_add_member_upsert() {
     insert_room(&pool, &room_id).await;
 
     let member1 = storage
-        .add_member(&room_id, &user_id, "join", Some("OldName"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("OldName"), None, None, None)
         .await
         .unwrap();
     assert_eq!(member1.display_name.as_deref(), Some("OldName"));
 
     let member2 = storage
-        .add_member(&room_id, &user_id, "join", Some("NewName"), Some("Updated"), None)
+        .add_member(&room_id, &user_id, "join", Some("NewName"), Some("Updated"), None, None)
         .await
         .unwrap();
     assert_eq!(member2.display_name.as_deref(), Some("NewName"));
@@ -495,7 +495,7 @@ async fn test_get_member_found() {
     insert_user(&pool, &user_id, &format!("getmember_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", Some("TestUser"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("TestUser"), None, None, None)
         .await
         .unwrap();
 
@@ -542,15 +542,15 @@ async fn test_get_room_members() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "leave", None, None, None)
+        .add_member(&room_id, &user3, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -596,15 +596,15 @@ async fn test_get_room_member_count() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "leave", None, None, None)
+        .add_member(&room_id, &user3, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -642,7 +642,7 @@ async fn test_remove_member_join() {
     insert_user(&pool, &user_id, &format!("removejoin_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -667,7 +667,7 @@ async fn test_remove_member_banned() {
     insert_user(&pool, &user_id, &format!("removeban_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
@@ -762,7 +762,7 @@ async fn test_forget_member_joined_no_effect() {
     insert_user(&pool, &user_id, &format!("forgetjoin_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -807,7 +807,7 @@ async fn test_is_forgotten_false() {
     insert_user(&pool, &user_id, &format!("notforgotten_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -850,15 +850,15 @@ async fn test_get_shared_room_users() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_a, "join", None, None, None)
+        .add_member(&room_id, &user_a, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user_b, "join", None, None, None)
+        .add_member(&room_id, &user_b, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user_c, "join", None, None, None)
+        .add_member(&room_id, &user_c, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -901,11 +901,11 @@ async fn test_remove_all_members() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -959,7 +959,7 @@ async fn test_ban_member_upsert() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -993,7 +993,7 @@ async fn test_unban_member() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
@@ -1021,7 +1021,7 @@ async fn test_unban_member_not_banned() {
     insert_user(&pool, &user_id, &format!("unbannot_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1051,15 +1051,15 @@ async fn test_get_joined_rooms() {
     insert_room(&pool, &room3).await;
 
     storage
-        .add_member(&room1, &user_id, "join", None, None, None)
+        .add_member(&room1, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user_id, "join", None, None, None)
+        .add_member(&room2, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room3, &user_id, "leave", None, None, None)
+        .add_member(&room3, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1103,11 +1103,11 @@ async fn test_get_sync_rooms_join_only() {
     insert_room(&pool, &room2).await;
 
     storage
-        .add_member(&room1, &user_id, "join", None, None, None)
+        .add_member(&room1, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user_id, "leave", None, None, None)
+        .add_member(&room2, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1134,11 +1134,11 @@ async fn test_get_sync_rooms_include_leave() {
     insert_room(&pool, &room2).await;
 
     storage
-        .add_member(&room1, &user_id, "join", None, None, None)
+        .add_member(&room1, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user_id, "leave", None, None, None)
+        .add_member(&room2, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1164,7 +1164,7 @@ async fn test_get_membership_state_found() {
     insert_user(&pool, &user_id, &format!("mstate_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1207,15 +1207,15 @@ async fn test_get_joined_room_count() {
     insert_room(&pool, &room3).await;
 
     storage
-        .add_member(&room1, &user_id, "join", None, None, None)
+        .add_member(&room1, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user_id, "join", None, None, None)
+        .add_member(&room2, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room3, &user_id, "leave", None, None, None)
+        .add_member(&room3, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1253,7 +1253,7 @@ async fn test_is_member_true() {
     insert_user(&pool, &user_id, &format!("ismember_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", None, None, None)
+        .add_member(&room_id, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1275,7 +1275,7 @@ async fn test_is_member_false_left() {
     insert_user(&pool, &user_id, &format!("notmember_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "leave", None, None, None)
+        .add_member(&room_id, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1313,7 +1313,7 @@ async fn test_get_room_member_found() {
     insert_user(&pool, &user_id, &format!("grm_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", Some("TestUser"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("TestUser"), None, None, None)
         .await
         .unwrap();
 
@@ -1360,15 +1360,15 @@ async fn test_get_joined_members() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "leave", None, None, None)
+        .add_member(&room_id, &user3, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1410,7 +1410,7 @@ async fn test_get_joined_member_found() {
     insert_user(&pool, &user_id, &format!("gjm_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "join", Some("JoinedUser"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("JoinedUser"), None, None, None)
         .await
         .unwrap();
 
@@ -1435,7 +1435,7 @@ async fn test_get_joined_member_not_joined() {
     insert_user(&pool, &user_id, &format!("gjmnj_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     storage
-        .add_member(&room_id, &user_id, "leave", None, None, None)
+        .add_member(&room_id, &user_id, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1460,11 +1460,11 @@ async fn test_share_common_room_true() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_a, "join", None, None, None)
+        .add_member(&room_id, &user_a, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user_b, "join", None, None, None)
+        .add_member(&room_id, &user_b, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1507,11 +1507,11 @@ async fn test_share_common_room_one_left() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_a, "join", None, None, None)
+        .add_member(&room_id, &user_a, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user_b, "leave", None, None, None)
+        .add_member(&room_id, &user_b, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1538,15 +1538,15 @@ async fn test_get_membership_history() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "leave", None, None, None)
+        .add_member(&room_id, &user3, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1573,15 +1573,15 @@ async fn test_get_membership_history_with_limit() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "join", None, None, None)
+        .add_member(&room_id, &user3, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1626,11 +1626,11 @@ async fn test_get_joined_rooms_with_details() {
     .unwrap();
 
     storage
-        .add_member(&room1, &user_id, "join", None, None, None)
+        .add_member(&room1, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user_id, "join", None, None, None)
+        .add_member(&room2, &user_id, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1686,11 +1686,11 @@ async fn test_get_room_members_with_profiles() {
     .unwrap();
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1749,15 +1749,15 @@ async fn test_get_members_batch() {
     insert_room(&pool, &room2).await;
 
     storage
-        .add_member(&room1, &user1, "join", None, None, None)
+        .add_member(&room1, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room1, &user2, "join", None, None, None)
+        .add_member(&room1, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user3, "join", None, None, None)
+        .add_member(&room2, &user3, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1805,11 +1805,11 @@ async fn test_get_joined_members_batch() {
     insert_room(&pool, &room2).await;
 
     storage
-        .add_member(&room1, &user1, "join", None, None, None)
+        .add_member(&room1, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room2, &user2, "join", None, None, None)
+        .add_member(&room2, &user2, "join", None, None, None, None)
         .await
         .unwrap();
 
@@ -1843,15 +1843,15 @@ async fn test_check_membership_batch() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "join", None, None, None)
+        .add_member(&room_id, &user1, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user2, "join", None, None, None)
+        .add_member(&room_id, &user2, "join", None, None, None, None)
         .await
         .unwrap();
     storage
-        .add_member(&room_id, &user3, "leave", None, None, None)
+        .add_member(&room_id, &user3, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1901,7 +1901,7 @@ async fn test_check_membership_batch_no_matches() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user1, "leave", None, None, None)
+        .add_member(&room_id, &user1, "leave", None, None, None, None)
         .await
         .unwrap();
 
@@ -1930,7 +1930,7 @@ async fn test_full_membership_lifecycle() {
     insert_room(&pool, &room_id).await;
 
     storage
-        .add_member(&room_id, &user_id, "join", Some("LifecycleUser"), Some("Wanted to join"), None)
+        .add_member(&room_id, &user_id, "join", Some("LifecycleUser"), Some("Wanted to join"), None, None)
         .await
         .unwrap();
     assert!(storage.is_member(&room_id, &user_id).await.unwrap());
@@ -1953,7 +1953,7 @@ async fn test_full_membership_lifecycle() {
     );
 
     storage
-        .add_member(&room_id, &user_id, "join", Some("LifecycleUser"), None, None)
+        .add_member(&room_id, &user_id, "join", Some("LifecycleUser"), None, None, None)
         .await
         .unwrap();
     assert!(storage.is_member(&room_id, &user_id).await.unwrap());
