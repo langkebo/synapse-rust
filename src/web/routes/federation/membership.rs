@@ -4,12 +4,32 @@ use crate::web::routes::AppState;
 use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
 
+async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<String, ApiError> {
+    let room = state
+        .services
+        .room_storage
+        .get_room(room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+
+    if !can_federate_room_version(&room.room_version) {
+        return Err(ApiError::incompatible_room_version(format!(
+            "Room version {} is not supported for federation",
+            room.room_version
+        )));
+    }
+
+    Ok(room.room_version)
+}
+
 pub(super) async fn get_room_members(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
         .services
@@ -47,6 +67,7 @@ pub(super) async fn knock_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
 
@@ -96,13 +117,7 @@ pub(super) async fn thirdparty_invite(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("sender required".to_string()))?;
     validate_federation_user_origin(&auth.origin, sender)?;
-
-    state
-        .services
-        .room_storage
-        .get_room(room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+    let _room_version = federatable_room_version(&state, room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
 
@@ -170,6 +185,7 @@ pub(super) async fn get_joined_room_members(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
         .services
@@ -293,6 +309,7 @@ pub(super) async fn invite_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
     let params = crate::storage::event::CreateEventParams {
@@ -364,14 +381,7 @@ pub(super) async fn make_join(
             })
             .collect();
 
-        let room_version = state
-            .services
-            .room_storage
-            .get_room(&room_id)
-            .await
-            .ok()
-            .flatten()
-            .map_or_else(|| DEFAULT_ROOM_VERSION.to_string(), |r| r.room_version);
+        let room_version = federatable_room_version(&state, &room_id).await?;
 
         Ok(Json(json!({
             "room_version": room_version,
@@ -424,14 +434,7 @@ pub(super) async fn make_leave(
         })
         .collect();
 
-    let room_version = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .ok()
-        .flatten()
-        .map_or_else(|| DEFAULT_ROOM_VERSION.to_string(), |r| r.room_version);
+    let room_version = federatable_room_version(&state, &room_id).await?;
 
     Ok(Json(json!({
         "room_version": room_version,
@@ -474,6 +477,7 @@ pub(super) async fn send_join(
 
         let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
         let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
+        let _room_version = federatable_room_version(&state, &room_id).await?;
         validate_federation_join_access(&state, &room_id, user_id).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
@@ -530,6 +534,7 @@ pub(super) async fn send_leave(
 
     let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
     let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -562,7 +567,7 @@ pub(super) async fn send_leave(
 }
 
 pub(super) async fn invite(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
@@ -571,6 +576,7 @@ pub(super) async fn invite(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
 
     ::tracing::info!("Processing invite for room {} event {}", room_id, event_id);
 
@@ -610,6 +616,7 @@ pub(super) async fn send_join_v2(
             super::validate_federation_origin(&auth.origin, Some(origin))?;
         }
         let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
+        let _room_version = federatable_room_version(&state, &room_id).await?;
         validate_federation_join_access(&state, &room_id, sender).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
@@ -681,12 +688,7 @@ pub(super) async fn send_leave_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
-
-    let room =
-        state.services.room_storage.get_room(&room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
-
-    let _ = room.room_id.as_str();
-    let _ = room.is_public;
+    let _room_version = federatable_room_version(&state, &room_id).await?;
     let membership_content = serde_json::json!({
         "membership": "leave"
     });
@@ -739,13 +741,7 @@ pub(super) async fn exchange_third_party_invite(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
-        .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+    let room_version = federatable_room_version(&state, &room_id).await?;
 
     let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
     let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id);
@@ -753,7 +749,6 @@ pub(super) async fn exchange_third_party_invite(
     let origin_server_ts =
         body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    let room_version = room.room_version;
     let (sender, state_key) = validate_federation_exchange_third_party_invite_event(&auth.origin, &room_id, &body)?;
     let content = body.get("content").cloned().unwrap_or_else(|| json!({}));
 
