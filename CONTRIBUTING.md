@@ -33,11 +33,13 @@ make format-install
 make format
 make format-check
 make format-audit
+make format-cycle CYCLE_LABEL=cycle-1
 ```
 
 - `make format` applies the repository formatters and then verifies the tree is clean.
 - `make format-check` runs the same compliance checks used by CI.
 - `make format-audit` refreshes the drift audit report.
+- `make format-cycle` reruns the compliance gate and refreshes the rolling three-cycle tracking report.
 
 ## Commit Policy
 
@@ -58,3 +60,5 @@ After the baseline rollout, maintainers should review three consecutive delivery
 - new PRs pass `Format Governance` without manual cleanup;
 - no new CRLF, trailing whitespace, or final-newline drift appears;
 - Rust, Python, and shell files continue to be formatted through the shared entrypoints.
+- run `make format-cycle CYCLE_LABEL=<cycle-name>` at each release/sprint checkpoint so `docs/quality/FORMAT_DRIFT_TRACKING.md` keeps the latest three cycle snapshots.
+- use the scheduled `Format Drift Tracking` workflow artifact when maintainers want an unattended checkpoint from `main`.

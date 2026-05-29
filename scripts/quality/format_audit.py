@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan repository formatting drift and emit a Markdown audit report."""
+"""Scan repository formatting drift and emit Markdown or JSON audit reports."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 import tomllib
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -125,13 +126,45 @@ def detect_conflicts() -> list[str]:
     return conflicts
 
 
-def render_markdown(counts: Counter, style: dict[str, Counter]) -> str:
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+def build_report_data() -> dict[str, Any]:
+    files = iter_files()
+    counts, style = collect_metrics(files)
+    return {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
+        "repository": str(REPO_ROOT),
+        "counts": dict(sorted(counts.items())),
+        "style": {
+            ext: {
+                "trailing_ws": metrics.get("trailing_ws", 0),
+                "crlf": metrics.get("crlf", 0),
+                "tabs": metrics.get("tabs", 0),
+                "missing_final_newline": metrics.get("missing_final_newline", 0),
+            }
+            for ext, metrics in sorted(style.items())
+        },
+        "tooling": [
+            {"tool": name, "status": status} for name, status in detect_tooling()
+        ],
+        "conflicts": detect_conflicts(),
+        "recommended_stack": [
+            "Rust: `rustfmt`",
+            "Python: `ruff format`",
+            "Shell: `shfmt`",
+            "Cross-file hygiene: `pre-commit-hooks` + `.editorconfig` + `.gitattributes`",
+            "Docs style: existing `markdownlint` gate",
+        ],
+    }
+
+
+def render_markdown(data: dict[str, Any]) -> str:
+    generated_at = data["generated_at"]
+    counts = data["counts"]
+    style = data["style"]
     lines = [
         "# Format Drift Audit",
         "",
         f"- Generated at: `{generated_at}`",
-        f"- Repository: `{REPO_ROOT}`",
+        f"- Repository: `{data['repository']}`",
         "",
         "## File Distribution",
         "",
@@ -171,10 +204,10 @@ def render_markdown(counts: Counter, style: dict[str, Counter]) -> str:
             "| --- | --- |",
         ]
     )
-    for name, status in detect_tooling():
-        lines.append(f"| `{name}` | {status} |")
+    for tooling in data["tooling"]:
+        lines.append(f"| `{tooling['tool']}` | {tooling['status']} |")
 
-    conflicts = detect_conflicts()
+    conflicts = data["conflicts"]
     lines.extend(["", "## Conflict Findings", ""])
     if conflicts:
         for conflict in conflicts:
@@ -187,17 +220,17 @@ def render_markdown(counts: Counter, style: dict[str, Counter]) -> str:
             "",
             "## Recommended Stack",
             "",
-            "- Rust: `rustfmt`",
-            "- Python: `ruff format`",
-            "- Shell: `shfmt`",
-            "- Cross-file hygiene: `pre-commit-hooks` + `.editorconfig` + `.gitattributes`",
-            "- Docs style: existing `markdownlint` gate",
+            *[f"- {item}" for item in data["recommended_stack"]],
         ]
     )
     return "\n".join(lines) + "\n"
 
 
-def has_drift(style: dict[str, Counter]) -> bool:
+def render_json(data: dict[str, Any]) -> str:
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
+def has_drift(style: dict[str, Counter] | dict[str, dict[str, int]]) -> bool:
     drift_keys = ("trailing_ws", "crlf", "tabs", "missing_final_newline")
     return any(
         metrics.get(key, 0) > 0 for metrics in style.values() for key in drift_keys
@@ -210,15 +243,17 @@ def main() -> None:
         "--output", type=Path, help="Write the Markdown report to this path."
     )
     parser.add_argument(
+        "--json-output", type=Path, help="Write the JSON report to this path."
+    )
+    parser.add_argument(
         "--fail-on-drift",
         action="store_true",
         help="Exit with status 1 when formatting drift is detected.",
     )
     args = parser.parse_args()
 
-    files = iter_files()
-    counts, style = collect_metrics(files)
-    report = render_markdown(counts, style)
+    data = build_report_data()
+    report = render_markdown(data)
 
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -226,7 +261,11 @@ def main() -> None:
     else:
         print(report)
 
-    if args.fail_on_drift and has_drift(style):
+    if args.json_output:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        args.json_output.write_text(render_json(data), encoding="utf-8")
+
+    if args.fail_on_drift and has_drift(data["style"]):
         raise SystemExit(1)
 
 

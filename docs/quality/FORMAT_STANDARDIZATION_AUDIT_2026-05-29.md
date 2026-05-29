@@ -104,3 +104,9 @@ To verify that the fix is durable, track the next three delivery cycles and conf
 2. no new trailing-whitespace or final-newline regressions appear in audit output;
 3. no new subdirectory formatting config files are introduced;
 4. all developers use the root `Makefile` or installed `pre-commit` hooks locally.
+
+The follow-up implementation is now backed by:
+
+- `make format-cycle CYCLE_LABEL=<cycle-name>` to rerun compliance checks and refresh the rolling report;
+- `scripts/quality/format_cycle_report.py` to keep the latest three cycle entries in `docs/quality/FORMAT_DRIFT_TRACKING.md`;
+- GitHub Actions workflow `format-drift-tracking.yml` for scheduled/manual checkpoint artifacts.

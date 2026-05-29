@@ -80,6 +80,7 @@
 - `m.room_versions` client capability 与 federation `m.room_versions` 必须来自同一能力矩阵。
 - 对仅能解析、不能创建或不能加入的 room version，应显式拆分能力模型，不能简单标记为 stable。
 - `resolve_room_version` 只应返回可创建版本；联邦入口应使用 join/parse/federation 维度，避免“能读旧房间”被误解释为“能创建新房间”。
+- Federation membership handlers now check the federation dimension before exposing or mutating room membership state, including join, leave, knock, invite, third-party invite, and member-query paths.
 
 ## Unstable And Custom Features
 
