@@ -1,0 +1,76 @@
+name: Format Drift Tracking
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      cycle_label:
+        description: "Cycle label for the tracking snapshot"
+        required: false
+        default: ""
+      base_ref:
+        description: "Git base ref for the range"
+        required: false
+        default: "HEAD~1"
+      head_ref:
+        description: "Git head ref for the range"
+        required: false
+        default: "HEAD"
+
+jobs:
+  track-format-drift:
+    name: Track Format Drift
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install format tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pre-commit ruff
+          sudo apt-get update
+          sudo apt-get install -y shfmt
+
+      - name: Run format compliance
+        run: bash scripts/quality/format_check.sh
+
+      - name: Generate tracking report
+        run: |
+          mkdir -p artifacts
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.cycle_label }}" ]; then
+            cycle_label="${{ inputs.cycle_label }}"
+          else
+            cycle_label="scheduled-${{ github.run_number }}"
+          fi
+
+          base_ref="${{ inputs.base_ref || 'HEAD~1' }}"
+          head_ref="${{ inputs.head_ref || 'HEAD' }}"
+
+          python3 scripts/quality/format_cycle_report.py \
+            --cycle-label "${cycle_label}" \
+            --base-ref "${base_ref}" \
+            --head-ref "${head_ref}" \
+            --compliance-status pass \
+            --output artifacts/format_drift_tracking.md
+
+      - name: Upload tracking artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: format-drift-tracking
+          path: artifacts/format_drift_tracking.md
+          retention-days: 30

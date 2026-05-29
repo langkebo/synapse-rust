@@ -32,7 +32,7 @@ is_stdin_format_candidate() {
     local first_line
     first_line="$(first_nonempty_line "$1")"
     case "$first_line" in
-        '#!'*|'use '*|'extern crate '*)
+        '#!'* | 'use '* | 'extern crate '*)
             return 0
             ;;
         *)
@@ -46,7 +46,7 @@ check_file() {
     if is_stdin_format_candidate "$file"; then
         local tmp
         tmp="$(mktemp)"
-        rustfmt --edition 2021 < "$file" > "$tmp"
+        rustfmt --edition 2021 <"$file" >"$tmp"
         if ! cmp -s "$tmp" "$file"; then
             echo "Diff in $ROOT_DIR/$file:" >&2
             diff -u "$file" "$tmp" >&2 || true
@@ -64,7 +64,7 @@ write_file() {
     if is_stdin_format_candidate "$file"; then
         local tmp
         tmp="$(mktemp)"
-        rustfmt --edition 2021 < "$file" > "$tmp"
+        rustfmt --edition 2021 <"$file" >"$tmp"
         if ! cmp -s "$tmp" "$file"; then
             mv "$tmp" "$file"
         else
