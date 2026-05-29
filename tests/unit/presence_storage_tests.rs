@@ -18,9 +18,7 @@ async fn setup_test_database() -> Option<(Arc<Pool<Postgres>>, PresenceStorage)>
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping presence storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping presence storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -130,10 +128,7 @@ fn test_set_and_get_presence() {
         let user_id = format!("@presence_user_{suffix}:localhost");
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_presence(&user_id, "online", Some("working"))
-            .await
-            .unwrap();
+        storage.set_presence(&user_id, "online", Some("working")).await.unwrap();
 
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
@@ -170,10 +165,7 @@ fn test_set_presence_without_status_msg() {
         let user_id = format!("@presence_user_{suffix}:localhost");
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_presence(&user_id, "unavailable", None)
-            .await
-            .unwrap();
+        storage.set_presence(&user_id, "unavailable", None).await.unwrap();
 
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
@@ -196,15 +188,9 @@ fn test_presence_upsert_updates_existing() {
         let user_id = format!("@presence_user_{suffix}:localhost");
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_presence(&user_id, "online", Some("working"))
-            .await
-            .unwrap();
+        storage.set_presence(&user_id, "online", Some("working")).await.unwrap();
 
-        storage
-            .set_presence(&user_id, "offline", Some("gone home"))
-            .await
-            .unwrap();
+        storage.set_presence(&user_id, "offline", Some("gone home")).await.unwrap();
 
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
@@ -227,10 +213,7 @@ fn test_get_presence_with_meta() {
         let user_id = format!("@presence_user_{suffix}:localhost");
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_presence(&user_id, "online", Some("active"))
-            .await
-            .unwrap();
+        storage.set_presence(&user_id, "online", Some("active")).await.unwrap();
 
         let result = storage.get_presence_with_meta(&user_id).await.unwrap();
         assert!(result.is_some());
@@ -251,10 +234,7 @@ fn test_get_presence_with_meta_nonexistent() {
             None => return,
         };
 
-        let result = storage
-            .get_presence_with_meta("@nonexistent:localhost")
-            .await
-            .unwrap();
+        let result = storage.get_presence_with_meta("@nonexistent:localhost").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -277,14 +257,8 @@ fn test_get_presences_batch() {
         insert_test_user(&pool, &user2).await;
         insert_test_user(&pool, &user3).await;
 
-        storage
-            .set_presence(&user1, "online", Some("working"))
-            .await
-            .unwrap();
-        storage
-            .set_presence(&user2, "unavailable", None)
-            .await
-            .unwrap();
+        storage.set_presence(&user1, "online", Some("working")).await.unwrap();
+        storage.set_presence(&user2, "unavailable", None).await.unwrap();
 
         let user_ids = vec![user1.clone(), user2.clone(), user3.clone()];
         let result = storage.get_presences(&user_ids).await.unwrap();
@@ -332,14 +306,8 @@ fn test_add_and_get_subscriptions() {
         insert_test_user(&pool, &target1).await;
         insert_test_user(&pool, &target2).await;
 
-        storage
-            .add_subscription(&subscriber, &target1)
-            .await
-            .unwrap();
-        storage
-            .add_subscription(&subscriber, &target2)
-            .await
-            .unwrap();
+        storage.add_subscription(&subscriber, &target1).await.unwrap();
+        storage.add_subscription(&subscriber, &target2).await.unwrap();
 
         let subs = storage.get_subscriptions(&subscriber).await.unwrap();
         assert_eq!(subs.len(), 2);
@@ -364,14 +332,8 @@ fn test_add_subscription_idempotent() {
         insert_test_user(&pool, &subscriber).await;
         insert_test_user(&pool, &target).await;
 
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .unwrap();
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .unwrap();
+        storage.add_subscription(&subscriber, &target).await.unwrap();
+        storage.add_subscription(&subscriber, &target).await.unwrap();
 
         let subs = storage.get_subscriptions(&subscriber).await.unwrap();
         assert_eq!(subs.len(), 1);
@@ -396,19 +358,10 @@ fn test_remove_subscription() {
         insert_test_user(&pool, &target1).await;
         insert_test_user(&pool, &target2).await;
 
-        storage
-            .add_subscription(&subscriber, &target1)
-            .await
-            .unwrap();
-        storage
-            .add_subscription(&subscriber, &target2)
-            .await
-            .unwrap();
+        storage.add_subscription(&subscriber, &target1).await.unwrap();
+        storage.add_subscription(&subscriber, &target2).await.unwrap();
 
-        storage
-            .remove_subscription(&subscriber, &target1)
-            .await
-            .unwrap();
+        storage.remove_subscription(&subscriber, &target1).await.unwrap();
 
         let subs = storage.get_subscriptions(&subscriber).await.unwrap();
         assert_eq!(subs.len(), 1);
@@ -454,10 +407,7 @@ fn test_get_subscriptions_empty() {
             None => return,
         };
 
-        let subs = storage
-            .get_subscriptions("@nobody:localhost")
-            .await
-            .unwrap();
+        let subs = storage.get_subscriptions("@nobody:localhost").await.unwrap();
         assert!(subs.is_empty());
     });
 }
@@ -471,10 +421,7 @@ fn test_get_subscribers_empty() {
             None => return,
         };
 
-        let subscribers = storage
-            .get_subscribers("@nobody:localhost")
-            .await
-            .unwrap();
+        let subscribers = storage.get_subscribers("@nobody:localhost").await.unwrap();
         assert!(subscribers.is_empty());
     });
 }
@@ -494,33 +441,25 @@ fn test_set_typing_start_and_stop() {
 
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_typing(&room_id, &user_id, true)
+        storage.set_typing(&room_id, &user_id, true).await.unwrap();
+
+        let row: Option<(bool,)> = sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .fetch_optional(&*pool)
             .await
             .unwrap();
-
-        let row: Option<(bool,)> =
-            sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
-                .bind(&user_id)
-                .bind(&room_id)
-                .fetch_optional(&*pool)
-                .await
-                .unwrap();
         assert!(row.is_some());
         assert!(row.unwrap().0);
 
-        storage
-            .set_typing(&room_id, &user_id, false)
+        storage.set_typing(&room_id, &user_id, false).await.unwrap();
+
+        let row: Option<(bool,)> = sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .fetch_optional(&*pool)
             .await
             .unwrap();
-
-        let row: Option<(bool,)> =
-            sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
-                .bind(&user_id)
-                .bind(&room_id)
-                .fetch_optional(&*pool)
-                .await
-                .unwrap();
         assert!(row.is_none());
     });
 }
@@ -540,23 +479,16 @@ fn test_set_typing_upsert() {
 
         insert_test_user(&pool, &user_id).await;
 
-        storage
-            .set_typing(&room_id, &user_id, true)
+        storage.set_typing(&room_id, &user_id, true).await.unwrap();
+
+        storage.set_typing(&room_id, &user_id, true).await.unwrap();
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM typing WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .fetch_one(&*pool)
             .await
             .unwrap();
-
-        storage
-            .set_typing(&room_id, &user_id, true)
-            .await
-            .unwrap();
-
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM typing WHERE user_id = $1 AND room_id = $2")
-                .bind(&user_id)
-                .bind(&room_id)
-                .fetch_one(&*pool)
-                .await
-                .unwrap();
         assert_eq!(count.0, 1);
     });
 }
@@ -577,14 +509,8 @@ fn test_get_presence_batch() {
         insert_test_user(&pool, &user1).await;
         insert_test_user(&pool, &user2).await;
 
-        storage
-            .set_presence(&user1, "online", Some("active"))
-            .await
-            .unwrap();
-        storage
-            .set_presence(&user2, "offline", None)
-            .await
-            .unwrap();
+        storage.set_presence(&user1, "online", Some("active")).await.unwrap();
+        storage.set_presence(&user2, "offline", None).await.unwrap();
 
         let user_ids = vec![user1.clone(), user2.clone()];
         let result = storage.get_presence_batch(&user_ids).await.unwrap();
@@ -630,14 +556,8 @@ fn test_get_presence_snapshots() {
         insert_test_user(&pool, &user1).await;
         insert_test_user(&pool, &user2).await;
 
-        storage
-            .set_presence(&user1, "online", Some("active"))
-            .await
-            .unwrap();
-        storage
-            .set_presence(&user2, "unavailable", None)
-            .await
-            .unwrap();
+        storage.set_presence(&user1, "online", Some("active")).await.unwrap();
+        storage.set_presence(&user2, "unavailable", None).await.unwrap();
 
         let user_ids = vec![user1.clone(), user2.clone()];
         let result = storage.get_presence_snapshots(&user_ids).await.unwrap();

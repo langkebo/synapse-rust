@@ -162,10 +162,7 @@ impl RoomSummaryStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_summary(
-        &self,
-        request: CreateRoomSummaryRequest,
-    ) -> Result<RoomSummary, sqlx::Error> {
+    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummary, sqlx::Error> {
         tracing::info!(room_id = %request.room_id, "Creating room summary");
         let now = Utc::now().timestamp_millis();
 
@@ -297,18 +294,12 @@ impl RoomSummaryStorage {
 
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(room_id = %room_id, "Deleting room summary");
-        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
 
         Ok(())
     }
 
-    pub async fn get_summaries_by_ids(
-        &self,
-        room_ids: &[String],
-    ) -> Result<Vec<RoomSummary>, sqlx::Error> {
+    pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummary>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummary>(
             "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = ANY($1)",
         )
@@ -319,10 +310,7 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn get_summaries_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<RoomSummary>, sqlx::Error> {
+    pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummary>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying room summaries for user");
         let rows = sqlx::query_as::<_, RoomSummary>(
             r"
@@ -339,10 +327,7 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn add_member(
-        &self,
-        request: CreateSummaryMemberRequest,
-    ) -> Result<RoomSummaryMember, sqlx::Error> {
+    pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
         tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary");
         let now = Utc::now().timestamp_millis();
 
@@ -502,14 +487,10 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn get_heroes(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+    pub async fn get_heroes(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
             r"
-            SELECT * FROM room_summary_members 
+            SELECT * FROM room_summary_members
             WHERE room_id = $1 AND membership = 'join'
             ORDER BY is_hero DESC, last_active_ts DESC NULLS LAST
             LIMIT $2
@@ -523,11 +504,7 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn get_hero_candidates(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+    pub async fn get_hero_candidates(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
             r"
             SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
@@ -545,11 +522,7 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
-    pub async fn set_hero_members(
-        &self,
-        room_id: &str,
-        hero_user_ids: &[String],
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_hero_members(&self, room_id: &str, hero_user_ids: &[String]) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE room_summary_members
@@ -704,10 +677,7 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
-    pub async fn get_pending_updates(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
+    pub async fn get_pending_updates(&self, limit: i64) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryUpdateQueueItem>(
             r"
             SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count
@@ -728,13 +698,11 @@ impl RoomSummaryStorage {
     pub async fn mark_update_processed(&self, id: i64) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            "UPDATE room_summary_update_queue SET status = 'processed', processed_ts = $2 WHERE id = $1",
-        )
-        .bind(id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("UPDATE room_summary_update_queue SET status = 'processed', processed_ts = $2 WHERE id = $1")
+            .bind(id)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }
@@ -758,11 +726,7 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
-    pub async fn increment_unread_notifications(
-        &self,
-        room_id: &str,
-        highlight: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn increment_unread_notifications(&self, room_id: &str, highlight: bool) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         if highlight {
             sqlx::query(
@@ -869,11 +833,7 @@ impl RoomSummary {
 
 impl From<RoomSummaryMember> for RoomSummaryHero {
     fn from(member: RoomSummaryMember) -> Self {
-        Self {
-            user_id: member.user_id,
-            display_name: member.display_name,
-            avatar_url: member.avatar_url,
-        }
+        Self { user_id: member.user_id, display_name: member.display_name, avatar_url: member.avatar_url }
     }
 }
 

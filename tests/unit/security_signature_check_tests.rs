@@ -16,10 +16,7 @@ fn test_hmac_sha256_consistency() {
     mac.update(data);
     let signature2 = mac.finalize().into_bytes().to_vec();
 
-    assert_eq!(
-        signature1, signature2,
-        "HMAC-SHA256 implementations must be consistent"
-    );
+    assert_eq!(signature1, signature2, "HMAC-SHA256 implementations must be consistent");
 }
 
 #[test]
@@ -43,14 +40,7 @@ fn test_admin_registration_hmac_logic() {
     mac.update(b"admin\x00\x00\x00"); // Note the padding here
 
     let signature = mac.finalize().into_bytes();
-    let hex_signature = signature
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>();
+    let hex_signature = signature.iter().map(|b| format!("{b:02x}")).collect::<String>();
 
-    assert_eq!(
-        hex_signature.len(),
-        64,
-        "HMAC-SHA256 hex signature should be 64 characters"
-    );
+    assert_eq!(hex_signature.len(), 64, "HMAC-SHA256 hex signature should be 64 characters");
 }

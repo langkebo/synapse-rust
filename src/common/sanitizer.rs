@@ -76,10 +76,7 @@ static DEFAULT_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
     builder.link_rel(Some("noopener noreferrer"));
 
     // 允许的 URL 协议
-    let allowed_protocols: HashSet<&str> = ["http", "https", "mailto", "matrix"]
-        .iter()
-        .copied()
-        .collect();
+    let allowed_protocols: HashSet<&str> = ["http", "https", "mailto", "matrix"].iter().copied().collect();
 
     builder.url_schemes(allowed_protocols);
 
@@ -116,10 +113,7 @@ pub struct ContentSanitizer {
 
 impl Default for ContentSanitizer {
     fn default() -> Self {
-        Self {
-            mode: SanitizerMode::Default,
-            max_length: 10_000,
-        }
+        Self { mode: SanitizerMode::Default, max_length: 10_000 }
     }
 }
 
@@ -131,20 +125,13 @@ impl ContentSanitizer {
 
     /// 创建严格模式净化器
     pub fn strict() -> Self {
-        Self {
-            mode: SanitizerMode::Strict,
-            max_length: 1_000,
-        }
+        Self { mode: SanitizerMode::Strict, max_length: 1_000 }
     }
 
     /// 净化 HTML 内容
     pub fn sanitize(&self, input: &str) -> String {
         // 长度限制
-        let input = if input.len() > self.max_length {
-            &input[..self.max_length]
-        } else {
-            input
-        };
+        let input = if input.len() > self.max_length { &input[..self.max_length] } else { input };
 
         // 根据模式选择净化器
         match self.mode {
@@ -159,11 +146,7 @@ impl ContentSanitizer {
 
     /// 净化纯文本（移除所有 HTML）
     pub fn sanitize_plain_text(&self, input: &str) -> String {
-        let input = if input.len() > self.max_length {
-            &input[..self.max_length]
-        } else {
-            input
-        };
+        let input = if input.len() > self.max_length { &input[..self.max_length] } else { input };
 
         STRICT_SANITIZER.clean(input).to_string()
     }

@@ -13,21 +13,19 @@ pub use rate_limit::*;
 pub use security::*;
 
 use axum::http::{HeaderMap, Method};
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, Ordering};
 use regex::Regex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use url::Url;
 
 static CORS_ORIGINS_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    std::env::var("CORS_ORIGIN_PATTERN")
-        .ok()
-        .and_then(|pattern| match Regex::new(&pattern) {
-            Ok(regex) => Some(regex),
-            Err(e) => {
-                tracing::error!("Invalid CORS_ORIGIN_PATTERN regex '{}': {}", pattern, e);
-                None
-            }
-        })
+    std::env::var("CORS_ORIGIN_PATTERN").ok().and_then(|pattern| match Regex::new(&pattern) {
+        Ok(regex) => Some(regex),
+        Err(e) => {
+            tracing::error!("Invalid CORS_ORIGIN_PATTERN regex '{}': {}", pattern, e);
+            None
+        }
+    })
 });
 
 static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
@@ -54,34 +52,26 @@ pub(crate) fn is_forwarded_headers_trusted() -> bool {
 }
 
 pub(crate) fn is_localhost_bind() -> bool {
-    BIND_ADDRESS
-        .get()
-        .is_some_and(|addr| {
-            let host = addr.to_lowercase();
-            host == "127.0.0.1"
-                || host == "localhost"
-                || host == "::1"
-                || host == "0.0.0.0"
-                || host == "::"
-                || host == "[::]"
-                || host.starts_with("127.")
-        })
+    BIND_ADDRESS.get().is_some_and(|addr| {
+        let host = addr.to_lowercase();
+        host == "127.0.0.1"
+            || host == "localhost"
+            || host == "::1"
+            || host == "0.0.0.0"
+            || host == "::"
+            || host == "[::]"
+            || host.starts_with("127.")
+    })
 }
 
 pub(crate) fn is_dev_mode() -> bool {
-    std::env::var("RUST_ENV")
-        .unwrap_or_else(|_| "production".to_string())
-        .to_lowercase()
-        == "development"
+    std::env::var("RUST_ENV").unwrap_or_else(|_| "production".to_string()).to_lowercase() == "development"
 }
 
 pub(crate) fn get_allowed_origins() -> Vec<String> {
     if let Ok(env_value) = std::env::var("ALLOWED_ORIGINS") {
-        let parsed: Vec<String> = env_value
-            .split(',')
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .collect();
+        let parsed: Vec<String> =
+            env_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
         if !parsed.is_empty() {
             return parsed;
         }
@@ -100,9 +90,7 @@ pub(crate) fn is_origin_allowed(origin: &str) -> bool {
         return true;
     }
 
-    let in_list = allowed_origins
-        .iter()
-        .any(|o| normalize_origin(o) == normalize_origin(origin));
+    let in_list = allowed_origins.iter().any(|o| normalize_origin(o) == normalize_origin(origin));
     if in_list {
         return true;
     }
@@ -128,21 +116,13 @@ pub(crate) fn normalize_origin(origin: &str) -> String {
 
 pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
     let host = if is_forwarded_headers_trusted() {
-        headers
-            .get("x-forwarded-host")
-            .or_else(|| headers.get("host"))
-            .and_then(|value| value.to_str().ok())?
+        headers.get("x-forwarded-host").or_else(|| headers.get("host")).and_then(|value| value.to_str().ok())?
     } else {
-        headers
-            .get("host")
-            .and_then(|value| value.to_str().ok())?
+        headers.get("host").and_then(|value| value.to_str().ok())?
     };
 
     let scheme = if is_forwarded_headers_trusted() {
-        headers
-            .get("x-forwarded-proto")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("https")
+        headers.get("x-forwarded-proto").and_then(|value| value.to_str().ok()).unwrap_or("https")
     } else {
         "https"
     };
@@ -151,29 +131,21 @@ pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
 }
 
 pub(crate) fn same_origin(request_origin: &str, headers: &HeaderMap) -> bool {
-    extract_request_origin(headers)
-        .is_some_and(|server_origin| normalize_origin(request_origin) == server_origin)
+    extract_request_origin(headers).is_some_and(|server_origin| normalize_origin(request_origin) == server_origin)
 }
 
 pub(crate) fn is_safe_http_method(method: &Method) -> bool {
-    matches!(
-        *method,
-        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
-    )
+    matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE)
 }
 
 pub(crate) fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("origin")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_string())
-        .or_else(|| {
-            headers
-                .get("referer")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| Url::parse(value).ok())
-                .map(|value| value.origin().ascii_serialization())
-        })
+    headers.get("origin").and_then(|value| value.to_str().ok()).map(|value| value.to_string()).or_else(|| {
+        headers
+            .get("referer")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| Url::parse(value).ok())
+            .map(|value| value.origin().ascii_serialization())
+    })
 }
 
 pub(crate) fn cors_origins_regex() -> Option<&'static Regex> {

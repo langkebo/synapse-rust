@@ -880,11 +880,7 @@ async fn get_friend_dm(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let room_id = state
-        .services
-        .friend_room_service
-        .get_existing_dm_room_id(&auth_user.user_id, &user_id)
-        .await?;
+    let room_id = state.services.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,

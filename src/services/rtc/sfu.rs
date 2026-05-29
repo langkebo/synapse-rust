@@ -96,16 +96,10 @@ pub struct LivekitClient {
 
 impl LivekitClient {
     pub fn new(config: LivekitConfig) -> Self {
-        Self {
-            config,
-            http_client: reqwest::Client::new(),
-        }
+        Self { config, http_client: reqwest::Client::new() }
     }
 
-    pub async fn create_room(
-        &self,
-        request: CreateRoomRequest,
-    ) -> Result<LivekitRoom, LivekitError> {
+    pub async fn create_room(&self, request: CreateRoomRequest) -> Result<LivekitRoom, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/CreateRoom", self.config.host);
 
         let response = self
@@ -122,10 +116,7 @@ impl LivekitClient {
             return Err(LivekitError::Api(error_text));
         }
 
-        let room: LivekitRoom = response
-            .json()
-            .await
-            .map_err(|e| LivekitError::Parse(e.to_string()))?;
+        let room: LivekitRoom = response.json().await.map_err(|e| LivekitError::Parse(e.to_string()))?;
 
         Ok(room)
     }
@@ -178,22 +169,13 @@ impl LivekitClient {
             rooms: Vec<LivekitRoom>,
         }
 
-        let result: ListRoomsResponse = response
-            .json()
-            .await
-            .map_err(|e| LivekitError::Parse(e.to_string()))?;
+        let result: ListRoomsResponse = response.json().await.map_err(|e| LivekitError::Parse(e.to_string()))?;
 
         Ok(result.rooms)
     }
 
-    pub async fn list_participants(
-        &self,
-        room_name: &str,
-    ) -> Result<Vec<LivekitParticipant>, LivekitError> {
-        let url = format!(
-            "{}/twirp/livekit.RoomService/ListParticipants",
-            self.config.host
-        );
+    pub async fn list_participants(&self, room_name: &str) -> Result<Vec<LivekitParticipant>, LivekitError> {
+        let url = format!("{}/twirp/livekit.RoomService/ListParticipants", self.config.host);
 
         let request = serde_json::json!({
             "room": room_name
@@ -218,23 +200,13 @@ impl LivekitClient {
             participants: Vec<LivekitParticipant>,
         }
 
-        let result: ListParticipantsResponse = response
-            .json()
-            .await
-            .map_err(|e| LivekitError::Parse(e.to_string()))?;
+        let result: ListParticipantsResponse = response.json().await.map_err(|e| LivekitError::Parse(e.to_string()))?;
 
         Ok(result.participants)
     }
 
-    pub async fn remove_participant(
-        &self,
-        room_name: &str,
-        identity: &str,
-    ) -> Result<(), LivekitError> {
-        let url = format!(
-            "{}/twirp/livekit.RoomService/RemoveParticipant",
-            self.config.host
-        );
+    pub async fn remove_participant(&self, room_name: &str, identity: &str) -> Result<(), LivekitError> {
+        let url = format!("{}/twirp/livekit.RoomService/RemoveParticipant", self.config.host);
 
         let request = serde_json::json!({
             "room": room_name,
@@ -265,10 +237,7 @@ impl LivekitClient {
         track_sid: &str,
         muted: bool,
     ) -> Result<(), LivekitError> {
-        let url = format!(
-            "{}/twirp/livekit.RoomService/MutePublishedTrack",
-            self.config.host
-        );
+        let url = format!("{}/twirp/livekit.RoomService/MutePublishedTrack", self.config.host);
 
         let request = serde_json::json!({
             "room": room_name,
@@ -338,14 +307,10 @@ impl LivekitClient {
             "typ": "JWT"
         });
 
-        let header_b64 = STANDARD.encode(
-            serde_json::to_string(&header)
-                .expect("JSON serialization of known JSON value should not fail"),
-        );
-        let claims_b64 = STANDARD.encode(
-            serde_json::to_string(&claims)
-                .expect("JSON serialization of known JSON value should not fail"),
-        );
+        let header_b64 = STANDARD
+            .encode(serde_json::to_string(&header).expect("JSON serialization of known JSON value should not fail"));
+        let claims_b64 = STANDARD
+            .encode(serde_json::to_string(&claims).expect("JSON serialization of known JSON value should not fail"));
 
         let message = format!("{}.{}", header_b64, claims_b64);
 
@@ -377,19 +342,15 @@ impl LivekitClient {
             "typ": "JWT"
         });
 
-        let header_b64 = STANDARD.encode(
-            serde_json::to_string(&header)
-                .expect("JSON serialization of known JSON value should not fail"),
-        );
-        let claims_b64 = STANDARD.encode(
-            serde_json::to_string(&claims)
-                .expect("JSON serialization of known JSON value should not fail"),
-        );
+        let header_b64 = STANDARD
+            .encode(serde_json::to_string(&header).expect("JSON serialization of known JSON value should not fail"));
+        let claims_b64 = STANDARD
+            .encode(serde_json::to_string(&claims).expect("JSON serialization of known JSON value should not fail"));
 
         let message = format!("{}.{}", header_b64, claims_b64);
 
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.config.api_secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(self.config.api_secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(message.as_bytes());
         let signature = mac.finalize();
         let signature_b64 = STANDARD.encode(signature.into_bytes());
@@ -466,10 +427,7 @@ mod tests {
             max_participants: 100,
             creation_time: 1234567890,
             turn_password: "secret".to_string(),
-            enabled_codecs: vec![LivekitCodec {
-                mime_type: "video/VP8".to_string(),
-                fmtp_line: None,
-            }],
+            enabled_codecs: vec![LivekitCodec { mime_type: "video/VP8".to_string(), fmtp_line: None }],
         };
 
         assert_eq!(room.sid, "RM_abc123");
@@ -520,15 +478,8 @@ mod tests {
 
         let client = LivekitClient::new(config);
 
-        let token = client.create_access_token(
-            "test_room",
-            "@alice:example.com",
-            Some("Alice"),
-            None,
-            true,
-            true,
-            true,
-        );
+        let token =
+            client.create_access_token("test_room", "@alice:example.com", Some("Alice"), None, true, true, true);
 
         assert!(token.is_ok());
         let token_str = token.unwrap();

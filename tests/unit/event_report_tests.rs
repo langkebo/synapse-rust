@@ -88,8 +88,7 @@ mod tests {
     fn test_event_report_stats_struct() {
         let stats = EventReportStats {
             id: 1,
-            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 2, 13)
-                .expect("test date should be valid"),
+            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 2, 13).expect("test date should be valid"),
             total_reports: 100,
             open_reports: 20,
             resolved_reports: 70,
@@ -119,11 +118,7 @@ mod tests {
 
     #[test]
     fn test_report_rate_limit_check() {
-        let allowed = ReportRateLimitCheck {
-            is_allowed: true,
-            remaining_reports: 45,
-            block_reason: None,
-        };
+        let allowed = ReportRateLimitCheck { is_allowed: true, remaining_reports: 45, block_reason: None };
 
         let blocked = ReportRateLimitCheck {
             is_allowed: false,
@@ -166,9 +161,7 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.event_report_service;
 
-        let result = service
-            .get_reports_by_status("open", 100, None, None, None)
-            .await;
+        let result = service.get_reports_by_status("open", 100, None, None, None).await;
         if result.is_err() {
             eprintln!("Skipping test_get_reports_by_status: database table not available");
             return;
@@ -176,9 +169,7 @@ mod tests {
 
         match result {
             Ok(reports) => assert!(reports.is_empty() || !reports.is_empty()),
-            Err(error) => panic!(
-                "Expected get_reports_by_status to succeed after availability check: {error}"
-            ),
+            Err(error) => panic!("Expected get_reports_by_status to succeed after availability check: {error}"),
         }
     }
 
@@ -225,9 +216,7 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.event_report_service;
 
-        let result = service
-            .get_reports_by_room("!nonexistent:example.com", 100, None, None)
-            .await;
+        let result = service.get_reports_by_room("!nonexistent:example.com", 100, None, None).await;
         if result.is_err() {
             eprintln!("Skipping test_get_reports_by_room: database table not available");
             return;

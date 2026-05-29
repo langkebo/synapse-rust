@@ -28,18 +28,13 @@ impl PasswordHashMetrics {
     pub fn new(collector: &MetricsCollector) -> Self {
         Self {
             total_hash_operations: collector.register_counter("password_hash_total".to_string()),
-            total_verify_operations: collector
-                .register_counter("password_verify_total".to_string()),
+            total_verify_operations: collector.register_counter("password_verify_total".to_string()),
             hash_duration_ms: collector.register_histogram("password_hash_duration_ms".to_string()),
-            verify_duration_ms: collector
-                .register_histogram("password_verify_duration_ms".to_string()),
-            active_operations: collector
-                .register_gauge("password_hash_active_operations".to_string()),
+            verify_duration_ms: collector.register_histogram("password_verify_duration_ms".to_string()),
+            active_operations: collector.register_gauge("password_hash_active_operations".to_string()),
             queued_operations: collector.register_counter("password_hash_queued_total".to_string()),
-            rejected_operations: collector
-                .register_counter("password_hash_rejected_total".to_string()),
-            pool_exhaustion_count: collector
-                .register_counter("password_hash_pool_exhausted_total".to_string()),
+            rejected_operations: collector.register_counter("password_hash_rejected_total".to_string()),
+            pool_exhaustion_count: collector.register_counter("password_hash_pool_exhausted_total".to_string()),
         }
     }
 }
@@ -54,12 +49,7 @@ pub struct PasswordHashPoolConfig {
 
 impl Default for PasswordHashPoolConfig {
     fn default() -> Self {
-        Self {
-            max_concurrent: 4,
-            queue_size: 100,
-            thread_pool_size: 2,
-            hash_timeout_ms: 5000,
-        }
+        Self { max_concurrent: 4, queue_size: 100, thread_pool_size: 2, hash_timeout_ms: 5000 }
     }
 }
 
@@ -87,17 +77,10 @@ impl PasswordHashPool {
         argon2_config: Argon2Config,
         metrics_collector: &MetricsCollector,
     ) -> Self {
-        let params = argon2_config
-            .to_argon2_params()
-            .unwrap_or_else(|e| {
-                tracing::error!("Invalid Argon2 config, using OWASP defaults: {}", e);
-                argon2::Params::new(
-                    19 * 1024,
-                    2,
-                    1,
-                    Some(32),
-                ).expect("OWASP default Argon2 params are valid")
-            });
+        let params = argon2_config.to_argon2_params().unwrap_or_else(|e| {
+            tracing::error!("Invalid Argon2 config, using OWASP defaults: {}", e);
+            argon2::Params::new(19 * 1024, 2, 1, Some(32)).expect("OWASP default Argon2 params are valid")
+        });
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
         Self {
@@ -119,8 +102,7 @@ impl PasswordHashPool {
     }
 
     pub fn get_or_init_default() -> &'static Self {
-        PASSWORD_HASH_POOL
-            .get_or_init(|| Self::new(PasswordHashPoolConfig::default(), Argon2Config::default()))
+        PASSWORD_HASH_POOL.get_or_init(|| Self::new(PasswordHashPoolConfig::default(), Argon2Config::default()))
     }
 
     pub fn metrics(&self) -> &PasswordHashMetrics {
@@ -172,11 +154,7 @@ impl PasswordHashPool {
         Ok(result)
     }
 
-    pub async fn verify_password(
-        &self,
-        password: &str,
-        hash: &str,
-    ) -> Result<bool, PasswordHashError> {
+    pub async fn verify_password(&self, password: &str, hash: &str) -> Result<bool, PasswordHashError> {
         let start = Instant::now();
         self.metrics.active_operations.inc();
 
@@ -197,12 +175,10 @@ impl PasswordHashPool {
         let hash = hash.to_string();
 
         let result = tokio::task::spawn_blocking(move || {
-            let parsed_hash = PasswordHash::new(&hash)
-                .map_err(|e| PasswordHashError::InvalidHashFormat(e.to_string()))?;
+            let parsed_hash =
+                PasswordHash::new(&hash).map_err(|e| PasswordHashError::InvalidHashFormat(e.to_string()))?;
 
-            Ok(Argon2::default()
-                .verify_password(password.as_bytes(), &parsed_hash)
-                .is_ok())
+            Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
         })
         .await
         .map_err(|e| PasswordHashError::TaskJoinError(e.to_string()))??;
@@ -214,25 +190,15 @@ impl PasswordHashPool {
         Ok(result)
     }
 
-    pub async fn hash_password_blocking(
-        &self,
-        password: &str,
-    ) -> Result<String, PasswordHashError> {
+    pub async fn hash_password_blocking(&self, password: &str) -> Result<String, PasswordHashError> {
         self.hash_password(password).await
     }
 
-    pub async fn verify_password_blocking(
-        &self,
-        password: &str,
-        hash: &str,
-    ) -> Result<bool, PasswordHashError> {
+    pub async fn verify_password_blocking(&self, password: &str, hash: &str) -> Result<bool, PasswordHashError> {
         self.verify_password(password, hash).await
     }
 
-    pub fn try_hash_password(
-        &self,
-        password: &str,
-    ) -> Option<JoinHandle<Result<String, PasswordHashError>>> {
+    pub fn try_hash_password(&self, password: &str) -> Option<JoinHandle<Result<String, PasswordHashError>>> {
         if self.semaphore.available_permits() == 0 {
             self.metrics.rejected_operations.inc();
             return None;
@@ -340,12 +306,8 @@ mod tests {
     use std::time::Duration;
 
     fn create_test_pool() -> PasswordHashPool {
-        let config = PasswordHashPoolConfig {
-            max_concurrent: 2,
-            queue_size: 10,
-            thread_pool_size: 1,
-            hash_timeout_ms: 5000,
-        };
+        let config =
+            PasswordHashPoolConfig { max_concurrent: 2, queue_size: 10, thread_pool_size: 1, hash_timeout_ms: 5000 };
         let argon2_config = Argon2Config::new(65536, 3, 1).unwrap();
         PasswordHashPool::new(config, argon2_config)
     }
@@ -389,32 +351,19 @@ mod tests {
         for i in 0..4 {
             let pool_clone = pool.clone();
             let password = format!("password_{i}");
-            handles.push(tokio::spawn(async move {
-                pool_clone.hash_password(&password).await
-            }));
+            handles.push(tokio::spawn(async move { pool_clone.hash_password(&password).await }));
         }
 
         let results: Vec<_> = futures::future::join_all(handles).await;
-        let successful: Vec<_> = results
-            .into_iter()
-            .filter_map(|r| r.ok())
-            .filter(|r| r.is_ok())
-            .collect();
+        let successful: Vec<_> = results.into_iter().filter_map(|r| r.ok()).filter(|r| r.is_ok()).collect();
 
-        assert!(
-            successful.len() >= 2,
-            "At least 2 operations should succeed"
-        );
+        assert!(successful.len() >= 2, "At least 2 operations should succeed");
     }
 
     #[tokio::test]
     async fn test_pool_exhaustion() {
-        let config = PasswordHashPoolConfig {
-            max_concurrent: 1,
-            queue_size: 1,
-            thread_pool_size: 1,
-            hash_timeout_ms: 1000,
-        };
+        let config =
+            PasswordHashPoolConfig { max_concurrent: 1, queue_size: 1, thread_pool_size: 1, hash_timeout_ms: 1000 };
         let argon2_config = Argon2Config::new(65536, 3, 1).unwrap();
         let pool = Arc::new(PasswordHashPool::new(config, argon2_config));
 
@@ -442,14 +391,8 @@ mod tests {
         let hash = pool.hash_password("test").await.unwrap();
         pool.verify_password("test", &hash).await.unwrap();
 
-        assert_eq!(
-            pool.metrics().total_hash_operations.get(),
-            initial_hash_count + 1
-        );
-        assert_eq!(
-            pool.metrics().total_verify_operations.get(),
-            initial_verify_count + 1
-        );
+        assert_eq!(pool.metrics().total_hash_operations.get(), initial_hash_count + 1);
+        assert_eq!(pool.metrics().total_verify_operations.get(), initial_verify_count + 1);
     }
 
     #[tokio::test]
@@ -513,22 +456,13 @@ mod tests {
         for _ in 0..4 {
             let pool_clone = pool.clone();
             let hash_clone = hash.clone();
-            handles.push(tokio::spawn(async move {
-                pool_clone.verify_password(password, &hash_clone).await
-            }));
+            handles.push(tokio::spawn(async move { pool_clone.verify_password(password, &hash_clone).await }));
         }
 
         let results: Vec<_> = futures::future::join_all(handles).await;
-        let successful: Vec<_> = results
-            .into_iter()
-            .filter_map(|r| r.ok())
-            .filter_map(|r| r.ok())
-            .collect();
+        let successful: Vec<_> = results.into_iter().filter_map(|r| r.ok()).filter_map(|r| r.ok()).collect();
 
-        assert!(
-            successful.len() >= 2,
-            "At least 2 verify operations should succeed"
-        );
+        assert!(successful.len() >= 2, "At least 2 verify operations should succeed");
         for result in successful {
             assert!(result, "All successful verifications should return true");
         }

@@ -67,22 +67,14 @@ pub fn canonical_federation_request_bytes(
     obj.insert("method".to_string(), Value::String(method.to_string()));
     obj.insert("uri".to_string(), Value::String(uri.to_string()));
     obj.insert("origin".to_string(), Value::String(origin.to_string()));
-    obj.insert(
-        "destination".to_string(),
-        Value::String(destination.to_string()),
-    );
+    obj.insert("destination".to_string(), Value::String(destination.to_string()));
     if let Some(content) = content {
         obj.insert("content".to_string(), content.clone());
     }
     canonical_json_string(&Value::Object(obj)).into_bytes()
 }
 
-pub fn sign_json(
-    server_name: &str,
-    key_id: &str,
-    secret_key_base64: &str,
-    value: &mut Value,
-) -> Result<(), String> {
+pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value: &mut Value) -> Result<(), String> {
     let unsigned = {
         let mut copy = value.clone();
         if let Some(obj) = copy.as_object_mut() {
@@ -133,57 +125,38 @@ pub fn compute_event_content_hash(event: &Value) -> Option<String> {
 }
 
 pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
-    let hashes = event
-        .get("hashes")
-        .and_then(|h| h.as_object())
-        .ok_or_else(|| "Event missing hashes field".to_string())?;
+    let hashes =
+        event.get("hashes").and_then(|h| h.as_object()).ok_or_else(|| "Event missing hashes field".to_string())?;
 
-    let sha256_hash = hashes
-        .get("sha256")
-        .and_then(|h| h.as_str())
-        .ok_or_else(|| "Event missing sha256 hash".to_string())?;
+    let sha256_hash =
+        hashes.get("sha256").and_then(|h| h.as_str()).ok_or_else(|| "Event missing sha256 hash".to_string())?;
 
-    let computed = compute_event_content_hash(event)
-        .ok_or_else(|| "Failed to compute event content hash".to_string())?;
+    let computed =
+        compute_event_content_hash(event).ok_or_else(|| "Failed to compute event content hash".to_string())?;
 
     if computed != sha256_hash {
-        return Err(format!(
-            "Event content hash mismatch: expected {sha256_hash}, computed {computed}"
-        ));
+        return Err(format!("Event content hash mismatch: expected {sha256_hash}, computed {computed}"));
     }
 
     Ok(())
 }
 
 pub fn check_pdu_size_limits(event: &Value) -> Result<(), String> {
-    let event_json =
-        serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
+    let event_json = serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
 
     if event_json.len() > MAX_PDU_SIZE_BYTES {
-        return Err(format!(
-            "Event too large: {} bytes (max {})",
-            event_json.len(),
-            MAX_PDU_SIZE_BYTES
-        ));
+        return Err(format!("Event too large: {} bytes (max {})", event_json.len(), MAX_PDU_SIZE_BYTES));
     }
 
     if let Some(obj) = event.as_object() {
         if obj.len() > MAX_EVENT_KEYS {
-            return Err(format!(
-                "Event has too many top-level keys: {} (max {})",
-                obj.len(),
-                MAX_EVENT_KEYS
-            ));
+            return Err(format!("Event has too many top-level keys: {} (max {})", obj.len(), MAX_EVENT_KEYS));
         }
     }
 
     if let Some(content) = event.get("content").and_then(|c| c.as_object()) {
         if content.len() > MAX_CONTENT_KEYS {
-            return Err(format!(
-                "Event content has too many keys: {} (max {})",
-                content.len(),
-                MAX_CONTENT_KEYS
-            ));
+            return Err(format!("Event content has too many keys: {} (max {})", content.len(), MAX_CONTENT_KEYS));
         }
     }
 
@@ -198,11 +171,7 @@ fn check_string_depth(value: &Value, depth: usize) -> Result<(), String> {
     match value {
         Value::String(s) => {
             if s.len() > MAX_STRING_LENGTH {
-                return Err(format!(
-                    "String value too long: {} bytes (max {})",
-                    s.len(),
-                    MAX_STRING_LENGTH
-                ));
+                return Err(format!("String value too long: {} bytes (max {})", s.len(), MAX_STRING_LENGTH));
             }
         }
         Value::Array(arr) => {
@@ -255,33 +224,14 @@ fn redact_event_for_hash(event: &Value) -> Value {
     let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
     let allowed_content_keys: &[&str] = match event_type {
-        "m.room.member" => &[
-            "membership",
-            "third_party_invite",
-            "displayname",
-            "avatar_url",
-        ],
+        "m.room.member" => &["membership", "third_party_invite", "displayname", "avatar_url"],
         "m.room.create" => &["creator", "room_version", "type", "m.federate"],
         "m.room.join_rules" => &["join_rule", "allow"],
-        "m.room.power_levels" => &[
-            "users",
-            "users_default",
-            "events",
-            "events_default",
-            "state_default",
-            "ban",
-            "kick",
-            "redact",
-            "invite",
-        ],
+        "m.room.power_levels" => {
+            &["users", "users_default", "events", "events_default", "state_default", "ban", "kick", "redact", "invite"]
+        }
         "m.room.history_visibility" => &["history_visibility"],
-        "m.room.encrypted" => &[
-            "algorithm",
-            "ciphertext",
-            "session_id",
-            "sender_key",
-            "device_id",
-        ],
+        "m.room.encrypted" => &["algorithm", "ciphertext", "session_id", "sender_key", "device_id"],
         _ => &[],
     };
 
@@ -295,9 +245,5 @@ fn redact_event_for_hash(event: &Value) -> Value {
 }
 
 pub fn check_event_federate(room_create_event: &Value) -> bool {
-    room_create_event
-        .get("content")
-        .and_then(|c| c.get("m.federate"))
-        .and_then(|f| f.as_bool())
-        .unwrap_or(true)
+    room_create_event.get("content").and_then(|c| c.get("m.federate")).and_then(|f| f.as_bool()).unwrap_or(true)
 }

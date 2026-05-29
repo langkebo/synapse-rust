@@ -267,14 +267,10 @@ impl SamlStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_session(
-        &self,
-        request: CreateSamlSessionRequest,
-    ) -> Result<SamlSession, ApiError> {
+    pub async fn create_session(&self, request: CreateSamlSessionRequest) -> Result<SamlSession, ApiError> {
         let now = Utc::now().timestamp_millis();
         let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
-        let attributes_json =
-            serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
+        let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlSession>(
             r#"
@@ -298,35 +294,28 @@ impl SamlStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create SAML session", &e))?;
 
-        info!(
-            "Created SAML session: {} for user: {}",
-            request.session_id, request.user_id
-        );
+        info!("Created SAML session: {} for user: {}", request.session_id, request.user_id);
         Ok(row)
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SamlSession>, ApiError> {
-        let row = sqlx::query_as::<_, SamlSession>(
-            "SELECT * FROM saml_sessions WHERE session_id = $1 AND status = 'active'",
-        )
-        .bind(session_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get SAML session", &e))?;
+        let row =
+            sqlx::query_as::<_, SamlSession>("SELECT * FROM saml_sessions WHERE session_id = $1 AND status = 'active'")
+                .bind(session_id)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get SAML session", &e))?;
 
         Ok(row)
     }
 
-    pub async fn get_session_by_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<SamlSession>, ApiError> {
+    pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let now = Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, SamlSession>(
             r#"
-            SELECT * FROM saml_sessions 
+            SELECT * FROM saml_sessions
             WHERE user_id = $1 AND status = 'active' AND expires_at > $2
-            ORDER BY created_ts DESC 
+            ORDER BY created_ts DESC
             LIMIT 1
             "#,
         )
@@ -344,9 +333,7 @@ impl SamlStorage {
             .bind(session_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to update session last used", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update session last used", &e))?;
 
         Ok(())
     }
@@ -364,13 +351,11 @@ impl SamlStorage {
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query(
-            "DELETE FROM saml_sessions WHERE expires_at < $1 OR status = 'invalidated'",
-        )
-        .bind(now)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
+        let result = sqlx::query("DELETE FROM saml_sessions WHERE expires_at < $1 OR status = 'invalidated'")
+            .bind(now)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
 
         let count = result.rows_affected();
         if count > 0 {
@@ -384,8 +369,7 @@ impl SamlStorage {
         request: CreateSamlUserMappingRequest,
     ) -> Result<SamlUserMapping, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let attributes_json =
-            serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
+        let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlUserMapping>(
             r#"
@@ -410,10 +394,7 @@ impl SamlStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create SAML user mapping", &e))?;
 
-        info!(
-            "Created/updated SAML user mapping: {} -> {}",
-            request.name_id, request.user_id
-        );
+        info!("Created/updated SAML user mapping: {} -> {}", request.name_id, request.user_id);
         Ok(row)
     }
 
@@ -422,29 +403,23 @@ impl SamlStorage {
         name_id: &str,
         issuer: &str,
     ) -> Result<Option<SamlUserMapping>, ApiError> {
-        let row = sqlx::query_as::<_, SamlUserMapping>(
-            "SELECT * FROM saml_user_mapping WHERE name_id = $1 AND issuer = $2",
-        )
-        .bind(name_id)
-        .bind(issuer)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
+        let row =
+            sqlx::query_as::<_, SamlUserMapping>("SELECT * FROM saml_user_mapping WHERE name_id = $1 AND issuer = $2")
+                .bind(name_id)
+                .bind(issuer)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
 
         Ok(row)
     }
 
-    pub async fn get_user_mapping_by_user_id(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<SamlUserMapping>, ApiError> {
-        let row = sqlx::query_as::<_, SamlUserMapping>(
-            "SELECT * FROM saml_user_mapping WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
+    pub async fn get_user_mapping_by_user_id(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
+        let row = sqlx::query_as::<_, SamlUserMapping>("SELECT * FROM saml_user_mapping WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get SAML user mapping", &e))?;
 
         Ok(row)
     }
@@ -455,9 +430,7 @@ impl SamlStorage {
             .bind(issuer)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to delete SAML user mapping", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete SAML user mapping", &e))?;
 
         info!("Deleted SAML user mapping: {} ({})", name_id, issuer);
         Ok(())
@@ -469,11 +442,7 @@ impl SamlStorage {
     /// `name_id > after` are returned. Rows are ordered ascending by
     /// `(name_id, issuer)` so the cursor remains deterministic even when
     /// the same `name_id` appears under multiple issuers.
-    pub async fn list_user_mappings(
-        &self,
-        limit: i64,
-        after: Option<&str>,
-    ) -> Result<Vec<SamlUserMapping>, ApiError> {
+    pub async fn list_user_mappings(&self, limit: i64, after: Option<&str>) -> Result<Vec<SamlUserMapping>, ApiError> {
         let rows = if let Some(cursor) = after {
             sqlx::query_as::<_, SamlUserMapping>(
                 r#"
@@ -511,10 +480,7 @@ impl SamlStorage {
     /// ASC`, then `issuer ASC`) is returned for stability. Consumers that
     /// need exactness should use {@link Self::get_user_mapping_by_name_id}
     /// with an explicit issuer.
-    pub async fn get_user_mapping_any_issuer(
-        &self,
-        name_id: &str,
-    ) -> Result<Option<SamlUserMapping>, ApiError> {
+    pub async fn get_user_mapping_any_issuer(&self, name_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         let row = sqlx::query_as::<_, SamlUserMapping>(
             r#"
             SELECT * FROM saml_user_mapping
@@ -567,10 +533,7 @@ impl SamlStorage {
         .map_err(|e| ApiError::internal_with_log("Failed to update SAML user mapping", &e))?;
 
         if row.is_some() {
-            info!(
-                "Updated SAML user mapping: {} -> {}",
-                name_id, target_user_id
-            );
+            info!("Updated SAML user mapping: {} -> {}", name_id, target_user_id);
         }
         Ok(row)
     }
@@ -583,16 +546,11 @@ impl SamlStorage {
             .bind(name_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to delete SAML user mappings", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete SAML user mappings", &e))?;
 
         let count = result.rows_affected();
         if count > 0 {
-            info!(
-                "Deleted {} SAML user mapping rows for name_id {}",
-                count, name_id
-            );
+            info!("Deleted {} SAML user mapping rows for name_id {}", count, name_id);
         }
         Ok(count)
     }
@@ -636,42 +594,32 @@ impl SamlStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create SAML IdP", &e))?;
 
-        info!(
-            "Created/updated SAML identity provider: {}",
-            request.entity_id
-        );
+        info!("Created/updated SAML identity provider: {}", request.entity_id);
         Ok(row)
     }
 
-    pub async fn get_identity_provider(
-        &self,
-        entity_id: &str,
-    ) -> Result<Option<SamlIdentityProvider>, ApiError> {
-        let row = sqlx::query_as::<_, SamlIdentityProvider>(
-            "SELECT * FROM saml_identity_providers WHERE entity_id = $1",
-        )
-        .bind(entity_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdP", &e))?;
+    pub async fn get_identity_provider(&self, entity_id: &str) -> Result<Option<SamlIdentityProvider>, ApiError> {
+        let row =
+            sqlx::query_as::<_, SamlIdentityProvider>("SELECT * FROM saml_identity_providers WHERE entity_id = $1")
+                .bind(entity_id)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdP", &e))?;
 
         Ok(row)
     }
 
     pub async fn get_all_identity_providers(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
-        let rows = sqlx::query_as::<_, SamlIdentityProvider>(
-            "SELECT * FROM saml_identity_providers ORDER BY priority ASC",
-        )
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdPs", &e))?;
+        let rows =
+            sqlx::query_as::<_, SamlIdentityProvider>("SELECT * FROM saml_identity_providers ORDER BY priority ASC")
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get SAML IdPs", &e))?;
 
         Ok(rows)
     }
 
-    pub async fn get_enabled_identity_providers(
-        &self,
-    ) -> Result<Vec<SamlIdentityProvider>, ApiError> {
+    pub async fn get_enabled_identity_providers(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         let rows = sqlx::query_as::<_, SamlIdentityProvider>(
             "SELECT * FROM saml_identity_providers WHERE is_enabled = true ORDER BY priority ASC",
         )
@@ -691,8 +639,8 @@ impl SamlStorage {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
             r#"
-            UPDATE saml_identity_providers 
-            SET metadata_xml = $1, 
+            UPDATE saml_identity_providers
+            SET metadata_xml = $1,
                 last_metadata_refresh_at = $4,
                 metadata_valid_until = $2,
                 updated_ts = $4
@@ -722,13 +670,9 @@ impl SamlStorage {
         Ok(())
     }
 
-    pub async fn create_auth_event(
-        &self,
-        request: CreateSamlAuthEventRequest,
-    ) -> Result<SamlAuthEvent, ApiError> {
+    pub async fn create_auth_event(&self, request: CreateSamlAuthEventRequest) -> Result<SamlAuthEvent, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let attributes_json =
-            serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
+        let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlAuthEvent>(
             r#"
@@ -756,23 +700,16 @@ impl SamlStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create SAML auth event", &e))?;
 
-        debug!(
-            "Created SAML auth event: {} - {}",
-            request.event_type, request.status
-        );
+        debug!("Created SAML auth event: {} - {}", request.event_type, request.status);
         Ok(row)
     }
 
-    pub async fn get_auth_events_by_user(
-        &self,
-        user_id: &str,
-        limit: i64,
-    ) -> Result<Vec<SamlAuthEvent>, ApiError> {
+    pub async fn get_auth_events_by_user(&self, user_id: &str, limit: i64) -> Result<Vec<SamlAuthEvent>, ApiError> {
         let rows = sqlx::query_as::<_, SamlAuthEvent>(
             r#"
-            SELECT * FROM saml_auth_events 
-            WHERE user_id = $1 
-            ORDER BY created_ts DESC 
+            SELECT * FROM saml_auth_events
+            WHERE user_id = $1
+            ORDER BY created_ts DESC
             LIMIT $2
             "#,
         )
@@ -814,44 +751,35 @@ impl SamlStorage {
         Ok(row)
     }
 
-    pub async fn get_logout_request(
-        &self,
-        request_id: &str,
-    ) -> Result<Option<SamlLogoutRequest>, ApiError> {
-        let row = sqlx::query_as::<_, SamlLogoutRequest>(
-            "SELECT * FROM saml_logout_requests WHERE request_id = $1",
-        )
-        .bind(request_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get logout request", &e))?;
+    pub async fn get_logout_request(&self, request_id: &str) -> Result<Option<SamlLogoutRequest>, ApiError> {
+        let row = sqlx::query_as::<_, SamlLogoutRequest>("SELECT * FROM saml_logout_requests WHERE request_id = $1")
+            .bind(request_id)
+            .fetch_optional(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get logout request", &e))?;
 
         Ok(row)
     }
 
     pub async fn process_logout_request(&self, request_id: &str) -> Result<(), ApiError> {
         let now_ts = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            "UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1"
-        )
-        .bind(request_id)
-        .bind(now_ts)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to process logout request", &e))?;
+        sqlx::query("UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1")
+            .bind(request_id)
+            .bind(now_ts)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to process logout request", &e))?;
 
         info!("Processed SAML logout request: {}", request_id);
         Ok(())
     }
 
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
-        let result = sqlx::query(
-            "DELETE FROM saml_auth_events WHERE created_ts < NOW() - INTERVAL '1 day' * $1",
-        )
-        .bind(days)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to cleanup auth events", &e))?;
+        let result = sqlx::query("DELETE FROM saml_auth_events WHERE created_ts < NOW() - INTERVAL '1 day' * $1")
+            .bind(days)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup auth events", &e))?;
 
         let count = result.rows_affected();
         if count > 0 {
@@ -864,16 +792,12 @@ impl SamlStorage {
     ///
     /// Called once at service startup to hydrate the in-memory cache
     /// that `SamlService::effective_config()` reads from synchronously.
-    pub async fn get_all_config_overrides(
-        &self,
-    ) -> Result<HashMap<String, serde_json::Value>, ApiError> {
+    pub async fn get_all_config_overrides(&self) -> Result<HashMap<String, serde_json::Value>, ApiError> {
         let rows: Vec<(String, serde_json::Value)> =
             sqlx::query_as("SELECT config_key, config_value FROM saml_config_overrides")
                 .fetch_all(&*self.pool)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to load SAML config overrides", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to load SAML config overrides", &e))?;
 
         debug!("Loaded {} SAML config override(s)", rows.len());
         Ok(rows.into_iter().collect())
@@ -883,11 +807,7 @@ impl SamlStorage {
     ///
     /// The caller (SamlService) is responsible for enforcing the
     /// `MUTABLE_CONFIG_FIELDS` whitelist; this method trusts its inputs.
-    pub async fn upsert_config_override(
-        &self,
-        key: &str,
-        value: &serde_json::Value,
-    ) -> Result<(), ApiError> {
+    pub async fn upsert_config_override(&self, key: &str, value: &serde_json::Value) -> Result<(), ApiError> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
             r#"
@@ -916,9 +836,7 @@ impl SamlStorage {
             .bind(key)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to delete SAML config override", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete SAML config override", &e))?;
 
         Ok(())
     }

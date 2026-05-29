@@ -79,16 +79,10 @@ pub struct RelationsService {
 
 impl RelationsService {
     pub fn new(storage: Arc<RelationsStorage>, server_name: String) -> Self {
-        Self {
-            storage,
-            server_name,
-        }
+        Self { storage, server_name }
     }
 
-    pub async fn send_annotation(
-        &self,
-        request: SendAnnotationRequest,
-    ) -> Result<EventRelation, ApiError> {
+    pub async fn send_annotation(&self, request: SendAnnotationRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -123,10 +117,7 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_log("Failed to create annotation", &e))
     }
 
-    pub async fn send_reference(
-        &self,
-        request: SendReferenceRequest,
-    ) -> Result<EventRelation, ApiError> {
+    pub async fn send_reference(&self, request: SendReferenceRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -134,16 +125,10 @@ impl RelationsService {
             "Sending reference"
         );
 
-        let event_id = format!(
-            "${}",
-            crate::common::crypto::generate_event_id(&request.room_id)
-        );
+        let event_id = format!("${}", crate::common::crypto::generate_event_id(&request.room_id));
 
         let mut content = request.content;
-        let effective_relation_type = request
-            .relation_type
-            .clone()
-            .unwrap_or_else(|| "m.reference".to_string());
+        let effective_relation_type = request.relation_type.clone().unwrap_or_else(|| "m.reference".to_string());
 
         if let Some(obj) = content.as_object_mut() {
             obj.insert(
@@ -178,10 +163,7 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_log("Failed to create reference", &e))
     }
 
-    pub async fn send_replacement(
-        &self,
-        request: SendReplacementRequest,
-    ) -> Result<EventRelation, ApiError> {
+    pub async fn send_replacement(&self, request: SendReplacementRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -191,27 +173,15 @@ impl RelationsService {
 
         let existing = self
             .storage
-            .get_replacement(
-                &request.room_id,
-                &request.relates_to_event_id,
-                &request.sender,
-            )
+            .get_replacement(&request.room_id, &request.relates_to_event_id, &request.sender)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to check existing replacement", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to check existing replacement", &e))?;
 
         let event_id = if let Some(existing) = existing {
-            warn!(
-                "Replacement already exists for sender {}, updating existing",
-                request.sender
-            );
+            warn!("Replacement already exists for sender {}, updating existing", request.sender);
             existing.event_id
         } else {
-            format!(
-                "${}",
-                crate::common::crypto::generate_event_id(&request.room_id)
-            )
+            format!("${}", crate::common::crypto::generate_event_id(&request.room_id))
         };
 
         let content = serde_json::json!({
@@ -288,12 +258,7 @@ impl RelationsService {
             })
             .collect();
 
-        Ok(RelationsResponse {
-            chunk,
-            next_batch: None,
-            prev_batch: None,
-            total: Some(total),
-        })
+        Ok(RelationsResponse { chunk, next_batch: None, prev_batch: None, total: Some(total) })
     }
 
     pub async fn get_aggregations(
@@ -327,12 +292,7 @@ impl RelationsService {
         Ok(AggregationResponse { chunk })
     }
 
-    pub async fn redact_relation(
-        &self,
-        room_id: &str,
-        event_id: &str,
-        sender: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn redact_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<(), ApiError> {
         let relation = self
             .storage
             .get_relation(room_id, event_id)
@@ -341,9 +301,7 @@ impl RelationsService {
 
         if let Some(relation) = relation {
             if relation.sender != sender {
-                return Err(ApiError::forbidden(
-                    "Cannot redact another user's relation".to_string(),
-                ));
+                return Err(ApiError::forbidden("Cannot redact another user's relation".to_string()));
             }
         }
 

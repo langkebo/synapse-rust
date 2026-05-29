@@ -9,10 +9,7 @@ pub trait EarlyExit {
         async move { tokio::time::timeout(timeout, self).await.ok() }
     }
 
-    fn with_deadline(
-        self,
-        deadline: tokio::time::Instant,
-    ) -> impl Future<Output = Option<Self::Output>>
+    fn with_deadline(self, deadline: tokio::time::Instant) -> impl Future<Output = Option<Self::Output>>
     where
         Self: Sized + Future,
     {

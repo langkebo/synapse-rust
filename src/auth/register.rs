@@ -11,17 +11,13 @@ impl AuthService {
         displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         let start = std::time::Instant::now();
-        let result = self
-            .register_internal(username, password, admin, displayname, None)
-            .await;
+        let result = self.register_internal(username, password, admin, displayname, None).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("auth_register_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("auth_register_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("auth_register_duration_seconds".to_string());
             hist.observe(duration);
         }
 
@@ -42,23 +38,13 @@ impl AuthService {
         initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         let start = std::time::Instant::now();
-        let result = self
-            .register_internal(
-                username,
-                password,
-                admin,
-                displayname,
-                initial_device_display_name,
-            )
-            .await;
+        let result = self.register_internal(username, password, admin, displayname, initial_device_display_name).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("auth_register_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("auth_register_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("auth_register_duration_seconds".to_string());
             hist.observe(duration);
         }
 
@@ -79,28 +65,21 @@ impl AuthService {
         initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         if username.is_empty() || password.is_empty() {
-            return Err(ApiError::missing_param(
-                "Username and password are required".to_string(),
-            ));
+            return Err(ApiError::missing_param("Username and password are required".to_string()));
         }
         if let Err(e) = self.validator.validate_username(username) {
             return Err(ApiError::invalid_username(e.to_string()));
         }
         if let Err(e) = self.validator.validate_password(password) {
-            return Err(ApiError::invalid_param(format!(
-                "Password does not meet policy requirements: {e}"
-            )));
+            return Err(ApiError::invalid_param(format!("Password does not meet policy requirements: {e}")));
         }
 
         let password_hash = self.hash_password(password)?;
 
         let user_id = format!("@{username}:{}", self.server_name);
 
-        let user = self
-            .user_storage
-            .create_user(&user_id, username, Some(&password_hash), admin)
-            .await
-            .map_err(|e| {
+        let user =
+            self.user_storage.create_user(&user_id, username, Some(&password_hash), admin).await.map_err(|e| {
                 if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
                     ApiError::user_in_use("Username already exists".to_string())
                 } else {
@@ -114,16 +93,10 @@ impl AuthService {
             }
         }
 
-        let device_id = self
-            .get_or_create_device_id(None, &user, initial_device_display_name)
-            .await?;
+        let device_id = self.get_or_create_device_id(None, &user, initial_device_display_name).await?;
 
-        let access_token = self
-            .generate_access_token(&user.user_id, &device_id, user.is_admin)
-            .await?;
-        let refresh_token = self
-            .generate_refresh_token(&user.user_id, &device_id)
-            .await?;
+        let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
+        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
 
         ::tracing::info!(
             target: "security_audit",

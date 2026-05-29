@@ -83,17 +83,12 @@ impl RtcInfraService {
 
         RtcMetrics::increment_turn_credentials_issued();
 
-        Ok(TurnCredentials {
-            username,
-            password,
-            uris: self.config.turn_uris.clone(),
-            ttl: lifetime,
-        })
+        Ok(TurnCredentials { username, password, uris: self.config.turn_uris.clone(), ttl: lifetime })
     }
 
     fn generate_turn_password(username: &str, secret: &str) -> Result<String, ApiError> {
-        let mut mac = HmacSha1::new_from_slice(secret.as_bytes())
-            .map_err(|e| ApiError::internal_with_log("HMAC error", &e))?;
+        let mut mac =
+            HmacSha1::new_from_slice(secret.as_bytes()).map_err(|e| ApiError::internal_with_log("HMAC error", &e))?;
         mac.update(username.as_bytes());
         let result = mac.finalize();
         Ok(BASE64.encode(result.into_bytes()))
@@ -152,10 +147,7 @@ mod tests {
 
     #[test]
     fn test_lifetime_seconds_custom() {
-        let config = VoipConfig {
-            turn_user_lifetime: "30m".to_string(),
-            ..Default::default()
-        };
+        let config = VoipConfig { turn_user_lifetime: "30m".to_string(), ..Default::default() };
         assert_eq!(config.lifetime_seconds(), 1800);
     }
 
@@ -164,9 +156,7 @@ mod tests {
         let config = Arc::new(create_test_config());
         let service = RtcInfraService::new(config);
 
-        let creds = service
-            .generate_turn_credentials("@alice:example.com")
-            .unwrap();
+        let creds = service.generate_turn_credentials("@alice:example.com").unwrap();
 
         assert!(!creds.username.is_empty());
         assert!(!creds.password.is_empty());
@@ -186,9 +176,7 @@ mod tests {
         });
         let service = RtcInfraService::new(config);
 
-        let creds = service
-            .generate_turn_credentials("@alice:example.com")
-            .unwrap();
+        let creds = service.generate_turn_credentials("@alice:example.com").unwrap();
 
         assert_eq!(creds.username, "static_user");
         assert_eq!(creds.password, "static_pass");
@@ -199,10 +187,8 @@ mod tests {
         let config = Arc::new(create_test_config());
         let _service = RtcInfraService::new(config);
 
-        let password1 = RtcInfraService::generate_turn_password("test_user", "secret")
-            .unwrap();
-        let password2 = RtcInfraService::generate_turn_password("test_user", "secret")
-            .unwrap();
+        let password1 = RtcInfraService::generate_turn_password("test_user", "secret").unwrap();
+        let password2 = RtcInfraService::generate_turn_password("test_user", "secret").unwrap();
 
         assert_eq!(password1, password2);
         assert!(!password1.is_empty());

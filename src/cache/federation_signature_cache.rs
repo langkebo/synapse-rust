@@ -52,18 +52,11 @@ pub struct CacheEntryKey {
 
 impl CacheEntryKey {
     pub fn new(origin: &str, key_id: &str, content_hash: &str) -> Self {
-        Self {
-            origin: Arc::from(origin),
-            key_id: Arc::from(key_id),
-            content_hash: Arc::from(content_hash),
-        }
+        Self { origin: Arc::from(origin), key_id: Arc::from(key_id), content_hash: Arc::from(content_hash) }
     }
 
     pub fn to_cache_key(&self) -> String {
-        format!(
-            "federation:signature_cache:{}:{}:{}",
-            self.origin, self.key_id, self.content_hash
-        )
+        format!("federation:signature_cache:{}:{}:{}", self.origin, self.key_id, self.content_hash)
     }
 }
 
@@ -76,11 +69,7 @@ pub struct SignatureCacheEntry {
 
 impl SignatureCacheEntry {
     pub fn new(verified: bool, ttl: Duration) -> Self {
-        Self {
-            verified,
-            cached_at: Instant::now(),
-            ttl,
-        }
+        Self { verified, cached_at: Instant::now(), ttl }
     }
 
     pub fn is_expired(&self) -> bool {
@@ -142,8 +131,7 @@ impl FederationSignatureCache {
 
     pub fn set_signature(&self, key: &CacheEntryKey, verified: bool) {
         let cache_key = key.to_cache_key();
-        let entry =
-            SignatureCacheEntry::new(verified, Duration::from_secs(self.config.signature_ttl));
+        let entry = SignatureCacheEntry::new(verified, Duration::from_secs(self.config.signature_ttl));
         self.signature_cache.insert(cache_key, entry);
     }
 
@@ -154,16 +142,12 @@ impl FederationSignatureCache {
 
     pub fn invalidate_signatures_for_origin(&self, origin: &str) {
         let prefix = format!("federation:signature_cache:{origin}:");
-        let _ = self
-            .signature_cache
-            .invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
+        let _ = self.signature_cache.invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
     }
 
     pub fn invalidate_signatures_for_key(&self, origin: &str, key_id: &str) {
         let prefix = format!("federation:signature_cache:{origin}:{key_id}:");
-        let _ = self
-            .signature_cache
-            .invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
+        let _ = self.signature_cache.invalidate_entries_if(move |k: &String, _| k.starts_with(&prefix));
     }
 
     pub fn clear_all(&self) {
@@ -176,10 +160,7 @@ impl FederationSignatureCache {
     }
 
     pub fn notify_key_rotation(&self, event: &KeyRotationEvent) {
-        let cache_key = format!(
-            "federation:verify_key:{}:{}",
-            event.origin, event.old_key_id
-        );
+        let cache_key = format!("federation:verify_key:{}:{}", event.origin, event.old_key_id);
         self.invalidated_keys.write().insert(cache_key);
 
         self.invalidate_signatures_for_key(&event.origin, &event.old_key_id);
@@ -262,10 +243,7 @@ mod tests {
         assert_eq!(key.origin.as_ref(), "example.com");
         assert_eq!(key.key_id.as_ref(), "ed25519:1");
         assert_eq!(key.content_hash.as_ref(), "abc123");
-        assert_eq!(
-            key.to_cache_key(),
-            "federation:signature_cache:example.com:ed25519:1:abc123"
-        );
+        assert_eq!(key.to_cache_key(), "federation:signature_cache:example.com:ed25519:1:abc123");
     }
 
     #[test]
@@ -414,10 +392,7 @@ mod tests {
 
     #[test]
     fn test_cache_ttl_expiration() {
-        let config = SignatureCacheConfig {
-            signature_ttl: 1,
-            ..Default::default()
-        };
+        let config = SignatureCacheConfig { signature_ttl: 1, ..Default::default() };
         let cache = FederationSignatureCache::new(config);
 
         let key = CacheEntryKey::new("example.com", "ed25519:1", "hash1");

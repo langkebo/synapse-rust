@@ -80,9 +80,7 @@ mod tests {
         let family_group = &groups_array[0];
         let members = family_group.get("members").unwrap().as_array().unwrap();
 
-        let is_member = members.iter().any(|m| {
-            m.as_str() == Some("@mom:example.com")
-        });
+        let is_member = members.iter().any(|m| m.as_str() == Some("@mom:example.com"));
 
         assert!(is_member);
     }
@@ -119,11 +117,7 @@ mod tests {
         let family_group = &mut groups_array[0];
         let members = family_group.get("members").unwrap().as_array().unwrap().clone();
 
-        let filtered: Vec<_> = members
-            .iter()
-            .filter(|m| m.as_str() != Some("@sibling:example.com"))
-            .cloned()
-            .collect();
+        let filtered: Vec<_> = members.iter().filter(|m| m.as_str() != Some("@sibling:example.com")).cloned().collect();
 
         assert_eq!(filtered.len(), 2);
         assert!(!filtered.iter().any(|m| m.as_str() == Some("@sibling:example.com")));
@@ -185,7 +179,7 @@ mod tests {
         });
 
         let groups_array = groups.get("groups").unwrap().as_array().unwrap();
-        
+
         let bob_groups: Vec<_> = groups_array
             .iter()
             .filter_map(|g| {

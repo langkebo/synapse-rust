@@ -116,11 +116,7 @@ impl KeyBackupStorage {
         Ok(rows)
     }
 
-    pub async fn get_backup_version(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<Option<KeyBackup>, ApiError> {
+    pub async fn get_backup_version(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
         let version_int: i64 = version.parse().unwrap_or(0);
         let row = sqlx::query_as::<_, KeyBackup>(
             r"
@@ -224,11 +220,7 @@ impl BackupKeyStorage {
         Ok(())
     }
 
-    pub async fn get_room_backup_keys(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Vec<BackupKeyInfo>, ApiError> {
+    pub async fn get_room_backup_keys(&self, user_id: &str, room_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r"
             SELECT
@@ -399,12 +391,7 @@ impl BackupKeyStorage {
         Ok(row)
     }
 
-    pub async fn delete_backup_key(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_backup_key(&self, user_id: &str, room_id: &str, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM backup_keys bk
@@ -453,12 +440,7 @@ impl BackupKeyStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn delete_room_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-        room_id: &str,
-    ) -> Result<u64, ApiError> {
+    pub async fn delete_room_for_version(&self, user_id: &str, version: &str, room_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
             DELETE FROM backup_keys bk
@@ -478,11 +460,7 @@ impl BackupKeyStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn delete_all_for_version(
-        &self,
-        user_id: &str,
-        version: &str,
-    ) -> Result<u64, ApiError> {
+    pub async fn delete_all_for_version(&self, user_id: &str, version: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
             DELETE FROM backup_keys bk
@@ -763,11 +741,7 @@ mod tests {
 
     #[test]
     fn test_user_id_format_validation() {
-        let valid_user_ids = vec![
-            "@alice:example.com",
-            "@bob:matrix.org",
-            "@user123:server.local",
-        ];
+        let valid_user_ids = vec!["@alice:example.com", "@bob:matrix.org", "@user123:server.local"];
 
         for user_id in valid_user_ids {
             let params = BackupKeyInsertParams {
@@ -788,11 +762,7 @@ mod tests {
 
     #[test]
     fn test_room_id_format_validation() {
-        let valid_room_ids = vec![
-            "!room:example.com",
-            "!abc123:matrix.org",
-            "!general:server.local",
-        ];
+        let valid_room_ids = vec!["!room:example.com", "!abc123:matrix.org", "!general:server.local"];
 
         for room_id in valid_room_ids {
             let params = BackupKeyInsertParams {
@@ -880,12 +850,6 @@ mod tests {
 
         assert_eq!(params.backup_data["algorithm"], "m.megolm.v1.aes-sha2");
         assert!(params.backup_data["forwarding_curve25519_key_chain"].is_array());
-        assert_eq!(
-            params.backup_data["forwarding_curve25519_key_chain"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
+        assert_eq!(params.backup_data["forwarding_curve25519_key_chain"].as_array().unwrap().len(), 2);
     }
 }

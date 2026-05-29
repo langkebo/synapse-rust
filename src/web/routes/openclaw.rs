@@ -9,9 +9,7 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 use crate::services::openclaw_service::OpenClawService;
-use crate::storage::openclaw::{
-    AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection,
-};
+use crate::storage::openclaw::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::AppState;
 
@@ -286,47 +284,20 @@ pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
         .nest(
             OPENCLAW_UNSTABLE_PREFIX,
             Router::new()
-                .route(
-                    "/connections",
-                    get(list_connections).post(create_connection),
-                )
-                .route(
-                    "/connections/{id}",
-                    get(get_connection)
-                        .put(update_connection)
-                        .delete(delete_connection),
-                )
+                .route("/connections", get(list_connections).post(create_connection))
+                .route("/connections/{id}", get(get_connection).put(update_connection).delete(delete_connection))
                 .route("/connections/{id}/test", post(test_connection))
-                .route(
-                    "/conversations",
-                    get(list_conversations).post(create_conversation),
-                )
+                .route("/conversations", get(list_conversations).post(create_conversation))
                 .route(
                     "/conversations/{id}",
-                    get(get_conversation)
-                        .put(update_conversation)
-                        .delete(delete_conversation),
+                    get(get_conversation).put(update_conversation).delete(delete_conversation),
                 )
-                .route(
-                    "/conversations/{id}/messages",
-                    get(list_messages).post(send_message),
-                )
+                .route("/conversations/{id}/messages", get(list_messages).post(send_message))
                 .route("/messages/{id}", delete(delete_message))
-                .route(
-                    "/generations",
-                    get(list_generations).post(create_generation),
-                )
-                .route(
-                    "/generations/{id}",
-                    get(get_generation).delete(delete_generation),
-                )
+                .route("/generations", get(list_generations).post(create_generation))
+                .route("/generations/{id}", get(get_generation).delete(delete_generation))
                 .route("/roles", get(list_chat_roles).post(create_chat_role))
-                .route(
-                    "/roles/{id}",
-                    get(get_chat_role)
-                        .put(update_chat_role)
-                        .delete(delete_chat_role),
-                ),
+                .route("/roles/{id}", get(get_chat_role).put(update_chat_role).delete(delete_chat_role)),
         )
         .with_state(state)
 }
@@ -336,98 +307,29 @@ pub fn openclaw_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteE
     use axum::http::Method;
 
     [
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}/test",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/messages/{id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}",
-        ),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}"),
+        (Method::PUT, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}"),
+        (Method::DELETE, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections/{id}/test"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}"),
+        (Method::PUT, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}"),
+        (Method::DELETE, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/conversations/{id}/messages"),
+        (Method::DELETE, "/_matrix/client/unstable/org.synapse_rust.openclaw/messages/{id}"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}"),
+        (Method::DELETE, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations/{id}"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/roles"),
+        (Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/roles"),
+        (Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}"),
+        (Method::PUT, "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}"),
+        (Method::DELETE, "/_matrix/client/unstable/org.synapse_rust.openclaw/roles/{id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "openclaw"))
@@ -448,12 +350,7 @@ async fn list_connections(
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
     let connections = svc(&state).list_connections(&auth.user_id).await?;
-    Ok(Json(
-        connections
-            .into_iter()
-            .map(ConnectionResponse::from)
-            .collect(),
-    ))
+    Ok(Json(connections.into_iter().map(ConnectionResponse::from).collect()))
 }
 
 async fn create_connection(
@@ -539,18 +436,13 @@ async fn list_conversations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (conversations, next_batch) = svc(&state)
-        .list_conversations(&auth.user_id, query.limit, query.from)
-        .await?;
+    let (conversations, next_batch) = svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: conversations.len() as i64,
         limit: query.limit,
         offset: query.offset,
         next_batch,
-        items: conversations
-            .into_iter()
-            .map(ConversationResponse::from)
-            .collect(),
+        items: conversations.into_iter().map(ConversationResponse::from).collect(),
     }))
 }
 
@@ -580,9 +472,7 @@ async fn get_conversation(
     Path(id): Path<i64>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conv = svc(&state)
-        .get_conversation_for_user(id, &auth.user_id)
-        .await?;
+    let conv = svc(&state).get_conversation_for_user(id, &auth.user_id).await?;
     Ok(Json(ConversationResponse::from(conv)))
 }
 
@@ -613,9 +503,7 @@ async fn delete_conversation(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state)
-        .delete_conversation(id, &auth.user_id)
-        .await?;
+    svc(&state).delete_conversation(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -626,9 +514,7 @@ async fn list_messages(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let messages = svc(&state)
-        .list_messages(conversation_id, &auth.user_id, query.limit, query.before)
-        .await?;
+    let messages = svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.before).await?;
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
         limit: query.limit,
@@ -674,18 +560,14 @@ async fn list_generations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (generations, next_batch) = svc(&state)
-        .list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from)
-        .await?;
+    let (generations, next_batch) =
+        svc(&state).list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: generations.len() as i64,
         limit: query.limit,
         offset: query.offset,
         next_batch,
-        items: generations
-            .into_iter()
-            .map(GenerationResponse::from)
-            .collect(),
+        items: generations.into_iter().map(GenerationResponse::from).collect(),
     }))
 }
 
@@ -695,9 +577,8 @@ async fn create_generation(
     Json(req): Json<CreateGenerationRequest>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let generation = svc(&state)
-        .create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt)
-        .await?;
+    let generation =
+        svc(&state).create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt).await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
@@ -707,9 +588,7 @@ async fn get_generation(
     Path(id): Path<i64>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let generation = svc(&state)
-        .get_generation_for_user(id, &auth.user_id)
-        .await?;
+    let generation = svc(&state).get_generation_for_user(id, &auth.user_id).await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
@@ -729,9 +608,7 @@ async fn list_chat_roles(
 ) -> Result<Json<Vec<ChatRoleResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
     let roles = svc(&state).list_chat_roles(&auth.user_id).await?;
-    Ok(Json(
-        roles.into_iter().map(ChatRoleResponse::from).collect(),
-    ))
+    Ok(Json(roles.into_iter().map(ChatRoleResponse::from).collect()))
 }
 
 async fn create_chat_role(

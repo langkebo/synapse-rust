@@ -16,9 +16,6 @@ pub struct ApnsProviderConfig {
     pub timeout_secs: u64,
 }
 
-#[deprecated(since = "0.1.0", note = "Use ApnsProviderConfig instead to avoid confusion with config::ApnsConfig")]
-pub type ApnsConfig = ApnsProviderConfig;
-
 impl Default for ApnsProviderConfig {
     fn default() -> Self {
         Self {
@@ -34,10 +31,7 @@ impl Default for ApnsProviderConfig {
 
 impl ApnsProviderConfig {
     pub fn sandbox() -> Self {
-        Self {
-            endpoint: "https://api.sandbox.push.apple.com".to_string(),
-            ..Default::default()
-        }
+        Self { endpoint: "https://api.sandbox.push.apple.com".to_string(), ..Default::default() }
     }
 }
 
@@ -87,18 +81,11 @@ impl ApnsProvider {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        Self {
-            config,
-            client,
-            enabled,
-        }
+        Self { config, client, enabled }
     }
 
     pub fn with_topic(topic: String) -> Self {
-        let config = ApnsProviderConfig {
-            topic,
-            ..Default::default()
-        };
+        let config = ApnsProviderConfig { topic, ..Default::default() };
         Self::new(config)
     }
 
@@ -107,10 +94,7 @@ impl ApnsProvider {
 
         ApnsPayload {
             aps: ApnsAps {
-                alert: ApnsAlert {
-                    title: payload.title.clone(),
-                    body: payload.body.clone(),
-                },
+                alert: ApnsAlert { title: payload.title.clone(), body: payload.body.clone() },
                 badge,
                 sound: payload.sound.clone(),
                 content_available: Some(1),
@@ -120,31 +104,17 @@ impl ApnsProvider {
     }
 
     fn generate_jwt(&self) -> Result<String, String> {
-        let key_id = self
-            .config
-            .key_id
-            .clone()
-            .ok_or_else(|| "APNS key_id not configured".to_string())?;
-        let team_id = self
-            .config
-            .team_id
-            .clone()
-            .ok_or_else(|| "APNS team_id not configured".to_string())?;
-        let private_key = self
-            .config
-            .private_key
-            .as_deref()
-            .ok_or_else(|| "APNS private_key not configured".to_string())?;
+        let key_id = self.config.key_id.clone().ok_or_else(|| "APNS key_id not configured".to_string())?;
+        let team_id = self.config.team_id.clone().ok_or_else(|| "APNS team_id not configured".to_string())?;
+        let private_key =
+            self.config.private_key.as_deref().ok_or_else(|| "APNS private_key not configured".to_string())?;
 
         if !private_key.contains("BEGIN") {
             return Err("APNS JWT credentials not configured".to_string());
         }
 
         let now = chrono::Utc::now().timestamp();
-        let claims = ApnsJwtClaims {
-            iss: team_id,
-            iat: now,
-        };
+        let claims = ApnsJwtClaims { iss: team_id, iat: now };
 
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(key_id);
@@ -152,8 +122,7 @@ impl ApnsProvider {
         let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes())
             .map_err(|e| format!("Invalid APNS EC private key: {e}"))?;
 
-        encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("Failed to sign APNS JWT: {e}"))
+        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign APNS JWT: {e}"))
     }
 
     async fn send_request(&self, token: &str, payload: &ApnsPayload) -> Result<(), String> {
@@ -180,18 +149,12 @@ impl ApnsProvider {
             return Ok(());
         }
 
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
 
         let error_info: serde_json::Value =
             serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({"reason": body}));
 
-        let reason = error_info
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("Unknown error");
+        let reason = error_info.get("reason").and_then(|r| r.as_str()).unwrap_or("Unknown error");
 
         Err(format!("APNS error: {status} - {reason}"))
     }
@@ -209,10 +172,7 @@ impl PushProvider for ApnsProvider {
             return PushResult::success();
         }
 
-        info!(
-            "Sending APNS notification to token: {}...",
-            &token[..20.min(token.len())]
-        );
+        info!("Sending APNS notification to token: {}...", &token[..20.min(token.len())]);
 
         let apns_payload = Self::build_payload(payload);
 
@@ -295,10 +255,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
             room_id: None,
             room_name: None,
             sender: None,
-            counts: Some(NotificationCounts {
-                unread: 5,
-                missed_calls: 0,
-            }),
+            counts: Some(NotificationCounts { unread: 5, missed_calls: 0 }),
         };
 
         let apns_payload = ApnsProvider::build_payload(&payload);

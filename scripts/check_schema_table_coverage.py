@@ -17,7 +17,9 @@ REF_PATTERNS = [
     re.compile(r"\bFROM\s+([a-z_][a-z0-9_]*)\b(?!\s*\()", re.IGNORECASE),
     re.compile(r"\bJOIN\s+([a-z_][a-z0-9_]*)\b(?!\s*\()", re.IGNORECASE),
     re.compile(r"\bINSERT\s+INTO\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
-    re.compile(r"(?:^|[;(])\s*UPDATE\s+([a-z_][a-z0-9_]*)", re.IGNORECASE | re.MULTILINE),
+    re.compile(
+        r"(?:^|[;(])\s*UPDATE\s+([a-z_][a-z0-9_]*)", re.IGNORECASE | re.MULTILINE
+    ),
     re.compile(r"\bDELETE\s+FROM\s+([a-z_][a-z0-9_]*)", re.IGNORECASE),
 ]
 SQL_LITERAL_PATTERNS = [
@@ -68,7 +70,9 @@ def write_json_report(output_path: str | None, payload: dict) -> None:
         return
     path = pathlib.Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def read_exceptions() -> set[str]:
@@ -97,11 +101,17 @@ def collect_references() -> dict[str, set[str]]:
                 )
 
             for literal in sql_literals:
-                cte_names = {match.group(1).lower() for match in CTE_PATTERN.finditer(literal)}
+                cte_names = {
+                    match.group(1).lower() for match in CTE_PATTERN.finditer(literal)
+                }
                 for pattern in REF_PATTERNS:
                     for match in pattern.finditer(literal):
                         table = match.group(1).lower()
-                        if table in IGNORED_REFS or table in cte_names or table.startswith("pg_"):
+                        if (
+                            table in IGNORED_REFS
+                            or table in cte_names
+                            or table.startswith("pg_")
+                        ):
                             continue
                         refs.setdefault(table, set()).add(str(path.relative_to(ROOT)))
     return refs
@@ -117,7 +127,9 @@ def collect_definitions() -> set[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate referenced tables have schema coverage")
+    parser = argparse.ArgumentParser(
+        description="Validate referenced tables have schema coverage"
+    )
     parser.add_argument(
         "--json-report",
         nargs="?",
@@ -129,8 +141,12 @@ def main() -> int:
     refs = collect_references()
     defs = collect_definitions()
     exceptions = read_exceptions()
-    missing = sorted(table for table in refs if table not in defs and table not in exceptions)
-    ignored = sorted(table for table in refs if table in exceptions and table not in defs)
+    missing = sorted(
+        table for table in refs if table not in defs and table not in exceptions
+    )
+    ignored = sorted(
+        table for table in refs if table in exceptions and table not in defs
+    )
 
     if args.json_report is not None:
         failures = [
@@ -175,7 +191,9 @@ def main() -> int:
             locations = ", ".join(sorted(refs[table]))
             print(f"- {table}: {locations}")
 
-    print(f"Schema table coverage passed: {len(refs)} referenced tables checked, {len(defs)} schema tables found.")
+    print(
+        f"Schema table coverage passed: {len(refs)} referenced tables checked, {len(defs)} schema tables found."
+    )
     return 0
 
 

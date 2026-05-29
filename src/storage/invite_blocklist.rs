@@ -16,18 +16,11 @@ impl InviteBlocklistStorage {
     }
 
     /// Set the invite blocklist for a room (users that cannot be invited)
-    pub async fn set_invite_blocklist(
-        &self,
-        room_id: &str,
-        user_ids: Vec<String>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         // Clear existing blocklist
-        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
 
         // Insert new blocklist
         if !user_ids.is_empty() {
@@ -66,7 +59,7 @@ impl InviteBlocklistStorage {
     pub async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r"
-            SELECT user_id FROM room_invite_blocklist 
+            SELECT user_id FROM room_invite_blocklist
             WHERE room_id = $1 AND user_id = $2
             ",
         )
@@ -79,18 +72,11 @@ impl InviteBlocklistStorage {
     }
 
     /// Set the invite allowlist for a room (only these users can be invited)
-    pub async fn set_invite_allowlist(
-        &self,
-        room_id: &str,
-        user_ids: Vec<String>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         // Clear existing allowlist
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
 
         // Insert new allowlist
         if !user_ids.is_empty() {
@@ -129,7 +115,7 @@ impl InviteBlocklistStorage {
     pub async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r"
-            SELECT user_id FROM room_invite_allowlist 
+            SELECT user_id FROM room_invite_allowlist
             WHERE room_id = $1 AND user_id = $2
             ",
         )
@@ -143,21 +129,19 @@ impl InviteBlocklistStorage {
 
     /// Check if invite blocking is enabled for a room
     pub async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let blocklist =
-            sqlx::query("SELECT 1 FROM room_invite_blocklist WHERE room_id = $1 LIMIT 1")
-                .bind(room_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let blocklist = sqlx::query("SELECT 1 FROM room_invite_blocklist WHERE room_id = $1 LIMIT 1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         if blocklist.is_some() {
             return Ok(true);
         }
 
-        let allowlist =
-            sqlx::query("SELECT 1 FROM room_invite_allowlist WHERE room_id = $1 LIMIT 1")
-                .bind(room_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let allowlist = sqlx::query("SELECT 1 FROM room_invite_allowlist WHERE room_id = $1 LIMIT 1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(allowlist.is_some())
     }

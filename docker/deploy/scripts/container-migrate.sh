@@ -119,7 +119,7 @@ should_apply_migration() {
     while IFS= read -r line; do
         # Skip comments and empty lines
         case "$line" in
-            \#*|"") continue ;;
+            \#* | "") continue ;;
         esac
         map_file="${line%%=*}"
         map_feature="${line#*=}"
@@ -127,7 +127,7 @@ should_apply_migration() {
             required_feature="$map_feature"
             break
         fi
-    done < "$EXTENSION_MAP"
+    done <"$EXTENSION_MAP"
 
     # Not in the map — it's a core migration, always apply
     if [ -z "$required_feature" ]; then
@@ -158,9 +158,9 @@ apply_sql_file() {
     started_at="$(date +%s)"
 
     log INFO "应用迁移: $filename"
-    if psql_db < "$file" >/dev/null; then
+    if psql_db <"$file" >/dev/null; then
         finished_at="$(date +%s)"
-        duration_ms=$(( (finished_at - started_at) * 1000 ))
+        duration_ms=$(((finished_at - started_at) * 1000))
         psql_db -c "
             INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
             VALUES (
@@ -187,7 +187,7 @@ apply_sql_file() {
     fi
 
     finished_at="$(date +%s)"
-    duration_ms=$(( (finished_at - started_at) * 1000 ))
+    duration_ms=$(((finished_at - started_at) * 1000))
     psql_db -c "ABORT;" >/dev/null 2>&1 || true
     psql_db -c "
         INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
@@ -371,7 +371,7 @@ main() {
         status)
             list_applied_migrations
             ;;
-        help|--help|-h)
+        help | --help | -h)
             show_help
             ;;
         *)

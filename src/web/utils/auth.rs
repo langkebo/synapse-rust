@@ -16,14 +16,10 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .ok_or_else(|| {
-            ApiError::unauthorized("Missing or invalid authorization header".to_string())
-        })?;
+        .ok_or_else(|| ApiError::unauthorized("Missing or invalid authorization header".to_string()))?;
 
     if token.trim().is_empty() {
-        return Err(ApiError::unauthorized(
-            "Empty authorization token".to_string(),
-        ));
+        return Err(ApiError::unauthorized("Empty authorization token".to_string()));
     }
 
     Ok(token)

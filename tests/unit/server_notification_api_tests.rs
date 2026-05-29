@@ -316,8 +316,5 @@ fn test_create_from_template_request() {
 
 // Helper functions
 fn is_valid_notification_type(notification_type: &str) -> bool {
-    matches!(
-        notification_type,
-        "message" | "invite" | "member" | "reaction" | "mention" | "alert" | "call"
-    )
+    matches!(notification_type, "message" | "invite" | "member" | "reaction" | "mention" | "alert" | "call")
 }

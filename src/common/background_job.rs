@@ -2,30 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BackgroundJob {
-    SendEmail {
-        to: String,
-        subject: String,
-        body: String,
-    },
-    ProcessMedia {
-        file_id: String,
-    },
-    FederationTransaction {
-        txn_id: String,
-        destination: String,
-    },
-    Generic {
-        name: String,
-        payload: serde_json::Value,
-    },
-    RedactEvent {
-        room_id: String,
-        event_id: String,
-        reason: Option<String>,
-    },
-    DelayedEventProcessing {
-        event_id: String,
-    },
+    SendEmail { to: String, subject: String, body: String },
+    ProcessMedia { file_id: String },
+    FederationTransaction { txn_id: String, destination: String },
+    Generic { name: String, payload: serde_json::Value },
+    RedactEvent { room_id: String, event_id: String, reason: Option<String> },
+    DelayedEventProcessing { event_id: String },
 }
 
 #[cfg(test)]
@@ -46,9 +28,7 @@ mod tests {
 
     #[test]
     fn test_process_media_job() {
-        let job = BackgroundJob::ProcessMedia {
-            file_id: "abc123".to_string(),
-        };
+        let job = BackgroundJob::ProcessMedia { file_id: "abc123".to_string() };
         let json = serde_json::to_string(&job).unwrap();
         assert!(json.contains("abc123"));
     }
@@ -66,10 +46,8 @@ mod tests {
 
     #[test]
     fn test_generic_job() {
-        let job = BackgroundJob::Generic {
-            name: "test_task".to_string(),
-            payload: serde_json::json!({"key": "value"}),
-        };
+        let job =
+            BackgroundJob::Generic { name: "test_task".to_string(), payload: serde_json::json!({"key": "value"}) };
         let json = serde_json::to_string(&job).unwrap();
         assert!(json.contains("test_task"));
     }

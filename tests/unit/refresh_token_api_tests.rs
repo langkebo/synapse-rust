@@ -253,8 +253,5 @@ fn test_grant_type_validation() {
 
 // Helper functions
 fn is_valid_grant_type(grant_type: &str) -> bool {
-    matches!(
-        grant_type,
-        "refresh_token" | "authorization_code" | "password" | "client_credentials"
-    )
+    matches!(grant_type, "refresh_token" | "authorization_code" | "password" | "client_credentials")
 }

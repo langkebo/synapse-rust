@@ -2,9 +2,7 @@ use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
 use crate::web::utils::encoding::decode_base64_32;
-use axum::{
-    extract::{Extension, Json, Path, State},
-};
+use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
 use serde_json::{json, Value};
 
@@ -15,9 +13,7 @@ pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Val
             .key_rotation_manager
             .load_or_create_key()
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to initialize federation signing key", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to initialize federation signing key", &e))?;
     }
 
     Ok(Json(resolve_server_keys(&state).await?))
@@ -27,9 +23,7 @@ pub(super) async fn key_query(
     State(state): State<AppState>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name == state.services.server_name
-        || server_name == state.services.config.federation.server_name
-    {
+    if server_name == state.services.server_name || server_name == state.services.config.federation.server_name {
         return server_key(State(state)).await;
     }
 
@@ -49,8 +43,8 @@ pub(super) async fn keys_claim(
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid claim request: {e}")))?;
+    let mut request: crate::e2ee::device_keys::KeyClaimRequest =
+        serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid claim request: {e}")))?;
 
     if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
         let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
@@ -61,10 +55,7 @@ pub(super) async fn keys_claim(
                 continue;
             }
 
-            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
-                .await
-                .is_ok()
-            {
+            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin).await.is_ok() {
                 allowed_local_users.insert(user_id);
             }
         }
@@ -79,11 +70,8 @@ pub(super) async fn keys_claim(
         "Federation keys claim request"
     );
 
-    let response = state
-        .services
-        .device_keys_service
-        .claim_keys_for_federation(request, &state.services.server_name)
-        .await?;
+    let response =
+        state.services.device_keys_service.claim_keys_for_federation(request, &state.services.server_name).await?;
 
     Ok(Json(json!({
         "one_time_keys": response.one_time_keys,
@@ -96,8 +84,8 @@ pub(super) async fn keys_query(
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid query request: {e}")))?;
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest =
+        serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid query request: {e}")))?;
 
     if let Some(device_keys) = request.device_keys.as_object_mut() {
         let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
@@ -108,10 +96,7 @@ pub(super) async fn keys_query(
                 continue;
             }
 
-            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin)
-                .await
-                .is_ok()
-            {
+            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin).await.is_ok() {
                 allowed_local_users.insert(user_id);
             }
         }
@@ -126,11 +111,8 @@ pub(super) async fn keys_query(
         "Federation keys query request"
     );
 
-    let response = state
-        .services
-        .device_keys_service
-        .query_keys_for_federation(request, &state.services.server_name)
-        .await?;
+    let response =
+        state.services.device_keys_service.query_keys_for_federation(request, &state.services.server_name).await?;
 
     Ok(Json(json!({
         "device_keys": response.device_keys,
@@ -150,9 +132,7 @@ pub(super) async fn keys_upload(
         "Federation keys upload request rejected: use user/keys endpoints instead"
     );
 
-    Err(ApiError::unrecognized(
-        "Federation keys upload is not supported. Use client-side user/keys endpoints instead.",
-    ))
+    Err(ApiError::unrecognized("Federation keys upload is not supported. Use client-side user/keys endpoints instead."))
 }
 
 pub(super) async fn legacy_keys_claim(
@@ -182,9 +162,7 @@ pub(super) async fn query_auth(State(_state): State<AppState>) -> Result<Json<Va
 }
 
 pub(super) async fn event_auth(State(_state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found(
-        "Federation event_auth is not implemented; use supported auth-chain endpoints".to_string(),
-    ))
+    Err(ApiError::not_found("Federation event_auth is not implemented; use supported auth-chain endpoints".to_string()))
 }
 
 async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
@@ -229,10 +207,7 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
             });
     }
 
-    let key_id = config
-        .key_id
-        .clone()
-        .unwrap_or_else(|| "ed25519:1".to_string());
+    let key_id = config.key_id.clone().unwrap_or_else(|| "ed25519:1".to_string());
 
     let verify_key = match config.signing_key.as_deref().and_then(|k| {
         let res = derive_ed25519_verify_key_base64(k);
@@ -244,9 +219,7 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
         Some(k) => k,
         None => {
             ::tracing::error!("Federation signing key missing or invalid in config");
-            return Err(ApiError::internal(
-                "Missing or invalid federation signing key".to_string(),
-            ));
+            return Err(ApiError::internal("Missing or invalid federation signing key".to_string()));
         }
     };
 
@@ -263,16 +236,10 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
     });
 
     if let Some(secret_key) = config.signing_key.as_deref() {
-        if let Err(e) = crate::federation::signing::sign_json(
-            &config.server_name,
-            &key_id_for_sign,
-            secret_key,
-            &mut response,
-        ) {
-            ::tracing::warn!(
-                "Failed to sign server keys response (config fallback): {}",
-                e
-            );
+        if let Err(e) =
+            crate::federation::signing::sign_json(&config.server_name, &key_id_for_sign, secret_key, &mut response)
+        {
+            ::tracing::warn!("Failed to sign server keys response (config fallback): {}", e);
         }
     }
 
@@ -293,9 +260,7 @@ async fn fetch_remote_server_keys_response(
 ) -> Result<Value, ApiError> {
     let backoff_key = format!("federation:key_fetch_backoff:{server_name}:{key_id}");
     if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
-        return Err(ApiError::not_found(format!(
-            "Remote server key '{key_id}' for '{server_name}' not found"
-        )));
+        return Err(ApiError::not_found(format!("Remote server key '{key_id}' for '{server_name}' not found")));
     }
 
     let cache_key = format!("federation:server_keys:{server_name}:{key_id}");
@@ -314,19 +279,13 @@ async fn fetch_remote_server_keys_response(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to build federation HTTP client", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to build federation HTTP client", &e))?;
 
     let urls = [
         format!("https://{server_name}/_matrix/key/v2/server"),
         format!("http://{server_name}/_matrix/key/v2/server"),
-        format!(
-            "https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"
-        ),
-        format!(
-            "http://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"
-        ),
+        format!("https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
+        format!("http://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
     ];
 
     for url in urls {
@@ -378,9 +337,7 @@ async fn fetch_remote_server_keys_response(
     if let Err(e) = state.cache.set(&backoff_key, true, 30).await {
         ::tracing::debug!("Failed to set federation backoff cache: {}", e);
     }
-    Err(ApiError::not_found(format!(
-        "Remote server key '{key_id}' for '{server_name}' not found"
-    )))
+    Err(ApiError::not_found(format!("Remote server key '{key_id}' for '{server_name}' not found")))
 }
 
 fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> Option<String> {
@@ -390,11 +347,7 @@ fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> O
 
     let server_keys = body.get("server_keys")?.as_array()?;
     for entry in server_keys {
-        if entry
-            .get("server_name")
-            .and_then(|value| value.as_str())
-            .is_some_and(|value| value != server_name)
-        {
+        if entry.get("server_name").and_then(|value| value.as_str()).is_some_and(|value| value != server_name) {
             continue;
         }
 

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::refresh_token::*;
     use synapse_rust::services::refresh_token_service::RefreshTokenService;
     use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::refresh_token::*;
 
     #[test]
     fn test_create_refresh_token_request() {
@@ -265,7 +265,7 @@ mod tests {
         let service = &container.refresh_token_service;
 
         let result = service.validate_token("invalid_token").await;
-        
+
         assert!(result.is_err());
     }
 

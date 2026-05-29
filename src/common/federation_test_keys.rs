@@ -25,11 +25,7 @@ pub fn generate_federation_test_keypair() -> FederationTestKeypair {
     let secret_key = STANDARD_NO_PAD.encode(secret_bytes);
     let public_key = STANDARD_NO_PAD.encode(verifying_key.as_bytes());
 
-    FederationTestKeypair {
-        key_id,
-        secret_key,
-        public_key,
-    }
+    FederationTestKeypair { key_id, secret_key, public_key }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -41,12 +37,8 @@ pub fn sign_federation_request(
     destination: &str,
     body: Option<&str>,
 ) -> Result<String, String> {
-    let secret_bytes_vec = STANDARD_NO_PAD
-        .decode(secret_key)
-        .map_err(|e| format!("Invalid base64 secret key: {e}"))?;
-    let secret_bytes: [u8; 32] = secret_bytes_vec
-        .try_into()
-        .map_err(|_| "Secret key must be 32 bytes".to_string())?;
+    let secret_bytes_vec = STANDARD_NO_PAD.decode(secret_key).map_err(|e| format!("Invalid base64 secret key: {e}"))?;
+    let secret_bytes: [u8; 32] = secret_bytes_vec.try_into().map_err(|_| "Secret key must be 32 bytes".to_string())?;
     let signing_key = DalekSigningKey::from_bytes(&secret_bytes);
 
     let mut signing_string = format!("{method}\n{path}\n{origin}\n{destination}\n");
@@ -58,10 +50,7 @@ pub fn sign_federation_request(
     let signature = signing_key.sign(signing_string.as_bytes());
     let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
 
-    Ok(format!(
-        "X-Matrix origin={},destination={},key_id={},sig={}",
-        origin, destination, "ed25519:test", sig_b64
-    ))
+    Ok(format!("X-Matrix origin={},destination={},key_id={},sig={}", origin, destination, "ed25519:test", sig_b64))
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -74,14 +63,11 @@ pub fn verify_federation_signature(
     body: Option<&str>,
     signature_header: &str,
 ) -> Result<bool, String> {
-    let pub_key_bytes_vec = STANDARD_NO_PAD
-        .decode(public_key)
-        .map_err(|e| format!("Invalid base64 public key: {e}"))?;
-    let pub_key_bytes: [u8; 32] = pub_key_bytes_vec
-        .try_into()
-        .map_err(|_| "Public key must be 32 bytes".to_string())?;
-    let verifying_key = VerifyingKey::from_bytes(&pub_key_bytes)
-        .map_err(|e| format!("Invalid verifying key: {e}"))?;
+    let pub_key_bytes_vec =
+        STANDARD_NO_PAD.decode(public_key).map_err(|e| format!("Invalid base64 public key: {e}"))?;
+    let pub_key_bytes: [u8; 32] =
+        pub_key_bytes_vec.try_into().map_err(|_| "Public key must be 32 bytes".to_string())?;
+    let verifying_key = VerifyingKey::from_bytes(&pub_key_bytes).map_err(|e| format!("Invalid verifying key: {e}"))?;
 
     let mut signing_string = format!("{method}\n{path}\n{origin}\n{destination}\n");
 
@@ -90,12 +76,10 @@ pub fn verify_federation_signature(
     }
 
     let sig_b64 = extract_signature_from_header(signature_header)?;
-    let signature_bytes = STANDARD_NO_PAD
-        .decode(&sig_b64)
-        .map_err(|e| format!("Invalid base64 signature: {e}"))?;
+    let signature_bytes = STANDARD_NO_PAD.decode(&sig_b64).map_err(|e| format!("Invalid base64 signature: {e}"))?;
 
-    let dalek_signature = ed25519_dalek::Signature::from_slice(&signature_bytes)
-        .map_err(|e| format!("Invalid signature format: {e}"))?;
+    let dalek_signature =
+        ed25519_dalek::Signature::from_slice(&signature_bytes).map_err(|e| format!("Invalid signature format: {e}"))?;
 
     verifying_key
         .verify(signing_string.as_bytes(), &dalek_signature)
@@ -168,20 +152,11 @@ mod tests {
         let origin = "example.com";
         let destination = "destination.com";
 
-        let signature =
-            sign_federation_request(&keypair.secret_key, method, path, origin, destination, None)
-                .unwrap();
+        let signature = sign_federation_request(&keypair.secret_key, method, path, origin, destination, None).unwrap();
 
-        let is_valid = verify_federation_signature(
-            &keypair.public_key,
-            method,
-            path,
-            origin,
-            destination,
-            None,
-            &signature,
-        )
-        .unwrap();
+        let is_valid =
+            verify_federation_signature(&keypair.public_key, method, path, origin, destination, None, &signature)
+                .unwrap();
 
         assert!(is_valid);
     }

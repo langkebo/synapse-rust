@@ -25,7 +25,9 @@ def parse_benchmarks(text: str) -> dict[str, float]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Assert keyset pagination benchmark gain.")
+    parser = argparse.ArgumentParser(
+        description="Assert keyset pagination benchmark gain."
+    )
     parser.add_argument("benchmark_file")
     parser.add_argument("--minimum-improvement", type=float, default=0.30)
     args = parser.parse_args()

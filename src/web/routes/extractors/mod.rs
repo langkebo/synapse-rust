@@ -28,9 +28,7 @@ impl UserId {
         if raw.starts_with('@') {
             Ok(Self(raw.to_string()))
         } else {
-            Err(ApiError::bad_request(format!(
-                "Invalid user ID format: {raw}"
-            )))
+            Err(ApiError::bad_request(format!("Invalid user ID format: {raw}")))
         }
     }
 }

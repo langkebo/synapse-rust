@@ -23,8 +23,7 @@ async fn cas_config_check_middleware(
     if !state.services.cas_service.is_configured().await {
         tracing::error!("CAS service is not properly configured - database tables may not exist");
         return Err(ApiError::internal(
-            "CAS service is not available. Please ensure database migrations have been run."
-                .to_string(),
+            "CAS service is not available. Please ensure database migrations have been run.".to_string(),
         ));
     }
     Ok(next.run(request).await)
@@ -125,15 +124,9 @@ async fn cas_sso_redirect(
         } else {
             "/login".to_string()
         };
-        return Ok((
-            StatusCode::FOUND,
-            [(header::LOCATION, redirect_url)],
-        )
-            .into_response());
+        return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)]).into_response());
     }
-    Err(ApiError::bad_request(
-        "CAS SSO is not configured".to_string(),
-    ))
+    Err(ApiError::bad_request("CAS SSO is not configured".to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,66 +142,28 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
         .route("/logout", get(logout))
-        .route(
-            "/_matrix/client/r0/login/sso/redirect/cas",
-            get(cas_sso_redirect),
-        )
-        .route(
-            "/_matrix/client/v3/login/sso/redirect/cas",
-            get(cas_sso_redirect),
-        )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            cas_config_check_middleware,
-        ));
+        .route("/_matrix/client/r0/login/sso/redirect/cas", get(cas_sso_redirect))
+        .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
+        .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
 
     let standard_admin_routes = Router::new()
         .route("/_synapse/admin/v1/cas/services", post(register_service))
         .route("/_synapse/admin/v1/cas/services", get(list_services))
-        .route(
-            "/_synapse/admin/v1/cas/services/{service_id}",
-            delete(delete_service),
-        )
-        .route(
-            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-            post(set_user_attribute),
-        )
-        .route(
-            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-            get(get_user_attributes),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            cas_config_check_middleware,
-        ));
+        .route("/_synapse/admin/v1/cas/services/{service_id}", delete(delete_service))
+        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", post(set_user_attribute))
+        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", get(get_user_attributes))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
     let legacy_admin_routes = Router::new()
         .route("/admin/services", post(register_service))
         .route("/admin/services", get(list_services))
         .route("/admin/services/{service_id}", delete(delete_service))
-        .route(
-            "/admin/users/{user_id}/attributes",
-            post(set_user_attribute),
-        )
-        .route(
-            "/admin/users/{user_id}/attributes",
-            get(get_user_attributes),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
-        .route_layer(axum::middleware::from_fn(
-            legacy_cas_admin_alias_deprecation_middleware,
-        ));
+        .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
+        .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
 
-    public_routes
-        .merge(standard_admin_routes)
-        .merge(legacy_admin_routes)
-        .with_state(state)
+    public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
 }
 
 pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -224,18 +179,9 @@ pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry>
         (Method::GET, "/logout"),
         (Method::POST, "/_synapse/admin/v1/cas/services"),
         (Method::GET, "/_synapse/admin/v1/cas/services"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/cas/services/{service_id}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-        ),
+        (Method::DELETE, "/_synapse/admin/v1/cas/services/{service_id}"),
+        (Method::POST, "/_synapse/admin/v1/cas/users/{user_id}/attributes"),
+        (Method::GET, "/_synapse/admin/v1/cas/users/{user_id}/attributes"),
         (Method::POST, "/admin/services"),
         (Method::GET, "/admin/services"),
         (Method::DELETE, "/admin/services/{service_id}"),
@@ -250,9 +196,7 @@ pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry>
 async fn legacy_cas_admin_alias_deprecation_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 
-    response
-        .headers_mut()
-        .insert("Deprecation", HeaderValue::from_static("true"));
+    response.headers_mut().insert("Deprecation", HeaderValue::from_static("true"));
     response.headers_mut().insert(
         header::WARNING,
         HeaderValue::from_static(
@@ -267,21 +211,13 @@ async fn login_redirect(
     State(state): State<AppState>,
     Query(query): Query<ServiceTicketQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _service = state
-        .services
-        .cas_service
-        .get_service_by_url(&query.service)
-        .await?;
+    let _service = state.services.cas_service.get_service_by_url(&query.service).await?;
 
-    let encoded_service: String =
-        form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
+    let encoded_service: String = form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
 
     Ok((
         StatusCode::FOUND,
-        [(
-            header::LOCATION,
-            format!("/cas/login?service={}", encoded_service),
-        )],
+        [(header::LOCATION, format!("/cas/login?service={}", encoded_service))],
         Json(serde_json::json!({
             "redirect_url": format!("/cas/login?service={}", encoded_service)
         })),
@@ -292,12 +228,8 @@ async fn service_validate(
     State(state): State<AppState>,
     Query(query): Query<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state
-        .services
-        .cas_service
-        .validate_service_ticket(&query.ticket, &query.service)
-        .await
-        .unwrap_or_else(|e| {
+    let result =
+        state.services.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
             tracing::warn!("CAS service ticket validation error: {}", e);
             None
         });
@@ -315,12 +247,8 @@ async fn proxy_validate(
     State(state): State<AppState>,
     Query(query): Query<ProxyValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state
-        .services
-        .cas_service
-        .validate_proxy_ticket(&query.ticket, &query.service)
-        .await
-        .unwrap_or_else(|e| {
+    let result =
+        state.services.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
             tracing::warn!("CAS proxy ticket validation error: {}", e);
             None
         });
@@ -332,33 +260,20 @@ async fn proxy_validate(
                 attributes: std::collections::HashMap::new(),
                 proxy_granting_ticket: None,
             };
-            Ok((
-                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
-                response.to_xml(),
-            ))
+            Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], response.to_xml()))
         }
         None => {
             let response = CasValidationResponse::Failure {
                 code: "INVALID_TICKET".to_string(),
                 description: "Proxy ticket not found or invalid".to_string(),
             };
-            Ok((
-                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
-                response.to_xml(),
-            ))
+            Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], response.to_xml()))
         }
     }
 }
 
-async fn proxy(
-    State(state): State<AppState>,
-    Query(query): Query<ProxyQuery>,
-) -> Result<impl IntoResponse, ApiError> {
-    let ticket = state
-        .services
-        .cas_service
-        .create_proxy_ticket(&query.pgt, &query.target_service)
-        .await?;
+async fn proxy(State(state): State<AppState>, Query(query): Query<ProxyQuery>) -> Result<impl IntoResponse, ApiError> {
+    let ticket = state.services.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
 
     let response = CasValidationResponse::Success {
         user: ticket.user_id.clone(),
@@ -366,10 +281,7 @@ async fn proxy(
         proxy_granting_ticket: Some(ticket.proxy_ticket_id),
     };
 
-    Ok((
-        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
-        response.to_xml(),
-    ))
+    Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], response.to_xml()))
 }
 
 async fn p3_service_validate(
@@ -387,10 +299,7 @@ async fn p3_service_validate(
         )
         .await?;
 
-    Ok((
-        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
-        response.to_xml(),
-    ))
+    Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], response.to_xml()))
 }
 
 async fn logout(
@@ -434,10 +343,7 @@ async fn register_service(
     Ok((StatusCode::CREATED, Json(ServiceResponse::from(service))))
 }
 
-async fn list_services(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
+async fn list_services(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let services = state.services.cas_service.list_services().await?;
     let response: Vec<ServiceResponse> = services.into_iter().map(ServiceResponse::from).collect();
     Ok(Json(response))
@@ -448,11 +354,7 @@ async fn delete_service(
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state
-        .services
-        .cas_service
-        .delete_service(&service_id)
-        .await?;
+    let deleted = state.services.cas_service.delete_service(&service_id).await?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)
@@ -467,11 +369,8 @@ async fn set_user_attribute(
     Path(user_id): Path<String>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attr = state
-        .services
-        .cas_service
-        .set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value)
-        .await?;
+    let attr =
+        state.services.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
 
     Ok(Json(serde_json::json!({
         "user_id": attr.user_id,
@@ -485,11 +384,7 @@ async fn get_user_attributes(
     _admin: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attrs = state
-        .services
-        .cas_service
-        .get_user_attributes(&user_id)
-        .await?;
+    let attrs = state.services.cas_service.get_user_attributes(&user_id).await?;
 
     let response: Vec<serde_json::Value> = attrs
         .into_iter()

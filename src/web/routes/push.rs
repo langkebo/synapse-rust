@@ -19,16 +19,10 @@ fn create_push_compat_router() -> Router<AppState> {
         .route("/pushrules/{scope}/{kind}", get(get_push_rules_kind))
         .route(
             "/pushrules/{scope}/{kind}/{rule_id}",
-            get(get_push_rule)
-                .post(create_push_rule)
-                .put(set_push_rule)
-                .delete(delete_push_rule),
+            get(get_push_rule).post(create_push_rule).put(set_push_rule).delete(delete_push_rule),
         )
         .route("/notifications", get(get_notifications))
-        .route(
-            "/notifications/{notification_id}/ack",
-            post(ack_notification),
-        )
+        .route("/notifications/{notification_id}/ack", post(ack_notification))
 }
 
 pub fn create_push_router(state: AppState) -> Router<AppState> {
@@ -37,10 +31,7 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v3", compat_router.clone())
         .nest("/_matrix/client/r0", compat_router)
-        .route(
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
-            put(set_push_rule_actions),
-        )
+        .route("/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions", put(set_push_rule_actions))
         .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
             get(get_push_rule_enabled).put(set_push_rule_enabled),
@@ -72,18 +63,9 @@ fn push_v3_only_absolute_routes() -> Vec<crate::web::routes::route_ledger::Route
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
-        (
-            Method::PUT,
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
-        ),
+        (Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions"),
+        (Method::GET, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled"),
+        (Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "push"))
@@ -143,15 +125,12 @@ pub struct PushAction {
     pub value: Option<Value>,
 }
 
-async fn get_pushers(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
+async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     let pushers = sqlx::query(
         r"
-        SELECT pushkey, kind, app_id, app_display_name, device_display_name, 
+        SELECT pushkey, kind, app_id, app_display_name, device_display_name,
                profile_tag, lang, data, device_id
-        FROM pushers 
+        FROM pushers
         WHERE user_id = $1
         ORDER BY created_ts DESC
         ",
@@ -187,13 +166,7 @@ async fn set_pusher(
     auth_user: AuthenticatedUser,
     Json(body): Json<SetPusherRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let kind = body.kind.unwrap_or_else(|| {
-        if body.data.is_some() {
-            "http".to_string()
-        } else {
-            "null".to_string()
-        }
-    });
+    let kind = body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -206,7 +179,7 @@ async fn set_pusher(
             ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
                 pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
                 device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
-            "
+            ",
         )
         .bind(&auth_user.user_id)
         .bind(&auth_user.device_id)
@@ -246,26 +219,16 @@ async fn set_pusher(
     }
 }
 
-async fn get_push_rules(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
+async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
-    let row = sqlx::query(
-        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
-    )
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
+    let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
+        .bind(&auth_user.user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
 
-    let username = auth_user
-        .user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or("");
+    let username = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
     if let Some(row) = row {
         let mut content: Value = row.get("content");
@@ -273,10 +236,7 @@ async fn get_push_rules(
         return Ok(Json(content));
     }
 
-    Ok(Json(default_push_rules_for_user(
-        &auth_user.user_id,
-        username,
-    )))
+    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username)))
 }
 
 async fn get_push_rules_scope(
@@ -285,19 +245,13 @@ async fn get_push_rules_scope(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if scope == "global" {
-        let username = auth_user
-            .user_id
-            .strip_prefix('@')
-            .and_then(|s| s.split(':').next())
-            .unwrap_or("");
+        let username = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
-        let result = sqlx::query(
-            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
-        )
-        .bind(&auth_user.user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
+            .bind(&auth_user.user_id)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(row) = result {
             let content: Option<Value> = row.get("content");
@@ -308,10 +262,7 @@ async fn get_push_rules_scope(
             }
         }
 
-        let defaults = crate::web::routes::push_rules::default_push_rules_for_user(
-            &auth_user.user_id,
-            username,
-        );
+        let defaults = crate::web::routes::push_rules::default_push_rules_for_user(&auth_user.user_id, username);
         if let Some(global) = defaults.get("global") {
             Ok(Json(global.clone()))
         } else {
@@ -324,9 +275,7 @@ async fn get_push_rules_scope(
             })))
         }
     } else {
-        Err(ApiError::invalid_input(format!(
-            "Unsupported push rules scope: {scope}"
-        )))
+        Err(ApiError::invalid_input(format!("Unsupported push rules scope: {scope}")))
     }
 }
 
@@ -348,9 +297,7 @@ async fn get_push_rule(
 ) -> Result<Json<Value>, ApiError> {
     let rules = get_user_push_rules(&state, &auth_user.user_id, &scope, &kind).await?;
 
-    let rule = rules
-        .iter()
-        .find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
+    let rule = rules.iter().find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
 
     match rule {
         Some(r) => Ok(Json(r.clone())),
@@ -368,10 +315,7 @@ async fn set_push_rule(
 
     let conditions = body.get("conditions").cloned();
 
-    let pattern = body
-        .get("pattern")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let pattern = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -413,19 +357,10 @@ async fn create_push_rule(
 
     let conditions = body.get("conditions").cloned();
 
-    let pattern = body
-        .get("pattern")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let pattern = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let before = body
-        .get("before")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let after = body
-        .get("after")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let before = body.get("before").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let after = body.get("after").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let _ = (before, after);
 
@@ -464,16 +399,14 @@ async fn delete_push_rule(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
-    )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(&rule_id)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
+    let result = sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
+        .bind(&auth_user.user_id)
+        .bind(&scope)
+        .bind(&kind)
+        .bind(&rule_id)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Push rule not found".to_string()));
@@ -488,23 +421,17 @@ async fn set_push_rule_actions(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions = if body.is_array() {
-        body
-    } else {
-        body.get("actions").cloned().unwrap_or(json!([]))
-    };
+    let actions = if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
 
-    sqlx::query(
-        "UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"
-    )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(&actions)
-    .bind(&rule_id)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
+    sqlx::query("UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5")
+        .bind(&auth_user.user_id)
+        .bind(&scope)
+        .bind(&kind)
+        .bind(&actions)
+        .bind(&rule_id)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -519,7 +446,7 @@ async fn get_push_rule_enabled(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"
+        "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -543,13 +470,10 @@ async fn set_push_rule_enabled(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
     sqlx::query(
-        "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5"
+        "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
     )
     .bind(&auth_user.user_id)
     .bind(&scope)
@@ -572,10 +496,7 @@ async fn get_notifications(
     auth_user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
 
     let _from = params.get("from").cloned();
     let _only = params.get("only").cloned();
@@ -621,7 +542,7 @@ async fn ack_notification(
 ) -> Result<Json<Value>, ApiError> {
     // Mark notification as read
     let result = sqlx::query(
-        "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id"
+        "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id",
     )
     .bind(notification_id)
     .bind(&auth_user.user_id)
@@ -640,12 +561,7 @@ async fn ack_notification(
     }
 }
 
-async fn get_user_push_rules(
-    state: &AppState,
-    user_id: &str,
-    scope: &str,
-    kind: &str,
-) -> Result<Vec<Value>, ApiError> {
+async fn get_user_push_rules(state: &AppState, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
     let rules = sqlx::query(
         r"
         SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
@@ -693,12 +609,8 @@ mod tests {
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
-        assert!(v3_only_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/v3/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]
@@ -730,15 +642,9 @@ mod tests {
             "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}/enabled",
         ];
 
-        assert!(compat_paths
-            .iter()
-            .all(|path| !path.ends_with("/actions") && !path.ends_with("/enabled")));
-        assert!(v3_only_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/v3/")));
-        assert!(absent_r0_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/r0/")));
+        assert!(compat_paths.iter().all(|path| !path.ends_with("/actions") && !path.ends_with("/enabled")));
+        assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(absent_r0_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 
     #[test]
@@ -782,10 +688,7 @@ mod tests {
             is_enabled: true,
             pattern: Some("alice".to_string()),
             conditions: None,
-            actions: vec![PushAction {
-                set_tweak: Some("sound".to_string()),
-                value: Some(json!("default")),
-            }],
+            actions: vec![PushAction { set_tweak: Some("sound".to_string()), value: Some(json!("default")) }],
         };
 
         assert!(rule.is_default);
@@ -795,22 +698,15 @@ mod tests {
 
     #[test]
     fn test_push_condition_structure() {
-        let condition = PushCondition {
-            kind: "contains_display_name".to_string(),
-            key: None,
-            pattern: None,
-            is_value: None,
-        };
+        let condition =
+            PushCondition { kind: "contains_display_name".to_string(), key: None, pattern: None, is_value: None };
 
         assert_eq!(condition.kind, "contains_display_name");
     }
 
     #[test]
     fn test_push_action_structure() {
-        let action = PushAction {
-            set_tweak: Some("sound".to_string()),
-            value: Some(json!("default")),
-        };
+        let action = PushAction { set_tweak: Some("sound".to_string()), value: Some(json!("default")) };
 
         assert!(action.set_tweak.is_some());
     }

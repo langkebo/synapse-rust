@@ -49,18 +49,13 @@ async fn register_worker(app: &axum::Router, admin_token: &str, worker_id: &str)
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 }
 
 #[tokio::test]
 async fn test_worker_endpoints_require_replication_secret_when_enabled() {
-    let Some((app, _admin_token, worker_id)) = setup_test_app_with_replication_secret().await
-    else {
+    let Some((app, _admin_token, worker_id)) = setup_test_app_with_replication_secret().await else {
         return;
     };
 
@@ -72,55 +67,34 @@ async fn test_worker_endpoints_require_replication_secret_when_enabled() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/worker/v1/workers/{}/heartbeat",
-            worker_id
-        ))
+        .uri(format!("/_synapse/worker/v1/workers/{}/heartbeat", worker_id))
         .header("Content-Type", "application/json")
         .body(Body::from(heartbeat_body.clone()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/worker/v1/workers/{}/heartbeat",
-            worker_id
-        ))
+        .uri(format!("/_synapse/worker/v1/workers/{}/heartbeat", worker_id))
         .header("x-synapse-worker-secret", "wrong_secret")
         .header("Content-Type", "application/json")
         .body(Body::from(heartbeat_body.clone()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/worker/v1/workers/{}/heartbeat",
-            worker_id
-        ))
+        .uri(format!("/_synapse/worker/v1/workers/{}/heartbeat", worker_id))
         .header("x-synapse-worker-secret", "test_worker_secret")
         .header("Content-Type", "application/json")
         .body(Body::from(heartbeat_body))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -151,26 +125,18 @@ async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled()
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/worker/v1/workers/{}/heartbeat",
-            worker_id
-        ))
+        .uri(format!("/_synapse/worker/v1/workers/{}/heartbeat", worker_id))
         .header("Content-Type", "application/json")
         .body(Body::from(heartbeat_body))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn test_admin_worker_endpoints_still_require_admin_jwt() {
-    let Some((app, admin_token, _worker_id)) = setup_test_app_with_replication_secret().await
-    else {
+    let Some((app, admin_token, _worker_id)) = setup_test_app_with_replication_secret().await else {
         return;
     };
 
@@ -181,11 +147,7 @@ async fn test_admin_worker_endpoints_still_require_admin_jwt() {
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let request = Request::builder()
@@ -195,10 +157,6 @@ async fn test_admin_worker_endpoints_still_require_admin_jwt() {
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }

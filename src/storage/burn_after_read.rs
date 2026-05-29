@@ -57,11 +57,7 @@ impl BurnAfterReadStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn get_settings(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+    pub async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
         sqlx::query_as::<_, BurnSettingsRow>(
             r"
             SELECT user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
@@ -136,12 +132,7 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
-    pub async fn cancel_burn(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE burn_after_read_pending
@@ -158,11 +149,7 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
-    pub async fn get_pending_burns(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+    pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
             r"
             SELECT id, user_id, room_id, event_id, created_ts, delete_at, is_processed
@@ -196,12 +183,10 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1")
+            .bind(id)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }
@@ -245,10 +230,7 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
-    pub async fn get_user_default(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
+    pub async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
         let row = sqlx::query_as::<_, BurnUserDefaultsRow>(
             r"
             SELECT user_id, default_burn_ms, created_ts, updated_ts
@@ -263,11 +245,7 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
-    pub async fn set_user_default(
-        &self,
-        user_id: &str,
-        default_burn_ms: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -351,11 +329,7 @@ mod tests {
 
     #[test]
     fn test_burn_stats_row_fields() {
-        let row = BurnStatsRow {
-            total_burned: 5,
-            total_pending: 2,
-            rooms_enabled: 3,
-        };
+        let row = BurnStatsRow { total_burned: 5, total_pending: 2, rooms_enabled: 3 };
         assert_eq!(row.total_burned, 5);
         assert_eq!(row.total_pending, 2);
         assert_eq!(row.rooms_enabled, 3);

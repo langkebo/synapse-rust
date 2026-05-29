@@ -58,35 +58,17 @@ pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger:
     [
         (Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"),
         (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn"),
-        (
-            Method::GET,
-            "/_matrix/client/v1/rooms/{room_id}/burn/pending",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-        ),
+        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn/pending"),
+        (Method::POST, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
+        (Method::DELETE, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
         (Method::PUT, "/_matrix/client/v1/user/burn/config"),
         (Method::GET, "/_matrix/client/v1/user/burn/stats"),
         // v3 paths
         (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/burn"),
         (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn"),
-        (
-            Method::GET,
-            "/_matrix/client/v3/rooms/{room_id}/burn/pending",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-        ),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn/pending"),
+        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
+        (Method::DELETE, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
         (Method::PUT, "/_matrix/client/v3/user/burn/config"),
         (Method::GET, "/_matrix/client/v3/user/burn/stats"),
     ]
@@ -114,15 +96,9 @@ pub async fn enable_burn(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let enabled = body
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    let burn_after_ms = body
-        .get("burn_after_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(60_000); // Default 1 minute
+    let burn_after_ms = body.get("burn_after_ms").and_then(|v| v.as_i64()).unwrap_or(60_000); // Default 1 minute
 
     state
         .services
@@ -201,17 +177,11 @@ pub async fn mark_burn_read(
 
     let (enabled, burn_after_ms) = match settings {
         Some(s) => (s.is_enabled, s.burn_after_ms),
-        None => {
-            return Err(ApiError::bad_request(
-                "Burn not enabled for this room".to_string(),
-            ))
-        }
+        None => return Err(ApiError::bad_request("Burn not enabled for this room".to_string())),
     };
 
     if !enabled {
-        return Err(ApiError::bad_request(
-            "Burn not enabled for this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Burn not enabled for this room".to_string()));
     }
 
     let delete_at = Utc::now().timestamp_millis() + burn_after_ms;
@@ -307,10 +277,7 @@ pub async fn set_global_burn_config(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let default_burn_ms = body
-        .get("default_burn_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(60_000);
+    let default_burn_ms = body.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
 
     state
         .services

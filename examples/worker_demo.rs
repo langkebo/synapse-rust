@@ -71,18 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         version: Some("1.0.0".to_string()),
     };
 
-    let response = client
-        .post(format!("{BASE_URL}/_synapse/worker/v1/register"))
-        .json(&register_req)
-        .send()
-        .await?;
+    let response = client.post(format!("{BASE_URL}/_synapse/worker/v1/register")).json(&register_req).send().await?;
 
     if response.status().is_success() {
         let worker: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Worker registered: {}",
-            serde_json::to_string_pretty(&worker)?
-        );
+        println!("   ✓ Worker registered: {}", serde_json::to_string_pretty(&worker)?);
     } else {
         println!("   ✗ Failed to register worker: {}", response.status());
     }
@@ -98,35 +91,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         version: Some("1.0.0".to_string()),
     };
 
-    let response = client
-        .post(format!("{BASE_URL}/_synapse/worker/v1/register"))
-        .json(&register_req)
-        .send()
-        .await?;
+    let response = client.post(format!("{BASE_URL}/_synapse/worker/v1/register")).json(&register_req).send().await?;
 
     if response.status().is_success() {
         let worker: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Worker registered: {}",
-            serde_json::to_string_pretty(&worker)?
-        );
+        println!("   ✓ Worker registered: {}", serde_json::to_string_pretty(&worker)?);
     } else {
         println!("   ✗ Failed to register worker: {}", response.status());
     }
 
     // Step 3: List all workers
     println!("\n3. Listing all workers...");
-    let response = client
-        .get(format!("{BASE_URL}/_synapse/worker/v1/workers"))
-        .send()
-        .await?;
+    let response = client.get(format!("{BASE_URL}/_synapse/worker/v1/workers")).send().await?;
 
     if response.status().is_success() {
         let workers: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Active workers: {}",
-            serde_json::to_string_pretty(&workers)?
-        );
+        println!("   ✓ Active workers: {}", serde_json::to_string_pretty(&workers)?);
     } else {
         println!("   ✗ Failed to list workers: {}", response.status());
     }
@@ -146,9 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client
-        .post(format!(
-            "{BASE_URL}/_synapse/worker/v1/workers/frontend-001/heartbeat"
-        ))
+        .post(format!("{BASE_URL}/_synapse/worker/v1/workers/frontend-001/heartbeat"))
         .json(&heartbeat_req)
         .send()
         .await?;
@@ -167,52 +145,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         preferred_worker_id: Some("background-001".to_string()),
     };
 
-    let response = client
-        .post(format!("{BASE_URL}/_synapse/worker/v1/tasks"))
-        .json(&task_req)
-        .send()
-        .await?;
+    let response = client.post(format!("{BASE_URL}/_synapse/worker/v1/tasks")).json(&task_req).send().await?;
 
     if response.status().is_success() {
         let task: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Task assigned: {}",
-            serde_json::to_string_pretty(&task)?
-        );
+        println!("   ✓ Task assigned: {}", serde_json::to_string_pretty(&task)?);
     } else {
         println!("   ✗ Failed to assign task: {}", response.status());
     }
 
     // Step 6: Get pending tasks
     println!("\n6. Getting pending tasks...");
-    let response = client
-        .get(format!("{BASE_URL}/_synapse/worker/v1/tasks"))
-        .send()
-        .await?;
+    let response = client.get(format!("{BASE_URL}/_synapse/worker/v1/tasks")).send().await?;
 
     if response.status().is_success() {
         let tasks: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Pending tasks: {}",
-            serde_json::to_string_pretty(&tasks)?
-        );
+        println!("   ✓ Pending tasks: {}", serde_json::to_string_pretty(&tasks)?);
     } else {
         println!("   ✗ Failed to get tasks: {}", response.status());
     }
 
     // Step 7: Select worker for a task type
     println!("\n7. Testing worker selection for 'http' task...");
-    let response = client
-        .get(format!("{BASE_URL}/_synapse/worker/v1/select/http"))
-        .send()
-        .await?;
+    let response = client.get(format!("{BASE_URL}/_synapse/worker/v1/select/http")).send().await?;
 
     if response.status().is_success() {
         let selected: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Selected worker: {}",
-            serde_json::to_string_pretty(&selected)?
-        );
+        println!("   ✓ Selected worker: {}", serde_json::to_string_pretty(&selected)?);
     } else {
         println!("   ✗ Failed to select worker: {}", response.status());
     }
@@ -230,29 +189,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let response = client
-        .post(format!(
-            "{BASE_URL}/_synapse/worker/v1/workers/background-001/commands"
-        ))
+        .post(format!("{BASE_URL}/_synapse/worker/v1/workers/background-001/commands"))
         .json(&cmd_req)
         .send()
         .await?;
 
     if response.status().is_success() {
         let command: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Command sent: {}",
-            serde_json::to_string_pretty(&command)?
-        );
+        println!("   ✓ Command sent: {}", serde_json::to_string_pretty(&command)?);
     } else {
         println!("   ✗ Failed to send command: {}", response.status());
     }
 
     // Step 9: Get worker statistics
     println!("\n9. Getting worker statistics...");
-    let response = client
-        .get(format!("{BASE_URL}/_synapse/worker/v1/statistics"))
-        .send()
-        .await?;
+    let response = client.get(format!("{BASE_URL}/_synapse/worker/v1/statistics")).send().await?;
 
     if response.status().is_success() {
         let stats: serde_json::Value = response.json().await?;
@@ -263,17 +214,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 10: Get statistics by type
     println!("\n10. Getting worker statistics by type...");
-    let response = client
-        .get(format!("{BASE_URL}/_synapse/worker/v1/statistics/types"))
-        .send()
-        .await?;
+    let response = client.get(format!("{BASE_URL}/_synapse/worker/v1/statistics/types")).send().await?;
 
     if response.status().is_success() {
         let stats: serde_json::Value = response.json().await?;
-        println!(
-            "   ✓ Type statistics: {}",
-            serde_json::to_string_pretty(&stats)?
-        );
+        println!("   ✓ Type statistics: {}", serde_json::to_string_pretty(&stats)?);
     } else {
         println!("   ✗ Failed to get type statistics: {}", response.status());
     }

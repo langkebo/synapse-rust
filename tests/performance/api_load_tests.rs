@@ -71,10 +71,7 @@ mod api_performance_tests {
         });
 
         let elapsed = start.elapsed();
-        println!(
-            "Concurrent sync requests - {} concurrent requests: {:?}",
-            concurrent_count, elapsed
-        );
+        println!("Concurrent sync requests - {} concurrent requests: {:?}", concurrent_count, elapsed);
     }
 
     #[test]
@@ -91,10 +88,7 @@ mod api_performance_tests {
         });
 
         let elapsed = start.elapsed();
-        println!(
-            "Concurrent login requests - {} concurrent requests: {:?}",
-            concurrent_count, elapsed
-        );
+        println!("Concurrent login requests - {} concurrent requests: {:?}", concurrent_count, elapsed);
     }
 
     // ==================== Memory Usage Tests ====================
@@ -191,10 +185,7 @@ mod api_performance_tests {
 
         latencies.sort();
         let p99_index = (latencies.len() as f64 * 0.99) as usize;
-        println!(
-            "API Latency P99: {:?}",
-            latencies[p99_index.min(latencies.len() - 1)]
-        );
+        println!("API Latency P99: {:?}", latencies[p99_index.min(latencies.len() - 1)]);
     }
 
     // ==================== Helper Functions ====================
@@ -263,10 +254,7 @@ mod load_tests {
 
         let total = total_requests.load(Ordering::Relaxed);
         let requests_per_second = total as f64 / 5.0;
-        println!(
-            "Sustained load test: {} total requests, {:.2} req/s",
-            total, requests_per_second
-        );
+        println!("Sustained load test: {} total requests, {:.2} req/s", total, requests_per_second);
     }
 
     #[test]
@@ -329,10 +317,7 @@ mod load_tests {
 
             let elapsed = start.elapsed();
             let throughput = stage_total as f64 / elapsed.as_secs_f64();
-            println!(
-                "Ramp-up stage ({} workers): {} requests, {:.2} req/s",
-                stage_workers, stage_total, throughput
-            );
+            println!("Ramp-up stage ({} workers): {} requests, {:.2} req/s", stage_workers, stage_total, throughput);
             total_requests += stage_total;
         }
 

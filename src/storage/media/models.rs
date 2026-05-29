@@ -89,11 +89,7 @@ pub struct FilesystemConfig {
 
 impl Default for FilesystemConfig {
     fn default() -> Self {
-        Self {
-            storage_path: "./media".to_string(),
-            create_directories: true,
-            max_path_depth: 2,
-        }
+        Self { storage_path: "./media".to_string(), create_directories: true, max_path_depth: 2 }
     }
 }
 
@@ -240,8 +236,7 @@ mod tests {
 
         let metadata: MediaMetadata = serde_json::from_str(json).unwrap();
 
-        let expected = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap()
-            + chrono::Duration::milliseconds(999);
+        let expected = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap() + chrono::Duration::milliseconds(999);
         assert_eq!(metadata.created_at, expected);
     }
 }

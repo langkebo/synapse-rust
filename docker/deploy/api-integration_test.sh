@@ -48,8 +48,8 @@ if [ -z "$ADMIN_USER_TYPE" ]; then
         super_admin)
             ADMIN_USER_TYPE="super_admin"
             ;;
-        user|normal_user|ordinary_user)
-            ADMIN_USER_TYPE="super_admin"  # user 角色测试仍需要 super_admin 来设置环境
+        user | normal_user | ordinary_user)
+            ADMIN_USER_TYPE="super_admin" # user 角色测试仍需要 super_admin 来设置环境
             ;;
         *)
             ADMIN_USER_TYPE="super_admin"
@@ -282,9 +282,9 @@ check_environment() {
 # 用法: destructive || skip_destructive "原因"
 destructive() {
     if [ "$TEST_ENV" = "safe" ]; then
-        return 0  # 在隔离环境中允许执行
+        return 0 # 在隔离环境中允许执行
     fi
-    return 1  # 非隔离环境跳过
+    return 1 # 非隔离环境跳过
 }
 
 skip_destructive() {
@@ -301,16 +301,16 @@ MISSING=0
 ADMIN_AUTH_AVAILABLE=1
 
 mkdir -p "$RESULTS_DIR"
-: > "$PASSED_LIST_FILE"
-: > "$FAILED_LIST_FILE"
-: > "$SKIPPED_LIST_FILE"
-: > "$MISSING_LIST_FILE"
-: > "$RESPONSES_JSONL_FILE"
+: >"$PASSED_LIST_FILE"
+: >"$FAILED_LIST_FILE"
+: >"$SKIPPED_LIST_FILE"
+: >"$MISSING_LIST_FILE"
+: >"$RESPONSES_JSONL_FILE"
 
 pass() {
     local name="$1"
     local reason="${2:-}"
-    
+
     # 权限检查：如果该用例需要更高权限但当前角色通过了，且不是预期的拒绝，则记录风险
     local required
     required=$(required_role_for_case "$name")
@@ -324,10 +324,10 @@ pass() {
     reset_http_capture
     if [ -n "$reason" ]; then
         echo -e "\033[0;32m✓ PASS: $name - $reason\033[0m"
-        printf '%s\t%s\n' "$name" "$reason" >> "$PASSED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$PASSED_LIST_FILE"
     else
         echo -e "\033[0;32m✓ PASS: $name\033[0m"
-        printf '%s\n' "$name" >> "$PASSED_LIST_FILE"
+        printf '%s\n' "$name" >>"$PASSED_LIST_FILE"
     fi
     ((PASSED++)) || true
 }
@@ -335,7 +335,7 @@ pass() {
 fail() {
     local name="$1"
     local reason="${2:-${ASSERT_ERROR:-}}"
-    
+
     # 记录原始 HTTP 状态以供分析
     local current_status="${HTTP_STATUS:-}"
 
@@ -343,7 +343,7 @@ fail() {
         pass "$name" "access denied as expected for role $TEST_ROLE"
         return
     fi
-    
+
     # 如果是安全漏洞，使用红色高亮
     if [[ "$reason" == *"SECURITY VULNERABILITY"* ]]; then
         echo -e "\033[0;41m\033[1;37m!!! $reason !!!\033[0m"
@@ -353,10 +353,10 @@ fail() {
     reset_http_capture
     if [ -n "$reason" ]; then
         echo -e "\033[0;31m✗ FAIL: $name - $reason\033[0m"
-        printf '%s\t%s\n' "$name" "$reason" >> "$FAILED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$FAILED_LIST_FILE"
     else
         echo -e "\033[0;31m✗ FAIL: $name\033[0m"
-        printf '%s\n' "$name" >> "$FAILED_LIST_FILE"
+        printf '%s\n' "$name" >>"$FAILED_LIST_FILE"
     fi
     ((FAILED++)) || true
 }
@@ -372,17 +372,17 @@ assert_http_json() {
     local expected_status="${6:-200}"
 
     http_json "$method" "$url" "$token" "$data"
-    
+
     if [ "$HTTP_STATUS" = "$expected_status" ]; then
         pass "$name"
         return 0
     else
         # 检查是否是预期的权限拒绝
         if is_expected_admin_denial "$name" "HTTP $HTTP_STATUS"; then
-             pass "$name" "access denied as expected for role $TEST_ROLE"
-             return 0
+            pass "$name" "access denied as expected for role $TEST_ROLE"
+            return 0
         fi
-        
+
         fail "$name" "Expected HTTP $expected_status but got $HTTP_STATUS (Body: ${HTTP_BODY:-empty})"
         return 1
     fi
@@ -395,10 +395,10 @@ missing() {
     reset_http_capture
     if [ -n "$reason" ]; then
         echo "! MISSING: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$MISSING_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$MISSING_LIST_FILE"
     else
         echo "! MISSING: $name"
-        printf '%s\n' "$name" >> "$MISSING_LIST_FILE"
+        printf '%s\n' "$name" >>"$MISSING_LIST_FILE"
     fi
     ((MISSING++)) || true
 }
@@ -546,10 +546,10 @@ skip() {
     reset_http_capture
     if [ -n "$reason" ]; then
         echo "⊘ SKIP: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$SKIPPED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$SKIPPED_LIST_FILE"
     else
         echo "⊘ SKIP: $name"
-        printf '%s\n' "$name" >> "$SKIPPED_LIST_FILE"
+        printf '%s\n' "$name" >>"$SKIPPED_LIST_FILE"
     fi
     ((SKIPPED++)) || true
 }
@@ -1045,58 +1045,58 @@ required_role_for_case() {
         "Admin Register")
             echo ""
             ;;
-        "Admin Federation Resolve"|\
-        "Admin Federation Rewrite"|\
-        "Admin Set User Admin"|\
-        "Admin Shutdown Room"|\
-        "Admin Federation Blacklist"|\
-        "Admin Add Federation Blacklist"|\
-        "Admin Remove Federation Blacklist"|\
-        "Admin Federation Cache Clear"|\
-        "Admin User Login"|\
-        "Admin User Logout"|\
-        "Admin Delete Devices"|\
-        "Server Notices"|\
-        "Admin Room Make Admin"|\
-        "Admin Purge History"|\
-        "Admin Reset Connection"|\
-        "Admin User Deactivate"|\
-        "Admin Deactivate"|\
-        "Deactivate User"|\
-        "Admin Delete User"|\
-        "Invalidate User Session"|\
-        "Admin Session Invalidate"|\
-        "Send Server Notice"|\
-        "Admin Send Server Notice"|\
-        "Rust Synapse Version"|\
-        "Admin Set Retention Policy"|\
-        "Admin Create Registration Token")
+        "Admin Federation Resolve" | \
+            "Admin Federation Rewrite" | \
+            "Admin Set User Admin" | \
+            "Admin Shutdown Room" | \
+            "Admin Federation Blacklist" | \
+            "Admin Add Federation Blacklist" | \
+            "Admin Remove Federation Blacklist" | \
+            "Admin Federation Cache Clear" | \
+            "Admin User Login" | \
+            "Admin User Logout" | \
+            "Admin Delete Devices" | \
+            "Server Notices" | \
+            "Admin Room Make Admin" | \
+            "Admin Purge History" | \
+            "Admin Reset Connection" | \
+            "Admin User Deactivate" | \
+            "Admin Deactivate" | \
+            "Deactivate User" | \
+            "Admin Delete User" | \
+            "Invalidate User Session" | \
+            "Admin Session Invalidate" | \
+            "Send Server Notice" | \
+            "Admin Send Server Notice" | \
+            "Rust Synapse Version" | \
+            "Admin Set Retention Policy" | \
+            "Admin Create Registration Token")
             echo "super_admin"
             ;;
-        "Admin "*|\
-        "List Registration Tokens"|\
-        "Get Active Registration Tokens"|\
-        "List Pushers"|\
-        "Get Pushers"|\
-        "List Background Updates"|\
-        "List Event Reports"|\
-        "List User Sessions"|\
-        "Get All Devices"|\
-        "Get Statistics"|\
-        "Get Media Quota"|\
-        "Evict User"|\
-        "Get Rate Limit"|\
-        "Get Registration Token"|\
-        "Get Room Count"|\
-        "Get Room Shares"|\
-        "Get Room Reports"|\
-        "Get User Count"|\
-        "Get Pending Joins"|\
-        "Room Forward Extremities"|\
-        "Check Auth"|\
-        "Get Version Info"|\
-        "Get Feature Flags"|\
-        "List App Services")
+        "Admin "* | \
+            "List Registration Tokens" | \
+            "Get Active Registration Tokens" | \
+            "List Pushers" | \
+            "Get Pushers" | \
+            "List Background Updates" | \
+            "List Event Reports" | \
+            "List User Sessions" | \
+            "Get All Devices" | \
+            "Get Statistics" | \
+            "Get Media Quota" | \
+            "Evict User" | \
+            "Get Rate Limit" | \
+            "Get Registration Token" | \
+            "Get Room Count" | \
+            "Get Room Shares" | \
+            "Get Room Reports" | \
+            "Get User Count" | \
+            "Get Pending Joins" | \
+            "Room Forward Extremities" | \
+            "Check Auth" | \
+            "Get Version Info" | \
+            "Get Feature Flags" | \
+            "List App Services")
             echo "admin"
             ;;
         *)
@@ -1114,7 +1114,7 @@ role_satisfies_requirement() {
         admin)
             [ "$required" = "admin" ]
             ;;
-        user|normal_user|ordinary_user)
+        user | normal_user | ordinary_user)
             return 1
             ;;
         *)
@@ -1133,7 +1133,7 @@ is_expected_admin_denial() {
     fi
 
     case "$reason" in
-        "HTTP 401"|"HTTP 403"|*M_FORBIDDEN*|*M_UNAUTHORIZED*)
+        "HTTP 401" | "HTTP 403" | *M_FORBIDDEN* | *M_UNAUTHORIZED*)
             ;;
         *)
             return 1
@@ -1156,7 +1156,7 @@ print_result_file() {
             if [ -n "$line" ]; then
                 echo " - $line"
             fi
-        done < "$file_path"
+        done <"$file_path"
         echo ""
     fi
 }
@@ -1171,7 +1171,7 @@ print_reason_summary() {
         echo "$title"
         while IFS=$'\t' read -r reason count; do
             [ -n "$reason" ] && echo " - [$count] $reason"
-        done <<< "$reason_summary"
+        done <<<"$reason_summary"
         echo ""
     fi
 }
@@ -1288,7 +1288,7 @@ echo "=========================================="
 echo "1. Health & Version"
 echo "=========================================="
 echo "1. Health Check"
-curl -s -f "$SERVER_URL/health" > /dev/null 2>&1 && pass "Health endpoint" || fail "Health endpoint"
+curl -s -f "$SERVER_URL/health" >/dev/null 2>&1 && pass "Health endpoint" || fail "Health endpoint"
 
 echo ""
 echo "2. Version"
@@ -1433,7 +1433,7 @@ if [ "$TEST_ROLE" = "super_admin" ]; then
 fi
 
 case "$TEST_ROLE" in
-    user|normal_user|ordinary_user)
+    user | normal_user | ordinary_user)
         echo "Creating dedicated normal user for user role testing..."
 
         NORMAL_TEST_USER="normal_user_test_${RANDOM}"
@@ -1753,7 +1753,7 @@ if [ -f "$PNG_FILE" ] && [ -s "$PNG_FILE" ]; then
         --data-binary "@$PNG_FILE" -o "$MEDIA_TMP" -w "%{http_code}")
     MEDIA_RESP=$(cat "$MEDIA_TMP")
     rm -f "$MEDIA_TMP"
-    
+
     if [[ "$MEDIA_STATUS" == 2* ]]; then
         MEDIA_URI=$(json_get "$MEDIA_RESP" "content_uri")
         if [ -n "$MEDIA_URI" ]; then
@@ -2614,8 +2614,8 @@ if admin_ready; then
     echo ""
     echo "119. Admin User Password"
     if destructive; then
-    http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" '{"new_password": "Test@123"}'
-    admin_endpoint_check "Admin User Password" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-request failed}"
+        http_json POST "$SERVER_URL/_synapse/admin/v1/users/$USER_ID_ENC/password" "$ADMIN_TOKEN" '{"new_password": "Test@123"}'
+        admin_endpoint_check "Admin User Password" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-request failed}"
         LOGIN_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/login" -H "Content-Type: application/json" -d "{\"type\":\"m.login.password\",\"user\":\"$TEST_USER\",\"password\":\"$TEST_PASS\"}")
         TOKEN=$(json_get "$LOGIN_RESP" "access_token")
         DEVICE_ID=$(json_get "$LOGIN_RESP" "device_id")
@@ -2705,7 +2705,7 @@ if [ -n "$ROOM_ID" ]; then
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "{\"event_id\":\"$THREAD_REPLY_ID\",\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"thread reply\"}}" \
-                > /dev/null
+                >/dev/null
             THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
             http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
             if [[ "$HTTP_STATUS" == 2* ]]; then
@@ -3217,9 +3217,11 @@ __fed_status=$(command curl -sS --connect-timeout 10 --max-time 30 \
     "https://$REMOTE_FED_SERVER/_matrix/key/v2/server" 2>/dev/null || echo "000")
 __fed_body=$(cat "$__fed_tmp" 2>/dev/null || echo "")
 rm -f "$__fed_tmp"
-HTTP_STATUS="$__fed_status"; HTTP_BODY="$__fed_body"
+HTTP_STATUS="$__fed_status"
+HTTP_BODY="$__fed_body"
 CASE_HTTP_CAPTURE_ACTIVE=1
-HTTP_REQUEST_METHOD="GET"; HTTP_REQUEST_URL="https://$REMOTE_FED_SERVER/_matrix/key/v2/server"
+HTTP_REQUEST_METHOD="GET"
+HTTP_REQUEST_URL="https://$REMOTE_FED_SERVER/_matrix/key/v2/server"
 if [[ "$__fed_status" == 2* ]] && json_has_key "$__fed_body" "server_name" && json_has_key "$__fed_body" "verify_keys"; then
     pass "Remote Federation Key ($REMOTE_FED_SERVER)"
 elif [ "$__fed_status" = "000" ]; then
@@ -3252,9 +3254,10 @@ if ! federation_prepare_signing; then
 else
     __local_sn="${FEDERATION_SERVER_NAME%%:*}"
     case "$__local_sn" in
-        localhost|127.*|10.*|192.168.*|172.16.*|172.17.*|172.18.*|172.19.*|172.2[0-9].*|172.3[01].*|""|*.local)
+        localhost | 127.* | 10.* | 192.168.* | 172.16.* | 172.17.* | 172.18.* | 172.19.* | 172.2[0-9].* | 172.3[01].* | "" | *.local)
             skip "Outbound Federation Version ($REMOTE_FED_SERVER)" "local server_name '$__local_sn' is not routable from internet (set server_name=<public FQDN> to enable)"
-            __local_sn_skip=1 ;;
+            __local_sn_skip=1
+            ;;
         *) __local_sn_skip=0 ;;
     esac
 fi
@@ -3273,7 +3276,8 @@ if [ "${__local_sn_skip:-0}" = "0" ]; then
             "https://$REMOTE_FED_SERVER$__remote_uri" 2>/dev/null || echo "000")
         __rbody=$(cat "$__rtmp" 2>/dev/null || echo "")
         rm -f "$__rtmp"
-        HTTP_STATUS="$__rstatus"; HTTP_BODY="$__rbody"
+        HTTP_STATUS="$__rstatus"
+        HTTP_BODY="$__rbody"
         HTTP_REQUEST_URL="https://$REMOTE_FED_SERVER$__remote_uri"
         if [[ "$__rstatus" == 2* ]] && json_has_key "$__rbody" "server"; then
             pass "Outbound Federation Version ($REMOTE_FED_SERVER)"
@@ -3440,8 +3444,12 @@ admin_endpoint_check "Media Config r0" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "199. Media Upload r0"
-__mtmp=$(mktemp); __mstatus=$(curl -s -X POST "$SERVER_URL/_matrix/media/r0/upload" -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" --data-binary "PNG-DATA" -o "$__mtmp" -w "%{http_code}"); MEDIA_RESP=$(cat "$__mtmp"); rm -f "$__mtmp"
-HTTP_STATUS="$__mstatus"; HTTP_BODY="$MEDIA_RESP"
+__mtmp=$(mktemp)
+__mstatus=$(curl -s -X POST "$SERVER_URL/_matrix/media/r0/upload" -H "Authorization: Bearer $TOKEN" -H "Content-Type: image/png" --data-binary "PNG-DATA" -o "$__mtmp" -w "%{http_code}")
+MEDIA_RESP=$(cat "$__mtmp")
+rm -f "$__mtmp"
+HTTP_STATUS="$__mstatus"
+HTTP_BODY="$MEDIA_RESP"
 if [[ "$__mstatus" == 2* ]] && json_has_key "$MEDIA_RESP" "content_uri"; then
     pass "Media Upload r0"
 elif last_body_is_unrecognized; then
@@ -3899,9 +3907,9 @@ if admin_ready; then
 
     echo ""
     echo "257. Admin List User Tokens"
-http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/tokens" "$ADMIN_TOKEN"
-ADMIN_TOKENS_RESP="$HTTP_BODY"
-assert_success_json "Admin List User Tokens" "$ADMIN_TOKENS_RESP" "$HTTP_STATUS" "tokens"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/tokens" "$ADMIN_TOKEN"
+    ADMIN_TOKENS_RESP="$HTTP_BODY"
+    assert_success_json "Admin List User Tokens" "$ADMIN_TOKENS_RESP" "$HTTP_STATUS" "tokens"
 else
     skip "Admin List Users" "admin authentication unavailable"
     skip "Admin Get User" "admin authentication unavailable"

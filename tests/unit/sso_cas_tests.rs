@@ -112,11 +112,7 @@ mod tests {
     fn test_cas_login_redirect_url_construction() {
         let cas_base_url = "https://cas.example.com/cas";
         let service_url = "http://localhost:8008/_matrix/client/r0/login/cas/callback";
-        let redirect_url = format!(
-            "{}/login?service={}",
-            cas_base_url,
-            urlencoding::encode(service_url)
-        );
+        let redirect_url = format!("{}/login?service={}", cas_base_url, urlencoding::encode(service_url));
 
         assert!(redirect_url.starts_with("https://cas.example.com/cas/login"));
         assert!(redirect_url.contains("service="));
@@ -126,11 +122,7 @@ mod tests {
     fn test_cas_logout_redirect_url_construction() {
         let cas_base_url = "https://cas.example.com/cas";
         let service_url = "http://localhost:8008";
-        let logout_url = format!(
-            "{}/logout?service={}",
-            cas_base_url,
-            urlencoding::encode(service_url)
-        );
+        let logout_url = format!("{}/logout?service={}", cas_base_url, urlencoding::encode(service_url));
 
         assert!(logout_url.starts_with("https://cas.example.com/cas/logout"));
         assert!(logout_url.contains("service="));

@@ -52,14 +52,8 @@ fn regen_instructions(profile: &str) -> String {
 
 #[allow(dead_code)]
 fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
-    let flags =
-        profile_for_name(profile).unwrap_or_else(|| panic!("unknown profile in test: {profile}"));
-    let artifact = build_artifact(
-        profile,
-        &flags,
-        Some(FIXTURE_COMMIT.to_string()),
-        FIXTURE_TIMESTAMP.to_string(),
-    );
+    let flags = profile_for_name(profile).unwrap_or_else(|| panic!("unknown profile in test: {profile}"));
+    let artifact = build_artifact(profile, &flags, Some(FIXTURE_COMMIT.to_string()), FIXTURE_TIMESTAMP.to_string());
     let rendered = render(&artifact);
 
     let fixture = std::str::from_utf8(fixture_bytes)
@@ -85,11 +79,8 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
             live_parsed.profile_flags, fixture_parsed.profile_flags
         ));
 
-        let live_set: std::collections::BTreeSet<(String, String, String)> = live_parsed
-            .entries
-            .iter()
-            .map(|e| (e.method.clone(), e.path.clone(), e.registered_by.clone()))
-            .collect();
+        let live_set: std::collections::BTreeSet<(String, String, String)> =
+            live_parsed.entries.iter().map(|e| (e.method.clone(), e.path.clone(), e.registered_by.clone())).collect();
         let fix_set: std::collections::BTreeSet<(String, String, String)> = fixture_parsed
             .entries
             .iter()
@@ -121,15 +112,9 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
     }
 
     // Sanity: re-parsing the rendered output round-trips to an equal artefact.
-    let reparsed: LedgerArtifact = serde_json::from_str(&rendered).unwrap_or_else(|e| {
-        panic!(
-            "rendered output for '{profile}' failed to re-parse: {e}"
-        )
-    });
-    assert_eq!(
-        reparsed, artifact,
-        "round-trip inequality for profile '{profile}'"
-    );
+    let reparsed: LedgerArtifact = serde_json::from_str(&rendered)
+        .unwrap_or_else(|e| panic!("rendered output for '{profile}' failed to re-parse: {e}"));
+    assert_eq!(reparsed, artifact, "round-trip inequality for profile '{profile}'");
     assert_eq!(reparsed.schema_version, SCHEMA_VERSION);
 }
 
@@ -174,11 +159,8 @@ fn worker_fixture_strictly_supersets_default_fixture() {
         w.entry_count,
         d.entry_count
     );
-    let default_set: std::collections::BTreeSet<(String, String)> = d
-        .entries
-        .iter()
-        .map(|e| (e.method.clone(), e.path.clone()))
-        .collect();
+    let default_set: std::collections::BTreeSet<(String, String)> =
+        d.entries.iter().map(|e| (e.method.clone(), e.path.clone())).collect();
     for e in &w.entries {
         if e.registered_by == "worker_body" {
             continue;
@@ -201,13 +183,9 @@ fn all_fixture_contains_every_other_profile_entry() {
         "fixtures/ledger_export/worker.json",
         "fixtures/ledger_export/openclaw.json",
     ];
-    let all: LedgerArtifact =
-        serde_json::from_slice(include_bytes!("fixtures/ledger_export/all.json")).unwrap();
-    let all_set: std::collections::BTreeSet<(String, String)> = all
-        .entries
-        .iter()
-        .map(|e| (e.method.clone(), e.path.clone()))
-        .collect();
+    let all: LedgerArtifact = serde_json::from_slice(include_bytes!("fixtures/ledger_export/all.json")).unwrap();
+    let all_set: std::collections::BTreeSet<(String, String)> =
+        all.entries.iter().map(|e| (e.method.clone(), e.path.clone())).collect();
     for label in combos {
         let bytes: &[u8] = match label {
             "fixtures/ledger_export/default.json" => {

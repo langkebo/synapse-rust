@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::background_update::*;
     use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::background_update::*;
 
     #[test]
     fn test_create_background_update_request() {

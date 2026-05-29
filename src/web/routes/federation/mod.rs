@@ -18,17 +18,11 @@ pub mod media;
 pub mod membership;
 pub mod transaction;
 
-fn validate_federation_origin(
-    authenticated_origin: &str,
-    declared_origin: Option<&str>,
-) -> Result<(), ApiError> {
-    let declared_origin =
-        declared_origin.ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
+fn validate_federation_origin(authenticated_origin: &str, declared_origin: Option<&str>) -> Result<(), ApiError> {
+    let declared_origin = declared_origin.ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
 
     if declared_origin != authenticated_origin {
-        return Err(ApiError::forbidden(
-            "Federation origin does not match authenticated request".to_string(),
-        ));
+        return Err(ApiError::forbidden("Federation origin does not match authenticated request".to_string()));
     }
 
     Ok(())
@@ -42,16 +36,10 @@ fn sender_server_name(sender: &str) -> Option<&str> {
 }
 
 fn user_matches_origin(user_id: &str, origin: &str) -> bool {
-    user_id
-        .rsplit_once(':')
-        .is_some_and(|(_, server_name)| server_name == origin)
+    user_id.rsplit_once(':').is_some_and(|(_, server_name)| server_name == origin)
 }
 
-async fn validate_federation_origin_in_room(
-    state: &AppState,
-    room_id: &str,
-    origin: &str,
-) -> ApiResult<()> {
+async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
         .services
         .member_storage
@@ -59,23 +47,14 @@ async fn validate_federation_origin_in_room(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
 
-    if joined_members
-        .iter()
-        .any(|member| user_matches_origin(&member.user_id, origin))
-    {
+    if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
         return Ok(());
     }
 
-    Err(ApiError::forbidden(
-        "Authenticated server has no joined members in this room".to_string(),
-    ))
+    Err(ApiError::forbidden("Authenticated server has no joined members in this room".to_string()))
 }
 
-async fn validate_federation_origin_can_observe_room(
-    state: &AppState,
-    room_id: &str,
-    origin: &str,
-) -> ApiResult<()> {
+async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
         .services
         .member_storage
@@ -83,21 +62,14 @@ async fn validate_federation_origin_can_observe_room(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
 
-    if joined_members
-        .iter()
-        .any(|member| user_matches_origin(&member.user_id, origin))
-    {
+    if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
         return Ok(());
     }
 
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
-async fn validate_federation_origin_shares_user_room(
-    state: &AppState,
-    user_id: &str,
-    origin: &str,
-) -> ApiResult<()> {
+async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
     let joined_room_ids = state
         .services
         .room_storage
@@ -106,9 +78,7 @@ async fn validate_federation_origin_shares_user_room(
         .map_err(|e| ApiError::internal_with_log("Failed to load user rooms", &e))?;
 
     if joined_room_ids.is_empty() {
-        return Err(ApiError::forbidden(
-            "User does not share any rooms with the requesting server".to_string(),
-        ));
+        return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
     }
 
     if origin == state.services.server_name.as_str() {
@@ -123,28 +93,19 @@ async fn validate_federation_origin_shares_user_room(
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
 
-        if joined_members
-            .iter()
-            .any(|member| user_matches_origin(&member.user_id, origin))
-        {
+        if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
             return Ok(());
         }
     }
 
-    Err(ApiError::forbidden(
-        "Authenticated server does not share a room with this user".to_string(),
-    ))
+    Err(ApiError::forbidden("Authenticated server does not share a room with this user".to_string()))
 }
 
 fn increment_counter(state: &AppState, name: &str) {
     if let Some(counter) = state.services.metrics.get_counter(name) {
         counter.inc();
     } else {
-        state
-            .services
-            .metrics
-            .register_counter(name.to_string())
-            .inc();
+        state.services.metrics.register_counter(name.to_string()).inc();
     }
 }
 
@@ -152,11 +113,7 @@ fn increment_counter_by(state: &AppState, name: &str, delta: u64) {
     if let Some(counter) = state.services.metrics.get_counter(name) {
         counter.inc_by(delta);
     } else {
-        state
-            .services
-            .metrics
-            .register_counter(name.to_string())
-            .inc_by(delta);
+        state.services.metrics.register_counter(name.to_string()).inc_by(delta);
     }
 }
 
@@ -164,11 +121,7 @@ fn observe_histogram(state: &AppState, name: &str, value: f64) {
     if let Some(histogram) = state.services.metrics.get_histogram(name) {
         histogram.observe(value);
     } else {
-        state
-            .services
-            .metrics
-            .register_histogram(name.to_string())
-            .observe(value);
+        state.services.metrics.register_histogram(name.to_string()).observe(value);
     }
 }
 
@@ -176,11 +129,7 @@ fn increment_gauge(state: &AppState, name: &str) {
     if let Some(gauge) = state.services.metrics.get_gauge(name) {
         gauge.inc();
     } else {
-        state
-            .services
-            .metrics
-            .register_gauge(name.to_string())
-            .inc();
+        state.services.metrics.register_gauge(name.to_string()).inc();
     }
 }
 
@@ -188,11 +137,7 @@ fn decrement_gauge(state: &AppState, name: &str) {
     if let Some(gauge) = state.services.metrics.get_gauge(name) {
         gauge.dec();
     } else {
-        state
-            .services
-            .metrics
-            .register_gauge(name.to_string())
-            .dec();
+        state.services.metrics.register_gauge(name.to_string()).dec();
     }
 }
 
@@ -201,13 +146,10 @@ async fn acquire_with_timeout(
     acquire_timeout_ms: u64,
 ) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
     let started = Instant::now();
-    let permit = timeout(
-        Duration::from_millis(acquire_timeout_ms.max(1)),
-        semaphore.acquire_owned(),
-    )
-    .await
-    .map_err(|_| ApiError::rate_limited_with_retry(acquire_timeout_ms.max(1)))?
-    .map_err(|_| ApiError::internal("Semaphore closed"))?;
+    let permit = timeout(Duration::from_millis(acquire_timeout_ms.max(1)), semaphore.acquire_owned())
+        .await
+        .map_err(|_| ApiError::rate_limited_with_retry(acquire_timeout_ms.max(1)))?
+        .map_err(|_| ApiError::internal("Semaphore closed"))?;
 
     Ok((permit, started.elapsed().as_millis() as u64))
 }
@@ -232,10 +174,7 @@ async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-async fn openid_userinfo(
-    State(state): State<AppState>,
-    Query(params): Query<Value>,
-) -> Result<Json<Value>, ApiError> {
+async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
     let access_token = params
         .get("access_token")
         .and_then(|v| v.as_str())
@@ -252,13 +191,9 @@ async fn openid_userinfo(
         .user_storage
         .user_exists(&token.user_id)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to validate OpenID token subject", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to validate OpenID token subject", &e))?;
     if !user_exists {
-        return Err(ApiError::unauthorized(
-            "Invalid or expired OpenID token".to_string(),
-        ));
+        return Err(ApiError::unauthorized("Invalid or expired OpenID token".to_string()));
     }
 
     Ok(Json(json!({
@@ -271,120 +206,42 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v2/server", get(keys::server_key))
         .route("/_matrix/key/v2/server", get(keys::server_key))
         .route("/_matrix/federation/v2/key/clone", post(keys::key_clone))
-        .route(
-            "/_matrix/federation/v2/query/{server_name}/{key_id}",
-            get(keys::key_query),
-        )
-        .route(
-            "/_matrix/key/v2/query/{server_name}/{key_id}",
-            get(keys::key_query),
-        )
+        .route("/_matrix/federation/v2/query/{server_name}/{key_id}", get(keys::key_query))
+        .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(keys::key_query))
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
         .route("/_matrix/federation/v1/publicRooms", get(events::get_public_rooms))
-        .route(
-            "/_matrix/federation/v1/query/destination",
-            get(events::query_destination),
-        )
-        .route(
-            "/_matrix/federation/v1/openid/userinfo",
-            get(openid_userinfo),
-        );
+        .route("/_matrix/federation/v1/query/destination", get(events::query_destination))
+        .route("/_matrix/federation/v1/openid/userinfo", get(openid_userinfo));
 
     let protected = Router::new()
-        .route(
-            "/_matrix/federation/v1/members/{room_id}",
-            get(membership::get_room_members),
-        )
-        .route(
-            "/_matrix/federation/v1/members/{room_id}/joined",
-            get(membership::get_joined_room_members),
-        )
-        .route(
-            "/_matrix/federation/v1/user/devices/{user_id}",
-            get(membership::get_user_devices),
-        )
-        .route(
-            "/_matrix/federation/v1/room_auth/{room_id}",
-            get(events::get_room_auth),
-        )
-        .route(
-            "/_matrix/federation/v1/knock/{room_id}/{user_id}",
-            put(membership::knock_room),
-        )
-        .route(
-            "/_matrix/federation/v1/thirdparty/invite",
-            post(membership::thirdparty_invite),
-        )
-        .route(
-            "/_matrix/federation/v1/get_joining_rules/{room_id}",
-            get(membership::get_joining_rules),
-        )
-        .route(
-            "/_matrix/federation/v2/invite/{room_id}/{event_id}",
-            put(membership::invite_v2),
-        )
-        .route(
-            "/_matrix/federation/v1/send/{txn_id}",
-            put(transaction::send_transaction),
-        )
-        .route(
-            "/_matrix/federation/v1/make_join/{room_id}/{user_id}",
-            get(membership::make_join),
-        )
-        .route(
-            "/_matrix/federation/v1/make_leave/{room_id}/{user_id}",
-            get(membership::make_leave),
-        )
-        .route(
-            "/_matrix/federation/v1/send_join/{room_id}/{event_id}",
-            put(membership::send_join),
-        )
-        .route(
-            "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
-            put(membership::send_leave),
-        )
-        .route(
-            "/_matrix/federation/v1/invite/{room_id}/{event_id}",
-            put(membership::invite),
-        )
-        .route(
-            "/_matrix/federation/v1/get_missing_events/{room_id}",
-            post(events::get_missing_events),
-        )
-        .route(
-            "/_matrix/federation/v1/room/{room_id}/{event_id}",
-            get(events::get_room_event),
-        )
-        .route(
-            "/_matrix/federation/v1/timestamp_to_event/{room_id}",
-            get(events::timestamp_to_event),
-        )
-        .route(
-            "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}",
-            get(events::get_event_auth),
-        )
+        .route("/_matrix/federation/v1/members/{room_id}", get(membership::get_room_members))
+        .route("/_matrix/federation/v1/members/{room_id}/joined", get(membership::get_joined_room_members))
+        .route("/_matrix/federation/v1/user/devices/{user_id}", get(membership::get_user_devices))
+        .route("/_matrix/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
+        .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", put(membership::knock_room))
+        .route("/_matrix/federation/v1/thirdparty/invite", post(membership::thirdparty_invite))
+        .route("/_matrix/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
+        .route("/_matrix/federation/v2/invite/{room_id}/{event_id}", put(membership::invite_v2))
+        .route("/_matrix/federation/v1/send/{txn_id}", put(transaction::send_transaction))
+        .route("/_matrix/federation/v1/make_join/{room_id}/{user_id}", get(membership::make_join))
+        .route("/_matrix/federation/v1/make_leave/{room_id}/{user_id}", get(membership::make_leave))
+        .route("/_matrix/federation/v1/send_join/{room_id}/{event_id}", put(membership::send_join))
+        .route("/_matrix/federation/v1/send_leave/{room_id}/{event_id}", put(membership::send_leave))
+        .route("/_matrix/federation/v1/invite/{room_id}/{event_id}", put(membership::invite))
+        .route("/_matrix/federation/v1/get_missing_events/{room_id}", post(events::get_missing_events))
+        .route("/_matrix/federation/v1/room/{room_id}/{event_id}", get(events::get_room_event))
+        .route("/_matrix/federation/v1/timestamp_to_event/{room_id}", get(events::timestamp_to_event))
+        .route("/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}", get(events::get_event_auth))
         .route("/_matrix/federation/v1/query/auth", get(keys::query_auth))
         .route("/_matrix/federation/v1/event_auth", get(keys::event_auth))
         .route("/_matrix/federation/v1/state/{room_id}", get(events::get_state))
         .route("/_matrix/federation/v1/event/{event_id}", get(events::get_event))
-        .route(
-            "/_matrix/federation/v1/state_ids/{room_id}",
-            get(events::get_state_ids),
-        )
-        .route(
-            "/_matrix/federation/v1/query/directory/room/{room_id}",
-            get(events::room_directory_query),
-        )
+        .route("/_matrix/federation/v1/state_ids/{room_id}", get(events::get_state_ids))
+        .route("/_matrix/federation/v1/query/directory/room/{room_id}", get(events::room_directory_query))
         .route("/_matrix/federation/v1/query/profile", get(events::profile_query))
-        .route(
-            "/_matrix/federation/v1/query/profile/{user_id}",
-            get(events::profile_query_legacy),
-        )
-        .route(
-            "/_matrix/federation/v1/hierarchy/{room_id}",
-            get(events::get_room_hierarchy),
-        )
+        .route("/_matrix/federation/v1/query/profile/{user_id}", get(events::profile_query_legacy))
+        .route("/_matrix/federation/v1/hierarchy/{room_id}", get(events::get_room_hierarchy))
         .route("/_matrix/federation/v1/backfill/{room_id}", get(events::backfill))
         .route("/_matrix/federation/v1/keys/claim", post(keys::legacy_keys_claim))
         .route("/_matrix/federation/v1/keys/query", post(keys::legacy_keys_query))
@@ -393,39 +250,19 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/user/keys/claim", post(keys::keys_claim))
         .route("/_matrix/federation/v1/user/keys/query", post(keys::keys_query))
         .route("/_matrix/federation/v2/user/keys/query", post(keys::keys_query))
-        .route(
-            "/_matrix/federation/v2/send_join/{room_id}/{event_id}",
-            put(membership::send_join_v2),
-        )
-        .route(
-            "/_matrix/federation/v2/send_leave/{room_id}/{event_id}",
-            put(membership::send_leave_v2),
-        )
-        .route(
-            "/_matrix/federation/v1/publicRooms",
-            post(events::post_public_rooms),
-        )
-        .route(
-            "/_matrix/federation/v1/query/directory",
-            get(events::query_directory),
-        )
-        .route(
-            "/_matrix/federation/v1/media/download/{server_name}/{media_id}",
-            get(media::media_download),
-        )
-        .route(
-            "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}",
-            get(media::media_thumbnail),
-        )
+        .route("/_matrix/federation/v2/send_join/{room_id}/{event_id}", put(membership::send_join_v2))
+        .route("/_matrix/federation/v2/send_leave/{room_id}/{event_id}", put(membership::send_leave_v2))
+        .route("/_matrix/federation/v1/publicRooms", post(events::post_public_rooms))
+        .route("/_matrix/federation/v1/query/directory", get(events::query_directory))
+        .route("/_matrix/federation/v1/media/download/{server_name}/{media_id}", get(media::media_download))
+        .route("/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}", get(media::media_thumbnail))
         .route(
             "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
             put(membership::exchange_third_party_invite),
         );
 
-    let protected = protected.layer(middleware::from_fn_with_state(
-        state,
-        crate::web::middleware::federation_auth_middleware,
-    ));
+    let protected =
+        protected.layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
 
     public.merge(protected)
 }
@@ -436,10 +273,7 @@ fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)
         (Method::GET, "/_matrix/federation/v2/server"),
         (Method::GET, "/_matrix/key/v2/server"),
         (Method::POST, "/_matrix/federation/v2/key/clone"),
-        (
-            Method::GET,
-            "/_matrix/federation/v2/query/{server_name}/{key_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v2/query/{server_name}/{key_id}"),
         (Method::GET, "/_matrix/key/v2/query/{server_name}/{key_id}"),
         (Method::GET, "/_matrix/federation/v1/version"),
         (Method::GET, "/_matrix/federation/v1"),
@@ -453,76 +287,31 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
     use axum::http::Method;
     vec![
         (Method::GET, "/_matrix/federation/v1/members/{room_id}"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/members/{room_id}/joined",
-        ),
+        (Method::GET, "/_matrix/federation/v1/members/{room_id}/joined"),
         (Method::GET, "/_matrix/federation/v1/user/devices/{user_id}"),
         (Method::GET, "/_matrix/federation/v1/room_auth/{room_id}"),
-        (
-            Method::PUT,
-            "/_matrix/federation/v1/knock/{room_id}/{user_id}",
-        ),
+        (Method::PUT, "/_matrix/federation/v1/knock/{room_id}/{user_id}"),
         (Method::POST, "/_matrix/federation/v1/thirdparty/invite"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/get_joining_rules/{room_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v2/invite/{room_id}/{event_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v1/get_joining_rules/{room_id}"),
+        (Method::PUT, "/_matrix/federation/v2/invite/{room_id}/{event_id}"),
         (Method::PUT, "/_matrix/federation/v1/send/{txn_id}"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/make_join/{room_id}/{user_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/make_leave/{room_id}/{user_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v1/send_join/{room_id}/{event_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v1/invite/{room_id}/{event_id}",
-        ),
-        (
-            Method::POST,
-            "/_matrix/federation/v1/get_missing_events/{room_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/room/{room_id}/{event_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/timestamp_to_event/{room_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v1/make_join/{room_id}/{user_id}"),
+        (Method::GET, "/_matrix/federation/v1/make_leave/{room_id}/{user_id}"),
+        (Method::PUT, "/_matrix/federation/v1/send_join/{room_id}/{event_id}"),
+        (Method::PUT, "/_matrix/federation/v1/send_leave/{room_id}/{event_id}"),
+        (Method::PUT, "/_matrix/federation/v1/invite/{room_id}/{event_id}"),
+        (Method::POST, "/_matrix/federation/v1/get_missing_events/{room_id}"),
+        (Method::GET, "/_matrix/federation/v1/room/{room_id}/{event_id}"),
+        (Method::GET, "/_matrix/federation/v1/timestamp_to_event/{room_id}"),
+        (Method::GET, "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}"),
         (Method::GET, "/_matrix/federation/v1/query/auth"),
         (Method::GET, "/_matrix/federation/v1/event_auth"),
         (Method::GET, "/_matrix/federation/v1/state/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/event/{event_id}"),
         (Method::GET, "/_matrix/federation/v1/state_ids/{room_id}"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/query/directory/room/{room_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v1/query/directory/room/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/query/profile"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/query/profile/{user_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v1/query/profile/{user_id}"),
         (Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/backfill/{room_id}"),
         (Method::POST, "/_matrix/federation/v1/keys/claim"),
@@ -532,28 +321,13 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::POST, "/_matrix/federation/v1/user/keys/claim"),
         (Method::POST, "/_matrix/federation/v1/user/keys/query"),
         (Method::POST, "/_matrix/federation/v2/user/keys/query"),
-        (
-            Method::PUT,
-            "/_matrix/federation/v2/send_join/{room_id}/{event_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v2/send_leave/{room_id}/{event_id}",
-        ),
+        (Method::PUT, "/_matrix/federation/v2/send_join/{room_id}/{event_id}"),
+        (Method::PUT, "/_matrix/federation/v2/send_leave/{room_id}/{event_id}"),
         (Method::POST, "/_matrix/federation/v1/publicRooms"),
         (Method::GET, "/_matrix/federation/v1/query/directory"),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/media/download/{server_name}/{media_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
-        ),
+        (Method::GET, "/_matrix/federation/v1/media/download/{server_name}/{media_id}"),
+        (Method::GET, "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"),
+        (Method::PUT, "/_matrix/federation/v1/exchange_third_party_invite/{room_id}"),
     ]
 }
 

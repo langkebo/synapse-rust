@@ -3,9 +3,7 @@
 
 use crate::common::error::ApiError;
 #[cfg(feature = "builtin-oidc")]
-use crate::services::builtin_oidc_provider::{
-    AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest,
-};
+use crate::services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
 use crate::services::oidc_service::OidcService;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
@@ -39,10 +37,7 @@ fn oidc_auth_sessions() -> &'static Mutex<HashMap<String, OidcAuthSession>> {
 }
 
 fn current_unix_ts() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 fn cleanup_expired_oidc_sessions(sessions: &mut HashMap<String, OidcAuthSession>, now: u64) {
@@ -82,32 +77,24 @@ fn consume_oidc_auth_session(state: &str) -> Result<OidcAuthSession, ApiError> {
         .lock()
         .map_err(|_| ApiError::internal("Failed to acquire OIDC auth session lock".to_string()))?;
     cleanup_expired_oidc_sessions(&mut sessions, now);
-    let session = sessions.remove(state).ok_or_else(|| {
-        ApiError::unauthorized("OIDC state is missing, expired, or already used".to_string())
-    })?;
+    let session = sessions
+        .remove(state)
+        .ok_or_else(|| ApiError::unauthorized("OIDC state is missing, expired, or already used".to_string()))?;
     if session.expires_at < now {
-        return Err(ApiError::unauthorized(
-            "OIDC authorization session expired".to_string(),
-        ));
+        return Err(ApiError::unauthorized("OIDC authorization session expired".to_string()));
     }
     Ok(session)
 }
 
 fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Result<(), ApiError> {
     if auth_session.code_challenge_method != "S256" {
-        return Err(ApiError::unauthorized(
-            "Unsupported OIDC PKCE challenge method".to_string(),
-        ));
+        return Err(ApiError::unauthorized("Unsupported OIDC PKCE challenge method".to_string()));
     }
     if auth_session.code_verifier.len() < 43 || auth_session.code_verifier.len() > 128 {
-        return Err(ApiError::unauthorized(
-            "Invalid OIDC PKCE verifier length".to_string(),
-        ));
+        return Err(ApiError::unauthorized("Invalid OIDC PKCE verifier length".to_string()));
     }
     if !OidcService::verify_pkce(&auth_session.code_verifier, &auth_session.code_challenge) {
-        return Err(ApiError::unauthorized(
-            "OIDC state/PKCE binding validation failed".to_string(),
-        ));
+        return Err(ApiError::unauthorized("OIDC state/PKCE binding validation failed".to_string()));
     }
     Ok(())
 }
@@ -128,16 +115,10 @@ fn is_safe_redirect_url(url: &str) -> bool {
         return true;
     }
     if url.starts_with("http://") || url.starts_with("https://") {
-        let host_part = url
-            .trim_start_matches("http://")
-            .trim_start_matches("https://");
+        let host_part = url.trim_start_matches("http://").trim_start_matches("https://");
         let host = host_part.split('/').next().unwrap_or("");
         let host = host.split(':').next().unwrap_or("");
-        if host == "localhost"
-            || host == "127.0.0.1"
-            || host == "::1"
-            || host == "0.0.0.0"
-        {
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
             return false;
         }
         if host.parse::<std::net::IpAddr>().is_ok() {
@@ -149,26 +130,13 @@ fn is_safe_redirect_url(url: &str) -> bool {
 }
 
 fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> String {
-    let url = query
-        .redirect_url
-        .clone()
-        .or_else(|| query.redirect_url_compat.clone())
-        .unwrap_or_else(|| {
-            format!(
-                "{}/_matrix/client/v3/oidc/callback",
-                state.services.config.server.get_public_baseurl()
-            )
-        });
+    let url = query.redirect_url.clone().or_else(|| query.redirect_url_compat.clone()).unwrap_or_else(|| {
+        format!("{}/_matrix/client/v3/oidc/callback", state.services.config.server.get_public_baseurl())
+    });
 
     if !url.is_empty() && !is_safe_redirect_url(&url) {
-        tracing::warn!(
-            "Blocked unsafe SSO redirect URL: {}",
-            &url[..url.len().min(64)]
-        );
-        return format!(
-            "{}/_matrix/client/v3/oidc/callback",
-            state.services.config.server.get_public_baseurl()
-        );
+        tracing::warn!("Blocked unsafe SSO redirect URL: {}", &url[..url.len().min(64)]);
+        return format!("{}/_matrix/client/v3/oidc/callback", state.services.config.server.get_public_baseurl());
     }
 
     url
@@ -185,22 +153,10 @@ async fn sso_redirect(
         let nonce_value = OidcService::generate_state();
         let (code_verifier, code_challenge) = OidcService::generate_pkce();
 
-        store_oidc_auth_session(
-            &state_value,
-            &nonce_value,
-            &code_verifier,
-            &code_challenge,
-            "S256",
-            &redirect_uri,
-        )?;
+        store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
 
         let authorization_url = oidc_service
-            .get_authorization_url(
-                &state_value,
-                &redirect_uri,
-                Some(&code_challenge),
-                Some("S256"),
-            )
+            .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
             .await?;
 
         return Ok(Redirect::temporary(&authorization_url));
@@ -208,11 +164,7 @@ async fn sso_redirect(
 
     #[cfg(feature = "saml-sso")]
     if state.services.saml_service.is_enabled() {
-        let auth_request = state
-            .services
-            .saml_service
-            .get_auth_redirect(Some(&redirect_uri))
-            .await?;
+        let auth_request = state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
 
@@ -258,17 +210,12 @@ pub fn oidc_enabled(state: &AppState) -> bool {
     #[cfg(not(feature = "saml-sso"))]
     let saml_enabled = false;
 
-    state.services.oidc_service.is_some()
-        || state.services.builtin_oidc_provider.is_some()
-        || saml_enabled
+    state.services.oidc_service.is_some() || state.services.builtin_oidc_provider.is_some() || saml_enabled
 }
 
 pub fn create_oidc_fallback_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/.well-known/openid-configuration",
-            get(get_openid_configuration),
-        )
+        .route("/.well-known/openid-configuration", get(get_openid_configuration))
         .route("/.well-known/jwks.json", get(jwks_fallback))
 }
 
@@ -322,18 +269,13 @@ pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEn
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
 
-    [
-        (Method::GET, "/.well-known/openid-configuration"),
-        (Method::GET, "/.well-known/jwks.json"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "oidc_fallback"))
-    .collect()
+    [(Method::GET, "/.well-known/openid-configuration"), (Method::GET, "/.well-known/jwks.json")]
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "oidc_fallback"))
+        .collect()
 }
 
-pub fn oidc_route_manifest_for(
-    state: &AppState,
-) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+pub fn oidc_route_manifest_for(state: &AppState) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     if oidc_enabled(state) {
         oidc_route_manifest()
     } else {
@@ -352,32 +294,14 @@ async fn builtin_oidc_login(
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))?;
 
-    let client_id = body
-        .get("client_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
-    let redirect_uri = body
-        .get("redirect_uri")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
-    let scope = body
-        .get("scope")
-        .and_then(|v| v.as_str())
-        .unwrap_or("openid");
-    let state_str = body
-        .get("state")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
+    let client_id = body.get("client_id").and_then(|v| v.as_str()).unwrap_or_default();
+    let redirect_uri = body.get("redirect_uri").and_then(|v| v.as_str()).unwrap_or_default();
+    let scope = body.get("scope").and_then(|v| v.as_str()).unwrap_or("openid");
+    let state_str = body.get("state").and_then(|v| v.as_str()).unwrap_or_default();
     let nonce = body.get("nonce").and_then(|v| v.as_str());
     let code_verifier = body.get("code_verifier").and_then(|v| v.as_str());
-    let username = body
-        .get("username")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
-    let password = body
-        .get("password")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
+    let username = body.get("username").and_then(|v| v.as_str()).unwrap_or_default();
+    let password = body.get("password").and_then(|v| v.as_str()).unwrap_or_default();
 
     let code = provider
         .authorize(AuthorizeRequest {
@@ -400,28 +324,22 @@ async fn builtin_oidc_login(
 async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     if let Some(provider) = &state.services.builtin_oidc_provider {
         let jwks = provider.get_jwks();
-        return Ok(Json(serde_json::to_value(jwks).map_err(|e| {
-            ApiError::internal_with_log("Failed to serialize JWKS", &e)
-        })?));
+        return Ok(Json(
+            serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_log("Failed to serialize JWKS", &e))?,
+        ));
     }
-    Err(ApiError::bad_request(
-        "Builtin OIDC provider is not enabled".to_string(),
-    ))
+    Err(ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))
 }
 
 /// JWKS fallback endpoint - 当没有启用 OIDC 时返回空的 JWKS
-pub async fn jwks_fallback(
-    State(_state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn jwks_fallback(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     // 返回空的 JWKS 集合，符合 JWKS 规范
     Ok(Json(serde_json::json!({
         "keys": []
     })))
 }
 
-pub async fn get_openid_configuration(
-    State(state): State<AppState>,
-) -> Result<Json<OpenIdDiscovery>, ApiError> {
+pub async fn get_openid_configuration(State(state): State<AppState>) -> Result<Json<OpenIdDiscovery>, ApiError> {
     openid_discovery(State(state)).await
 }
 
@@ -453,10 +371,7 @@ async fn oidc_userinfo(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get profile", &e))?;
 
-    let name = profile
-        .get("displayname")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let name = profile.get("displayname").and_then(|v| v.as_str()).map(String::from);
 
     let picture = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
         if s.starts_with("mxc://") {
@@ -466,17 +381,9 @@ async fn oidc_userinfo(
         }
     });
 
-    let email = profile
-        .get("email")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let email = profile.get("email").and_then(|v| v.as_str()).map(String::from);
 
-    Ok(Json(OidcUserInfoResponse {
-        sub: user_id.clone(),
-        name,
-        picture,
-        email,
-    }))
+    Ok(Json(OidcUserInfoResponse { sub: user_id.clone(), name, picture, email }))
 }
 
 /// OIDC Token Request
@@ -519,8 +426,7 @@ async fn oidc_token(
     Json(body): Json<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
     // Validate input
-    body.validate()
-        .map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
+    body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
 
     // 优先使用内置 OIDC Provider
     #[cfg(feature = "builtin-oidc")]
@@ -552,27 +458,15 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service = state
-        .services
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service =
+        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
-    let OidcTokenRequest {
-        grant_type,
-        code,
-        redirect_uri,
-        refresh_token,
-        scope,
-        code_verifier,
-        ..
-    } = body;
+    let OidcTokenRequest { grant_type, code, redirect_uri, refresh_token, scope, code_verifier, .. } = body;
 
     match grant_type.as_str() {
         "authorization_code" => {
             // 授权码模式
-            let code =
-                code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter".to_string()))?;
+            let code = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter".to_string()))?;
             let redirect_uri = redirect_uri.unwrap_or_default();
 
             // 使用 OIDC 服务兑换令牌
@@ -593,13 +487,8 @@ async fn oidc_token(
             let localpart = oidc_user.localpart.clone();
             let issuer = oidc_service.get_config().issuer.clone();
             let subject = oidc_user.subject.clone();
-            let server_name = state
-                .services
-                .config
-                .server
-                .server_name
-                .clone()
-                .unwrap_or_else(|| "localhost".to_string());
+            let server_name =
+                state.services.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
             let matrix_user_id = format!("@{localpart}:{server_name}");
             let displayname = oidc_user.displayname.clone().unwrap_or(localpart.clone());
             let now_ts = current_unix_ts() as i64;
@@ -607,14 +496,13 @@ async fn oidc_token(
             // 查询 (issuer, subject) -> user_id 绑定，防止外部 IdP 攻击者通过
             // 控制 preferred_username 等映射字段冒用本地已存在账号。
             let pool = &*state.services.user_storage.pool;
-            let bound_user_id: Option<String> = sqlx::query_scalar(
-                "SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
-            )
-            .bind(&issuer)
-            .bind(&subject)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
+            let bound_user_id: Option<String> =
+                sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
+                    .bind(&issuer)
+                    .bind(&subject)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
 
             let matrix_user_id = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
@@ -628,20 +516,11 @@ async fn oidc_token(
                 .bind(&subject)
                 .execute(pool)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to update OIDC user mapping", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
-                if state
-                    .services
-                    .user_storage
-                    .get_user_by_id(&matrix_user_id)
-                    .await
-                    .unwrap_or(None)
-                    .is_some()
-                {
+                if state.services.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None).is_some() {
                     ::tracing::warn!(
                         target: "security_audit",
                         event = "oidc_localpart_collision_refused",
@@ -662,9 +541,7 @@ async fn oidc_token(
                     .registration_service
                     .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to register OIDC user", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
                 sqlx::query(
                     "INSERT INTO oidc_user_mapping \
@@ -677,23 +554,15 @@ async fn oidc_token(
                 .bind(now_ts)
                 .execute(pool)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to insert OIDC user mapping", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;
                 matrix_user_id
             };
 
-            let localpart = matrix_user_id
-                .strip_prefix('@')
-                .and_then(|s| s.split(':').next())
-                .unwrap_or(&localpart)
-                .to_string();
+            let localpart =
+                matrix_user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(&localpart).to_string();
 
             // 生成设备ID
-            let device_id = format!(
-                "OIDC{}",
-                &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]
-            );
+            let device_id = format!("OIDC{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
 
             // 注册设备
             state
@@ -712,11 +581,8 @@ async fn oidc_token(
                 .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?
                 .is_some_and(|u| u.is_admin);
 
-            let matrix_token = state
-                .services
-                .auth_service
-                .generate_access_token(&matrix_user_id, &device_id, is_admin)
-                .await?;
+            let matrix_token =
+                state.services.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
 
             tracing::info!(
                 "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}, device_id: {}",
@@ -737,9 +603,8 @@ async fn oidc_token(
         }
         "refresh_token" => {
             // 刷新令牌模式
-            let refresh_token = refresh_token.ok_or_else(|| {
-                ApiError::bad_request("Missing 'refresh_token' parameter".to_string())
-            })?;
+            let refresh_token =
+                refresh_token.ok_or_else(|| ApiError::bad_request("Missing 'refresh_token' parameter".to_string()))?;
 
             // 使用 OIDC 服务刷新令牌
             let token_response = oidc_service
@@ -796,26 +661,15 @@ async fn oidc_authorize(
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service = state
-        .services
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service =
+        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
-    let OidcAuthorizeRequest {
-        response_type,
-        client_id: _,
-        redirect_uri,
-        scope: _,
-        state: auth_state,
-        nonce,
-    } = query.0;
+    let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
+        query.0;
 
     // 验证 response_type
     if response_type != "code" {
-        return Err(ApiError::bad_request(
-            "Only 'code' response type is supported".to_string(),
-        ));
+        return Err(ApiError::bad_request("Only 'code' response type is supported".to_string()));
     }
 
     // 生成 state 和 nonce
@@ -824,30 +678,15 @@ async fn oidc_authorize(
 
     // 生成 PKCE code_verifier 和 code_challenge
     let (code_verifier, code_challenge) = OidcService::generate_pkce();
-    store_oidc_auth_session(
-        &state_value,
-        &nonce_value,
-        &code_verifier,
-        &code_challenge,
-        "S256",
-        &redirect_uri,
-    )?;
+    store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
 
     // 生成授权 URL (包含 PKCE)
     let authorization_url = oidc_service
-        .get_authorization_url(
-            &state_value,
-            &redirect_uri,
-            Some(&code_challenge),
-            Some("S256"),
-        )
+        .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to generate authorization URL", &e))?;
 
-    tracing::info!(
-        "OIDC authorization redirect_uri: {}, using PKCE",
-        redirect_uri
-    );
+    tracing::info!("OIDC authorization redirect_uri: {}, using PKCE", redirect_uri);
 
     Ok(Json(serde_json::json!({
         "authorization_url": authorization_url,
@@ -885,8 +724,7 @@ async fn oidc_register(
     Json(_body): Json<OidcRegistrationRequest>,
 ) -> Result<Json<OidcRegistrationResponse>, ApiError> {
     Err(ApiError::bad_request(
-        "Dynamic client registration not supported. Please configure OIDC in server configuration."
-            .to_string(),
+        "Dynamic client registration not supported. Please configure OIDC in server configuration.".to_string(),
     ))
 }
 
@@ -908,11 +746,7 @@ async fn oidc_logout(
 
     // 如果提供了 refresh_token，则尝试撤销
     if let Some(refresh_token) = body.refresh_token {
-        state
-            .services
-            .refresh_token_service
-            .revoke_token(&refresh_token, "OIDC logout")
-            .await?;
+        state.services.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
     }
 
     tracing::info!("OIDC logout for user: {}", auth_user.user_id);
@@ -951,9 +785,7 @@ pub struct OpenIdDiscovery {
 
 /// OpenID Connect Server Discovery
 #[allow(clippy::unused_async)]
-pub async fn openid_discovery(
-    State(state): State<AppState>,
-) -> Result<Json<OpenIdDiscovery>, ApiError> {
+pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<OpenIdDiscovery>, ApiError> {
     // 如果启用了内置 OIDC Provider，直接使用其发现文档
     #[cfg(feature = "builtin-oidc")]
     if let Some(provider) = &state.services.builtin_oidc_provider {
@@ -970,10 +802,7 @@ pub async fn openid_discovery(
             scopes_supported: doc.scopes_supported,
             response_types_supported: doc.response_types_supported,
             response_modes_supported: vec!["query".to_string(), "fragment".to_string()],
-            grant_types_supported: vec![
-                "authorization_code".to_string(),
-                "refresh_token".to_string(),
-            ],
+            grant_types_supported: vec!["authorization_code".to_string(), "refresh_token".to_string()],
             token_endpoint_auth_methods_supported: doc.token_endpoint_auth_methods_supported,
             claims_supported: doc.claims_supported,
             ui_locales_supported: vec!["en".to_string()],
@@ -994,24 +823,12 @@ pub async fn openid_discovery(
         registration_endpoint: None,
         revocation_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/revoke")),
         end_session_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/logout")),
-        scopes_supported: vec![
-            "openid".to_string(),
-            "profile".to_string(),
-            "email".to_string(),
-        ],
+        scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
         response_types_supported: vec!["code".to_string()],
         response_modes_supported: vec!["query".to_string(), "fragment".to_string()],
-        grant_types_supported: vec![
-            "authorization_code".to_string(),
-            "refresh_token".to_string(),
-        ],
+        grant_types_supported: vec!["authorization_code".to_string(), "refresh_token".to_string()],
         token_endpoint_auth_methods_supported: vec!["client_secret_basic".to_string()],
-        claims_supported: vec![
-            "sub".to_string(),
-            "name".to_string(),
-            "picture".to_string(),
-            "email".to_string(),
-        ],
+        claims_supported: vec!["sub".to_string(), "name".to_string(), "picture".to_string(), "email".to_string()],
         ui_locales_supported: vec!["en".to_string()],
         subject_types_supported: vec!["public".to_string()],
         id_token_signing_alg_values_supported: vec!["RS256".to_string()],
@@ -1034,18 +851,10 @@ async fn oidc_callback(
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service = state
-        .services
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service =
+        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
-    let OidcCallbackRequest {
-        code,
-        state: callback_state,
-        error,
-        error_description,
-    } = query.0;
+    let OidcCallbackRequest { code, state: callback_state, error, error_description } = query.0;
 
     // 检查错误
     if let Some(err) = error {
@@ -1057,12 +866,9 @@ async fn oidc_callback(
     }
 
     // 需要授权码
-    let code = code.ok_or_else(|| {
-        ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string())
-    })?;
-    let callback_state = callback_state.ok_or_else(|| {
-        ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string())
-    })?;
+    let code = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
+    let callback_state = callback_state
+        .ok_or_else(|| ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string()))?;
     let auth_session = consume_oidc_auth_session(&callback_state)?;
     validate_state_pkce_binding(&auth_session)?;
 
@@ -1072,23 +878,14 @@ async fn oidc_callback(
             .get_config()
             .callback_url
             .clone()
-            .unwrap_or_else(|| {
-                format!(
-                    "https://{}/_matrix/client/v3/oidc/callback",
-                    state.services.server_name
-                )
-            })
+            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.server_name))
     } else {
         auth_session.redirect_uri.clone()
     };
 
     // 兑换令牌
     let token_response = oidc_service
-        .exchange_code(
-            &code,
-            &callback_url,
-            Some(auth_session.code_verifier.as_str()),
-        )
+        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()))
         .await
         .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
@@ -1144,19 +941,12 @@ async fn oidc_callback(
         // Get displayname from OIDC user info
         let displayname = oidc_user.displayname.as_deref();
 
-        match state
-            .services
-            .auth_service
-            .register(&oidc_user.localpart, &random_password, false, displayname)
-            .await
-        {
+        match state.services.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)
                 let error_msg = e.to_string();
-                if error_msg.contains("already taken")
-                    || error_msg.contains("in use")
-                    || error_msg.contains("conflict")
+                if error_msg.contains("already taken") || error_msg.contains("in use") || error_msg.contains("conflict")
                 {
                     // User was created by another request, try to get them
                     let existing = state
@@ -1173,17 +963,13 @@ async fn oidc_callback(
                         .auth_service
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to generate access token", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
                     let refresh_token = state
                         .services
                         .auth_service
                         .generate_refresh_token(&user_id, &device_id)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to generate refresh token", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
                     (existing, access_token, refresh_token, device_id)
                 } else {
                     return Err(e);
@@ -1193,11 +979,7 @@ async fn oidc_callback(
     };
 
     let user_id_for_log = user.user_id();
-    tracing::info!(
-        "OIDC user logged in: {}, device_id: {}",
-        user_id_for_log,
-        device_id
-    );
+    tracing::info!("OIDC user logged in: {}, device_id: {}", user_id_for_log, device_id);
 
     Ok(Json(serde_json::json!({
         "access_token": access_token,
@@ -1300,8 +1082,7 @@ mod tests {
     fn test_openid_discovery() {
         let discovery = OpenIdDiscovery {
             issuer: "https://example.com".to_string(),
-            authorization_endpoint: "https://example.com/_matrix/client/v3/oidc/authorize"
-                .to_string(),
+            authorization_endpoint: "https://example.com/_matrix/client/v3/oidc/authorize".to_string(),
             token_endpoint: "https://example.com/_matrix/client/v3/oidc/token".to_string(),
             userinfo_endpoint: "https://example.com/_matrix/client/v3/oidc/userinfo".to_string(),
             jwks_uri: "https://example.com/.well-known/jwks.json".to_string(),

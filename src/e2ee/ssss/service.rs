@@ -20,10 +20,7 @@ pub struct SecretStorageService {
 
 impl SecretStorageService {
     pub fn new(storage: SecretStorage) -> Self {
-        Self {
-            storage,
-            dehydrated_device_service: None,
-        }
+        Self { storage, dehydrated_device_service: None }
     }
 
     pub fn with_dehydrated_device_service(mut self, service: Arc<DehydratedDeviceService>) -> Self {
@@ -31,25 +28,17 @@ impl SecretStorageService {
         self
     }
 
-    pub fn create_key(
-        &self,
-        _user_id: &str,
-        algorithm: &str,
-    ) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    pub fn create_key(&self, _user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_id = format!("{}", uuid::Uuid::new_v4());
 
         match algorithm {
             "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::create_curve25519_key(&key_id),
             "aes-hmac-sha2" => Ok(Self::create_aes_hmac_key(&key_id)),
-            _ => Err(ApiError::bad_request(format!(
-                "Unsupported secret storage algorithm: {algorithm}"
-            ))),
+            _ => Err(ApiError::bad_request(format!("Unsupported secret storage algorithm: {algorithm}"))),
         }
     }
 
-    fn create_curve25519_key(
-        key_id: &str,
-    ) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    fn create_curve25519_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_pair = X25519KeyPair::generate();
         let private_key_bytes = key_pair.secret_key().as_bytes();
         let public_key_bytes = key_pair.public_key().as_bytes();
@@ -64,21 +53,17 @@ impl SecretStorageService {
         let key_data = format!("{private_key_base64}:{public_key_base64}");
 
         let session_key = Aes256GcmKey::generate();
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, key_data.as_bytes())
-            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&session_key, key_data.as_bytes()).map_err(|e| {
+            tracing::error!("Encryption failed: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        let encrypted_key = format!(
-            "{}.{}",
-            BASE64.encode(&encrypted[..12]),
-            BASE64.encode(&encrypted[12..])
-        );
+        let encrypted_key = format!("{}.{}", BASE64.encode(&encrypted[..12]), BASE64.encode(&encrypted[12..]));
 
         Ok(SecretStorageKeyCreationTerm {
             key_id: key_id.to_string(),
             algorithm: "org.matrix.msc2697.v1.curve25519-aes-sha2".to_string(),
-            key: SecretStorageKeyCreationKey::Curve25519AesSha2(Curve25519Key {
-                key: encrypted_key,
-            }),
+            key: SecretStorageKeyCreationKey::Curve25519AesSha2(Curve25519Key { key: encrypted_key }),
             iv: Some(iv),
             mac: None,
         })
@@ -109,11 +94,7 @@ impl SecretStorageService {
         }
     }
 
-    pub async fn store_key(
-        &self,
-        user_id: &str,
-        key: &SecretStorageKeyCreationTerm,
-    ) -> Result<(), ApiError> {
+    pub async fn store_key(&self, user_id: &str, key: &SecretStorageKeyCreationTerm) -> Result<(), ApiError> {
         let encrypted_key = match &key.key {
             SecretStorageKeyCreationKey::Curve25519AesSha2(ck) => ck.key.clone(),
             SecretStorageKeyCreationKey::AesHmacSha2(ak) => ak.key.clone(),
@@ -152,11 +133,7 @@ impl SecretStorageService {
         self.storage.create_key(&storage_key).await
     }
 
-    pub async fn get_key(
-        &self,
-        user_id: &str,
-        key_id: &str,
-    ) -> Result<Option<SecretStorageKey>, ApiError> {
+    pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
         self.storage.get_key(user_id, key_id).await
     }
 
@@ -167,48 +144,29 @@ impl SecretStorageService {
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
         self.storage.delete_key(user_id, key_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
-            dehydrated_device_service
-                .delete_all_for_user(user_id)
-                .await?;
+            dehydrated_device_service.delete_all_for_user(user_id).await?;
         }
         Ok(())
     }
 
-    pub fn encrypt_secret(
-        &self,
-        secret: &str,
-        _key_id: &str,
-        key_data: &SecretStorageKey,
-    ) -> Result<String, ApiError> {
+    pub fn encrypt_secret(&self, secret: &str, _key_id: &str, key_data: &SecretStorageKey) -> Result<String, ApiError> {
         match key_data.algorithm.as_str() {
-            "org.matrix.msc2697.v1.curve25519-aes-sha2" => {
-                Self::encrypt_secret_curve25519(secret, key_data)
-            }
+            "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::encrypt_secret_curve25519(secret, key_data),
             "aes-hmac-sha2" => Self::encrypt_secret_aes_hmac(secret, key_data),
-            _ => Err(ApiError::bad_request(format!(
-                "Unsupported algorithm: {}",
-                key_data.algorithm
-            ))),
+            _ => Err(ApiError::bad_request(format!("Unsupported algorithm: {}", key_data.algorithm))),
         }
     }
 
-    fn encrypt_secret_curve25519(
-        secret: &str,
-        key_data: &SecretStorageKey,
-    ) -> Result<String, ApiError> {
+    fn encrypt_secret_curve25519(secret: &str, key_data: &SecretStorageKey) -> Result<String, ApiError> {
         let parts: Vec<&str> = key_data.encrypted_key.split('.').collect();
         if parts.len() != 2 {
-            return Err(ApiError::bad_request(
-                "Invalid encrypted key format".to_string(),
-            ));
+            return Err(ApiError::bad_request("Invalid encrypted key format".to_string()));
         }
 
-        let nonce_bytes = BASE64
-            .decode(parts[0])
-            .map_err(|e| ApiError::bad_request(format!("Invalid nonce base64: {e}")))?;
-        let ciphertext_bytes = BASE64
-            .decode(parts[1])
-            .map_err(|e| ApiError::bad_request(format!("Invalid ciphertext base64: {e}")))?;
+        let nonce_bytes =
+            BASE64.decode(parts[0]).map_err(|e| ApiError::bad_request(format!("Invalid nonce base64: {e}")))?;
+        let ciphertext_bytes =
+            BASE64.decode(parts[1]).map_err(|e| ApiError::bad_request(format!("Invalid ciphertext base64: {e}")))?;
 
         if nonce_bytes.len() < 12 {
             return Err(ApiError::bad_request("Nonce too short".to_string()));
@@ -218,33 +176,29 @@ impl SecretStorageService {
         nonce_arr.copy_from_slice(&nonce_bytes[..12]);
 
         if ciphertext_bytes.len() < 32 {
-            return Err(ApiError::bad_request(
-                "Ciphertext too short to extract key".to_string(),
-            ));
+            return Err(ApiError::bad_request("Ciphertext too short to extract key".to_string()));
         }
 
         let mut key_arr = [0u8; 32];
         key_arr.copy_from_slice(&ciphertext_bytes[..32]);
         let key = Aes256GcmKey::from_bytes(key_arr);
 
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes()).map_err(|e| {
+            tracing::error!("Encryption failed: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(BASE64.encode(&encrypted))
     }
 
-    fn encrypt_secret_aes_hmac(
-        secret: &str,
-        key_data: &SecretStorageKey,
-    ) -> Result<String, ApiError> {
+    fn encrypt_secret_aes_hmac(secret: &str, key_data: &SecretStorageKey) -> Result<String, ApiError> {
         let parts: Vec<&str> = key_data.encrypted_key.split(':').collect();
         if parts.len() != 2 {
             return Err(ApiError::bad_request("Invalid key format".to_string()));
         }
 
-        let key_bytes = BASE64
-            .decode(parts[0])
-            .map_err(|e| ApiError::bad_request(format!("Invalid key base64: {e}")))?;
+        let key_bytes =
+            BASE64.decode(parts[0]).map_err(|e| ApiError::bad_request(format!("Invalid key base64: {e}")))?;
 
         let mut key_arr = [0u8; 32];
         if key_bytes.len() >= 32 {
@@ -254,8 +208,10 @@ impl SecretStorageService {
         }
 
         let key = Aes256GcmKey::from_bytes(key_arr);
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes())
-            .map_err(|e| { tracing::error!("Encryption failed: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, secret.as_bytes()).map_err(|e| {
+            tracing::error!("Encryption failed: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(BASE64.encode(&encrypted))
     }
@@ -276,11 +232,7 @@ impl SecretStorageService {
         self.storage.store_secret(user_id, &secret).await
     }
 
-    pub async fn get_secret(
-        &self,
-        user_id: &str,
-        secret_name: &str,
-    ) -> Result<Option<StoredSecret>, ApiError> {
+    pub async fn get_secret(&self, user_id: &str, secret_name: &str) -> Result<Option<StoredSecret>, ApiError> {
         self.storage.get_secret(user_id, secret_name).await
     }
 
@@ -293,10 +245,7 @@ impl SecretStorageService {
 
         let mut result = HashMap::new();
         for name in secret_names {
-            let encrypted = secrets
-                .iter()
-                .find(|s| s.secret_name == *name)
-                .map(|s| s.encrypted_secret.clone());
+            let encrypted = secrets.iter().find(|s| s.secret_name == *name).map(|s| s.encrypted_secret.clone());
             result.insert(name.clone(), encrypted);
         }
 
@@ -307,11 +256,7 @@ impl SecretStorageService {
         self.storage.delete_secret(user_id, secret_name).await
     }
 
-    pub async fn delete_secrets(
-        &self,
-        user_id: &str,
-        secret_names: &[String],
-    ) -> Result<(), ApiError> {
+    pub async fn delete_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<(), ApiError> {
         self.storage.delete_secrets(user_id, secret_names).await
     }
 
@@ -319,10 +264,7 @@ impl SecretStorageService {
         self.storage.has_secrets(user_id).await
     }
 
-    pub fn get_encryption_info(
-        &self,
-        _user_id: &str,
-    ) -> Result<SecretStorageEncryptionInfo, ApiError> {
+    pub fn get_encryption_info(&self, _user_id: &str) -> Result<SecretStorageEncryptionInfo, ApiError> {
         Ok(SecretStorageEncryptionInfo::default())
     }
 }

@@ -20,9 +20,7 @@ impl SyncService {
             .await
             .map_err(map_internal!("Failed to check membership"))?
         {
-            return Err(ApiError::forbidden(
-                "You are not a member of this room".to_string(),
-            ));
+            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
         let events = self
@@ -31,10 +29,8 @@ impl SyncService {
             .await
             .map_err(map_internal!("Failed to get messages"))?;
 
-        let event_list: Vec<serde_json::Value> = events
-            .iter()
-            .map(|e| Self::event_to_json(e, SyncEventFormat::Client))
-            .collect();
+        let event_list: Vec<serde_json::Value> =
+            events.iter().map(|e| Self::event_to_json(e, SyncEventFormat::Client)).collect();
 
         let end_token = events.last().map_or_else(
             || format!("t{}", chrono::Utc::now().timestamp_millis()),
@@ -48,16 +44,9 @@ impl SyncService {
         }))
     }
 
-    pub async fn get_public_rooms(
-        &self,
-        limit: i64,
-        _since: Option<&str>,
-    ) -> ApiResult<serde_json::Value> {
-        let rooms = self
-            .room_storage
-            .get_public_rooms(limit)
-            .await
-            .map_err(map_internal!("Failed to get public rooms"))?;
+    pub async fn get_public_rooms(&self, limit: i64, _since: Option<&str>) -> ApiResult<serde_json::Value> {
+        let rooms =
+            self.room_storage.get_public_rooms(limit).await.map_err(map_internal!("Failed to get public rooms"))?;
 
         let room_list: Vec<serde_json::Value> = rooms
             .iter()
@@ -91,17 +80,9 @@ impl SyncService {
         Ok(response)
     }
 
-    pub async fn get_events(
-        &self,
-        user_id: &str,
-        from: &str,
-        _timeout: u64,
-    ) -> ApiResult<serde_json::Value> {
-        let room_ids = self
-            .member_storage
-            .get_joined_rooms(user_id)
-            .await
-            .map_err(map_internal!("Failed to get rooms"))?;
+    pub async fn get_events(&self, user_id: &str, from: &str, _timeout: u64) -> ApiResult<serde_json::Value> {
+        let room_ids =
+            self.member_storage.get_joined_rooms(user_id).await.map_err(map_internal!("Failed to get rooms"))?;
 
         let since_ts: i64 = from
             .trim_start_matches('s')

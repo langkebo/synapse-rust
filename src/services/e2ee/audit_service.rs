@@ -63,7 +63,7 @@ impl E2eeAuditService {
     pub async fn log_key_operation(&self, event: KeyEvent) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO e2ee_audit_log 
+            INSERT INTO e2ee_audit_log
             (user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ",
@@ -80,18 +80,15 @@ impl E2eeAuditService {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to log key operation", &e))?;
 
-        debug!(
-            "Logged E2EE operation: {} for user: {}",
-            event.operation, event.user_id
-        );
+        debug!("Logged E2EE operation: {} for user: {}", event.operation, event.user_id);
         Ok(())
     }
 
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
-            SELECT * FROM e2ee_audit_log 
-            WHERE user_id = $1 
+            SELECT * FROM e2ee_audit_log
+            WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT 100
             ",
@@ -102,15 +99,11 @@ impl E2eeAuditService {
         .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
     }
 
-    pub async fn get_operations_by_type(
-        &self,
-        operation: &str,
-        limit: i64,
-    ) -> Result<Vec<KeyAuditEntry>, ApiError> {
+    pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
-            SELECT * FROM e2ee_audit_log 
-            WHERE operation = $1 
+            SELECT * FROM e2ee_audit_log
+            WHERE operation = $1
             ORDER BY created_ts DESC
             LIMIT $2
             ",
@@ -129,7 +122,7 @@ impl E2eeAuditService {
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
-            SELECT * FROM e2ee_audit_log 
+            SELECT * FROM e2ee_audit_log
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts DESC
             LIMIT 50
@@ -143,8 +136,7 @@ impl E2eeAuditService {
     }
 
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
-        let cutoff_ts =
-            chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
+        let cutoff_ts = chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
 
         let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")
             .bind(cutoff_ts)
@@ -170,10 +162,7 @@ impl CrossSigningVerificationService {
         Self { pool, audit }
     }
 
-    pub async fn verify_user_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<DeviceVerificationReport, ApiError> {
+    pub async fn verify_user_devices(&self, user_id: &str) -> Result<DeviceVerificationReport, ApiError> {
         let devices = self.get_user_devices(user_id).await?;
         let mut report = DeviceVerificationReport {
             user_id: user_id.to_string(),
@@ -221,10 +210,7 @@ impl CrossSigningVerificationService {
         Ok(report)
     }
 
-    pub async fn verify_device(
-        &self,
-        device: &DeviceInfo,
-    ) -> Result<DeviceVerificationStatus, ApiError> {
+    pub async fn verify_device(&self, device: &DeviceInfo) -> Result<DeviceVerificationStatus, ApiError> {
         let signature_valid = self.verify_device_signature(device).await?;
         let cross_signed = self.check_cross_signing(device).await?;
         let is_verified = signature_valid && cross_signed;
@@ -260,17 +246,12 @@ impl CrossSigningVerificationService {
         Ok(status)
     }
 
-    pub async fn mark_device_verified(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        method: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn mark_device_verified(&self, user_id: &str, device_id: &str, method: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             r"
-            UPDATE devices 
+            UPDATE devices
             SET verified = TRUE,
                 verified_ts = $3,
                 verification_method = $4
@@ -300,24 +281,16 @@ impl CrossSigningVerificationService {
             })
             .await?;
 
-        info!(
-            "Marked device {} as verified for user {} via {}",
-            device_id, user_id, method
-        );
+        info!("Marked device {} as verified for user {} via {}", device_id, user_id, method);
         Ok(())
     }
 
-    pub async fn mark_device_unverified(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        reason: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             r"
-            UPDATE devices 
+            UPDATE devices
             SET verified = FALSE,
                 verified_ts = NULL,
                 verification_method = NULL
@@ -345,10 +318,7 @@ impl CrossSigningVerificationService {
             })
             .await?;
 
-        warn!(
-            "Marked device {} as unverified for user {}: {}",
-            device_id, user_id, reason
-        );
+        warn!("Marked device {} as unverified for user {}: {}", device_id, user_id, reason);
         Ok(())
     }
 
@@ -356,7 +326,7 @@ impl CrossSigningVerificationService {
         let rows = sqlx::query(
             r"
             SELECT device_id, user_id, display_name, verified, verified_ts, verification_method
-            FROM devices 
+            FROM devices
             WHERE user_id = $1
             ",
         )
@@ -380,7 +350,7 @@ impl CrossSigningVerificationService {
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
         let result: Option<Option<bool>> = sqlx::query_scalar(
             r"
-            SELECT signature_valid FROM device_signatures 
+            SELECT signature_valid FROM device_signatures
             WHERE device_id = $1
             ORDER BY created_ts DESC
             LIMIT 1
@@ -397,7 +367,7 @@ impl CrossSigningVerificationService {
     async fn check_cross_signing(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
         let result: Option<Option<bool>> = sqlx::query_scalar(
             r"
-            SELECT cross_signed FROM cross_signing_keys 
+            SELECT cross_signed FROM cross_signing_keys
             WHERE user_id = $1 AND device_id = $2
             ",
         )

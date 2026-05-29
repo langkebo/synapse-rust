@@ -27,22 +27,13 @@ mod tests {
     #[test]
     fn test_database_url_default() {
         std::env::remove_var("TEST_DATABASE_URL");
-        assert_eq!(
-            test_database_url(),
-            "postgres://synapse:synapse@localhost:5432/synapse_test"
-        );
+        assert_eq!(test_database_url(), "postgres://synapse:synapse@localhost:5432/synapse_test");
     }
 
     #[test]
     fn test_database_url_from_env() {
-        std::env::set_var(
-            "TEST_DATABASE_URL",
-            "postgres://custom:custom@localhost:5432/custom",
-        );
-        assert_eq!(
-            test_database_url(),
-            "postgres://custom:custom@localhost:5432/custom"
-        );
+        std::env::set_var("TEST_DATABASE_URL", "postgres://custom:custom@localhost:5432/custom");
+        assert_eq!(test_database_url(), "postgres://custom:custom@localhost:5432/custom");
         std::env::remove_var("TEST_DATABASE_URL");
     }
 }

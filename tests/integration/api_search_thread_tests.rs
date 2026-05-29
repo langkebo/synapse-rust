@@ -11,19 +11,13 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "name": "Thread Test Room" }).to_string(),
-        ))
+        .body(Body::from(json!({ "name": "Thread Test Room" }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -31,10 +25,7 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
 async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            room_id, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/{}", room_id, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -46,24 +37,15 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
 
-async fn create_thread(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    root_event_id: &str,
-) -> String {
+async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_event_id: &str) -> String {
     let request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v1/rooms/{}/threads", room_id))
@@ -80,14 +62,10 @@ async fn create_thread(
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["thread_id"].as_str().unwrap().to_string()
 }
@@ -102,10 +80,7 @@ async fn add_reply(
 ) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/replies",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/replies", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -121,9 +96,7 @@ async fn add_reply(
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -135,17 +108,12 @@ async fn get_thread_response(
 ) -> axum::response::Response {
     let request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}?include_replies=true",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}?include_replies=true", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap()
+    ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap()
 }
 
 async fn get_user_id(app: &axum::Router, token: &str) -> String {
@@ -156,14 +124,10 @@ async fn get_user_id(app: &axum::Router, token: &str) -> String {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["user_id"].as_str().unwrap().to_string()
 }
@@ -177,9 +141,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -191,9 +153,7 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -222,15 +182,11 @@ async fn test_v3_search_validation_is_preserved_after_router_refactor() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"], "Search term cannot be empty");
 }
@@ -255,15 +211,11 @@ async fn test_r0_search_recipients_route_still_works_after_nesting() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"], "Search term cannot be empty");
 }
@@ -282,44 +234,29 @@ async fn test_room_context_rejects_non_member_and_admin_override() {
 
     let guest_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/context/{}",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/context/{}", room_id, event_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let guest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), guest_request)
-        .await
-        .unwrap();
+    let guest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), guest_request).await.unwrap();
     assert_eq!(guest_response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/context/{}",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/context/{}", room_id, event_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
-        .await
-        .unwrap();
+    let admin_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request).await.unwrap();
     assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/context/{}",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/context/{}", room_id, event_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let owner_response = ServiceExt::<Request<Body>>::oneshot(app, owner_request)
-        .await
-        .unwrap();
+    let owner_response = ServiceExt::<Request<Body>>::oneshot(app, owner_request).await.unwrap();
     assert_eq!(owner_response.status(), StatusCode::OK);
 }
 
@@ -335,9 +272,7 @@ async fn test_thread_compat_route_is_available_from_thread_module() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
@@ -353,22 +288,12 @@ async fn test_get_thread_returns_real_thread_details() {
     let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
     let reply_event_id = format!("$thread_reply_{}", rand::random::<u64>());
 
-    add_reply(
-        &app,
-        &token,
-        &room_id,
-        &thread_id,
-        &root_event_id,
-        &reply_event_id,
-    )
-    .await;
+    add_reply(&app, &token, &room_id, &thread_id, &root_event_id, &reply_event_id).await;
 
     let response = get_thread_response(&app, &token, &room_id, &thread_id).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["root"]["thread_id"], thread_id);
@@ -409,86 +334,56 @@ async fn test_thread_management_requires_room_creator() {
 
     let freeze_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/freeze",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), freeze_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), freeze_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let unfreeze_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/unfreeze",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unfreeze_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unfreeze_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let owner_freeze_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/freeze",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_freeze_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_freeze_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let owner_unfreeze_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/unfreeze",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_unfreeze_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_unfreeze_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let owner_delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, owner_delete_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, owner_delete_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }
 
@@ -518,14 +413,10 @@ async fn test_global_thread_routes_return_real_data() {
         ))
         .unwrap();
 
-    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
-        .await
-        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
     assert_eq!(create_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(create_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(create_response.into_body(), 2048).await.unwrap();
     let create_json: Value = serde_json::from_slice(&body).unwrap();
     let thread_id = create_json["thread_id"].as_str().unwrap().to_string();
 
@@ -536,28 +427,19 @@ async fn test_global_thread_routes_return_real_data() {
         .body(Body::empty())
         .unwrap();
 
-    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
-        .await
-        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request).await.unwrap();
     assert_eq!(list_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(list_response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(list_response.into_body(), 4096).await.unwrap();
     let list_json: Value = serde_json::from_slice(&body).unwrap();
     let threads = list_json["threads"].as_array().unwrap();
 
-    assert!(threads
-        .iter()
-        .any(|thread| thread["thread_id"] == thread_id && thread["room_id"] == room_id));
+    assert!(threads.iter().any(|thread| thread["thread_id"] == thread_id && thread["room_id"] == room_id));
     assert!(list_json["total"].as_i64().unwrap_or_default() >= 1);
 
     let subscribe_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rooms/{}/threads/{}/subscribe",
-            room_id, thread_id
-        ))
+        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/subscribe", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -568,9 +450,7 @@ async fn test_global_thread_routes_return_real_data() {
         ))
         .unwrap();
 
-    let subscribe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request)
-        .await
-        .unwrap();
+    let subscribe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), subscribe_request).await.unwrap();
     assert_eq!(subscribe_response.status(), StatusCode::OK);
 
     let subscribed_request = Request::builder()
@@ -580,28 +460,18 @@ async fn test_global_thread_routes_return_real_data() {
         .body(Body::empty())
         .unwrap();
 
-    let subscribed_response = ServiceExt::<Request<Body>>::oneshot(app, subscribed_request)
-        .await
-        .unwrap();
+    let subscribed_response = ServiceExt::<Request<Body>>::oneshot(app, subscribed_request).await.unwrap();
     assert_eq!(subscribed_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(subscribed_response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(subscribed_response.into_body(), 4096).await.unwrap();
     let subscribed_json: Value = serde_json::from_slice(&body).unwrap();
 
-    assert!(subscribed_json["threads"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|thread| thread["thread_id"] == thread_id));
+    assert!(subscribed_json["threads"].as_array().unwrap().iter().any(|thread| thread["thread_id"] == thread_id));
     assert!(subscribed_json["subscribed"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|subscription| {
-            subscription["thread_id"] == thread_id && subscription["notification_level"] == "all"
-        }));
+        .any(|subscription| { subscription["thread_id"] == thread_id && subscription["notification_level"] == "all" }));
 }
 
 #[tokio::test]
@@ -622,18 +492,12 @@ async fn test_global_threads_only_include_joined_rooms() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let threads = json["threads"].as_array().unwrap();
-    assert!(!threads
-        .iter()
-        .any(|thread| thread["thread_id"] == thread_id));
+    assert!(!threads.iter().any(|thread| thread["thread_id"] == thread_id));
     assert_eq!(json["total"], 0);
 }

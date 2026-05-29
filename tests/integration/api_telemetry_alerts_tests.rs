@@ -27,47 +27,31 @@ async fn test_telemetry_metrics_alerts_and_ack() {
     };
     let (admin_token, _) = super::get_admin_token(&app).await;
 
-    let counter = state
-        .services
-        .metrics
-        .register_counter("telemetry_test_counter".to_string());
+    let counter = state.services.metrics.register_counter("telemetry_test_counter".to_string());
     counter.inc_by(3);
-    let gauge = state
-        .services
-        .metrics
-        .register_gauge("telemetry_test_gauge".to_string());
+    let gauge = state.services.metrics.register_gauge("telemetry_test_gauge".to_string());
     gauge.set(42.0);
-    let histogram = state
-        .services
-        .metrics
-        .register_histogram("telemetry_test_histogram".to_string());
+    let histogram = state.services.metrics.register_histogram("telemetry_test_histogram".to_string());
     histogram.observe(100.0);
 
-    let manual_alert = state
-        .services
-        .telemetry_alert_service
-        .raise_alert(
-            "telemetry_test_alert",
-            "Telemetry test alert",
-            &TelemetryAlertSeverity::Critical,
-            "observability",
-            "manual alert for integration test",
-            json!({ "source": "integration_test" }),
-        );
+    let manual_alert = state.services.telemetry_alert_service.raise_alert(
+        "telemetry_test_alert",
+        "Telemetry test alert",
+        &TelemetryAlertSeverity::Critical,
+        "observability",
+        "manual alert for integration test",
+        json!({ "source": "integration_test" }),
+    );
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/metrics")
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let metrics_summary: Value = serde_json::from_slice(&body).unwrap();
     assert!(metrics_summary["total_counters"].as_u64().unwrap() >= 1);
     assert!(metrics_summary["total_gauges"].as_u64().unwrap() >= 1);
@@ -78,38 +62,25 @@ async fn test_telemetry_metrics_alerts_and_ack() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let alerts_response: Value = serde_json::from_slice(&body).unwrap();
     let alerts = alerts_response["alerts"].as_array().unwrap();
-    assert!(alerts
-        .iter()
-        .any(|alert| alert["alert_id"] == manual_alert.alert_id));
+    assert!(alerts.iter().any(|alert| alert["alert_id"] == manual_alert.alert_id));
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/telemetry/alerts/{}/ack",
-            manual_alert.alert_id
-        ))
+        .uri(format!("/_synapse/admin/v1/telemetry/alerts/{}/ack", manual_alert.alert_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("x-request-id", "telemetry-alert-ack")
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let acked: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(acked["status"], "acknowledged");
 
@@ -118,14 +89,10 @@ async fn test_telemetry_metrics_alerts_and_ack() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16384)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16384).await.unwrap();
     let health: Value = serde_json::from_slice(&body).unwrap();
     assert!(health.get("checks").is_some());
     assert!(health.get("database").is_some());
@@ -135,17 +102,11 @@ async fn test_telemetry_metrics_alerts_and_ack() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let audit_list: Value = serde_json::from_slice(&body).unwrap();
     let events = audit_list["events"].as_array().unwrap();
-    assert!(events
-        .iter()
-        .any(|event| event["resource_id"] == manual_alert.alert_id));
+    assert!(events.iter().any(|event| event["resource_id"] == manual_alert.alert_id));
 }

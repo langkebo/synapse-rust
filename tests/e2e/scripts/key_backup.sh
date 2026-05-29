@@ -6,23 +6,30 @@ BASE="${BASE:-https://localhost:8448}"
 CURL=(curl -sk -H 'Content-Type: application/json')
 
 pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1"; echo "    expected: $2"; echo "    got: $3"; exit 1; }
+fail() {
+    echo "  FAIL: $1"
+    echo "    expected: $2"
+    echo "    got: $3"
+    exit 1
+}
 
 USER="kbtest_$RANDOM$RANDOM"
 PASS="P@ss$RANDOM!"
 
 echo "=== 1. register $USER ==="
 init=$("${CURL[@]}" -X POST "$BASE/_matrix/client/v3/register" -d "{\"username\":\"$USER\",\"password\":\"$PASS\",\"auth\":{\"type\":\"m.login.dummy\"}}")
-echo "$init" | head -c 300; echo
+echo "$init" | head -c 300
+echo
 SESSION=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("session",""))')
 TOKEN=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("access_token",""))')
 USERID=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("user_id",""))')
 if [[ -z "$TOKEN" ]]; then
-  echo "no token in initial response, retrying with session=$SESSION"
-  init=$("${CURL[@]}" -X POST "$BASE/_matrix/client/v3/register" -d "{\"username\":\"$USER\",\"password\":\"$PASS\",\"auth\":{\"type\":\"m.login.dummy\",\"session\":\"$SESSION\"}}")
-  echo "$init" | head -c 400; echo
-  TOKEN=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("access_token",""))')
-  USERID=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("user_id",""))')
+    echo "no token in initial response, retrying with session=$SESSION"
+    init=$("${CURL[@]}" -X POST "$BASE/_matrix/client/v3/register" -d "{\"username\":\"$USER\",\"password\":\"$PASS\",\"auth\":{\"type\":\"m.login.dummy\",\"session\":\"$SESSION\"}}")
+    echo "$init" | head -c 400
+    echo
+    TOKEN=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("access_token",""))')
+    USERID=$(echo "$init" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("user_id",""))')
 fi
 [[ -n "$TOKEN" ]] || fail "register" "access_token" "$init"
 pass "registered $USERID, token len=${#TOKEN}"

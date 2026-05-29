@@ -35,17 +35,10 @@ async fn ensure_invite_list_manage_access(
     )
     .await?;
 
-    let is_admin = state
-        .services
-        .auth_service
-        .verify_room_admin(room_id, &auth_user.user_id)
-        .await
-        .is_ok();
+    let is_admin = state.services.auth_service.verify_room_admin(room_id, &auth_user.user_id).await.is_ok();
 
     if !is_admin {
-        return Err(ApiError::forbidden(
-            "Only room admins can set invite blocklist".to_string(),
-        ));
+        return Err(ApiError::forbidden("Only room admins can set invite blocklist".to_string()));
     }
 
     Ok(())
@@ -86,11 +79,7 @@ pub async fn set_invite_blocklist(
     let user_ids: Vec<String> = body
         .get("user_ids")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
     state
@@ -143,11 +132,7 @@ pub async fn set_invite_allowlist(
     let user_ids: Vec<String> = body
         .get("user_ids")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
     state

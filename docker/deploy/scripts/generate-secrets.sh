@@ -38,7 +38,7 @@ ENV_FILE="${DEPLOY_DIR}/.env"
 # 生成随机密钥 (64 字符十六进制)
 generate_hex_key() {
     local length=${1:-64}
-    if command -v openssl &> /dev/null; then
+    if command -v openssl &>/dev/null; then
         openssl rand -hex $((length / 2))
     else
         head -c $((length / 2)) /dev/urandom | xxd -p
@@ -48,16 +48,16 @@ generate_hex_key() {
 # 生成随机密码 (只包含大小写字母和数字，避免URL特殊字符)
 generate_password() {
     local length=${1:-32}
-    if command -v openssl &> /dev/null; then
+    if command -v openssl &>/dev/null; then
         openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c $length
     else
-        tr -dc 'A-Za-z0-9' < /dev/urandom | head -c $length
+        tr -dc 'A-Za-z0-9' </dev/urandom | head -c $length
     fi
 }
 
 # 生成 JWT 密钥 (Base64 编码)
 generate_jwt_secret() {
-    if command -v openssl &> /dev/null; then
+    if command -v openssl &>/dev/null; then
         openssl rand -base64 64 | tr -d '\n'
     else
         head -c 64 /dev/urandom | base64 | tr -d '\n'
@@ -113,7 +113,7 @@ maybe_set_secret() {
 update_env_file() {
     local key=$1
     local value=$2
-    
+
     if [ -f "$ENV_FILE" ]; then
         # 检查 key 是否存在
         if grep -q "^${key}=" "$ENV_FILE"; then
@@ -125,7 +125,7 @@ update_env_file() {
             fi
         else
             # 添加新值
-            echo "${key}=${value}" >> "$ENV_FILE"
+            echo "${key}=${value}" >>"$ENV_FILE"
         fi
     else
         log_error ".env 文件不存在: $ENV_FILE"
@@ -165,7 +165,7 @@ generate_single_secret() {
         "registration")
             generate_hex_key 64
             ;;
-        "secret"|"macaroon"|"form")
+        "secret" | "macaroon" | "form")
             generate_hex_key 64
             ;;
         *)
@@ -201,7 +201,7 @@ show_help() {
 # 主函数
 main() {
     local command=${1:-all}
-    
+
     case $command in
         all)
             generate_all_secrets
@@ -209,10 +209,10 @@ main() {
         missing)
             generate_missing_secrets
             ;;
-        postgres|redis|admin|jwt|registration|secret|macaroon|form)
+        postgres | redis | admin | jwt | registration | secret | macaroon | form)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
-            
+
             # 转换为大写的环境变量名
             local env_key=$(echo "$command" | tr '[:lower:]' '[:upper:]')
             if [ "$command" = "postgres" ]; then
@@ -230,13 +230,13 @@ main() {
             elif [ "$command" = "form" ]; then
                 env_key="FORM_SECRET"
             fi
-            
+
             if [ -f "$ENV_FILE" ]; then
                 update_env_file "$env_key" "$secret"
                 log_success "$env_key 已更新到 .env 文件"
             fi
             ;;
-        help|--help|-h)
+        help | --help | -h)
             show_help
             ;;
         *)

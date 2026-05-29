@@ -20,9 +20,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| {
-            "postgresql://synapse:secret@localhost:5432/synapse_test".to_string()
-        });
+        .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
 
     let pool = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -32,32 +30,18 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
     {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping registration service tests because test database is unavailable: {}",
-                error
-            );
+            eprintln!("Skipping registration service tests because test database is unavailable: {}", error);
             return None;
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS refresh_tokens CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS access_tokens CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS devices CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
+    sqlx::query("DROP TABLE IF EXISTS refresh_tokens CASCADE").execute(&pool).await.ok();
+    sqlx::query("DROP TABLE IF EXISTS access_tokens CASCADE").execute(&pool).await.ok();
+    sqlx::query("DROP TABLE IF EXISTS devices CASCADE").execute(&pool).await.ok();
+    sqlx::query("DROP TABLE IF EXISTS users CASCADE").execute(&pool).await.ok();
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE users (
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
@@ -77,12 +61,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             creation_ts BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
             updated_ts BIGINT
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create users table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE devices (
             device_id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
@@ -95,12 +81,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             appservice_id TEXT,
             ignored_user_list TEXT
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create devices table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE access_tokens (
             id BIGSERIAL PRIMARY KEY,
             token VARCHAR(255) UNIQUE NOT NULL,
@@ -110,12 +98,14 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             expires_ts BIGINT NOT NULL,
             invalidated_ts BIGINT
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create access_tokens table");
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         CREATE TABLE refresh_tokens (
             id BIGSERIAL PRIMARY KEY,
             token VARCHAR(255) UNIQUE NOT NULL,
@@ -125,7 +115,8 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
             expires_ts BIGINT NOT NULL,
             invalidated_ts BIGINT
         )
-    "#)
+    "#,
+    )
     .execute(&pool)
     .await
     .expect("Failed to create refresh_tokens table");
@@ -152,8 +143,7 @@ fn test_register_user_success() {
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
-        let auth_service =
-            AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
+        let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
         let registration_service = RegistrationService::new(
             UserStorage::new(&pool, cache.clone()),
             auth_service,
@@ -165,9 +155,7 @@ fn test_register_user_success() {
 
         let id = unique_id();
         let username = format!("alice_{}", id);
-        let result = registration_service
-            .register_user(&username, "Password123!", false, Some("Alice"))
-            .await;
+        let result = registration_service.register_user(&username, "Password123!", false, Some("Alice")).await;
         assert!(result.is_ok());
         let val = result.unwrap();
         assert_eq!(val["user_id"], format!("@{}:localhost", username));
@@ -194,8 +182,7 @@ fn test_login_success() {
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
-        let auth_service =
-            AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
+        let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
         let registration_service = RegistrationService::new(
             UserStorage::new(&pool, cache.clone()),
             auth_service,
@@ -207,14 +194,9 @@ fn test_login_success() {
 
         let id = unique_id();
         let username = format!("alice_{}", id);
-        registration_service
-            .register_user(&username, "Password123!", false, None)
-            .await
-            .unwrap();
+        registration_service.register_user(&username, "Password123!", false, None).await.unwrap();
 
-        let result = registration_service
-            .login(&username, "Password123!", None, None)
-            .await;
+        let result = registration_service.login(&username, "Password123!", None, None).await;
         assert!(result.is_ok());
         let val = result.unwrap();
         assert_eq!(val["user_id"], format!("@{}:localhost", username));
@@ -233,16 +215,10 @@ fn test_get_profile_success() {
         let id = unique_id();
         let user_id = format!("@alice_{}:localhost", id);
         let username = format!("alice_{}", id);
-        
+
         let user_storage = UserStorage::new(&pool, cache.clone());
-        user_storage
-            .create_user(&user_id, &username, None, false)
-            .await
-            .unwrap();
-        user_storage
-            .update_displayname(&user_id, Some("Alice"))
-            .await
-            .unwrap();
+        user_storage.create_user(&user_id, &username, None, false).await.unwrap();
+        user_storage.update_displayname(&user_id, Some("Alice")).await.unwrap();
 
         let security = SecurityConfig {
             secret: "test_secret".to_string(),
@@ -254,16 +230,9 @@ fn test_get_profile_success() {
             allow_legacy_hashes: false,
         };
         let metrics = Arc::new(MetricsCollector::new());
-        let auth_service =
-            AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
-        let registration_service = RegistrationService::new(
-            user_storage,
-            auth_service,
-            metrics,
-            "localhost".to_string(),
-            true,
-            None,
-        );
+        let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
+        let registration_service =
+            RegistrationService::new(user_storage, auth_service, metrics, "localhost".to_string(), true, None);
 
         let result = registration_service.get_profile(&user_id).await;
         assert!(result.is_ok());

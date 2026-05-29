@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::common::config::SamlConfig;
     use synapse_rust::common::config::SamlAttributeMapping;
+    use synapse_rust::common::config::SamlConfig;
 
     fn create_test_config() -> SamlConfig {
         SamlConfig {
@@ -61,10 +61,7 @@ mod tests {
     fn test_saml_config_get_sp_acs_url() {
         let config = create_test_config();
         let acs_url = config.get_sp_acs_url("matrix.example.com");
-        assert_eq!(
-            acs_url,
-            "https://matrix.example.com/_matrix/client/r0/login/sso/redirect/saml"
-        );
+        assert_eq!(acs_url, "https://matrix.example.com/_matrix/client/r0/login/sso/redirect/saml");
     }
 
     #[test]
@@ -80,10 +77,7 @@ mod tests {
         let config = create_test_config();
         let sls_url = config.get_sp_sls_url("matrix.example.com");
         assert!(sls_url.is_some());
-        assert_eq!(
-            sls_url.unwrap(),
-            "https://matrix.example.com/_matrix/client/r0/logout/saml"
-        );
+        assert_eq!(sls_url.unwrap(), "https://matrix.example.com/_matrix/client/r0/logout/saml");
     }
 
     #[test]
@@ -109,10 +103,8 @@ mod tests {
     #[test]
     fn test_saml_config_allowed_idp_entity_ids() {
         let mut config = create_test_config();
-        config.allowed_idp_entity_ids = vec![
-            "https://idp1.example.com".to_string(),
-            "https://idp2.example.com".to_string(),
-        ];
+        config.allowed_idp_entity_ids =
+            vec!["https://idp1.example.com".to_string(), "https://idp2.example.com".to_string()];
         assert_eq!(config.allowed_idp_entity_ids.len(), 2);
     }
 
@@ -152,7 +144,7 @@ mod tests {
     fn test_saml_config_user_id_template() {
         let config = create_test_config();
         assert_eq!(config.user_id_template, "{uid}");
-        
+
         let result = config.user_id_template.replace("{uid}", "testuser");
         assert_eq!(result, "testuser");
     }
@@ -160,10 +152,7 @@ mod tests {
     #[test]
     fn test_saml_config_nameid_format() {
         let config = create_test_config();
-        assert_eq!(
-            config.nameid_format,
-            "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
-        );
+        assert_eq!(config.nameid_format, "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent");
     }
 
     #[test]

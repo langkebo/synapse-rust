@@ -20,7 +20,7 @@ impl VerificationStorage {
     pub async fn create_request(&self, request: &VerificationRequest) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO verification_requests 
+            INSERT INTO verification_requests
             (transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (transaction_id) DO NOTHING
@@ -37,20 +37,20 @@ impl VerificationStorage {
         .bind(request.updated_ts)
         .execute(self.pool.as_ref())
         .await
-        .map_err(|e| { tracing::error!("Failed to create verification request: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to create verification request: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Get verification request by transaction ID
-    pub async fn get_request(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Option<VerificationRequest>, ApiError> {
+    pub async fn get_request(&self, transaction_id: &str) -> Result<Option<VerificationRequest>, ApiError> {
         let row = sqlx::query_as::<_, (
             String, String, String, String, Option<String>, String, String, i64, Option<i64>
         )>(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
+            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts
              FROM verification_requests WHERE transaction_id = $1"
         )
         .bind(transaction_id)
@@ -87,21 +87,18 @@ impl VerificationStorage {
     }
 
     /// Update verification state
-    pub async fn update_state(
-        &self,
-        transaction_id: &str,
-        state: VerificationState,
-    ) -> Result<(), ApiError> {
+    pub async fn update_state(&self, transaction_id: &str, state: VerificationState) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            "UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3"
-        )
-        .bind(serialize_state(&state))
-        .bind(now)
-        .bind(transaction_id)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| { tracing::error!("Failed to update verification state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        sqlx::query("UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3")
+            .bind(serialize_state(&state))
+            .bind(now)
+            .bind(transaction_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update verification state: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?;
 
         Ok(())
     }
@@ -110,10 +107,10 @@ impl VerificationStorage {
     pub async fn store_sas_state(&self, sas: &SasState) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO verification_sas 
+            INSERT INTO verification_sas
             (tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (tx_id) DO UPDATE SET 
+            ON CONFLICT (tx_id) DO UPDATE SET
                 to_device = $3, state = $5, exchange_hashes = $6, commitment = $7, pubkey = $8, sas_bytes = $9, mac = $10
             ",
         )
@@ -138,10 +135,10 @@ impl VerificationStorage {
     pub async fn store_qr_state(&self, qr: &QrState) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO verification_qr 
+            INSERT INTO verification_qr
             (tx_id, from_device, to_device, state, qr_code_data, scanned_data)
             VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (tx_id) DO UPDATE SET 
+            ON CONFLICT (tx_id) DO UPDATE SET
                 to_device = $3, state = $4, qr_code_data = $5, scanned_data = $6
             ",
         )
@@ -153,27 +150,31 @@ impl VerificationStorage {
         .bind(&qr.scanned_data)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to store QR state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to store QR state: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Get pending verifications for a user
-    pub async fn get_pending_verifications(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<VerificationRequest>, ApiError> {
-        let rows = sqlx::query_as::<_, (
-            String, String, String, String, Option<String>, String, String, i64, Option<i64>
-        )>(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts 
-             FROM verification_requests 
-             WHERE to_user = $1 AND state IN ('requested', 'ready', 'pending')"
+    pub async fn get_pending_verifications(&self, user_id: &str) -> Result<Vec<VerificationRequest>, ApiError> {
+        let rows = sqlx::query_as::<
+            _,
+            (String, String, String, String, Option<String>, String, String, i64, Option<i64>),
+        >(
+            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts
+             FROM verification_requests
+             WHERE to_user = $1 AND state IN ('requested', 'ready', 'pending')",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get pending verifications: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get pending verifications: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(rows
             .into_iter()

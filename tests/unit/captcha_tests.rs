@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use crate::storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
     use crate::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
+    use crate::storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
     use sqlx::PgPool;
     use std::sync::Arc;
 
     async fn setup_test_db() -> Option<Arc<PgPool>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        
+
         let pool = PgPool::connect(&db_url).await.ok()?;
         Some(Arc::new(pool))
     }
@@ -22,16 +22,18 @@ mod tests {
 
         let storage = CaptchaStorage::new(&pool);
 
-        let captcha = storage.create_captcha(CreateCaptchaRequest {
-            captcha_type: "email".to_string(),
-            target: "test@example.com".to_string(),
-            code: "123456".to_string(),
-            expires_in_seconds: 600,
-            ip_address: Some("127.0.0.1".to_string()),
-            user_agent: Some("test".to_string()),
-            max_attempts: 5,
-            metadata: None,
-        }).await;
+        let captcha = storage
+            .create_captcha(CreateCaptchaRequest {
+                captcha_type: "email".to_string(),
+                target: "test@example.com".to_string(),
+                code: "123456".to_string(),
+                expires_in_seconds: 600,
+                ip_address: Some("127.0.0.1".to_string()),
+                user_agent: Some("test".to_string()),
+                max_attempts: 5,
+                metadata: None,
+            })
+            .await;
 
         assert!(captcha.is_ok());
         let captcha = captcha.unwrap();
@@ -50,16 +52,19 @@ mod tests {
 
         let storage = CaptchaStorage::new(&pool);
 
-        let created = storage.create_captcha(CreateCaptchaRequest {
-            captcha_type: "email".to_string(),
-            target: "test2@example.com".to_string(),
-            code: "654321".to_string(),
-            expires_in_seconds: 600,
-            ip_address: None,
-            user_agent: None,
-            max_attempts: 5,
-            metadata: None,
-        }).await.unwrap();
+        let created = storage
+            .create_captcha(CreateCaptchaRequest {
+                captcha_type: "email".to_string(),
+                target: "test2@example.com".to_string(),
+                code: "654321".to_string(),
+                expires_in_seconds: 600,
+                ip_address: None,
+                user_agent: None,
+                max_attempts: 5,
+                metadata: None,
+            })
+            .await
+            .unwrap();
 
         let fetched = storage.get_captcha(&created.captcha_id).await;
         assert!(fetched.is_ok());
@@ -79,16 +84,19 @@ mod tests {
 
         let storage = CaptchaStorage::new(&pool);
 
-        let created = storage.create_captcha(CreateCaptchaRequest {
-            captcha_type: "email".to_string(),
-            target: "test3@example.com".to_string(),
-            code: "111111".to_string(),
-            expires_in_seconds: 600,
-            ip_address: None,
-            user_agent: None,
-            max_attempts: 5,
-            metadata: None,
-        }).await.unwrap();
+        let created = storage
+            .create_captcha(CreateCaptchaRequest {
+                captcha_type: "email".to_string(),
+                target: "test3@example.com".to_string(),
+                code: "111111".to_string(),
+                expires_in_seconds: 600,
+                ip_address: None,
+                user_agent: None,
+                max_attempts: 5,
+                metadata: None,
+            })
+            .await
+            .unwrap();
 
         let wrong_result = storage.verify_captcha(&created.captcha_id, "000000").await;
         assert!(wrong_result.is_ok());
@@ -125,17 +133,19 @@ mod tests {
 
         let storage = CaptchaStorage::new(&pool);
 
-        let log = storage.create_send_log(CreateSendLogRequest {
-            captcha_id: None,
-            captcha_type: "email".to_string(),
-            target: "log_test@example.com".to_string(),
-            ip_address: Some("192.168.1.1".to_string()),
-            user_agent: Some("test-agent".to_string()),
-            success: true,
-            error_message: None,
-            provider: Some("smtp".to_string()),
-            provider_response: None,
-        }).await;
+        let log = storage
+            .create_send_log(CreateSendLogRequest {
+                captcha_id: None,
+                captcha_type: "email".to_string(),
+                target: "log_test@example.com".to_string(),
+                ip_address: Some("192.168.1.1".to_string()),
+                user_agent: Some("test-agent".to_string()),
+                success: true,
+                error_message: None,
+                provider: Some("smtp".to_string()),
+                provider_response: None,
+            })
+            .await;
 
         assert!(log.is_ok());
         let log = log.unwrap();
@@ -225,10 +235,7 @@ mod tests {
 
         let captcha = storage.get_captcha(&sent.captcha_id).await.unwrap().unwrap();
 
-        let verify_request = VerifyCaptchaRequest {
-            captcha_id: sent.captcha_id.clone(),
-            code: captcha.code,
-        };
+        let verify_request = VerifyCaptchaRequest { captcha_id: sent.captcha_id.clone(), code: captcha.code };
 
         let result = service.verify_captcha(verify_request).await;
         assert!(result.is_ok());

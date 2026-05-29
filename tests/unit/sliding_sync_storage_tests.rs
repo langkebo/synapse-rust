@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::storage::sliding_sync::{
-    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
-    SlidingSyncFilters, SlidingSyncListQuery, SlidingSyncStorage,
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor, SlidingSyncFilters,
+    SlidingSyncListQuery, SlidingSyncStorage,
 };
 use tokio::runtime::Runtime;
 
@@ -18,9 +18,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping sliding sync storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping sliding sync storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -146,10 +144,7 @@ fn test_create_or_update_token_creates_new() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let token = storage
-            .create_or_update_token("@alice:localhost", "DEVICE1", None)
-            .await
-            .unwrap();
+        let token = storage.create_or_update_token("@alice:localhost", "DEVICE1", None).await.unwrap();
 
         assert_eq!(token.user_id, "@alice:localhost");
         assert_eq!(token.device_id, "DEVICE1");
@@ -171,10 +166,7 @@ fn test_create_or_update_token_with_conn_id() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let token = storage
-            .create_or_update_token("@bob:localhost", "DEVICE2", Some("conn1"))
-            .await
-            .unwrap();
+        let token = storage.create_or_update_token("@bob:localhost", "DEVICE2", Some("conn1")).await.unwrap();
 
         assert_eq!(token.conn_id, Some("conn1".to_string()));
     });
@@ -192,15 +184,9 @@ fn test_create_or_update_token_upserts_existing() {
         let suffix = unique_id();
         let user_id = format!("@upsert_user_{suffix}:localhost");
 
-        let token1 = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        let token1 = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-        let token2 = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        let token2 = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         assert_eq!(token1.id, token2.id);
         assert!(token2.pos > token1.pos);
@@ -219,15 +205,9 @@ fn test_get_token_returns_created() {
         let suffix = unique_id();
         let user_id = format!("@get_token_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", Some("c1"))
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", Some("c1")).await.unwrap();
 
-        let fetched = storage
-            .get_token(&user_id, "DEV1", Some("c1"))
-            .await
-            .unwrap();
+        let fetched = storage.get_token(&user_id, "DEV1", Some("c1")).await.unwrap();
 
         assert!(fetched.is_some());
         let t = fetched.unwrap();
@@ -247,10 +227,7 @@ fn test_get_token_returns_none_for_missing() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let fetched = storage
-            .get_token("@nonexistent:localhost", "DEV1", None)
-            .await
-            .unwrap();
+        let fetched = storage.get_token("@nonexistent:localhost", "DEV1", None).await.unwrap();
 
         assert!(fetched.is_none());
     });
@@ -268,28 +245,14 @@ fn test_get_token_null_conn_id_distinction() {
         let suffix = unique_id();
         let user_id = format!("@null_conn_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", Some("conn_x"))
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", Some("conn_x")).await.unwrap();
 
-        let null_token = storage
-            .get_token(&user_id, "DEV1", None)
-            .await
-            .unwrap()
-            .unwrap();
+        let null_token = storage.get_token(&user_id, "DEV1", None).await.unwrap().unwrap();
         assert!(null_token.conn_id.is_none());
 
-        let conn_token = storage
-            .get_token(&user_id, "DEV1", Some("conn_x"))
-            .await
-            .unwrap()
-            .unwrap();
+        let conn_token = storage.get_token(&user_id, "DEV1", Some("conn_x")).await.unwrap().unwrap();
         assert_eq!(conn_token.conn_id, Some("conn_x".to_string()));
     });
 }
@@ -306,15 +269,9 @@ fn test_validate_pos_valid() {
         let suffix = unique_id();
         let user_id = format!("@valid_pos_{suffix}:localhost");
 
-        let token = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-        let is_valid = storage
-            .validate_pos(&user_id, "DEV1", None, &token.pos.to_string())
-            .await
-            .unwrap();
+        let is_valid = storage.validate_pos(&user_id, "DEV1", None, &token.pos.to_string()).await.unwrap();
 
         assert!(is_valid);
     });
@@ -332,15 +289,9 @@ fn test_validate_pos_invalid() {
         let suffix = unique_id();
         let user_id = format!("@invalid_pos_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-        let is_valid = storage
-            .validate_pos(&user_id, "DEV1", None, "999999")
-            .await
-            .unwrap();
+        let is_valid = storage.validate_pos(&user_id, "DEV1", None, "999999").await.unwrap();
 
         assert!(!is_valid);
     });
@@ -356,10 +307,7 @@ fn test_validate_pos_missing_user() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let is_valid = storage
-            .validate_pos("@missing:localhost", "DEV1", None, "1")
-            .await
-            .unwrap();
+        let is_valid = storage.validate_pos("@missing:localhost", "DEV1", None, "1").await.unwrap();
 
         assert!(!is_valid);
     });
@@ -378,19 +326,8 @@ fn test_save_list_creates_new() {
         let user_id = format!("@save_list_{suffix}:localhost");
 
         let sort = vec!["by_recency".to_string()];
-        let list = storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "main",
-                &sort,
-                None,
-                None,
-                &[(0u32, 20u32)],
-            )
-            .await
-            .unwrap();
+        let list =
+            storage.save_list(&user_id, "DEV1", None, "main", &sort, None, None, &[(0u32, 20u32)]).await.unwrap();
 
         assert_eq!(list.user_id, user_id);
         assert_eq!(list.device_id, "DEV1");
@@ -413,34 +350,10 @@ fn test_save_list_upserts_existing() {
         let user_id = format!("@upsert_list_{suffix}:localhost");
 
         let sort1 = vec!["by_recency".to_string()];
-        storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "main",
-                &sort1,
-                None,
-                None,
-                &[(0, 10)],
-            )
-            .await
-            .unwrap();
+        storage.save_list(&user_id, "DEV1", None, "main", &sort1, None, None, &[(0, 10)]).await.unwrap();
 
         let sort2 = vec!["by_name".to_string()];
-        let updated = storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "main",
-                &sort2,
-                None,
-                None,
-                &[(0, 20)],
-            )
-            .await
-            .unwrap();
+        let updated = storage.save_list(&user_id, "DEV1", None, "main", &sort2, None, None, &[(0, 20)]).await.unwrap();
 
         assert_eq!(updated.list_key, "main");
         assert!(updated.updated_ts >= updated.created_ts);
@@ -459,24 +372,11 @@ fn test_save_list_with_filters() {
         let suffix = unique_id();
         let user_id = format!("@filter_list_{suffix}:localhost");
 
-        let filters = SlidingSyncFilters {
-            is_dm: Some(true),
-            is_encrypted: Some(false),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_dm: Some(true), is_encrypted: Some(false), ..Default::default() };
         let sort = vec!["by_recency".to_string()];
 
         let list = storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "dm_list",
-                &sort,
-                Some(&filters),
-                None,
-                &[(0, 50)],
-            )
+            .save_list(&user_id, "DEV1", None, "dm_list", &sort, Some(&filters), None, &[(0, 50)])
             .await
             .unwrap();
 
@@ -498,23 +398,8 @@ fn test_get_lists_returns_all_for_user_device() {
         let user_id = format!("@get_lists_{suffix}:localhost");
 
         let sort = vec!["by_recency".to_string()];
-        storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "main",
-                &sort,
-                None,
-                None,
-                &[(0, 10)],
-            )
-            .await
-            .unwrap();
-        storage
-            .save_list(&user_id, "DEV1", None, "dm", &sort, None, None, &[(0, 5)])
-            .await
-            .unwrap();
+        storage.save_list(&user_id, "DEV1", None, "main", &sort, None, None, &[(0, 10)]).await.unwrap();
+        storage.save_list(&user_id, "DEV1", None, "dm", &sort, None, None, &[(0, 5)]).await.unwrap();
 
         let lists = storage.get_lists(&user_id, "DEV1", None).await.unwrap();
 
@@ -532,10 +417,7 @@ fn test_get_lists_empty() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let lists = storage
-            .get_lists("@nolists:localhost", "DEV1", None)
-            .await
-            .unwrap();
+        let lists = storage.get_lists("@nolists:localhost", "DEV1", None).await.unwrap();
 
         assert!(lists.is_empty());
     });
@@ -554,28 +436,10 @@ fn test_delete_list() {
         let user_id = format!("@del_list_{suffix}:localhost");
 
         let sort = vec!["by_recency".to_string()];
-        storage
-            .save_list(
-                &user_id,
-                "DEV1",
-                None,
-                "main",
-                &sort,
-                None,
-                None,
-                &[(0, 10)],
-            )
-            .await
-            .unwrap();
-        storage
-            .save_list(&user_id, "DEV1", None, "dm", &sort, None, None, &[(0, 5)])
-            .await
-            .unwrap();
+        storage.save_list(&user_id, "DEV1", None, "main", &sort, None, None, &[(0, 10)]).await.unwrap();
+        storage.save_list(&user_id, "DEV1", None, "dm", &sort, None, None, &[(0, 5)]).await.unwrap();
 
-        storage
-            .delete_list(&user_id, "DEV1", None, "main")
-            .await
-            .unwrap();
+        storage.delete_list(&user_id, "DEV1", None, "main").await.unwrap();
 
         let lists = storage.get_lists(&user_id, "DEV1", None).await.unwrap();
         assert_eq!(lists.len(), 1);
@@ -846,10 +710,7 @@ fn test_get_room_returns_existing() {
             .await
             .unwrap();
 
-        let fetched = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let fetched = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
 
         assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().name, Some("My Room".to_string()));
@@ -866,10 +727,7 @@ fn test_get_room_returns_none_for_missing() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let fetched = storage
-            .get_room("@nobody:localhost", "DEV1", "!nonexistent:localhost", None)
-            .await
-            .unwrap();
+        let fetched = storage.get_room("@nobody:localhost", "DEV1", "!nonexistent:localhost", None).await.unwrap();
 
         assert!(fetched.is_none());
     });
@@ -909,15 +767,9 @@ fn test_delete_room() {
             .await
             .unwrap();
 
-        storage
-            .delete_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        storage.delete_room(&user_id, "DEV1", &room_id, None).await.unwrap();
 
-        let fetched = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let fetched = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
         assert!(fetched.is_none());
     });
 }
@@ -956,16 +808,9 @@ fn test_update_notification_counts() {
             .await
             .unwrap();
 
-        storage
-            .update_notification_counts(&user_id, "DEV1", &room_id, None, 5, 12)
-            .await
-            .unwrap();
+        storage.update_notification_counts(&user_id, "DEV1", &room_id, None, 5, 12).await.unwrap();
 
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
 
         assert_eq!(room.highlight_count, 5);
         assert_eq!(room.notification_count, 12);
@@ -1006,28 +851,14 @@ fn test_bump_room_increases_stamp() {
             .await
             .unwrap();
 
-        storage
-            .bump_room(&user_id, "DEV1", &room_id, None, 3000)
-            .await
-            .unwrap();
+        storage.bump_room(&user_id, "DEV1", &room_id, None, 3000).await.unwrap();
 
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.bump_stamp, 3000);
 
-        storage
-            .bump_room(&user_id, "DEV1", &room_id, None, 2000)
-            .await
-            .unwrap();
+        storage.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.bump_stamp, 3000);
     });
 }
@@ -1177,10 +1008,7 @@ fn test_get_rooms_for_list_with_filters() {
             .await
             .unwrap();
 
-        let filters = SlidingSyncFilters {
-            is_dm: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_dm: Some(true), ..Default::default() };
         let query = SlidingSyncListQuery {
             user_id: &user_id,
             device_id: "DEV1",
@@ -1282,10 +1110,7 @@ fn test_count_rooms_for_list() {
                 .unwrap();
         }
 
-        let count = storage
-            .count_rooms_for_list(&user_id, "DEV1", None, "main", None)
-            .await
-            .unwrap();
+        let count = storage.count_rooms_for_list(&user_id, "DEV1", None, "main", None).await.unwrap();
 
         assert_eq!(count, 3);
     });
@@ -1344,14 +1169,8 @@ fn test_count_rooms_for_list_with_filters() {
             .await
             .unwrap();
 
-        let filters = SlidingSyncFilters {
-            is_encrypted: Some(true),
-            ..Default::default()
-        };
-        let count = storage
-            .count_rooms_for_list(&user_id, "DEV1", None, "main", Some(&filters))
-            .await
-            .unwrap();
+        let filters = SlidingSyncFilters { is_encrypted: Some(true), ..Default::default() };
+        let count = storage.count_rooms_for_list(&user_id, "DEV1", None, "main", Some(&filters)).await.unwrap();
 
         assert_eq!(count, 1);
     });
@@ -1367,10 +1186,7 @@ fn test_count_rooms_for_list_empty() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let count = storage
-            .count_rooms_for_list("@empty:localhost", "DEV1", None, "main", None)
-            .await
-            .unwrap();
+        let count = storage.count_rooms_for_list("@empty:localhost", "DEV1", None, "main", None).await.unwrap();
 
         assert_eq!(count, 0);
     });
@@ -1388,10 +1204,7 @@ fn test_cleanup_expired_tokens() {
         let suffix = unique_id();
         let user_id = format!("@cleanup_{suffix}:localhost");
 
-        let token = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
         sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
@@ -1421,10 +1234,7 @@ fn test_cleanup_expired_tokens_preserves_valid() {
         let suffix = unique_id();
         let user_id = format!("@preserve_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         let deleted = storage.cleanup_expired_tokens().await.unwrap();
         assert_eq!(deleted, 0);
@@ -1447,10 +1257,7 @@ fn test_list_room_token_sync_basic() {
         let user_id = format!("@token_sync_{suffix}:localhost");
         let room_id = format!("!room_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         storage
             .upsert_room(
@@ -1473,10 +1280,7 @@ fn test_list_room_token_sync_basic() {
             .await
             .unwrap();
 
-        let entries = storage
-            .list_room_token_sync(&room_id, 10, None)
-            .await
-            .unwrap();
+        let entries = storage.list_room_token_sync(&room_id, 10, None).await.unwrap();
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].user_id, user_id);
@@ -1499,14 +1303,8 @@ fn test_list_room_token_sync_with_cursor() {
         let suffix = unique_id();
         let room_id = format!("!cursor_room_{suffix}:localhost");
 
-        storage
-            .create_or_update_token(&format!("@user1_{suffix}:localhost"), "DEV1", None)
-            .await
-            .unwrap();
-        storage
-            .create_or_update_token(&format!("@user2_{suffix}:localhost"), "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&format!("@user1_{suffix}:localhost"), "DEV1", None).await.unwrap();
+        storage.create_or_update_token(&format!("@user2_{suffix}:localhost"), "DEV1", None).await.unwrap();
 
         storage
             .upsert_room(
@@ -1549,10 +1347,7 @@ fn test_list_room_token_sync_with_cursor() {
             .await
             .unwrap();
 
-        let first_page = storage
-            .list_room_token_sync(&room_id, 10, None)
-            .await
-            .unwrap();
+        let first_page = storage.list_room_token_sync(&room_id, 10, None).await.unwrap();
         assert_eq!(first_page.len(), 2);
 
         let cursor = RoomTokenSyncCursor {
@@ -1562,10 +1357,7 @@ fn test_list_room_token_sync_with_cursor() {
             conn_id: first_page[0].conn_id.clone(),
         };
 
-        let second_page = storage
-            .list_room_token_sync(&room_id, 10, Some(&cursor))
-            .await
-            .unwrap();
+        let second_page = storage.list_room_token_sync(&room_id, 10, Some(&cursor)).await.unwrap();
         assert_eq!(second_page.len(), 1);
         assert_ne!(second_page[0].user_id, first_page[0].user_id);
     });
@@ -1639,10 +1431,7 @@ fn test_list_room_token_sync_empty() {
         };
         let storage = SlidingSyncStorage::new(pool.clone());
 
-        let entries = storage
-            .list_room_token_sync("!nonexistent:localhost", 10, None)
-            .await
-            .unwrap();
+        let entries = storage.list_room_token_sync("!nonexistent:localhost", 10, None).await.unwrap();
 
         assert!(entries.is_empty());
     });
@@ -1697,14 +1486,8 @@ fn test_conn_id_isolation_between_tokens() {
         let suffix = unique_id();
         let user_id = format!("@conn_iso_{suffix}:localhost");
 
-        let token_none = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
-        let token_conn = storage
-            .create_or_update_token(&user_id, "DEV1", Some("conn1"))
-            .await
-            .unwrap();
+        let token_none = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+        let token_conn = storage.create_or_update_token(&user_id, "DEV1", Some("conn1")).await.unwrap();
 
         assert_ne!(token_none.id, token_conn.id);
         assert!(token_none.conn_id.is_none());
@@ -1766,16 +1549,8 @@ fn test_conn_id_isolation_between_rooms() {
             .await
             .unwrap();
 
-        let room_none = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
-        let room_conn = storage
-            .get_room(&user_id, "DEV1", &room_id, Some("conn1"))
-            .await
-            .unwrap()
-            .unwrap();
+        let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
+        let room_conn = storage.get_room(&user_id, "DEV1", &room_id, Some("conn1")).await.unwrap().unwrap();
 
         assert_ne!(room_none.id, room_conn.id);
         assert_eq!(room_none.name, Some("No Conn".to_string()));
@@ -1839,21 +1614,12 @@ fn test_delete_room_different_conn_id_no_cross_delete() {
             .await
             .unwrap();
 
-        storage
-            .delete_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        storage.delete_room(&user_id, "DEV1", &room_id, None).await.unwrap();
 
-        let room_none = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
         assert!(room_none.is_none());
 
-        let room_conn = storage
-            .get_room(&user_id, "DEV1", &room_id, Some("conn1"))
-            .await
-            .unwrap();
+        let room_conn = storage.get_room(&user_id, "DEV1", &room_id, Some("conn1")).await.unwrap();
         assert!(room_conn.is_some());
     });
 }
@@ -1911,10 +1677,7 @@ fn test_invited_room_filter() {
             .await
             .unwrap();
 
-        let filters = SlidingSyncFilters {
-            is_invite: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_invite: Some(true), ..Default::default() };
         let query = SlidingSyncListQuery {
             user_id: &user_id,
             device_id: "DEV1",
@@ -1984,10 +1747,7 @@ fn test_room_name_like_filter() {
             .await
             .unwrap();
 
-        let filters = SlidingSyncFilters {
-            room_name_like: Some("project".to_string()),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { room_name_like: Some("project".to_string()), ..Default::default() };
         let query = SlidingSyncListQuery {
             user_id: &user_id,
             device_id: "DEV1",
@@ -2057,10 +1817,7 @@ fn test_tombstoned_room_filter() {
             .await
             .unwrap();
 
-        let filters = SlidingSyncFilters {
-            is_tombstoned: Some(false),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_tombstoned: Some(false), ..Default::default() };
         let query = SlidingSyncListQuery {
             user_id: &user_id,
             device_id: "DEV1",

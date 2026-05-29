@@ -10,10 +10,7 @@ pub struct RefreshTokenService {
 
 impl RefreshTokenService {
     pub fn new(storage: Arc<RefreshTokenStorage>, default_expiry_ms: i64) -> Self {
-        Self {
-            storage,
-            default_expiry_ms,
-        }
+        Self { storage, default_expiry_ms }
     }
 
     pub fn hash_token(token: &str) -> String {
@@ -33,16 +30,14 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_token(
-        &self,
-        request: CreateRefreshTokenRequest,
-    ) -> Result<RefreshToken, ApiError> {
+    pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, ApiError> {
         info!("Creating refresh token for user: {}", request.user_id);
 
-        let token =
-            self.storage.create_token(request).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to create refresh token", &e)
-            })?;
+        let token = self
+            .storage
+            .create_token(request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create refresh token", &e))?;
 
         Ok(token)
     }
@@ -121,14 +116,8 @@ impl RefreshTokenService {
             Ok(rotations) if !rotations.is_empty() => rotations[0].family_id.clone(),
             _ => {
                 let family_id = Self::generate_family_id();
-                if let Err(e) = self
-                    .storage
-                    .create_family(
-                        &family_id,
-                        &old_token.user_id,
-                        old_token.device_id.as_deref(),
-                    )
-                    .await
+                if let Err(e) =
+                    self.storage.create_family(&family_id, &old_token.user_id, old_token.device_id.as_deref()).await
                 {
                     warn!("Failed to create token family: {}", e);
                 }
@@ -136,33 +125,22 @@ impl RefreshTokenService {
             }
         };
 
-        let rotations = self
-            .storage
-            .get_rotations(&family_id)
-            .await
-            .unwrap_or_default();
+        let rotations = self.storage.get_rotations(&family_id).await.unwrap_or_default();
         if let Some(last_rotation) = rotations.first() {
             if last_rotation.new_token_hash != old_token_hash {
-                warn!(
-                    "Potential token replay attack detected for user: {}",
-                    old_token.user_id
-                );
+                warn!("Potential token replay attack detected for user: {}", old_token.user_id);
 
                 self.storage
                     .mark_family_compromised(&family_id)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to mark family compromised", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to mark family compromised", &e))?;
 
                 self.storage
                     .revoke_all_user_tokens(&old_token.user_id, "Potential token replay attack")
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to revoke tokens", &e))?;
 
-                return Err(ApiError::unauthorized(
-                    "Token reuse detected. All tokens revoked.",
-                ));
+                return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
             }
         }
 
@@ -173,26 +151,19 @@ impl RefreshTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to revoke old token", &e))?;
 
         if !revoked {
-            warn!(
-                "Token rotation race condition detected for user: {} - token already revoked",
-                old_token.user_id
-            );
+            warn!("Token rotation race condition detected for user: {} - token already revoked", old_token.user_id);
 
             self.storage
                 .mark_family_compromised(&family_id)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to mark family compromised", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to mark family compromised", &e))?;
 
             self.storage
                 .revoke_all_user_tokens(&old_token.user_id, "Token rotation race condition")
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to revoke tokens", &e))?;
 
-            return Err(ApiError::unauthorized(
-                "Token reuse detected. All tokens revoked.",
-            ));
+            return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
         }
 
         let new_token_record = self
@@ -212,17 +183,11 @@ impl RefreshTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to create new token", &e))?;
 
         self.storage
-            .record_rotation(
-                &family_id,
-                Some(&old_token_hash),
-                &new_token_hash,
-                "refresh",
-            )
+            .record_rotation(&family_id, Some(&old_token_hash), &new_token_hash, "refresh")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record rotation", &e))?;
 
-        let usage_request =
-            RecordUsageRequest::new(old_token.id, &old_token.user_id, new_access_token_id, true);
+        let usage_request = RecordUsageRequest::new(old_token.id, &old_token.user_id, new_access_token_id, true);
 
         let usage_request = if let Some(old_at) = &old_token.access_token_id {
             usage_request.old_access_token_id(old_at)
@@ -230,17 +195,9 @@ impl RefreshTokenService {
             usage_request
         };
 
-        let usage_request = if let Some(ip) = ip_address {
-            usage_request.ip_address(ip)
-        } else {
-            usage_request
-        };
+        let usage_request = if let Some(ip) = ip_address { usage_request.ip_address(ip) } else { usage_request };
 
-        let usage_request = if let Some(ua) = user_agent {
-            usage_request.user_agent(ua)
-        } else {
-            usage_request
-        };
+        let usage_request = if let Some(ua) = user_agent { usage_request.user_agent(ua) } else { usage_request };
 
         self.storage.record_usage(&usage_request).await.ok();
 
@@ -280,11 +237,7 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn revoke_all_user_tokens(
-        &self,
-        user_id: &str,
-        reason: &str,
-    ) -> Result<i64, ApiError> {
+    pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, ApiError> {
         info!("Revoking all tokens for user: {}", user_id);
 
         let count = self
@@ -319,10 +272,7 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_user_stats(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<RefreshTokenStats>, ApiError> {
+    pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, ApiError> {
         let stats = self
             .storage
             .get_user_stats(user_id)
@@ -333,11 +283,7 @@ impl RefreshTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_usage_history(
-        &self,
-        user_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RefreshTokenUsage>, ApiError> {
+    pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, ApiError> {
         let history = self
             .storage
             .get_usage_history(user_id, limit)
@@ -388,10 +334,7 @@ impl RefreshTokenService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup blacklist", &e))?;
 
-        info!(
-            "Cleaned up {} expired tokens and {} blacklist entries",
-            count, blacklist_count
-        );
+        info!("Cleaned up {} expired tokens and {} blacklist entries", count, blacklist_count);
 
         Ok(count)
     }

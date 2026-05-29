@@ -3,24 +3,18 @@ mod room_summary_storage_suite {
     use crate::common::get_test_pool_async;
     use std::time::{SystemTime, UNIX_EPOCH};
     use synapse_rust::storage::room_summary::{
-        CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage,
-        UpdateRoomSummaryRequest,
+        CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateRoomSummaryRequest,
     };
 
     fn unique_suffix() -> u128 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     }
 
     async fn connect_pool() -> Option<std::sync::Arc<sqlx::PgPool>> {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping room summary storage tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping room summary storage tests because test database is unavailable: {error}");
                 None
             }
         }
@@ -31,10 +25,9 @@ mod room_summary_storage_suite {
         let hero = format!("@summaryhero{suffix}:localhost");
         let room_id = format!("!summaryroom{suffix}:localhost");
 
-        for (user_id, username) in [
-            (&creator, format!("summarycreator{suffix}")),
-            (&hero, format!("summaryhero{suffix}")),
-        ] {
+        for (user_id, username) in
+            [(&creator, format!("summarycreator{suffix}")), (&hero, format!("summaryhero{suffix}"))]
+        {
             sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
                 .bind(user_id)
                 .bind(username)
@@ -44,13 +37,15 @@ mod room_summary_storage_suite {
                 .expect("Failed to seed user");
         }
 
-        sqlx::query("INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING")
-            .bind(&room_id)
-            .bind(&creator)
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed room");
+        sqlx::query(
+            "INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(&creator)
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed room");
 
         (creator, hero, room_id)
     }
@@ -138,10 +133,7 @@ mod room_summary_storage_suite {
             .await
             .expect("Failed to update room summary");
 
-        assert_eq!(
-            updated_summary.name.as_deref(),
-            Some("Updated Summary Room")
-        );
+        assert_eq!(updated_summary.name.as_deref(), Some("Updated Summary Room"));
         assert_eq!(updated_summary.join_rule, "public");
         assert!(updated_summary.is_direct);
         assert!(updated_summary.is_encrypted);
@@ -172,36 +164,21 @@ mod room_summary_storage_suite {
             .await
             .expect("Failed to add hero member");
 
-        let loaded_summary = storage
-            .get_summary(&room_id)
-            .await
-            .expect("Failed to get summary")
-            .expect("Summary should exist");
+        let loaded_summary =
+            storage.get_summary(&room_id).await.expect("Failed to get summary").expect("Summary should exist");
 
-        assert_eq!(
-            loaded_summary.last_event_id.as_deref(),
-            Some("$summary-event")
-        );
+        assert_eq!(loaded_summary.last_event_id.as_deref(), Some("$summary-event"));
 
-        let summaries_for_user = storage
-            .get_summaries_for_user(&hero)
-            .await
-            .expect("Failed to get summaries for user");
+        let summaries_for_user = storage.get_summaries_for_user(&hero).await.expect("Failed to get summaries for user");
 
         assert_eq!(summaries_for_user.len(), 1);
         assert_eq!(summaries_for_user[0].room_id, room_id);
 
-        let members = storage
-            .get_members(&room_id)
-            .await
-            .expect("Failed to get members");
+        let members = storage.get_members(&room_id).await.expect("Failed to get members");
 
         assert_eq!(members.len(), 2);
 
-        let heroes = storage
-            .get_heroes(&room_id, 5)
-            .await
-            .expect("Failed to get heroes");
+        let heroes = storage.get_heroes(&room_id, 5).await.expect("Failed to get heroes");
 
         assert_eq!(heroes.len(), 2);
         assert_eq!(heroes[0].user_id, hero);

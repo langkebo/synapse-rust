@@ -40,10 +40,7 @@ pub struct RoomMemberStorage {
 
 impl RoomMemberStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
-        Self {
-            pool: pool.clone(),
-            server_name: server_name.to_string(),
-        }
+        Self { pool: pool.clone(), server_name: server_name.to_string() }
     }
 
     pub async fn add_member(
@@ -103,11 +100,7 @@ impl RoomMemberStorage {
         }
     }
 
-    pub async fn get_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<Option<RoomMember>, sqlx::Error> {
+    pub async fn get_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
@@ -120,11 +113,7 @@ impl RoomMemberStorage {
         .await
     }
 
-    pub async fn get_room_members(
-        &self,
-        room_id: &str,
-        membership_type: &str,
-    ) -> Result<Vec<RoomMember>, sqlx::Error> {
+    pub async fn get_room_members(&self, room_id: &str, membership_type: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
@@ -153,8 +142,8 @@ impl RoomMemberStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
-            UPDATE room_memberships 
-            SET membership = 'leave', 
+            UPDATE room_memberships
+            SET membership = 'leave',
                 left_ts = $3,
                 updated_ts = $3,
                 is_banned = false
@@ -173,8 +162,8 @@ impl RoomMemberStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
-            UPDATE room_memberships 
-            SET membership = 'forget', 
+            UPDATE room_memberships
+            SET membership = 'forget',
                 left_ts = $3,
                 updated_ts = $3
             WHERE room_id = $1 AND user_id = $2 AND membership IN ('leave', 'invite')
@@ -191,8 +180,8 @@ impl RoomMemberStorage {
     pub async fn is_forgotten(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
-            SELECT 1 AS "exists" FROM room_memberships 
-            WHERE room_id = $1 AND user_id = $2 AND membership = 'forget' 
+            SELECT 1 AS "exists" FROM room_memberships
+            WHERE room_id = $1 AND user_id = $2 AND membership = 'forget'
             LIMIT 1
             "#,
         )
@@ -231,12 +220,7 @@ impl RoomMemberStorage {
         Ok(())
     }
 
-    pub async fn ban_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        banned_by: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             INSERT INTO room_memberships (room_id, user_id, membership, banned_by)
@@ -315,11 +299,7 @@ impl RoomMemberStorage {
         Ok(memberships)
     }
 
-    pub async fn get_membership_state(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_membership_state(&self, room_id: &str, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r"
             SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2
@@ -357,11 +337,7 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
-    pub async fn get_room_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<Option<RoomMember>, sqlx::Error> {
+    pub async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
@@ -388,11 +364,7 @@ impl RoomMemberStorage {
         Ok(members)
     }
 
-    pub async fn get_joined_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<Option<RoomMember>, sqlx::Error> {
+    pub async fn get_joined_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
@@ -406,11 +378,7 @@ impl RoomMemberStorage {
         Ok(result)
     }
 
-    pub async fn share_common_room(
-        &self,
-        user_id_1: &str,
-        user_id_2: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn share_common_room(&self, user_id_1: &str, user_id_2: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r"
             SELECT 1 FROM room_memberships m1
@@ -428,11 +396,7 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
-    pub async fn get_membership_history(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomMember>, sqlx::Error> {
+    pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> Result<Vec<RoomMember>, sqlx::Error> {
         let memberships = sqlx::query_as::<_, RoomMember>(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
@@ -474,8 +438,8 @@ impl RoomMemberStorage {
     ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
         let rows = sqlx::query(
             r"
-            SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type, 
-                   rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts, 
+            SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type,
+                   rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts,
                    rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,
                    u.displayname as user_displayname, u.avatar_url as user_avatar_url
             FROM room_memberships rm
@@ -531,7 +495,7 @@ impl RoomMemberStorage {
         let rows: Vec<RoomMember> = sqlx::query_as(
             r"
             SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
-            FROM room_memberships 
+            FROM room_memberships
             WHERE room_id = ANY($1) AND membership = $2
             ",
         )
@@ -571,7 +535,7 @@ impl RoomMemberStorage {
 
         let rows: Vec<String> = sqlx::query_scalar(
             r"
-            SELECT user_id FROM room_memberships 
+            SELECT user_id FROM room_memberships
             WHERE room_id = $1 AND user_id = ANY($2) AND membership = $3
             ",
         )
@@ -584,12 +548,7 @@ impl RoomMemberStorage {
         Ok(rows.into_iter().collect())
     }
 
-    pub async fn set_ban_reason(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        reason: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE room_memberships
@@ -605,12 +564,7 @@ impl RoomMemberStorage {
         Ok(())
     }
 
-    pub async fn force_leave_membership(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        now: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE room_memberships

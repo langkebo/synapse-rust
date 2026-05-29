@@ -157,12 +157,7 @@ impl ExternalServiceIntegration {
                 Client::new()
             });
 
-        Self {
-            storage,
-            http_client,
-            server_name,
-            health_status: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-        }
+        Self { storage, http_client, server_name, health_status: Arc::new(tokio::sync::RwLock::new(HashMap::new())) }
     }
 
     fn webhook_secrets<'a>(&self, service: &'a ApplicationService) -> Vec<&'a str> {
@@ -194,39 +189,28 @@ impl ExternalServiceIntegration {
             .as_deref()
             .into_iter()
             .chain(auth.signature.as_deref())
-            .any(|candidate| {
-                secrets
-                    .iter()
-                    .any(|s| crate::common::crypto::secure_compare(candidate, s))
-            })
+            .any(|candidate| secrets.iter().any(|s| crate::common::crypto::secure_compare(candidate, s)))
         {
             return Ok(());
         }
 
-        let payload_bytes = serde_json::to_vec(payload).map_err(|e| {
-            ApiError::internal_with_log("Failed to serialize webhook payload", &e)
-        })?;
+        let payload_bytes = serde_json::to_vec(payload)
+            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
 
-        let signature_matches = auth
-            .signature
-            .as_deref()
-            .is_some_and(|signature| {
-                let normalized = signature.strip_prefix("sha256=").unwrap_or(signature);
-                secrets.iter().any(|secret| {
-                    let expected = URL_SAFE_NO_PAD
-                        .encode(crate::common::crypto::hmac_sha256(secret, &payload_bytes));
-                    crate::common::crypto::secure_compare(normalized, &expected)
-                        || crate::common::crypto::secure_compare(signature, &expected)
-                })
-            });
+        let signature_matches = auth.signature.as_deref().is_some_and(|signature| {
+            let normalized = signature.strip_prefix("sha256=").unwrap_or(signature);
+            secrets.iter().any(|secret| {
+                let expected = URL_SAFE_NO_PAD.encode(crate::common::crypto::hmac_sha256(secret, &payload_bytes));
+                crate::common::crypto::secure_compare(normalized, &expected)
+                    || crate::common::crypto::secure_compare(signature, &expected)
+            })
+        });
 
         if signature_matches {
             return Ok(());
         }
 
-        Err(ApiError::unauthorized(
-            "Missing or invalid webhook credential".to_string(),
-        ))
+        Err(ApiError::unauthorized("Missing or invalid webhook credential".to_string()))
     }
 
     #[instrument(skip(self, config))]
@@ -234,10 +218,7 @@ impl ExternalServiceIntegration {
         &self,
         config: ExternalServiceConfig,
     ) -> Result<ApplicationService, ApiError> {
-        info!(
-            "Registering external service: type={}, id={}",
-            config.service_type, config.service_id
-        );
+        info!("Registering external service: type={}, id={}", config.service_type, config.service_id);
 
         let as_id = format!("{}_{}", config.service_type, config.service_id);
 
@@ -248,10 +229,7 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_log("Failed to check existing service", &e))?
             .is_some()
         {
-            return Err(ApiError::bad_request(format!(
-                "External service '{}' already exists",
-                as_id
-            )));
+            return Err(ApiError::bad_request(format!("External service '{}' already exists", as_id)));
         }
 
         let namespaces = self.generate_namespaces_for_service(&config);
@@ -270,9 +248,11 @@ impl ExternalServiceIntegration {
             config: Some(config.config.clone()),
         };
 
-        let service = self.storage.register(request).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to register external service", &e)
-        })?;
+        let service = self
+            .storage
+            .register(request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to register external service", &e))?;
 
         self.health_status.write().await.insert(
             as_id.clone(),
@@ -287,10 +267,7 @@ impl ExternalServiceIntegration {
             },
         );
 
-        info!(
-            "External service registered successfully: {}",
-            config.service_id
-        );
+        info!("External service registered successfully: {}", config.service_id);
         Ok(service)
     }
 
@@ -359,10 +336,7 @@ impl ExternalServiceIntegration {
         payload: TrendRadarPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(
-            "Handling TrendRadar webhook: service={}, title={}",
-            service_id, payload.title
-        );
+        info!("Handling TrendRadar webhook: service={}, title={}", service_id, payload.title);
 
         let as_id = format!("trendradar_{}", service_id);
         let service = self
@@ -372,9 +346,8 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let signed_payload = serde_json::to_value(&payload).map_err(|e| {
-            ApiError::internal_with_log("Failed to serialize webhook payload", &e)
-        })?;
+        let signed_payload = serde_json::to_value(&payload)
+            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = serde_json::json!({
@@ -427,10 +400,7 @@ impl ExternalServiceIntegration {
         payload: OpenClawPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(
-            "Handling OpenClaw webhook: service={}, action={}",
-            service_id, payload.action
-        );
+        info!("Handling OpenClaw webhook: service={}, action={}", service_id, payload.action);
 
         let as_id = format!("openclaw_{}", service_id);
         let service = self
@@ -440,9 +410,8 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let signed_payload = serde_json::to_value(&payload).map_err(|e| {
-            ApiError::internal_with_log("Failed to serialize webhook payload", &e)
-        })?;
+        let signed_payload = serde_json::to_value(&payload)
+            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = match payload.action.as_str() {
@@ -459,19 +428,12 @@ impl ExternalServiceIntegration {
                 }
             }),
             _ => {
-                return Err(ApiError::bad_request(format!(
-                    "Unknown OpenClaw action: {}",
-                    payload.action
-                )));
+                return Err(ApiError::bad_request(format!("Unknown OpenClaw action: {}", payload.action)));
             }
         };
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
-        let event_type = if payload.action == "reaction" {
-            "m.reaction"
-        } else {
-            "m.room.message"
-        };
+        let event_type = if payload.action == "reaction" { "m.reaction" } else { "m.room.message" };
 
         self.storage
             .add_event(
@@ -498,10 +460,7 @@ impl ExternalServiceIntegration {
         payload: WebhookPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(
-            "Handling generic webhook: service={}, event_type={}",
-            service_id, payload.event_type
-        );
+        info!("Handling generic webhook: service={}, event_type={}", service_id, payload.event_type);
 
         let as_id = format!("generic_webhook_{}", service_id);
 
@@ -512,9 +471,8 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        let mut signed_payload = serde_json::to_value(&payload).map_err(|e| {
-            ApiError::internal_with_log("Failed to serialize webhook payload", &e)
-        })?;
+        let mut signed_payload = serde_json::to_value(&payload)
+            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
         if let Some(object) = signed_payload.as_object_mut() {
             object.remove("signature");
         }
@@ -591,27 +549,19 @@ impl ExternalServiceIntegration {
 
         let health_url = format!("{}/health", service.url);
 
-        match self
-            .http_client
-            .get(&health_url)
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await
-        {
+        match self.http_client.get(&health_url).timeout(Duration::from_secs(10)).send().await {
             Ok(resp) if resp.status().is_success() => {
                 self.update_health_status(as_id, true, None).await;
                 Ok(true)
             }
             Ok(resp) => {
                 let error = format!("Health check failed: HTTP {}", resp.status());
-                self.update_health_status(as_id, false, Some(error.clone()))
-                    .await;
+                self.update_health_status(as_id, false, Some(error.clone())).await;
                 Ok(false)
             }
             Err(e) => {
                 let error = format!("Health check failed: {}", e);
-                self.update_health_status(as_id, false, Some(error.clone()))
-                    .await;
+                self.update_health_status(as_id, false, Some(error.clone())).await;
                 Ok(false)
             }
         }
@@ -656,21 +606,14 @@ impl ExternalServiceIntegration {
 
         if let Some(stype) = service_type {
             let prefix = format!("{}_", stype);
-            Ok(services
-                .into_iter()
-                .filter(|s| s.as_id.starts_with(&prefix))
-                .collect())
+            Ok(services.into_iter().filter(|s| s.as_id.starts_with(&prefix)).collect())
         } else {
             Ok(services)
         }
     }
 
     #[instrument(skip(self))]
-    pub async fn send_to_external_service(
-        &self,
-        as_id: &str,
-        event: serde_json::Value,
-    ) -> Result<(), ApiError> {
+    pub async fn send_to_external_service(&self, as_id: &str, event: serde_json::Value) -> Result<(), ApiError> {
         let service = self
             .storage
             .get_by_id(as_id)
@@ -698,14 +641,12 @@ impl ExternalServiceIntegration {
             }
             Ok(resp) => {
                 let error = format!("External service returned HTTP {}", resp.status());
-                self.update_health_status(as_id, false, Some(error.clone()))
-                    .await;
+                self.update_health_status(as_id, false, Some(error.clone())).await;
                 Err(ApiError::internal(error))
             }
             Err(e) => {
                 let error = format!("Failed to send to external service: {}", e);
-                self.update_health_status(as_id, false, Some(error.clone()))
-                    .await;
+                self.update_health_status(as_id, false, Some(error.clone())).await;
                 Err(ApiError::internal(error))
             }
         }
@@ -721,10 +662,7 @@ mod tests {
         assert_eq!(ExternalServiceType::TrendRadar.to_string(), "trendradar");
         #[cfg(feature = "openclaw-routes")]
         assert_eq!(ExternalServiceType::OpenClaw.to_string(), "openclaw");
-        assert_eq!(
-            ExternalServiceType::GenericWebhook.to_string(),
-            "generic_webhook"
-        );
+        assert_eq!(ExternalServiceType::GenericWebhook.to_string(), "generic_webhook");
     }
 
     #[test]
@@ -778,13 +716,9 @@ mod tests {
     #[tokio::test]
     async fn test_verify_webhook_auth_accepts_direct_token_and_hmac_signature() {
         let integration = ExternalServiceIntegration::new(
-            Arc::new(
-                crate::storage::application_service::ApplicationServiceStorage::new(&Arc::new(
-                    sqlx::postgres::PgPoolOptions::new()
-                        .connect_lazy("postgres://localhost/test")
-                        .expect("lazy pool"),
-                )),
-            ),
+            Arc::new(crate::storage::application_service::ApplicationServiceStorage::new(&Arc::new(
+                sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://localhost/test").expect("lazy pool"),
+            ))),
             "example.com".to_string(),
         );
         let service = ApplicationService {
@@ -815,31 +749,19 @@ mod tests {
         integration
             .verify_webhook_auth(
                 &service,
-                &WebhookAuthInput {
-                    token: Some("api-key".to_string()),
-                    signature: None,
-                },
+                &WebhookAuthInput { token: Some("api-key".to_string()), signature: None },
                 &payload,
             )
             .expect("api key should authenticate");
 
         let signature = format!(
             "sha256={}",
-            URL_SAFE_NO_PAD.encode(crate::common::crypto::hmac_sha256(
-                "config-secret",
-                serde_json::to_vec(&payload).unwrap()
-            ))
+            URL_SAFE_NO_PAD
+                .encode(crate::common::crypto::hmac_sha256("config-secret", serde_json::to_vec(&payload).unwrap()))
         );
 
         integration
-            .verify_webhook_auth(
-                &service,
-                &WebhookAuthInput {
-                    token: None,
-                    signature: Some(signature),
-                },
-                &payload,
-            )
+            .verify_webhook_auth(&service, &WebhookAuthInput { token: None, signature: Some(signature) }, &payload)
             .expect("hmac signature should authenticate");
     }
 

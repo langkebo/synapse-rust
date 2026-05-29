@@ -1,19 +1,18 @@
 use crate::common::background_job::BackgroundJob;
 use crate::common::constants::BURN_AFTER_READ_DELAY_SECS;
+use crate::common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
-use crate::common::{
-    generate_event_id, generate_room_id, generate_stream_token_from_ts, parse_stream_token,
-};
+use crate::common::{generate_event_id, generate_room_id, generate_stream_token_from_ts, parse_stream_token};
 use crate::services::*;
 use crate::storage::CreateEventParams;
 use crate::storage::UserStorage;
+use ::tracing::error;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use ::tracing::error;
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -64,26 +63,18 @@ fn validate_room_alias_input(alias: &str) -> ApiResult<()> {
         return Err(ApiError::bad_request("room_alias is required".to_string()));
     }
     if !alias.starts_with('#') {
-        return Err(ApiError::bad_request(
-            "Invalid room alias format: must start with #".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid room alias format: must start with #".to_string()));
     }
     if alias.len() > 255 {
-        return Err(ApiError::bad_request(
-            "Room alias too long (max 255 characters)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Room alias too long (max 255 characters)".to_string()));
     }
 
     let Some((localpart, server_name)) = alias[1..].rsplit_once(':') else {
-        return Err(ApiError::bad_request(
-            "Invalid room alias format: must be #alias:server".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid room alias format: must be #alias:server".to_string()));
     };
 
     if localpart.is_empty() || server_name.is_empty() {
-        return Err(ApiError::bad_request(
-            "Invalid room alias format: must be #alias:server".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid room alias format: must be #alias:server".to_string()));
     }
 
     Ok(())
@@ -174,11 +165,7 @@ impl RoomService {
         }
     }
 
-    pub async fn create_room(
-        &self,
-        user_id: &str,
-        config: CreateRoomConfig,
-    ) -> ApiResult<serde_json::Value> {
+    pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
         if let Some(alias) = &config.room_alias_name {
             if let Err(e) = self.validator.validate_username(alias) {
                 return Err(e.into());
@@ -199,6 +186,13 @@ impl RoomService {
             join_rule = "invite";
         }
 
+        let room_version = resolve_room_version(config.room_version.as_deref()).ok_or_else(|| {
+            ApiError::unsupported_room_version(format!(
+                "Unsupported room version: {}",
+                config.room_version.as_deref().unwrap_or(DEFAULT_ROOM_VERSION)
+            ))
+        })?;
+
         let mut tx = self
             .room_storage
             .pool
@@ -206,31 +200,17 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to start transaction", &e))?;
 
-        let result = self
-            .create_room_in_db(
-                &room_id,
-                user_id,
-                join_rule,
-                is_public,
-                config.room_version.as_deref().unwrap_or("10"),
-                Some(&mut tx),
-            )
-            .await;
+        let result = self.create_room_in_db(&room_id, user_id, join_rule, is_public, room_version, Some(&mut tx)).await;
         if let Err(e) = &result {
             error!("create_room_in_db failed: {}", e);
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create room", &e));
         }
 
-        // Create m.room.create event. Honor the client's `room_version` /
-        // `creation_content` if provided, otherwise default to room v10
-        // (matches /capabilities). `creation_content.type` ("m.space" etc.)
-        // and the legacy top-level `room_type` shortcut are both supported.
+        // Create m.room.create event. Honor the client's validated top-level
+        // `room_version`, otherwise use the advertised default. `creation_content.type`
+        // ("m.space" etc.) and the legacy top-level `room_type` shortcut are both supported.
         let now = chrono::Utc::now().timestamp_millis();
-        let room_version = config
-            .room_version
-            .clone()
-            .unwrap_or_else(|| "10".to_string());
         let mut create_content = json!({
             "creator": user_id,
             "room_version": room_version,
@@ -238,6 +218,9 @@ impl RoomService {
         if let Some(extra) = config.creation_content.as_ref().and_then(|v| v.as_object()) {
             if let Some(map) = create_content.as_object_mut() {
                 for (k, v) in extra {
+                    if matches!(k.as_str(), "room_version" | "creator") {
+                        continue;
+                    }
                     map.insert(k.clone(), v.clone());
                 }
             }
@@ -266,9 +249,7 @@ impl RoomService {
             return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
         }
 
-        let result = self
-            .add_creator_to_room(&room_id, user_id, Some(&mut tx))
-            .await;
+        let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
         if let Err(e) = &result {
             error!("add_creator_to_room failed: {}", e);
             let _ = tx.rollback().await;
@@ -322,11 +303,7 @@ impl RoomService {
             "redact": 50,
             "invite": 0,
         });
-        if let Some(override_obj) = config
-            .power_level_content_override
-            .as_ref()
-            .and_then(|v| v.as_object())
-        {
+        if let Some(override_obj) = config.power_level_content_override.as_ref().and_then(|v| v.as_object()) {
             if let Some(target) = power_levels.as_object_mut() {
                 for (k, v) in override_obj {
                     target.insert(k.clone(), v.clone());
@@ -440,15 +417,7 @@ impl RoomService {
             return Err(ApiError::internal_with_log("Failed to set room metadata", &e));
         }
 
-        let result = self
-            .process_invites(
-                &room_id,
-                config.invite_list.as_ref(),
-                user_id,
-                now + 7,
-                Some(&mut tx),
-            )
-            .await;
+        let result = self.process_invites(&room_id, config.invite_list.as_ref(), user_id, now + 7, Some(&mut tx)).await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to process invites", &e));
@@ -468,11 +437,11 @@ impl RoomService {
                 let Some(event_type) = obj.get("type").and_then(|v| v.as_str()) else {
                     continue;
                 };
-                let state_key = obj
-                    .get("state_key")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                if matches!(event_type, "m.room.create" | "m.room.member" | "m.room.tombstone") {
+                    let _ = tx.rollback().await;
+                    return Err(ApiError::invalid_param(format!("{event_type} cannot be supplied in initial_state")));
+                }
+                let state_key = obj.get("state_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let content = obj.get("content").cloned().unwrap_or_else(|| json!({}));
 
                 if event_type == "m.room.encryption" {
@@ -495,11 +464,7 @@ impl RoomService {
                     )
                     .await;
                 if let Err(e) = result {
-                    ::tracing::error!(
-                        "Failed to apply initial_state event {}: {}",
-                        event_type,
-                        e
-                    );
+                    ::tracing::error!("Failed to apply initial_state event {}: {}", event_type, e);
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to apply initial_state event {event_type}", &e));
                 }
@@ -586,9 +551,7 @@ impl RoomService {
             }
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to commit transaction", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit transaction", &e))?;
 
         // Auto-create room summary
         let summary_request = crate::storage::room_summary::CreateRoomSummaryRequest {
@@ -604,11 +567,7 @@ impl RoomService {
             is_direct: config.is_direct,
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
-        if let Err(e) = self
-            .room_summary_service
-            .create_summary(summary_request)
-            .await
-        {
+        if let Err(e) = self.room_summary_service.create_summary(summary_request).await {
             ::tracing::warn!("Failed to create room summary: {}", e);
         }
 
@@ -616,11 +575,7 @@ impl RoomService {
         if let Some(ref alias) = config.room_alias_name {
             let full_alias = format!("#{}:{}", alias, self.server_name);
             validate_room_alias_input(&full_alias)?;
-            if let Err(e) = self
-                .room_storage
-                .set_room_alias(&room_id, &full_alias, user_id)
-                .await
-            {
+            if let Err(e) = self.room_storage.set_room_alias(&room_id, &full_alias, user_id).await {
                 ::tracing::warn!("Failed to save room alias: {}", e);
             }
         }
@@ -654,18 +609,12 @@ impl RoomService {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         let result = if let Some(tx) = tx {
-            self.room_storage
-                .create_room_in_tx(tx, room_id, user_id, join_rule, room_version, is_public)
-                .await
+            self.room_storage.create_room_in_tx(tx, room_id, user_id, join_rule, room_version, is_public).await
         } else {
-            self.room_storage
-                .create_room(room_id, user_id, join_rule, room_version, is_public)
-                .await
+            self.room_storage.create_room(room_id, user_id, join_rule, room_version, is_public).await
         };
 
-        result
-            .map(|_| ())
-            .map_err(|e| ApiError::internal_with_log("Failed to create room", &e))
+        result.map(|_| ()).map_err(|e| ApiError::internal_with_log("Failed to create room", &e))
     }
 
     async fn add_creator_to_room(
@@ -698,16 +647,12 @@ impl RoomService {
                 self.room_storage
                     .update_room_name_in_tx(tx, room_id, room_name)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to update room name", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to update room name", &e))?;
             } else {
                 self.room_storage
                     .update_room_name(room_id, room_name)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to update room name", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to update room name", &e))?;
             }
             // Also persist m.room.name as a state event so /sync delivers it.
             self.event_storage
@@ -724,9 +669,7 @@ impl RoomService {
                     tx.as_deref_mut(),
                 )
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to create m.room.name event", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to create m.room.name event", &e))?;
         }
 
         if let Some(room_topic) = topic {
@@ -734,16 +677,12 @@ impl RoomService {
                 self.room_storage
                     .update_room_topic_in_tx(tx, room_id, room_topic)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to update room topic", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to update room topic", &e))?;
             } else {
                 self.room_storage
                     .update_room_topic(room_id, room_topic)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to update room topic", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to update room topic", &e))?;
             }
             self.event_storage
                 .create_event(
@@ -759,9 +698,7 @@ impl RoomService {
                     tx.as_deref_mut(),
                 )
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to create m.room.topic event", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to create m.room.topic event", &e))?;
         }
 
         Ok(())
@@ -780,9 +717,7 @@ impl RoomService {
                 .user_storage
                 .filter_existing_users(invites)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to check users existence", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to check users existence", &e))?;
 
             // We need to handle tx carefully.
             // If we have a transaction, we need to pass a mutable reference to it for each iteration.
@@ -817,9 +752,7 @@ impl RoomService {
                             Some(&mut **t),
                         )
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to record m.room.member invite event", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
                     offset += 1;
                 }
             } else {
@@ -849,9 +782,7 @@ impl RoomService {
                             None,
                         )
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to record m.room.member invite event", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
                     offset += 1;
                 }
             }
@@ -883,18 +814,12 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?
         {
-            return Err(ApiError::forbidden(
-                "You are not a member of this room".to_string(),
-            ));
+            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
-        let max_ts = self
-            .event_storage
-            .get_max_origin_server_ts_for_room(room_id)
-            .await
-            .unwrap_or(0);
+        let max_ts = self.event_storage.get_max_origin_server_ts_for_room(room_id).await.unwrap_or(0);
         let now = now.max(max_ts + 1);
 
         // Variable used only when `beacons` feature is enabled.
@@ -902,34 +827,23 @@ impl RoomService {
         let beacon_location_params = {
             #[cfg(feature = "beacons")]
             {
-                if matches!(
-                    event_type,
-                    "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon"
-                ) {
+                if matches!(event_type, "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon") {
                     let Some(beacon_service) = self.beacon_service.as_ref() else {
-                        return Err(ApiError::internal(
-                            "Beacon service not configured".to_string(),
-                        ));
+                        return Err(ApiError::internal("Beacon service not configured".to_string()));
                     };
 
                     let beacon_info_id = content
                         .get("m.relates_to")
                         .and_then(|v| v.get("event_id"))
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            ApiError::bad_request(
-                                "Missing m.relates_to.event_id for m.beacon".to_string(),
-                            )
-                        })?
+                        .ok_or_else(|| ApiError::bad_request("Missing m.relates_to.event_id for m.beacon".to_string()))?
                         .to_string();
 
                     let location = content
                         .get("m.location")
                         .or_else(|| content.get("org.matrix.msc3488.location"))
                         .and_then(|v| v.as_object())
-                        .ok_or_else(|| {
-                            ApiError::bad_request("Missing m.location for m.beacon".to_string())
-                        })?;
+                        .ok_or_else(|| ApiError::bad_request("Missing m.location for m.beacon".to_string()))?;
 
                     let uri = location
                         .get("uri")
@@ -937,10 +851,7 @@ impl RoomService {
                         .ok_or_else(|| ApiError::bad_request("Missing m.location.uri".to_string()))?
                         .to_string();
 
-                    let description = location
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .map(|v| v.to_string());
+                    let description = location.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
 
                     let ts = content
                         .get("m.ts")
@@ -948,42 +859,31 @@ impl RoomService {
                         .and_then(|v| v.as_i64())
                         .unwrap_or(now);
 
-                    let accuracy =
-                        crate::services::beacon_service::BeaconService::parse_geo_uri(&uri)
-                            .and_then(|(_, _, acc)| acc)
-                            .map(|v| v.round() as i64);
+                    let accuracy = crate::services::beacon_service::BeaconService::parse_geo_uri(&uri)
+                        .and_then(|(_, _, acc)| acc)
+                        .map(|v| v.round() as i64);
 
                     let beacon_info = beacon_service
                         .get_beacon_info(room_id, &beacon_info_id)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to validate beacon", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to validate beacon", &e))?;
                     let Some(beacon_info) = beacon_info else {
-                        return Err(ApiError::bad_request(
-                            "Referenced beacon_info does not exist".to_string(),
-                        ));
+                        return Err(ApiError::bad_request("Referenced beacon_info does not exist".to_string()));
                     };
 
                     if !beacon_info.is_live {
-                        return Err(ApiError::bad_request(
-                            "Referenced beacon_info is not live".to_string(),
-                        ));
+                        return Err(ApiError::bad_request("Referenced beacon_info is not live".to_string()));
                     }
                     if let Some(expires_at) = beacon_info.expires_at {
                         if expires_at <= now {
-                            return Err(ApiError::bad_request(
-                                "Referenced beacon_info has expired".to_string(),
-                            ));
+                            return Err(ApiError::bad_request("Referenced beacon_info has expired".to_string()));
                         }
                     }
 
                     if let Some(retry_after_ms) = beacon_service
                         .check_room_backpressure(room_id, now)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to check room backpressure", &e)
-                        })?
+                        .map_err(|e| ApiError::internal_with_log("Failed to check room backpressure", &e))?
                     {
                         return Err(ApiError::rate_limited_with_retry(retry_after_ms));
                     }
@@ -991,9 +891,7 @@ impl RoomService {
                     if let Some(retry_after_ms) = beacon_service
                         .check_location_quota(room_id, user_id, now)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to check beacon quota", &e)
-                        })?
+                        .map_err(|e| ApiError::internal_with_log("Failed to check beacon quota", &e))?
                     {
                         return Err(ApiError::rate_limited_with_retry(retry_after_ms));
                     }
@@ -1001,9 +899,7 @@ impl RoomService {
                     let latest = beacon_service
                         .get_latest_location(&beacon_info_id)
                         .await
-                        .map_err(|e| {
-                            ApiError::internal_with_log("Failed to check beacon rate limit", &e)
-                        })?;
+                        .map_err(|e| ApiError::internal_with_log("Failed to check beacon rate limit", &e))?;
                     if let Some(latest) = latest {
                         if ts <= latest.timestamp {
                             return Err(ApiError::bad_request(
@@ -1053,10 +949,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
 
-        if let Some(relates_to) = content
-            .get("m.relates_to")
-            .or_else(|| content.get("relates_to"))
-        {
+        if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
             if let (Some(rel_type), Some(target_event_id)) = (
                 relates_to.get("rel_type").and_then(|v| v.as_str()),
                 relates_to.get("event_id").and_then(|v| v.as_str()),
@@ -1085,9 +978,7 @@ impl RoomService {
         }
 
         #[cfg(feature = "beacons")]
-        if let (Some(beacon_service), Some(params)) =
-            (self.beacon_service.as_ref(), beacon_location_params)
-        {
+        if let (Some(beacon_service), Some(params)) = (self.beacon_service.as_ref(), beacon_location_params) {
             beacon_service
                 .report_location(params)
                 .await
@@ -1126,11 +1017,7 @@ impl RoomService {
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
-            event
-                .content
-                .get("join_rule")
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string())
+            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
         } else {
             None
         };
@@ -1144,13 +1031,7 @@ impl RoomService {
 
         let join_rule = effective_join_rule
             .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-            .unwrap_or_else(|| {
-                if room.is_public {
-                    "public".to_string()
-                } else {
-                    "invite".to_string()
-                }
-            });
+            .unwrap_or_else(|| if room.is_public { "public".to_string() } else { "invite".to_string() });
 
         let existing_member = self
             .member_storage
@@ -1164,17 +1045,11 @@ impl RoomService {
             }
 
             if member.membership == "ban" || member.is_banned.unwrap_or(false) {
-                return Err(ApiError::forbidden(
-                    "You are banned from this room".to_string(),
-                ));
+                return Err(ApiError::forbidden("You are banned from this room".to_string()));
             }
         }
 
-        if join_rule != "public"
-            && existing_member
-                .as_ref()
-                .is_none_or(|member| member.membership != "invite")
-        {
+        if join_rule != "public" && existing_member.as_ref().is_none_or(|member| member.membership != "invite") {
             return Err(ApiError::forbidden("Room is invite-only".to_string()));
         }
 
@@ -1207,9 +1082,7 @@ impl RoomService {
                 None,
             )
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to record m.room.member join event", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
 
         Ok(())
     }
@@ -1240,9 +1113,7 @@ impl RoomService {
                 None,
             )
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to record m.room.member leave event", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
 
         Ok(())
     }
@@ -1258,14 +1129,11 @@ impl RoomService {
             Some(member) => match member.membership.as_str() {
                 "join" => {
                     return Err(ApiError::bad_request(
-                        "Cannot forget a room you are still joined to. Leave the room first."
-                            .to_string(),
+                        "Cannot forget a room you are still joined to. Leave the room first.".to_string(),
                     ));
                 }
                 "ban" => {
-                    return Err(ApiError::forbidden(
-                        "Cannot forget a room you have been banned from.".to_string(),
-                    ));
+                    return Err(ApiError::forbidden("Cannot forget a room you have been banned from.".to_string()));
                 }
                 "leave" | "invite" => {
                     self.member_storage
@@ -1274,27 +1142,18 @@ impl RoomService {
                         .map_err(|e| ApiError::internal_with_log("Failed to forget room", &e))?;
                 }
                 _ => {
-                    return Err(ApiError::bad_request(format!(
-                        "Unknown membership state: {}",
-                        member.membership
-                    )));
+                    return Err(ApiError::bad_request(format!("Unknown membership state: {}", member.membership)));
                 }
             },
             None => {
-                return Err(ApiError::not_found(
-                    "No membership record found for this room".to_string(),
-                ));
+                return Err(ApiError::not_found("No membership record found for this room".to_string()));
             }
         }
 
         Ok(())
     }
 
-    pub async fn get_room_members(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<serde_json::Value> {
+    pub async fn get_room_members(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -1310,9 +1169,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?
         {
-            return Err(ApiError::forbidden(
-                "You are not a member of this room".to_string(),
-            ));
+            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
         let members_with_profiles = self
@@ -1326,8 +1183,7 @@ impl RoomService {
             .map(|(m, user_displayname, user_avatar_url)| {
                 let mut content = serde_json::Map::new();
                 content.insert("membership".to_string(), json!(m.membership));
-                let effective_displayname =
-                    m.display_name.as_deref().or(user_displayname.as_deref());
+                let effective_displayname = m.display_name.as_deref().or(user_displayname.as_deref());
                 if let Some(dn) = effective_displayname {
                     content.insert("displayname".to_string(), json!(dn));
                 }
@@ -1374,20 +1230,14 @@ impl RoomService {
         }
     }
 
-    pub async fn get_room_state(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<serde_json::Value> {
+    pub async fn get_room_state(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
             .member_storage
             .is_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?
         {
-            return Err(ApiError::forbidden(
-                "You are not a member of this room".to_string(),
-            ));
+            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
         let room = self
@@ -1460,9 +1310,7 @@ impl RoomService {
                 .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?;
             let is_public = room.as_ref().is_some_and(|r| r.is_public);
             if !is_public {
-                return Err(ApiError::forbidden(
-                    "You are not a member of this room".to_string(),
-                ));
+                return Err(ApiError::forbidden("You are not a member of this room".to_string()));
             }
         }
 
@@ -1479,11 +1327,7 @@ impl RoomService {
             generate_stream_token_from_ts(Some(max_ts))
         };
 
-        let from_ts = if from > 0 {
-            parse_stream_token(&start_token).or(Some(from))
-        } else {
-            None
-        };
+        let from_ts = if from > 0 { parse_stream_token(&start_token).or(Some(from)) } else { None };
 
         let events = self
             .event_storage
@@ -1515,12 +1359,7 @@ impl RoomService {
         }))
     }
 
-    pub async fn invite_user(
-        &self,
-        room_id: &str,
-        inviter_id: &str,
-        invitee_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn invite_user(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -1539,9 +1378,7 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        self.auth_service
-            .can_invite_user(room_id, inviter_id)
-            .await?;
+        self.auth_service.can_invite_user(room_id, inviter_id).await?;
 
         self.member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
@@ -1572,19 +1409,12 @@ impl RoomService {
                 None,
             )
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to record m.room.member invite event", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
 
         Ok(())
     }
 
-    pub async fn knock_room(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        reason: Option<&str>,
-    ) -> ApiResult<()> {
+    pub async fn knock_room(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -1602,11 +1432,7 @@ impl RoomService {
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
-            event
-                .content
-                .get("join_rule")
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string())
+            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
         } else {
             None
         };
@@ -1620,13 +1446,7 @@ impl RoomService {
 
         let join_rule = effective_join_rule
             .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-            .unwrap_or_else(|| {
-                if room.is_public {
-                    "public".to_string()
-                } else {
-                    "invite".to_string()
-                }
-            });
+            .unwrap_or_else(|| if room.is_public { "public".to_string() } else { "invite".to_string() });
 
         let existing_member = self
             .member_storage
@@ -1637,19 +1457,13 @@ impl RoomService {
         if let Some(member) = existing_member.as_ref() {
             match member.membership.as_str() {
                 "join" => {
-                    return Err(ApiError::bad_request(
-                        "You are already joined to this room".to_string(),
-                    ));
+                    return Err(ApiError::bad_request("You are already joined to this room".to_string()));
                 }
                 "invite" => {
-                    return Err(ApiError::forbidden(
-                        "You have already been invited to this room".to_string(),
-                    ));
+                    return Err(ApiError::forbidden("You have already been invited to this room".to_string()));
                 }
                 "ban" => {
-                    return Err(ApiError::forbidden(
-                        "You are banned from this room".to_string(),
-                    ));
+                    return Err(ApiError::forbidden("You are banned from this room".to_string()));
                 }
                 "knock" => return Ok(()),
                 _ => {}
@@ -1692,9 +1506,7 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        self.auth_service
-            .can_ban_user(room_id, banned_by, user_id)
-            .await?;
+        self.auth_service.can_ban_user(room_id, banned_by, user_id).await?;
 
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
@@ -1772,9 +1584,7 @@ impl RoomService {
         let is_admin = requester.is_admin;
 
         if !is_creator && !is_admin {
-            return Err(ApiError::forbidden(
-                "Only the room creator or a server admin can delete a room".to_string(),
-            ));
+            return Err(ApiError::forbidden("Only the room creator or a server admin can delete a room".to_string()));
         }
 
         self.room_storage
@@ -1791,10 +1601,11 @@ impl RoomService {
     }
 
     pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
-        let exists =
-            self.room_storage.room_exists(room_id).await.map_err(|e| {
-                ApiError::database_with_log("Failed to check room existence", &e)
-            })?;
+        let exists = self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to check room existence", &e))?;
         Ok(exists)
     }
 
@@ -1818,12 +1629,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get room aliases", &e))
     }
 
-    pub async fn set_room_alias(
-        &self,
-        room_id: &str,
-        alias: &str,
-        created_by: &str,
-    ) -> ApiResult<()> {
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> ApiResult<()> {
         validate_room_alias_input(alias)?;
         self.room_storage
             .set_room_alias(room_id, alias, created_by)
@@ -1866,11 +1672,7 @@ impl RoomService {
             .is_room_in_directory(room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get room visibility", &e))?;
-        Ok(if is_public {
-            "public".to_string()
-        } else {
-            "private".to_string()
-        })
+        Ok(if is_public { "public".to_string() } else { "private".to_string() })
     }
 
     pub async fn remove_room_directory(&self, room_id: &str) -> ApiResult<()> {
@@ -1880,12 +1682,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to remove room from directory", &e))
     }
 
-    pub async fn upgrade_room(
-        &self,
-        old_room_id: &str,
-        new_version: &str,
-        user_id: &str,
-    ) -> ApiResult<String> {
+    pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
         let old_room = self
             .room_storage
             .get_room(old_room_id)
@@ -1893,21 +1690,11 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get old room", &e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-        let new_room_id = generate_room_id(&self.server_name);
-
+        let tombstone_event_id = generate_event_id(&self.server_name);
         let create_config = CreateRoomConfig {
-            visibility: Some(if old_room.is_public {
-                "public".to_string()
-            } else {
-                "private".to_string()
-            }),
+            visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
             room_alias_name: None,
-            name: Some(
-                old_room
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| "Upgraded Room".to_string()),
-            ),
+            name: Some(old_room.name.clone().unwrap_or_else(|| "Upgraded Room".to_string())),
             topic: old_room.topic.clone(),
             invite_list: Some(vec![user_id.to_string()]),
             preset: Some("private_chat".to_string()),
@@ -1916,15 +1703,40 @@ impl RoomService {
             is_direct: None,
             room_type: None,
             room_version: Some(new_version.to_string()),
+            creation_content: Some(json!({
+                "predecessor": {
+                    "room_id": old_room_id,
+                    "event_id": tombstone_event_id,
+                }
+            })),
             ..Default::default()
         };
 
-        self.create_room(user_id, create_config).await?;
+        let replacement_room = self.create_room(user_id, create_config).await?;
+        let new_room_id = replacement_room
+            .get("room_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?
+            .to_string();
 
-        self.room_storage
-            .set_room_version(old_room_id, new_version)
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id: tombstone_event_id,
+                    room_id: old_room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.tombstone".to_string(),
+                    content: json!({
+                        "body": "This room has been replaced",
+                        "replacement_room": new_room_id.clone(),
+                    }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update room version", &e))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to create tombstone event", &e))?;
 
         Ok(new_room_id)
     }
@@ -1964,9 +1776,7 @@ impl RoomService {
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
         if target_room.creator_user_id.as_deref() != Some(user_id) {
-            return Err(ApiError::forbidden(
-                "Only room creator can migrate content".to_string(),
-            ));
+            return Err(ApiError::forbidden("Only room creator can migrate content".to_string()));
         }
 
         self.room_storage
@@ -1991,9 +1801,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get members", &e))?;
 
-        let is_member = members
-            .iter()
-            .any(|m| m.user_id == user_id && m.membership == "join");
+        let is_member = members.iter().any(|m| m.user_id == user_id && m.membership == "join");
 
         if !is_member {
             return Ok(false);
@@ -2038,12 +1846,7 @@ impl RoomService {
         let eid = event_id.to_string();
         let task_id = format!("burn_after_read:{rid}:{eid}:{delay_secs}");
 
-        ::tracing::info!(
-            "Scheduling burn-after-read for event {} in room {} with delay {}s",
-            eid,
-            rid,
-            delay_secs
-        );
+        ::tracing::info!("Scheduling burn-after-read for event {} in room {} with delay {}s", eid, rid, delay_secs);
 
         // Track spawned task to prevent memory leaks
         let handle = tokio::spawn(async move {
@@ -2088,25 +1891,16 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create event", &e))?;
 
-        if should_update_summary
-            && event_type == "m.room.canonical_alias"
-            && state_key.as_deref() == Some("")
-        {
+        if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
-            if let Err(error) = self
-                .room_storage
-                .set_canonical_alias(&room_id, canonical_alias)
-                .await
-            {
+            if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
                 ::tracing::warn!("Failed to project canonical alias onto room: {}", error);
             }
         }
 
         if should_update_summary {
-            if let Err(error) = self
-                .room_summary_service
-                .queue_update(&room_id, &event_id, &event_type, state_key.as_deref())
-                .await
+            if let Err(error) =
+                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
                 ::tracing::warn!("Failed to queue room summary update: {}", error);
             } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
@@ -2235,10 +2029,7 @@ mod tests {
 
     #[test]
     fn test_trusted_private_chat_preset_config() {
-        let config = CreateRoomConfig {
-            preset: Some("trusted_private_chat".to_string()),
-            ..Default::default()
-        };
+        let config = CreateRoomConfig { preset: Some("trusted_private_chat".to_string()), ..Default::default() };
         assert_eq!(config.preset.as_deref(), Some("trusted_private_chat"));
     }
 
@@ -2250,10 +2041,7 @@ mod tests {
             "burn_after_read": true
         });
 
-        let has_metadata = content
-            .as_object()
-            .map(|c| c.contains_key("burn_after_read"))
-            .unwrap_or(false);
+        let has_metadata = content.as_object().map(|c| c.contains_key("burn_after_read")).unwrap_or(false);
 
         assert!(has_metadata);
     }

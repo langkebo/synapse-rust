@@ -20,18 +20,14 @@ struct SamlPendingRequest {
     expires_at: u64,
 }
 
-static SAML_PENDING_REQUESTS: OnceLock<Mutex<HashMap<String, SamlPendingRequest>>> =
-    OnceLock::new();
+static SAML_PENDING_REQUESTS: OnceLock<Mutex<HashMap<String, SamlPendingRequest>>> = OnceLock::new();
 
 fn saml_pending_requests() -> &'static Mutex<HashMap<String, SamlPendingRequest>> {
     SAML_PENDING_REQUESTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn current_unix_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 fn cleanup_expired_saml_requests(requests: &mut HashMap<String, SamlPendingRequest>, now: u64) {
@@ -173,11 +169,7 @@ impl SamlService {
     /// runtime overrides applied on top. Result is JSON-ready.
     pub fn effective_config(&self) -> serde_json::Value {
         let mut base = self.sanitized_base_config();
-        let overrides = self
-            .runtime_overrides
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default();
+        let overrides = self.runtime_overrides.lock().map(|g| g.clone()).unwrap_or_default();
         if let serde_json::Value::Object(ref mut map) = base {
             for (k, v) in overrides {
                 map.insert(k, v);
@@ -196,16 +188,11 @@ impl SamlService {
     /// process restarts. The in-memory `runtime_overrides` cache is
     /// updated after the DB write succeeds, so `effective_config()`
     /// can remain sync for synchronous read paths.
-    pub async fn apply_runtime_overrides(
-        &self,
-        patch: serde_json::Value,
-    ) -> Result<serde_json::Value, ApiError> {
+    pub async fn apply_runtime_overrides(&self, patch: serde_json::Value) -> Result<serde_json::Value, ApiError> {
         let patch_map = match patch {
             serde_json::Value::Object(map) => map,
             _ => {
-                return Err(ApiError::bad_request(
-                    "SAML config body must be a JSON object",
-                ));
+                return Err(ApiError::bad_request("SAML config body must be a JSON object"));
             }
         };
 
@@ -227,9 +214,10 @@ impl SamlService {
         }
 
         {
-            let mut guard = self.runtime_overrides.lock().map_err(|_| {
-                ApiError::internal("SAML runtime overrides lock poisoned".to_string())
-            })?;
+            let mut guard = self
+                .runtime_overrides
+                .lock()
+                .map_err(|_| ApiError::internal("SAML runtime overrides lock poisoned".to_string()))?;
             for (k, v) in patch_map {
                 guard.insert(k, v);
             }
@@ -256,10 +244,7 @@ impl SamlService {
         Ok(())
     }
 
-    pub async fn get_auth_redirect(
-        &self,
-        relay_state: Option<&str>,
-    ) -> Result<SamlAuthRequest, ApiError> {
+    pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
         self.store_pending_request(&request_id, relay_state)?;
 
@@ -276,11 +261,7 @@ impl SamlService {
 
         info!("Generated SAML auth redirect for request: {}", request_id);
 
-        Ok(SamlAuthRequest {
-            request_id,
-            redirect_url,
-            relay_state: relay_state.map(|s| s.to_string()),
-        })
+        Ok(SamlAuthRequest { request_id, redirect_url, relay_state: relay_state.map(|s| s.to_string()) })
     }
 
     pub async fn process_auth_response(
@@ -299,10 +280,7 @@ impl SamlService {
 
         let user = self.map_user(&name_id, &issuer, &attributes)?;
 
-        let existing_mapping = self
-            .storage
-            .get_user_mapping_by_name_id(&name_id, &issuer)
-            .await?;
+        let existing_mapping = self.storage.get_user_mapping_by_name_id(&name_id, &issuer).await?;
 
         let user_id = if let Some(mapping) = existing_mapping {
             if !self.config.allow_existing_users {
@@ -358,32 +336,16 @@ impl SamlService {
 
         info!("SAML authentication successful for user: {}", user_id);
 
-        Ok(SamlAuthResponse {
-            session_id,
-            user_id,
-            name_id,
-            issuer,
-            attributes,
-            expires_at: session.expires_at,
-        })
+        Ok(SamlAuthResponse { session_id, user_id, name_id, issuer, attributes, expires_at: session.expires_at })
     }
 
-    pub async fn initiate_logout(
-        &self,
-        session_id: &str,
-        reason: Option<&str>,
-    ) -> Result<String, ApiError> {
-        let session = self
-            .storage
-            .get_session(session_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("Session not found"))?;
+    pub async fn initiate_logout(&self, session_id: &str, reason: Option<&str>) -> Result<String, ApiError> {
+        let session =
+            self.storage.get_session(session_id).await?.ok_or_else(|| ApiError::not_found("Session not found"))?;
 
         let metadata = self.get_idp_metadata().await?;
 
-        let slo_url = metadata
-            .slo_url
-            .ok_or_else(|| ApiError::bad_request("IdP does not support Single Logout"))?;
+        let slo_url = metadata.slo_url.ok_or_else(|| ApiError::bad_request("IdP does not support Single Logout"))?;
 
         let request_id = Self::generate_request_id();
 
@@ -445,18 +407,14 @@ impl SamlService {
         Ok(session)
     }
 
-    pub async fn get_user_mapping(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<SamlUserMapping>, ApiError> {
+    pub async fn get_user_mapping(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_by_user_id(user_id).await
     }
 
     pub async fn get_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
         if let Some(ref metadata) = self.cached_metadata {
             if let Some(last_refresh) = self.metadata_last_refresh {
-                let refresh_interval =
-                    chrono::Duration::seconds(self.config.metadata_refresh_interval as i64);
+                let refresh_interval = chrono::Duration::seconds(self.config.metadata_refresh_interval as i64);
                 if Utc::now() - last_refresh < refresh_interval {
                     return Ok(metadata.clone());
                 }
@@ -467,27 +425,24 @@ impl SamlService {
     }
 
     async fn fetch_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
-        let metadata_xml =
-            if let Some(ref url) = self.config.metadata_url {
-                let response = self.http_client.get(url).send().await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to fetch IdP metadata", &e)
-                })?;
+        let metadata_xml = if let Some(ref url) = self.config.metadata_url {
+            let response = self
+                .http_client
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to fetch IdP metadata", &e))?;
 
-                if !response.status().is_success() {
-                    return Err(ApiError::internal_with_log(
-                        "IdP metadata request failed",
-                        &response.status(),
-                    ));
-                }
+            if !response.status().is_success() {
+                return Err(ApiError::internal_with_log("IdP metadata request failed", &response.status()));
+            }
 
-                response.text().await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to read IdP metadata", &e)
-                })?
-            } else if let Some(ref xml) = self.config.metadata_xml {
-                xml.clone()
-            } else {
-                return Err(ApiError::internal("No IdP metadata configured"));
-            };
+            response.text().await.map_err(|e| ApiError::internal_with_log("Failed to read IdP metadata", &e))?
+        } else if let Some(ref xml) = self.config.metadata_xml {
+            xml.clone()
+        } else {
+            return Err(ApiError::internal("No IdP metadata configured"));
+        };
 
         let metadata = Self::parse_metadata_xml(&metadata_xml)?;
 
@@ -522,20 +477,10 @@ impl SamlService {
             .and_then(|v| v.first())
             .map(|s| s.to_string());
 
-        let email = mapping
-            .email
-            .as_ref()
-            .and_then(|attr| attributes.get(attr))
-            .and_then(|v| v.first())
-            .map(|s| s.to_string());
+        let email =
+            mapping.email.as_ref().and_then(|attr| attributes.get(attr)).and_then(|v| v.first()).map(|s| s.to_string());
 
-        Ok(SamlUser {
-            name_id: name_id.to_string(),
-            localpart,
-            displayname,
-            email,
-            issuer: issuer.to_string(),
-        })
+        Ok(SamlUser { name_id: name_id.to_string(), localpart, displayname, email, issuer: issuer.to_string() })
     }
 
     fn validate_response(
@@ -545,11 +490,7 @@ impl SamlService {
         expected_in_response_to: Option<&str>,
     ) -> Result<(), ApiError> {
         if !self.config.allowed_idp_entity_ids.is_empty()
-            && !self
-                .config
-                .allowed_idp_entity_ids
-                .iter()
-                .any(|id| id == issuer)
+            && !self.config.allowed_idp_entity_ids.iter().any(|id| id == issuer)
         {
             return Err(ApiError::unauthorized("IdP not allowed"));
         }
@@ -557,14 +498,8 @@ impl SamlService {
         Self::validate_response_time_window(response)?;
         Self::validate_response_audience(response, &self.config.sp_entity_id)?;
         Self::validate_response_status(response)?;
-        Self::validate_response_destination(
-            response,
-            &self.config.get_sp_acs_url(&self.server_name),
-        )?;
-        Self::validate_response_recipient(
-            response,
-            &self.config.get_sp_acs_url(&self.server_name),
-        )?;
+        Self::validate_response_destination(response, &self.config.get_sp_acs_url(&self.server_name))?;
+        Self::validate_response_recipient(response, &self.config.get_sp_acs_url(&self.server_name))?;
         Self::validate_response_issuer(response, issuer)?;
 
         let in_response_to = Self::extract_in_response_to(response)?;
@@ -578,10 +513,7 @@ impl SamlService {
             if let Err(e) = self.verify_saml_signature(response) {
                 tracing::warn!("SAML signature verification failed: {}", e);
                 if self.config.want_response_signed || self.config.want_assertions_signed {
-                    return Err(ApiError::unauthorized(format!(
-                        "SAML signature verification failed: {}",
-                        e
-                    )));
+                    return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
                 }
             }
         }
@@ -619,8 +551,7 @@ impl SamlService {
         let signed_info = Self::extract_signed_info(xml);
         let digest_value = Self::extract_digest_value(xml);
 
-        let (Some(sig_value), Some(signed_info_xml), Some(digest)) =
-            (signature_value, signed_info, digest_value)
+        let (Some(sig_value), Some(signed_info_xml), Some(digest)) = (signature_value, signed_info, digest_value)
         else {
             return Err("Could not extract signature components from SAML response".to_string());
         };
@@ -645,9 +576,7 @@ impl SamlService {
         };
 
         if !Self::constant_time_compare(&digest_bytes, &computed_digest) {
-            return Err(
-                "SAML digest verification failed - response may be tampered with".to_string(),
-            );
+            return Err("SAML digest verification failed - response may be tampered with".to_string());
         }
 
         Self::verify_rsa_signature(&cert_der, &sig_bytes, canonicalized_info.as_bytes())?;
@@ -659,31 +588,19 @@ impl SamlService {
     fn extract_signature_value(xml: &str) -> Option<String> {
         Regex::new(r#"<(?:\w+:)?SignatureValue>\s*([^<]+?)\s*</(?:\w+:)?SignatureValue>"#)
             .ok()
-            .and_then(|regex| {
-                regex
-                    .captures(xml)
-                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
-            })
+            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
     }
 
     fn extract_signed_info(xml: &str) -> Option<String> {
         Regex::new(r#"<(?:\w+:)?SignedInfo>([\s\S]*?)</(?:\w+:)?SignedInfo>"#)
             .ok()
-            .and_then(|regex| {
-                regex
-                    .captures(xml)
-                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
-            })
+            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
     }
 
     fn extract_digest_value(xml: &str) -> Option<String> {
         Regex::new(r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#)
             .ok()
-            .and_then(|regex| {
-                regex
-                    .captures(xml)
-                    .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
-            })
+            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
     }
 
     fn canonicalize_xml(xml: &str) -> String {
@@ -707,21 +624,12 @@ impl SamlService {
         result == 0
     }
 
-    fn verify_rsa_signature(
-        cert_der: &[u8],
-        signature: &[u8],
-        signed_data: &[u8],
-    ) -> Result<(), String> {
+    fn verify_rsa_signature(cert_der: &[u8], signature: &[u8], signed_data: &[u8]) -> Result<(), String> {
         use x509_cert::der::{Decode, Encode};
 
         let cert_der_bytes = if cert_der.starts_with(b"-----BEGIN") {
-            let pem_str =
-                std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
-            let b64_content = pem_str
-                .lines()
-                .filter(|line| !line.starts_with("-----"))
-                .collect::<Vec<_>>()
-                .join("");
+            let pem_str = std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+            let b64_content = pem_str.lines().filter(|line| !line.starts_with("-----")).collect::<Vec<_>>().join("");
             base64::engine::general_purpose::STANDARD
                 .decode(&b64_content)
                 .map_err(|e| format!("Failed to decode PEM base64: {}", e))?
@@ -739,10 +647,8 @@ impl SamlService {
             Err(e) => return Err(format!("Failed to encode SPKI: {}", e)),
         };
 
-        let public_key = ring::signature::UnparsedPublicKey::new(
-            &ring::signature::RSA_PKCS1_2048_8192_SHA256,
-            &spki_der,
-        );
+        let public_key =
+            ring::signature::UnparsedPublicKey::new(&ring::signature::RSA_PKCS1_2048_8192_SHA256, &spki_der);
 
         public_key
             .verify(signed_data, signature)
@@ -801,8 +707,8 @@ impl SamlService {
         saml_request: &str,
         relay_state: Option<&str>,
     ) -> Result<String, ApiError> {
-        let mut url = url::Url::parse(base_url)
-            .map_err(|e| ApiError::internal_with_log("Invalid SAML base URL", &e))?;
+        let mut url =
+            url::Url::parse(base_url).map_err(|e| ApiError::internal_with_log("Invalid SAML base URL", &e))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("SAMLRequest", saml_request);
@@ -820,9 +726,7 @@ impl SamlService {
                     }
                 }
             } else {
-                tracing::warn!(
-                    "SAML sign_requests is enabled but sp_private_key is not configured"
-                );
+                tracing::warn!("SAML sign_requests is enabled but sp_private_key is not configured");
             }
         }
 
@@ -874,17 +778,12 @@ impl SamlService {
         let data = parse_saml_response(xml)
             .map_err(|e| ApiError::bad_request(format!("Failed to parse SAML assertion: {}", e)))?;
 
-        Ok((
-            data.name_id,
-            data.issuer,
-            data.attributes,
-            data.session_index,
-        ))
+        Ok((data.name_id, data.issuer, data.attributes, data.session_index))
     }
 
     fn parse_metadata_xml(xml: &str) -> Result<SamlMetadata, ApiError> {
-        let parsed = parse_saml_metadata(xml)
-            .map_err(|e| ApiError::internal_with_log("Failed to parse SAML metadata", &e))?;
+        let parsed =
+            parse_saml_metadata(xml).map_err(|e| ApiError::internal_with_log("Failed to parse SAML metadata", &e))?;
 
         Ok(SamlMetadata {
             entity_id: parsed.entity_id,
@@ -923,11 +822,7 @@ impl SamlService {
             .map(|regex| {
                 regex
                     .captures_iter(xml)
-                    .filter_map(|captures| {
-                        captures
-                            .get(1)
-                            .map(|value| value.as_str().trim().to_string())
-                    })
+                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
                     .filter(|value| !value.is_empty())
                     .collect()
             })
@@ -966,10 +861,7 @@ impl SamlService {
         if audiences.is_empty() {
             return Err(ApiError::unauthorized("Missing SAML audience"));
         }
-        if audiences
-            .iter()
-            .any(|audience| audience == expected_audience)
-        {
+        if audiences.iter().any(|audience| audience == expected_audience) {
             return Ok(());
         }
         Err(ApiError::unauthorized("SAML audience mismatch"))
@@ -988,13 +880,9 @@ impl SamlService {
     }
 
     fn extract_response_destination(xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#)
-            .ok()
-            .and_then(|regex| {
-                regex
-                    .captures(xml)
-                    .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-            })
+        Regex::new(r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#).ok().and_then(|regex| {
+            regex.captures(xml).and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+        })
     }
 
     fn extract_subject_confirmation_recipients(xml: &str) -> Vec<String> {
@@ -1013,9 +901,7 @@ impl SamlService {
         Regex::new(r#"<(?:\w+:)?Response[^>]*>[\s\S]*?<(?:(?:\w+):)?Issuer>\s*([^<]+?)\s*</(?:(?:\w+):)?Issuer>"#)
             .ok()
             .and_then(|regex| {
-                regex
-                    .captures(xml)
-                    .and_then(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
+                regex.captures(xml).and_then(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
             })
             .map(|issuer| vec![issuer])
             .unwrap_or_default()
@@ -1026,19 +912,13 @@ impl SamlService {
         if status_codes.is_empty() {
             return Err(ApiError::unauthorized("Missing SAML status code"));
         }
-        if status_codes
-            .iter()
-            .any(|status| status.ends_with(":Success"))
-        {
+        if status_codes.iter().any(|status| status.ends_with(":Success")) {
             return Ok(());
         }
         Err(ApiError::unauthorized("SAML status is not success"))
     }
 
-    fn validate_response_destination(
-        response: &str,
-        expected_destination: &str,
-    ) -> Result<(), ApiError> {
+    fn validate_response_destination(response: &str, expected_destination: &str) -> Result<(), ApiError> {
         if let Some(destination) = Self::extract_response_destination(response) {
             if destination != expected_destination {
                 return Err(ApiError::unauthorized("SAML destination mismatch"));
@@ -1047,18 +927,12 @@ impl SamlService {
         Ok(())
     }
 
-    fn validate_response_recipient(
-        response: &str,
-        expected_recipient: &str,
-    ) -> Result<(), ApiError> {
+    fn validate_response_recipient(response: &str, expected_recipient: &str) -> Result<(), ApiError> {
         let recipients = Self::extract_subject_confirmation_recipients(response);
         if recipients.is_empty() {
             return Ok(());
         }
-        if recipients
-            .iter()
-            .any(|recipient| recipient == expected_recipient)
-        {
+        if recipients.iter().any(|recipient| recipient == expected_recipient) {
             return Ok(());
         }
         Err(ApiError::unauthorized("SAML recipient mismatch"))
@@ -1069,55 +943,39 @@ impl SamlService {
         if response_issuers.is_empty() {
             return Ok(());
         }
-        if response_issuers
-            .iter()
-            .any(|issuer| issuer == expected_issuer)
-        {
+        if response_issuers.iter().any(|issuer| issuer == expected_issuer) {
             return Ok(());
         }
         Err(ApiError::unauthorized("SAML response issuer mismatch"))
     }
 
-    fn store_pending_request(
-        &self,
-        request_id: &str,
-        relay_state: Option<&str>,
-    ) -> Result<(), ApiError> {
+    fn store_pending_request(&self, request_id: &str, relay_state: Option<&str>) -> Result<(), ApiError> {
         let Some(relay_state) = relay_state else {
             return Ok(());
         };
 
         let now = current_unix_seconds();
-        let mut requests = saml_pending_requests()
-            .lock()
-            .map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        let mut requests =
+            saml_pending_requests().lock().map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
         cleanup_expired_saml_requests(&mut requests, now);
         requests.insert(
             relay_state.to_string(),
-            SamlPendingRequest {
-                request_id: request_id.to_string(),
-                expires_at: now + SAML_REQUEST_TTL_SECONDS,
-            },
+            SamlPendingRequest { request_id: request_id.to_string(), expires_at: now + SAML_REQUEST_TTL_SECONDS },
         );
         Ok(())
     }
 
-    fn consume_pending_request(
-        &self,
-        relay_state: Option<&str>,
-    ) -> Result<Option<String>, ApiError> {
+    fn consume_pending_request(&self, relay_state: Option<&str>) -> Result<Option<String>, ApiError> {
         let Some(relay_state) = relay_state else {
             return Ok(None);
         };
 
         let now = current_unix_seconds();
-        let mut requests = saml_pending_requests()
-            .lock()
-            .map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        let mut requests =
+            saml_pending_requests().lock().map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
         cleanup_expired_saml_requests(&mut requests, now);
-        let request = requests
-            .remove(relay_state)
-            .ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;
+        let request =
+            requests.remove(relay_state).ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;
         if request.expires_at < now {
             return Err(ApiError::unauthorized("Expired SAML request"));
         }
@@ -1179,16 +1037,11 @@ impl SamlIdpManager {
 }
 
 fn pem_to_rsa_private_key(pem: &str) -> Result<Vec<u8>, String> {
-    let der = pem.lines().filter(|line| !line.starts_with("-----")).fold(
-        String::new(),
-        |mut acc, line| {
-            acc.push_str(line.trim());
-            acc
-        },
-    );
-    general_purpose::STANDARD
-        .decode(&der)
-        .map_err(|e| format!("Failed to decode PEM base64: {}", e))
+    let der = pem.lines().filter(|line| !line.starts_with("-----")).fold(String::new(), |mut acc, line| {
+        acc.push_str(line.trim());
+        acc
+    });
+    general_purpose::STANDARD.decode(&der).map_err(|e| format!("Failed to decode PEM base64: {}", e))
 }
 
 #[cfg(test)]
@@ -1236,11 +1089,7 @@ mod tests {
                 .expect("valid lazy postgres url"),
         );
         let storage = Arc::new(SamlStorage::new(&pool));
-        SamlService::new(
-            Arc::new(create_test_config()),
-            storage,
-            "localhost".to_string(),
-        )
+        SamlService::new(Arc::new(create_test_config()), storage, "localhost".to_string())
     }
 
     #[test]
@@ -1287,10 +1136,7 @@ mod tests {
         let metadata = SamlService::parse_metadata_xml(xml).unwrap();
         assert_eq!(metadata.entity_id, "https://idp.example.com");
         assert_eq!(metadata.sso_url, "https://idp.example.com/sso");
-        assert_eq!(
-            metadata.slo_url,
-            Some("https://idp.example.com/slo".to_string())
-        );
+        assert_eq!(metadata.slo_url, Some("https://idp.example.com/slo".to_string()));
     }
 
     #[test]
@@ -1313,8 +1159,7 @@ mod tests {
         </saml:Assertion>
         "#;
 
-        let (name_id, issuer, attributes, session_index) =
-            SamlService::parse_saml_assertion(xml).unwrap();
+        let (name_id, issuer, attributes, session_index) = SamlService::parse_saml_assertion(xml).unwrap();
         assert_eq!(name_id, "user123");
         assert_eq!(issuer, "https://idp.example.com");
         assert_eq!(attributes.get("uid").unwrap().first().unwrap(), "testuser");
@@ -1395,9 +1240,7 @@ mod tests {
             acs_url
         );
 
-        let error = service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"))
-            .unwrap_err();
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
         assert!(error.to_string().contains("audience"));
     }
 
@@ -1429,9 +1272,7 @@ mod tests {
             acs_url
         );
 
-        let error = service
-            .validate_response("https://idp.example.com", &xml, Some("id_expected"))
-            .unwrap_err();
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_expected")).unwrap_err();
         assert!(error.to_string().contains("InResponseTo"));
     }
 
@@ -1463,9 +1304,7 @@ mod tests {
             acs_url
         );
 
-        let error = service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"))
-            .unwrap_err();
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
         assert!(error.to_string().contains("status is not success"));
     }
 
@@ -1490,9 +1329,7 @@ mod tests {
             (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()
         );
 
-        let error = service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"))
-            .unwrap_err();
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
         assert!(error.to_string().contains("destination mismatch"));
     }
 
@@ -1522,9 +1359,7 @@ mod tests {
             (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()
         );
 
-        let error = service
-            .validate_response("https://idp.example.com", &xml, Some("id_123"))
-            .unwrap_err();
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
         assert!(error.to_string().contains("recipient mismatch"));
     }
 }

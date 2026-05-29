@@ -19,60 +19,24 @@ pub struct VoiceListQuery {
 
 pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/r0/voice/upload",
-            post(upload_voice_message),
-        )
+        .route("/_matrix/client/r0/voice/upload", post(upload_voice_message))
         .route("/_matrix/client/r0/voice/config", get(get_voice_config))
         .route("/_matrix/client/v1/voice/config", get(get_voice_config))
         .route("/_matrix/client/v1/voice/upload", post(upload_voice_message))
         .route("/_matrix/client/v1/voice/stats", get(get_voice_stats))
-        .route(
-            "/_matrix/client/v1/voice/room/{room_id}/stats",
-            get(get_room_voice_stats),
-        )
-        .route(
-            "/_matrix/client/v1/voice/user/{user_id}/stats",
-            get(get_user_voice_stats),
-        )
-        .route(
-            "/_matrix/client/v3/voice/upload",
-            post(upload_voice_message),
-        )
+        .route("/_matrix/client/v1/voice/room/{room_id}/stats", get(get_room_voice_stats))
+        .route("/_matrix/client/v1/voice/user/{user_id}/stats", get(get_user_voice_stats))
+        .route("/_matrix/client/v3/voice/upload", post(upload_voice_message))
         .route("/_matrix/client/v3/voice/config", get(get_voice_config))
         .route("/_matrix/client/v3/voice/stats", get(get_voice_stats))
-        .route(
-            "/_matrix/client/v3/voice/room/{room_id}/stats",
-            get(get_room_voice_stats),
-        )
-        .route(
-            "/_matrix/client/v3/voice/user/{user_id}/stats",
-            get(get_user_voice_stats),
-        )
-        .route(
-            "/_matrix/client/v3/voice/room/{room_id}",
-            get(get_room_voice_messages),
-        )
-        .route(
-            "/_matrix/client/v3/voice/user/{user_id}",
-            get(get_user_voice_messages),
-        )
-        .route(
-            "/_matrix/client/v3/voice/{media_id}",
-            get(get_voice_message_content),
-        )
-        .route(
-            "/_matrix/client/v3/voice/{media_id}/convert",
-            post(convert_voice_message),
-        )
-        .route(
-            "/_matrix/client/v3/voice/{media_id}/optimize",
-            post(optimize_voice_message),
-        )
-        .route(
-            "/_matrix/client/v3/voice/{media_id}/transcription",
-            post(transcribe_voice_message),
-        )
+        .route("/_matrix/client/v3/voice/room/{room_id}/stats", get(get_room_voice_stats))
+        .route("/_matrix/client/v3/voice/user/{user_id}/stats", get(get_user_voice_stats))
+        .route("/_matrix/client/v3/voice/room/{room_id}", get(get_room_voice_messages))
+        .route("/_matrix/client/v3/voice/user/{user_id}", get(get_user_voice_messages))
+        .route("/_matrix/client/v3/voice/{media_id}", get(get_voice_message_content))
+        .route("/_matrix/client/v3/voice/{media_id}/convert", post(convert_voice_message))
+        .route("/_matrix/client/v3/voice/{media_id}/optimize", post(optimize_voice_message))
+        .route("/_matrix/client/v3/voice/{media_id}/transcription", post(transcribe_voice_message))
 }
 
 pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -137,16 +101,10 @@ async fn upload_voice_message(
 
     const MAX_SIZE: usize = 50 * 1024 * 1024;
     if content.len() > MAX_SIZE {
-        return Err(ApiError::bad_request(format!(
-            "Voice message too large. Max size is {} bytes",
-            MAX_SIZE
-        )));
+        return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", MAX_SIZE)));
     }
 
-    let content_type = body
-        .get("content_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("audio/ogg");
+    let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("audio/ogg");
 
     if let Some(kind) = infer::get(&content) {
         if !kind.mime_type().starts_with("audio/") && kind.mime_type() != "application/ogg" {
@@ -156,21 +114,13 @@ async fn upload_voice_message(
             )));
         }
     } else if !content_type.starts_with("audio/") && content_type != "application/ogg" {
-        return Err(ApiError::bad_request(format!(
-            "Invalid content_type: {}. Expected audio type.",
-            content_type
-        )));
+        return Err(ApiError::bad_request(format!("Invalid content_type: {}. Expected audio type.", content_type)));
     }
 
-    let duration_ms = body
-        .get("duration_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
+    let duration_ms = body.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 
     if duration_ms <= 0 {
-        return Err(ApiError::bad_request(
-            "Duration must be positive".to_string(),
-        ));
+        return Err(ApiError::bad_request("Duration must be positive".to_string()));
     }
 
     let room_id = body.get("room_id").and_then(|v| v.as_str());
@@ -185,11 +135,10 @@ async fn upload_voice_message(
         .await?;
     }
 
-    let waveform = body.get("waveform").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|v| v.as_u64().map(|n| n as u16))
-            .collect()
-    });
+    let waveform = body
+        .get("waveform")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect());
 
     match voice_service
         .upload_voice_message(VoiceMessageUploadParams {
@@ -208,15 +157,8 @@ async fn upload_voice_message(
 }
 
 #[axum::debug_handler]
-async fn get_voice_stats(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let stats = state
-        .services
-        .voice_service
-        .get_voice_stats(&auth_user.user_id)
-        .await?;
+async fn get_voice_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+    let stats = state.services.voice_service.get_voice_stats(&auth_user.user_id).await?;
     Ok(Json(stats))
 }
 
@@ -226,18 +168,8 @@ async fn get_room_voice_stats(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to view voice stats",
-    )
-    .await?;
-    let stats = state
-        .services
-        .voice_service
-        .get_room_voice_stats(&room_id)
-        .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
+    let stats = state.services.voice_service.get_room_voice_stats(&room_id).await?;
     Ok(Json(stats))
 }
 
@@ -248,11 +180,7 @@ async fn get_user_voice_stats(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let stats = state
-        .services
-        .voice_service
-        .get_user_voice_stats(&user_id)
-        .await?;
+    let stats = state.services.voice_service.get_user_voice_stats(&user_id).await?;
     Ok(Json(stats))
 }
 
@@ -263,19 +191,10 @@ async fn get_room_voice_messages(
     Path(room_id): Path<String>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to view voice messages",
-    )
-    .await?;
-    let limit = query.limit.unwrap_or(50).min(100);
-    let result = state
-        .services
-        .voice_service
-        .get_room_voice_messages(&room_id, limit, query.from)
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice messages")
         .await?;
+    let limit = query.limit.unwrap_or(50).min(100);
+    let result = state.services.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
@@ -287,11 +206,7 @@ async fn get_user_voice_messages(
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(50).min(100);
-    let result = state
-        .services
-        .voice_service
-        .get_user_voice_messages(&user_id, limit, query.from)
-        .await?;
+    let result = state.services.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
@@ -301,11 +216,7 @@ async fn get_voice_message_content(
     _auth_user: AuthenticatedUser,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state
-        .services
-        .voice_service
-        .get_voice_message_content(&media_id)
-        .await?;
+    let result = state.services.voice_service.get_voice_message_content(&media_id).await?;
     Ok(Json(result))
 }
 

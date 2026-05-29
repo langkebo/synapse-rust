@@ -16,9 +16,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => Some(pool),
         Err(error) => {
-            eprintln!(
-                "Skipping receipt storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping receipt storage tests because test database is unavailable: {error}");
             None
         }
     }
@@ -42,15 +40,9 @@ fn test_add_receipt_preserves_receipt_data_payload() {
             "thread_id": "main"
         });
 
-        room_storage
-            .add_receipt(&user_id, &user_id, &room_id, &event_id, "m.read", &data)
-            .await
-            .unwrap();
+        room_storage.add_receipt(&user_id, &user_id, &room_id, &event_id, "m.read", &data).await.unwrap();
 
-        let receipts = room_storage
-            .get_receipts(&room_id, "m.read", &event_id)
-            .await
-            .unwrap();
+        let receipts = room_storage.get_receipts(&room_id, "m.read", &event_id).await.unwrap();
 
         assert_eq!(receipts.len(), 1);
         assert_eq!(receipts[0].data, data);
@@ -74,37 +66,17 @@ fn test_add_receipt_replaces_previous_event_for_same_user_and_type() {
         let second_event_id = format!("$receipt_second_{suffix}:localhost");
 
         room_storage
-            .add_receipt(
-                &user_id,
-                &user_id,
-                &room_id,
-                &first_event_id,
-                "m.read",
-                &json!({"thread_id": "main"}),
-            )
+            .add_receipt(&user_id, &user_id, &room_id, &first_event_id, "m.read", &json!({"thread_id": "main"}))
             .await
             .unwrap();
 
         room_storage
-            .add_receipt(
-                &user_id,
-                &user_id,
-                &room_id,
-                &second_event_id,
-                "m.read",
-                &json!({"thread_id": "main"}),
-            )
+            .add_receipt(&user_id, &user_id, &room_id, &second_event_id, "m.read", &json!({"thread_id": "main"}))
             .await
             .unwrap();
 
-        let old_receipts = room_storage
-            .get_receipts(&room_id, "m.read", &first_event_id)
-            .await
-            .unwrap();
-        let new_receipts = room_storage
-            .get_receipts(&room_id, "m.read", &second_event_id)
-            .await
-            .unwrap();
+        let old_receipts = room_storage.get_receipts(&room_id, "m.read", &first_event_id).await.unwrap();
+        let new_receipts = room_storage.get_receipts(&room_id, "m.read", &second_event_id).await.unwrap();
 
         assert!(old_receipts.is_empty());
         assert_eq!(new_receipts.len(), 1);

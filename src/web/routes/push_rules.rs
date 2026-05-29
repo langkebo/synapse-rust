@@ -8,20 +8,13 @@ pub async fn get_push_rules_default(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let rows = sqlx::query(
-        "SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'",
-    )
-    .bind(&auth_user.user_id)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
+    let rows = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
+        .bind(&auth_user.user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
 
-    let username = auth_user
-        .user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or("");
+    let username = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
     if let Some(row) = rows {
         use sqlx::Row;
@@ -30,31 +23,20 @@ pub async fn get_push_rules_default(
         return Ok(Json(content));
     }
 
-    Ok(Json(default_push_rules_for_user(
-        &auth_user.user_id,
-        username,
-    )))
+    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username)))
 }
 
 pub async fn get_push_rules_global_default(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let username = auth_user
-        .user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let username = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("").to_string();
     let user_id = auth_user.user_id.clone();
     let rules = get_push_rules_default(State(state), auth_user).await?;
     if let Some(global) = rules.0.get("global") {
         Ok(Json(global.clone()))
     } else {
-        Ok(Json(
-            default_push_rules_for_user(&user_id, &username)["global"].clone(),
-        ))
+        Ok(Json(default_push_rules_for_user(&user_id, &username)["global"].clone()))
     }
 }
 
@@ -269,11 +251,7 @@ pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &s
     let Some(default_global) = defaults.get("global").and_then(|g| g.as_object()) else {
         return;
     };
-    let global = content.as_object_mut().and_then(|m| {
-        m.entry("global")
-            .or_insert_with(|| json!({}))
-            .as_object_mut()
-    });
+    let global = content.as_object_mut().and_then(|m| m.entry("global").or_insert_with(|| json!({})).as_object_mut());
     let Some(global) = global else { return };
 
     for kind in ["content", "override", "underride"] {
@@ -281,28 +259,17 @@ pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &s
             continue;
         };
 
-        let stored = global
-            .entry(kind.to_string())
-            .or_insert_with(|| json!([]))
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let stored =
+            global.entry(kind.to_string()).or_insert_with(|| json!([])).as_array().cloned().unwrap_or_default();
 
         let stored_by_id: std::collections::HashMap<String, Value> = stored
             .iter()
-            .filter_map(|r| {
-                r.get("rule_id")
-                    .and_then(|v| v.as_str())
-                    .map(|id| (id.to_string(), r.clone()))
-            })
+            .filter_map(|r| r.get("rule_id").and_then(|v| v.as_str()).map(|id| (id.to_string(), r.clone())))
             .collect();
 
         let mut merged: Vec<Value> = Vec::with_capacity(canonical.len() + stored.len());
         for rule in canonical {
-            let rid = rule
-                .get("rule_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+            let rid = rule.get("rule_id").and_then(|v| v.as_str()).unwrap_or_default();
             if let Some(existing) = stored_by_id.get(rid) {
                 let mut canonical_rule = rule.clone();
                 if let Some(enabled) = existing.get("enabled") {
@@ -318,10 +285,7 @@ pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &s
         }
 
         for rule in stored {
-            let is_default = rule
-                .get("default")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            let is_default = rule.get("default").and_then(|v| v.as_bool()).unwrap_or(false);
             if !is_default {
                 merged.push(rule);
             }
@@ -357,10 +321,7 @@ mod tests {
     fn default_rules_include_v1_11_required_ids() {
         let rules = default_push_rules_for_user("@alice:example.com", "alice");
         let override_rules = rules["global"]["override"].as_array().unwrap();
-        let ids: Vec<&str> = override_rules
-            .iter()
-            .filter_map(|r| r["rule_id"].as_str())
-            .collect();
+        let ids: Vec<&str> = override_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         for required in [
             ".m.rule.master",
             ".m.rule.suppress_notices",
@@ -388,15 +349,9 @@ mod tests {
         });
         merge_default_push_rules(&mut content, "@alice:example.com", "alice");
         let overrides = content["global"]["override"].as_array().unwrap();
-        let master = overrides
-            .iter()
-            .find(|r| r["rule_id"] == ".m.rule.master")
-            .unwrap();
+        let master = overrides.iter().find(|r| r["rule_id"] == ".m.rule.master").unwrap();
         assert_eq!(master["enabled"], true, "user-customised value preserved");
-        let ids: Vec<&str> = overrides
-            .iter()
-            .filter_map(|r| r["rule_id"].as_str())
-            .collect();
+        let ids: Vec<&str> = overrides.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         assert!(ids.contains(&".m.rule.suppress_edits"));
     }
 }

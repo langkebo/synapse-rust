@@ -1,23 +1,21 @@
 #[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
-use crate::storage::server_notification::{
-    decode_server_notification_cursor, CreateNotificationRequest,
-};
+use crate::storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 #[cfg(feature = "server-notifications")]
 use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
+#[cfg(feature = "server-notifications")]
+use axum::extract::Query;
+#[cfg(feature = "server-notifications")]
+use axum::routing::post;
+use axum::Router;
 #[cfg(feature = "server-notifications")]
 use axum::{
     extract::{Path, State},
     routing::{delete, get, put},
     Json,
 };
-use axum::Router;
-#[cfg(feature = "server-notifications")]
-use axum::extract::Query;
-#[cfg(feature = "server-notifications")]
-use axum::routing::post;
 use serde::Deserialize;
 #[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
@@ -40,17 +38,13 @@ fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
 mod cursor_tests {
     use super::{decode_notice_cursor, encode_notice_cursor};
     use crate::storage::server_notification::{
-        decode_server_notification_cursor, encode_server_notification_cursor,
-        ServerNotificationCursor,
+        decode_server_notification_cursor, encode_server_notification_cursor, ServerNotificationCursor,
     };
 
     #[test]
     fn test_notice_cursor_round_trip() {
         let cursor = encode_notice_cursor(1_700_000_000_000, 42);
-        assert_eq!(
-            decode_notice_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, 42))
-        );
+        assert_eq!(decode_notice_cursor(Some(&cursor)), Some((1_700_000_000_000, 42)));
     }
 
     #[test]
@@ -61,16 +55,11 @@ mod cursor_tests {
 
     #[test]
     fn test_notification_cursor_round_trip() {
-        let cursor = encode_server_notification_cursor(&ServerNotificationCursor {
-            created_ts: 1_700_000_000_000,
-            id: 7,
-        });
+        let cursor =
+            encode_server_notification_cursor(&ServerNotificationCursor { created_ts: 1_700_000_000_000, id: 7 });
         assert_eq!(
             decode_server_notification_cursor(Some(&cursor)),
-            Some(ServerNotificationCursor {
-                created_ts: 1_700_000_000_000,
-                id: 7,
-            })
+            Some(ServerNotificationCursor { created_ts: 1_700_000_000_000, id: 7 })
         );
     }
 
@@ -88,65 +77,26 @@ pub fn create_notification_router(_state: AppState) -> Router<AppState> {
     #[cfg(feature = "server-notifications")]
     {
         router = router
-            .route(
-                "/_synapse/admin/v1/users/{user_id}/notification",
-                get(get_user_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/users/{user_id}/notification",
-                put(update_user_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/users/{user_id}/pushers",
-                get(get_user_pushers),
-            )
-            .route(
-                "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
-                delete(delete_user_pusher),
-            );
+            .route("/_synapse/admin/v1/users/{user_id}/notification", get(get_user_notification))
+            .route("/_synapse/admin/v1/users/{user_id}/notification", put(update_user_notification))
+            .route("/_synapse/admin/v1/users/{user_id}/pushers", get(get_user_pushers))
+            .route("/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}", delete(delete_user_pusher));
     }
 
     #[cfg(feature = "server-notifications")]
     {
         router = router
-            .route(
-                "/_synapse/admin/v1/notifications",
-                post(create_notification),
-            )
+            .route("/_synapse/admin/v1/notifications", post(create_notification))
             .route("/_synapse/admin/v1/notifications", get(list_notifications))
-            .route(
-                "/_synapse/admin/v1/notifications/{notification_id}",
-                get(get_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/notifications/{notification_id}",
-                put(update_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/notifications/{notification_id}",
-                delete(delete_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
-                put(deactivate_notification),
-            )
-            .route(
-                "/_synapse/admin/v1/notifications/active",
-                get(list_active_notifications),
-            )
-            .route(
-                "/_synapse/admin/v1/send_server_notice",
-                post(send_server_notice),
-            )
+            .route("/_synapse/admin/v1/notifications/{notification_id}", get(get_notification))
+            .route("/_synapse/admin/v1/notifications/{notification_id}", put(update_notification))
+            .route("/_synapse/admin/v1/notifications/{notification_id}", delete(delete_notification))
+            .route("/_synapse/admin/v1/notifications/{notification_id}/deactivate", put(deactivate_notification))
+            .route("/_synapse/admin/v1/notifications/active", get(list_active_notifications))
+            .route("/_synapse/admin/v1/send_server_notice", post(send_server_notice))
             .route("/_synapse/admin/v1/server_notices", get(get_server_notices))
-            .route(
-                "/_synapse/admin/v1/server_notices/{notice_id}",
-                get(get_server_notice),
-            )
-            .route(
-                "/_synapse/admin/v1/server_notices/{notice_id}",
-                delete(delete_server_notice),
-            );
+            .route("/_synapse/admin/v1/server_notices/{notice_id}", get(get_server_notice))
+            .route("/_synapse/admin/v1/server_notices/{notice_id}", delete(delete_server_notice));
     }
 
     router
@@ -157,19 +107,10 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
     use axum::http::Method;
     #[allow(unused_mut)]
     let mut entries = vec![
-        (
-            Method::GET,
-            "/_synapse/admin/v1/users/{user_id}/notification",
-        ),
-        (
-            Method::PUT,
-            "/_synapse/admin/v1/users/{user_id}/notification",
-        ),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/notification"),
+        (Method::PUT, "/_synapse/admin/v1/users/{user_id}/notification"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/pushers"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
-        ),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}"),
     ];
 
     #[cfg(feature = "server-notifications")]
@@ -177,48 +118,28 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
         entries.extend_from_slice(&[
             (Method::POST, "/_synapse/admin/v1/notifications"),
             (Method::GET, "/_synapse/admin/v1/notifications"),
-            (
-                Method::GET,
-                "/_synapse/admin/v1/notifications/{notification_id}",
-            ),
-            (
-                Method::PUT,
-                "/_synapse/admin/v1/notifications/{notification_id}",
-            ),
-            (
-                Method::DELETE,
-                "/_synapse/admin/v1/notifications/{notification_id}",
-            ),
-            (
-                Method::PUT,
-                "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
-            ),
+            (Method::GET, "/_synapse/admin/v1/notifications/{notification_id}"),
+            (Method::PUT, "/_synapse/admin/v1/notifications/{notification_id}"),
+            (Method::DELETE, "/_synapse/admin/v1/notifications/{notification_id}"),
+            (Method::PUT, "/_synapse/admin/v1/notifications/{notification_id}/deactivate"),
             (Method::GET, "/_synapse/admin/v1/notifications/active"),
             (Method::POST, "/_synapse/admin/v1/send_server_notice"),
             (Method::GET, "/_synapse/admin/v1/server_notices"),
             (Method::GET, "/_synapse/admin/v1/server_notices/{notice_id}"),
-            (
-                Method::DELETE,
-                "/_synapse/admin/v1/server_notices/{notice_id}",
-            ),
+            (Method::DELETE, "/_synapse/admin/v1/server_notices/{notice_id}"),
         ]);
     }
 
-    entries
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "admin::notification"))
-        .collect()
+    entries.into_iter().map(|(m, p)| RouteEntry::new(m, p, "admin::notification")).collect()
 }
 
 #[cfg(feature = "server-notifications")]
 #[cfg(feature = "server-notifications")]
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let user = state
-        .services
-        .user_storage
-        .get_user_by_identifier(user_id)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let user = state.services.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {
+        tracing::error!("Database error: {e}");
+        ApiError::database("A database error occurred".to_string())
+    })?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -289,11 +210,7 @@ pub async fn create_notification(
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
     ensure_target_users_exist(&state, &requested_target_user_ids).await?;
 
-    let notification = state
-        .services
-        .server_notification_storage
-        .create_notification(body)
-        .await?;
+    let notification = state.services.server_notification_storage.create_notification(body).await?;
 
     Ok(Json(json!(notification)))
 }
@@ -331,11 +248,7 @@ pub async fn get_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notification = state
-        .services
-        .server_notification_storage
-        .get_notification(notification_id)
-        .await?;
+    let notification = state.services.server_notification_storage.get_notification(notification_id).await?;
 
     match notification {
         Some(n) => Ok(Json(json!(n))),
@@ -351,11 +264,7 @@ pub async fn update_notification(
     Path(notification_id): Path<i64>,
     Json(body): Json<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state
-        .services
-        .server_notification_storage
-        .get_notification(notification_id)
-        .await?;
+    let existing = state.services.server_notification_storage.get_notification(notification_id).await?;
 
     let existing = match existing {
         Some(n) => n,
@@ -380,11 +289,8 @@ pub async fn update_notification(
         created_by: existing.created_by,
     };
 
-    let notification = state
-        .services
-        .server_notification_storage
-        .update_notification(notification_id, update_request)
-        .await?;
+    let notification =
+        state.services.server_notification_storage.update_notification(notification_id, update_request).await?;
 
     Ok(Json(json!(notification)))
 }
@@ -396,11 +302,7 @@ pub async fn delete_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deleted = state
-        .services
-        .server_notification_storage
-        .delete_notification(notification_id)
-        .await?;
+    let deleted = state.services.server_notification_storage.delete_notification(notification_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -416,11 +318,7 @@ pub async fn deactivate_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deactivated = state
-        .services
-        .server_notification_storage
-        .deactivate_notification(notification_id)
-        .await?;
+    let deactivated = state.services.server_notification_storage.deactivate_notification(notification_id).await?;
 
     if !deactivated {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -435,11 +333,7 @@ pub async fn list_active_notifications(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let notifications = state
-        .services
-        .server_notification_storage
-        .list_active_notifications()
-        .await?;
+    let notifications = state.services.server_notification_storage.list_active_notifications().await?;
 
     Ok(Json(json!(notifications)))
 }
@@ -451,38 +345,20 @@ pub async fn send_server_notice(
     State(state): State<AppState>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let target_user = state
-        .services
-        .user_storage
-        .get_user_by_identifier(&body.user_id)
-        .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+    let target_user = state.services.user_storage.get_user_by_identifier(&body.user_id).await.map_err(|e| {
+        tracing::error!("Database error: {e}");
+        ApiError::database("A database error occurred".to_string())
+    })?;
     let Some(target_user) = target_user else {
         return Err(ApiError::not_found("User not found".to_string()));
     };
 
-    let room_id = format!(
-        "!server_notice_{}:{}",
-        uuid::Uuid::new_v4(),
-        state.services.config.server.name
-    );
+    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
     let now = chrono::Utc::now().timestamp_millis();
     let server_user = format!("@server:{}", state.services.config.server.name);
-    let message_event_id = format!(
-        "${}:{}",
-        uuid::Uuid::new_v4(),
-        state.services.config.server.name
-    );
-    let create_event_id = format!(
-        "${}:{}",
-        uuid::Uuid::new_v4(),
-        state.services.config.server.name
-    );
-    let membership_event_id = format!(
-        "${}:{}",
-        uuid::Uuid::new_v4(),
-        state.services.config.server.name
-    );
+    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
+    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
+    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
 
     let notice_id = state
         .services
@@ -502,9 +378,7 @@ pub async fn send_server_notice(
         )
         .await?;
 
-    Ok(Json(
-        json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id }),
-    ))
+    Ok(Json(json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id })))
 }
 
 #[cfg(feature = "server-notifications")]
@@ -517,11 +391,8 @@ pub async fn get_server_notices(
     let limit = query.limit.unwrap_or(10).min(50) as i64;
     let cursor = decode_notice_cursor(query.from.as_deref());
 
-    let (notice_list, total, next_batch) = state
-        .services
-        .server_notification_storage
-        .get_server_notices_paginated(cursor, limit)
-        .await?;
+    let (notice_list, total, next_batch) =
+        state.services.server_notification_storage.get_server_notices_paginated(cursor, limit).await?;
 
     Ok(Json(json!({
         "notices": notice_list,
@@ -543,11 +414,7 @@ pub async fn get_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice = state
-        .services
-        .server_notification_storage
-        .get_server_notice_by_id(notice_id)
-        .await?;
+    let notice = state.services.server_notification_storage.get_server_notice_by_id(notice_id).await?;
 
     match notice {
         Some(notice) => Ok(Json(notice)),
@@ -562,34 +429,18 @@ pub async fn delete_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice_info = state
-        .services
-        .server_notification_storage
-        .get_server_notice_with_room(notice_id)
-        .await?;
+    let notice_info = state.services.server_notification_storage.get_server_notice_with_room(notice_id).await?;
 
     let Some((event_id, room_id)) = notice_info else {
         return Err(ApiError::not_found("Server notice not found".to_string()));
     };
 
-    state
-        .services
-        .server_notification_storage
-        .delete_server_notice_by_id(notice_id)
-        .await?;
+    state.services.server_notification_storage.delete_server_notice_by_id(notice_id).await?;
 
     if let Some(rid) = room_id {
-        state
-            .services
-            .server_notification_storage
-            .delete_room_cascade(&rid)
-            .await?;
+        state.services.server_notification_storage.delete_room_cascade(&rid).await?;
     } else if let Some(eid) = event_id {
-        state
-            .services
-            .server_notification_storage
-            .delete_event_by_id(&eid)
-            .await?;
+        state.services.server_notification_storage.delete_event_by_id(&eid).await?;
     }
 
     Ok(Json(json!({})))
@@ -604,11 +455,7 @@ pub async fn get_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let setting = state
-        .services
-        .server_notification_storage
-        .get_user_notification_setting(&user_id)
-        .await?;
+    let setting = state.services.server_notification_storage.get_user_notification_setting(&user_id).await?;
 
     match setting {
         Some(enabled) => Ok(Json(json!({ "enabled": enabled }))),
@@ -626,11 +473,7 @@ pub async fn update_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state
-        .services
-        .server_notification_storage
-        .upsert_user_notification_setting(&user_id, body.enabled)
-        .await?;
+    state.services.server_notification_storage.upsert_user_notification_setting(&user_id, body.enabled).await?;
 
     Ok(Json(json!({ "enabled": body.enabled })))
 }
@@ -644,15 +487,9 @@ pub async fn get_user_pushers(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let pusher_list = state
-        .services
-        .server_notification_storage
-        .get_user_pushers(&user_id)
-        .await?;
+    let pusher_list = state.services.server_notification_storage.get_user_pushers(&user_id).await?;
 
-    Ok(Json(
-        json!({ "pushers": pusher_list, "total": pusher_list.len() }),
-    ))
+    Ok(Json(json!({ "pushers": pusher_list, "total": pusher_list.len() })))
 }
 
 #[cfg(feature = "server-notifications")]
@@ -664,11 +501,7 @@ pub async fn delete_user_pusher(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let deleted = state
-        .services
-        .server_notification_storage
-        .delete_user_pusher(&user_id, &pushkey)
-        .await?;
+    let deleted = state.services.server_notification_storage.delete_user_pusher(&user_id, &pushkey).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Pusher not found".to_string()));

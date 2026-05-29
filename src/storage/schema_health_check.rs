@@ -178,69 +178,33 @@ struct RequiredIndex {
 /// `acceptable_names` 允许兼容旧迁移和约束自动生成的唯一索引名，
 /// 避免数据库已经具备等价索引时仍然报“缺失索引”。
 const REQUIRED_INDEXES: &[RequiredIndex] = &[
-    RequiredIndex {
-        display_name: "idx_events_room_id",
-        acceptable_names: &["idx_events_room_id"],
-    },
-    RequiredIndex {
-        display_name: "idx_events_sender",
-        acceptable_names: &["idx_events_sender", "idx_events_user_id"],
-    },
-    RequiredIndex {
-        display_name: "idx_events_origin_server_ts",
-        acceptable_names: &["idx_events_origin_server_ts"],
-    },
-    RequiredIndex {
-        display_name: "idx_events_room_time",
-        acceptable_names: &["idx_events_room_time"],
-    },
-    RequiredIndex {
-        display_name: "idx_memberships_user_room",
-        acceptable_names: &["idx_memberships_user_room"],
-    },
+    RequiredIndex { display_name: "idx_events_room_id", acceptable_names: &["idx_events_room_id"] },
+    RequiredIndex { display_name: "idx_events_sender", acceptable_names: &["idx_events_sender", "idx_events_user_id"] },
+    RequiredIndex { display_name: "idx_events_origin_server_ts", acceptable_names: &["idx_events_origin_server_ts"] },
+    RequiredIndex { display_name: "idx_events_room_time", acceptable_names: &["idx_events_room_time"] },
+    RequiredIndex { display_name: "idx_memberships_user_room", acceptable_names: &["idx_memberships_user_room"] },
     RequiredIndex {
         display_name: "idx_room_memberships_user_membership",
-        acceptable_names: &[
-            "idx_room_memberships_user_membership",
-            "idx_memberships_user_membership",
-        ],
+        acceptable_names: &["idx_room_memberships_user_membership", "idx_memberships_user_membership"],
     },
     RequiredIndex {
         display_name: "uq_room_memberships_room_user",
         acceptable_names: &["uq_room_memberships_room_user", "idx_memberships_room_user"],
     },
-    RequiredIndex {
-        display_name: "uq_users_username",
-        acceptable_names: &["uq_users_username", "idx_users_username"],
-    },
-    RequiredIndex {
-        display_name: "idx_users_created_ts",
-        acceptable_names: &["idx_users_created_ts"],
-    },
-    RequiredIndex {
-        display_name: "idx_devices_user_id",
-        acceptable_names: &["idx_devices_user_id"],
-    },
-    RequiredIndex {
-        display_name: "idx_presence_user_status",
-        acceptable_names: &["idx_presence_user_status"],
-    },
+    RequiredIndex { display_name: "uq_users_username", acceptable_names: &["uq_users_username", "idx_users_username"] },
+    RequiredIndex { display_name: "idx_users_created_ts", acceptable_names: &["idx_users_created_ts"] },
+    RequiredIndex { display_name: "idx_devices_user_id", acceptable_names: &["idx_devices_user_id"] },
+    RequiredIndex { display_name: "idx_presence_user_status", acceptable_names: &["idx_presence_user_status"] },
     RequiredIndex {
         display_name: "idx_access_tokens_user_id",
         acceptable_names: &["idx_access_tokens_user_id", "idx_access_tokens_user"],
     },
-    RequiredIndex {
-        display_name: "idx_access_tokens_token_hash",
-        acceptable_names: &["idx_access_tokens_token_hash"],
-    },
+    RequiredIndex { display_name: "idx_access_tokens_token_hash", acceptable_names: &["idx_access_tokens_token_hash"] },
     RequiredIndex {
         display_name: "idx_refresh_tokens_user_id",
         acceptable_names: &["idx_refresh_tokens_user_id", "idx_refresh_tokens_user"],
     },
-    RequiredIndex {
-        display_name: "idx_user_threepids_user",
-        acceptable_names: &["idx_user_threepids_user"],
-    },
+    RequiredIndex { display_name: "idx_user_threepids_user", acceptable_names: &["idx_user_threepids_user"] },
     RequiredIndex {
         display_name: "idx_user_threepids_medium_address",
         acceptable_names: &["idx_user_threepids_medium_address"],
@@ -305,9 +269,7 @@ pub async fn run_schema_health_check(
     result.missing_indexes = check_missing_indexes(pool, REQUIRED_INDEXES).await?;
     if !result.missing_indexes.is_empty() {
         warn!("Missing indexes: {:?}", result.missing_indexes);
-        result
-            .warnings
-            .push(AUTO_REPAIR_DISABLED_MESSAGE.to_string());
+        result.warnings.push(AUTO_REPAIR_DISABLED_MESSAGE.to_string());
 
         if auto_repair {
             warn!(
@@ -333,15 +295,12 @@ pub async fn run_schema_health_check(
 }
 
 /// 检查缺失的表
-async fn check_missing_tables(
-    pool: &Pool<Postgres>,
-    expected_tables: &[&str],
-) -> Result<Vec<String>, sqlx::Error> {
+async fn check_missing_tables(pool: &Pool<Postgres>, expected_tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
     let mut missing = Vec::new();
 
     for table in expected_tables {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = 'public'"
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = 'public'",
         )
         .bind(table)
         .fetch_one(pool)
@@ -387,12 +346,11 @@ async fn check_missing_indexes(
     let mut missing = Vec::new();
 
     for expected in expected_indexes {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)",
-        )
-        .bind(expected.acceptable_names)
-        .fetch_one(pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)")
+                .bind(expected.acceptable_names)
+                .fetch_one(pool)
+                .await?;
 
         if count == 0 {
             missing.push(expected.display_name.to_string());
@@ -433,14 +391,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     let mut report = String::new();
     report.push_str("# Database Schema Health Report\n\n");
 
-    report.push_str(&format!(
-        "## Status: {}\n\n",
-        if result.passed {
-            "✅ PASSED"
-        } else {
-            "❌ FAILED"
-        }
-    ));
+    report.push_str(&format!("## Status: {}\n\n", if result.passed { "✅ PASSED" } else { "❌ FAILED" }));
 
     if !result.missing_tables.is_empty() {
         report.push_str("## Missing Tables\n");
@@ -514,17 +465,9 @@ mod tests {
 
     #[test]
     fn test_core_columns_defined() {
-        assert!(CORE_COLUMNS
-            .iter()
-            .any(|(t, c)| *t == "users" && *c == "user_id"));
-        assert!(CORE_COLUMNS
-            .iter()
-            .any(|(t, c)| *t == "events" && *c == "room_id"));
-        assert!(CORE_COLUMNS
-            .iter()
-            .any(|(t, c)| *t == "background_updates" && *c == "retry_count"));
-        assert!(CORE_COLUMNS
-            .iter()
-            .any(|(t, c)| *t == "room_retention_policies" && *c == "is_server_default"));
+        assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "users" && *c == "user_id"));
+        assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "events" && *c == "room_id"));
+        assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "background_updates" && *c == "retry_count"));
+        assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "room_retention_policies" && *c == "is_server_default"));
     }
 }

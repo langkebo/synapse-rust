@@ -30,11 +30,7 @@ mod device_trust_security {
         let require_verification = true;
         let has_trust_record = false;
 
-        let can_decrypt = if require_verification {
-            has_trust_record
-        } else {
-            true
-        };
+        let can_decrypt = if require_verification { has_trust_record } else { true };
 
         assert!(!can_decrypt, "Unknown device should NOT decrypt when verification required");
     }
@@ -44,11 +40,7 @@ mod device_trust_security {
         let require_verification = false;
         let has_trust_record = false;
 
-        let can_decrypt = if require_verification {
-            has_trust_record
-        } else {
-            true
-        };
+        let can_decrypt = if require_verification { has_trust_record } else { true };
 
         assert!(can_decrypt, "Unknown device CAN decrypt when verification not required");
     }

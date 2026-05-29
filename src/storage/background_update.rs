@@ -23,10 +23,7 @@ mod cursor_tests {
     #[test]
     fn test_background_update_cursor_round_trip() {
         let cursor = encode_background_update_cursor(1_700_000_000_000, "job-name");
-        assert_eq!(
-            decode_background_update_cursor(&cursor),
-            Some((1_700_000_000_000, "job-name"))
-        );
+        assert_eq!(decode_background_update_cursor(&cursor), Some((1_700_000_000_000, "job-name")));
     }
 
     #[test]
@@ -127,10 +124,7 @@ impl BackgroundUpdateStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_update(
-        &self,
-        request: CreateBackgroundUpdateRequest,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
@@ -160,16 +154,11 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
-    pub async fn get_update(
-        &self,
-        job_name: &str,
-    ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT * FROM background_updates WHERE update_name = $1",
-        )
-        .bind(job_name)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
+        let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT * FROM background_updates WHERE update_name = $1")
+            .bind(job_name)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
@@ -195,8 +184,7 @@ impl BackgroundUpdateStorage {
         .await?;
 
         let next_from = if rows.len() as i64 == limit {
-            rows.last()
-                .map(|row| encode_background_update_cursor(row.created_ts, &row.job_name))
+            rows.last().map(|row| encode_background_update_cursor(row.created_ts, &row.job_name))
         } else {
             None
         };
@@ -204,10 +192,7 @@ impl BackgroundUpdateStorage {
         Ok((rows, next_from))
     }
 
-    pub async fn get_updates_by_status(
-        &self,
-        status: &str,
-    ) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
+    pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
             "SELECT * FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
         )
@@ -226,20 +211,12 @@ impl BackgroundUpdateStorage {
         self.get_updates_by_status("running").await
     }
 
-    pub async fn update_status(
-        &self,
-        job_name: &str,
-        status: &str,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    pub async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let started_ts = if status == "running" { Some(now) } else { None };
 
-        let completed_ts = if status == "completed" {
-            Some(now)
-        } else {
-            None
-        };
+        let completed_ts = if status == "completed" { Some(now) } else { None };
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
             r"
@@ -277,10 +254,10 @@ impl BackgroundUpdateStorage {
                 processed_items = processed_items + $2,
                 total_items = COALESCE($3, total_items),
                 last_updated_ts = $4,
-                progress = CASE 
-                    WHEN COALESCE($3, total_items) > 0 
+                progress = CASE
+                    WHEN COALESCE($3, total_items) > 0
                     THEN ROUND((processed_items + $2)::FLOAT / COALESCE($3, total_items) * 100)::INTEGER
-                    ELSE progress 
+                    ELSE progress
                 END
             WHERE update_name = $1
             RETURNING *
@@ -296,11 +273,7 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
-    pub async fn set_error(
-        &self,
-        job_name: &str,
-        error_message: &str,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    pub async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
@@ -374,13 +347,12 @@ impl BackgroundUpdateStorage {
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2",
-        )
-        .bind(job_name)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2")
+                .bind(job_name)
+                .bind(now)
+                .fetch_one(&*self.pool)
+                .await?;
 
         Ok(count > 0)
     }
@@ -428,11 +400,7 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
-    pub async fn get_history(
-        &self,
-        job_name: &str,
-        limit: i64,
-    ) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
+    pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateHistory>(
             "SELECT * FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC LIMIT $2",
         )
@@ -461,19 +429,16 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn count_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE status = $1")
-                .bind(status)
-                .fetch_one(&*self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE status = $1")
+            .bind(status)
+            .fetch_one(&*self.pool)
+            .await?;
 
         Ok(count)
     }
 
     pub async fn count_all(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates")
-            .fetch_one(&*self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates").fetch_one(&*self.pool).await?;
 
         Ok(count)
     }

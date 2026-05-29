@@ -6,4 +6,3 @@
 
 说明：
 - 当前仓库已有 `tests/integration/schema_contract_*_tests.rs`（历史命名），后续新增建议迁移到该目录，并优先使用能力域拆分。
-

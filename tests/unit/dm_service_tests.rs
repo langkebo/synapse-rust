@@ -19,19 +19,12 @@ mod tests {
 
         // Mark room as DM
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
         // Check if it's a DM
-        let is_dm = service
-            .is_dm_room("!dm:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let is_dm = service.is_dm_room("!dm:example.com", "@alice:example.com").await.unwrap();
         assert!(is_dm);
     }
 
@@ -40,10 +33,7 @@ mod tests {
         let service = DMService::new();
 
         // Check non-DM room
-        let is_dm = service
-            .is_dm_room("!room:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let is_dm = service.is_dm_room("!room:example.com", "@alice:example.com").await.unwrap();
         assert!(!is_dm);
     }
 
@@ -53,26 +43,16 @@ mod tests {
 
         // Create DM
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
         // Get partner from alice's perspective
-        let partner = service
-            .get_dm_partner("!dm:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let partner = service.get_dm_partner("!dm:example.com", "@alice:example.com").await.unwrap();
         assert_eq!(partner, Some("@bob:example.com".to_string()));
 
         // Get partner from bob's perspective
-        let partner = service
-            .get_dm_partner("!dm:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let partner = service.get_dm_partner("!dm:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(partner, Some("@alice:example.com".to_string()));
     }
 
@@ -82,20 +62,12 @@ mod tests {
 
         // Create DMs
         service
-            .mark_room_as_dm(
-                "!dm1:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm1:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
         service
-            .mark_room_as_dm(
-                "!dm2:example.com",
-                "@alice:example.com",
-                &["@charlie:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm2:example.com", "@alice:example.com", &["@charlie:example.com".to_string()])
             .await
             .unwrap();
 
@@ -109,27 +81,17 @@ mod tests {
         let service = DMService::new();
 
         // Create DM
-        let room_id = service
-            .get_existing_dm("@alice:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(room_id, None);
 
         // Mark as DM
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
         // Should find existing DM
-        let room_id = service
-            .get_existing_dm("@alice:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(room_id, Some("!dm:example.com".to_string()));
     }
 
@@ -139,11 +101,7 @@ mod tests {
 
         // Create DM
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
@@ -152,10 +110,7 @@ mod tests {
             .update_dm_users(
                 "!dm:example.com",
                 "@alice:example.com",
-                &[
-                    "@bob:example.com".to_string(),
-                    "@charlie:example.com".to_string(),
-                ],
+                &["@bob:example.com".to_string(), "@charlie:example.com".to_string()],
             )
             .await
             .unwrap();

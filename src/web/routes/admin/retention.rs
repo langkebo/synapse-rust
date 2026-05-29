@@ -11,27 +11,12 @@ use sqlx::Row;
 
 pub fn create_retention_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/admin/v1/retention/policy",
-            get(get_retention_policy),
-        )
-        .route(
-            "/_synapse/admin/v1/retention/policy",
-            post(set_retention_policy),
-        )
-        .route(
-            "/_synapse/admin/v1/retention/policy/{room_id}",
-            get(get_room_retention_policy),
-        )
-        .route(
-            "/_synapse/admin/v1/retention/policy/{room_id}",
-            post(set_room_retention_policy),
-        )
+        .route("/_synapse/admin/v1/retention/policy", get(get_retention_policy))
+        .route("/_synapse/admin/v1/retention/policy", post(set_retention_policy))
+        .route("/_synapse/admin/v1/retention/policy/{room_id}", get(get_room_retention_policy))
+        .route("/_synapse/admin/v1/retention/policy/{room_id}", post(set_room_retention_policy))
         .route("/_synapse/admin/v1/retention/run", post(run_retention))
-        .route(
-            "/_synapse/admin/v1/retention/status",
-            get(get_retention_status),
-        )
+        .route("/_synapse/admin/v1/retention/status", get(get_retention_status))
 }
 
 pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -41,10 +26,7 @@ pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger:
         (Method::GET, "/_synapse/admin/v1/retention/policy"),
         (Method::POST, "/_synapse/admin/v1/retention/policy"),
         (Method::GET, "/_synapse/admin/v1/retention/policy/{room_id}"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/retention/policy/{room_id}",
-        ),
+        (Method::POST, "/_synapse/admin/v1/retention/policy/{room_id}"),
         (Method::POST, "/_synapse/admin/v1/retention/run"),
         (Method::GET, "/_synapse/admin/v1/retention/status"),
     ]
@@ -66,16 +48,12 @@ pub struct RunRetentionRequest {
 }
 
 #[axum::debug_handler]
-pub async fn get_retention_policy(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
-    let policy = sqlx::query(
-        "SELECT max_lifetime, min_lifetime, expire_on_clients FROM server_retention_policy LIMIT 1",
-    )
-    .fetch_optional(&*state.services.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let policy =
+        sqlx::query("SELECT max_lifetime, min_lifetime, expire_on_clients FROM server_retention_policy LIMIT 1")
+            .fetch_optional(&*state.services.room_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match policy {
         Some(row) => Ok(Json(json!({
@@ -209,11 +187,7 @@ pub async fn run_retention(
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
 
-            let log = state
-                .services
-                .retention_service
-                .run_cleanup(&room_id)
-                .await?;
+            let log = state.services.retention_service.run_cleanup(&room_id).await?;
             Ok(Json(json!({
                 "started": true,
                 "room_id": room_id,
@@ -223,11 +197,7 @@ pub async fn run_retention(
             })))
         }
         None => {
-            let cleaned = state
-                .services
-                .retention_service
-                .run_scheduled_cleanups()
-                .await?;
+            let cleaned = state.services.retention_service.run_scheduled_cleanups().await?;
             Ok(Json(json!({
                 "started": true,
                 "scope": "all_rooms",
@@ -238,40 +208,31 @@ pub async fn run_retention(
 }
 
 #[axum::debug_handler]
-pub async fn get_retention_status(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let rooms_with_policy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_retention_policies")
         .fetch_one(&*state.services.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let server_policy_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
-            .fetch_one(&*state.services.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let last_run = state
-        .services
-        .retention_service
-        .get_last_lifecycle_summary()
+    let server_policy_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
+        .fetch_one(&*state.services.room_storage.pool)
         .await
-        .map(|summary| {
-            json!({
-                "started_ts": summary.started_ts,
-                "completed_ts": summary.completed_ts,
-                "duration_ms": summary.duration_ms,
-                "expired_events_deleted": summary.expired_events_deleted,
-                "expired_beacons_deleted": summary.expired_beacons_deleted,
-                "expired_uploads_deleted": summary.expired_uploads_deleted,
-                "expired_audit_events_deleted": summary.expired_audit_events_deleted,
-                "cleanup_queue_items_processed": summary.cleanup_queue_items_processed,
-                "cleanup_queue_rows_pruned": summary.cleanup_queue_rows_pruned,
-                "failed_tasks": summary.failed_tasks
-            })
-        });
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    let last_run = state.services.retention_service.get_last_lifecycle_summary().await.map(|summary| {
+        json!({
+            "started_ts": summary.started_ts,
+            "completed_ts": summary.completed_ts,
+            "duration_ms": summary.duration_ms,
+            "expired_events_deleted": summary.expired_events_deleted,
+            "expired_beacons_deleted": summary.expired_beacons_deleted,
+            "expired_uploads_deleted": summary.expired_uploads_deleted,
+            "expired_audit_events_deleted": summary.expired_audit_events_deleted,
+            "cleanup_queue_items_processed": summary.cleanup_queue_items_processed,
+            "cleanup_queue_rows_pruned": summary.cleanup_queue_rows_pruned,
+            "failed_tasks": summary.failed_tasks
+        })
+    });
 
     Ok(Json(json!({
         "server_policy_enabled": server_policy_exists,

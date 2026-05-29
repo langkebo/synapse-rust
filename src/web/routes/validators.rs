@@ -6,35 +6,25 @@ pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     }
 
     if !user_id.starts_with('@') {
-        return Err(ApiError::invalid_input(
-            "Invalid user_id format: must start with @".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid user_id format: must start with @".to_string()));
     }
 
     if user_id.len() > 255 {
-        return Err(ApiError::invalid_input(
-            "user_id too long (max 255 characters)".to_string(),
-        ));
+        return Err(ApiError::invalid_input("user_id too long (max 255 characters)".to_string()));
     }
 
     let parts: Vec<&str> = user_id.split(':').collect();
     if parts.len() < 2 {
-        return Err(ApiError::invalid_input(
-            "Invalid user_id format: must be @username:server".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid user_id format: must be @username:server".to_string()));
     }
 
     let username = &parts[0][1..];
     if username.is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid user_id format: username cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid user_id format: username cannot be empty".to_string()));
     }
 
     if parts[1].is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid user_id format: server cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid user_id format: server cannot be empty".to_string()));
     }
 
     Ok(())
@@ -45,32 +35,22 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::invalid_input("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::invalid_input(
-            "Invalid room_id format: must start with !".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_id format: must start with !".to_string()));
     }
     if room_id.len() > 255 {
-        return Err(ApiError::invalid_input(
-            "room_id too long (max 255 characters)".to_string(),
-        ));
+        return Err(ApiError::invalid_input("room_id too long (max 255 characters)".to_string()));
     }
 
     let Some((localpart, server_name)) = room_id[1..].rsplit_once(':') else {
-        return Err(ApiError::invalid_input(
-            "Invalid room_id format: must be !roomid:server".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_id format: must be !roomid:server".to_string()));
     };
 
     if localpart.is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid room_id format: room id cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_id format: room id cannot be empty".to_string()));
     }
 
     if server_name.is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid room_id format: server cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_id format: server cannot be empty".to_string()));
     }
 
     Ok(())
@@ -78,37 +58,25 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
 
 pub fn validate_room_alias(room_alias: &str) -> Result<(), ApiError> {
     if room_alias.is_empty() {
-        return Err(ApiError::invalid_input(
-            "room_alias is required".to_string(),
-        ));
+        return Err(ApiError::invalid_input("room_alias is required".to_string()));
     }
     if !room_alias.starts_with('#') {
-        return Err(ApiError::invalid_input(
-            "Invalid room_alias format: must start with #".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_alias format: must start with #".to_string()));
     }
     if room_alias.len() > 255 {
-        return Err(ApiError::invalid_input(
-            "room_alias too long (max 255 characters)".to_string(),
-        ));
+        return Err(ApiError::invalid_input("room_alias too long (max 255 characters)".to_string()));
     }
 
     let Some((localpart, server_name)) = room_alias[1..].rsplit_once(':') else {
-        return Err(ApiError::invalid_input(
-            "Invalid room_alias format: must be #alias:server".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_alias format: must be #alias:server".to_string()));
     };
 
     if localpart.is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid room_alias format: alias cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_alias format: alias cannot be empty".to_string()));
     }
 
     if server_name.is_empty() {
-        return Err(ApiError::invalid_input(
-            "Invalid room_alias format: server cannot be empty".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid room_alias format: server cannot be empty".to_string()));
     }
 
     Ok(())
@@ -119,9 +87,7 @@ pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::invalid_input("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::invalid_input(
-            "Invalid event_id format: must start with $".to_string(),
-        ));
+        return Err(ApiError::invalid_input("Invalid event_id format: must start with $".to_string()));
     }
     Ok(())
 }

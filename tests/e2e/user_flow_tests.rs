@@ -15,13 +15,7 @@ mod e2e_tests {
     fn unique_username(prefix: &str) -> String {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!(
-            "{}_{}_{}_{}",
-            prefix,
-            std::process::id(),
-            chrono::Utc::now().timestamp_millis(),
-            n
-        )
+        format!("{}_{}_{}_{}", prefix, std::process::id(), chrono::Utc::now().timestamp_millis(), n)
     }
 
     fn require_e2e_enabled() -> bool {
@@ -75,41 +69,20 @@ mod e2e_tests {
 
     async fn json_ok<T: DeserializeOwned>(response: reqwest::Response, context: &str) -> T {
         let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
+        let bytes = response.bytes().await.unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
         if !status.is_success() {
-            panic!(
-                "{}: HTTP {} {}",
-                context,
-                status,
-                String::from_utf8_lossy(&bytes)
-            );
+            panic!("{}: HTTP {} {}", context, status, String::from_utf8_lossy(&bytes));
         }
         serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "{}: Failed to parse JSON: {} (body={})",
-                context,
-                e,
-                String::from_utf8_lossy(&bytes)
-            )
+            panic!("{}: Failed to parse JSON: {} (body={})", context, e, String::from_utf8_lossy(&bytes))
         })
     }
 
     async fn bytes_ok(response: reqwest::Response, context: &str) -> Vec<u8> {
         let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
+        let bytes = response.bytes().await.unwrap_or_else(|e| panic!("{context}: Failed to read response body: {e}"));
         if !status.is_success() {
-            panic!(
-                "{}: HTTP {} {}",
-                context,
-                status,
-                String::from_utf8_lossy(&bytes)
-            );
+            panic!("{}: HTTP {} {}", context, status, String::from_utf8_lossy(&bytes));
         }
         bytes.to_vec()
     }
@@ -206,11 +179,7 @@ mod e2e_tests {
         json_ok(response, "send_message").await
     }
 
-    async fn upload_media(
-        access_token: &str,
-        content: Vec<u8>,
-        content_type: &str,
-    ) -> UploadMediaResponse {
+    async fn upload_media(access_token: &str, content: Vec<u8>, content_type: &str) -> UploadMediaResponse {
         let client = Client::new();
         let response = client
             .post(format!("{}/_matrix/media/v3/upload", base_url()))
@@ -227,10 +196,7 @@ mod e2e_tests {
     async fn search_user(access_token: &str, username: &str) -> Vec<serde_json::Value> {
         let client = Client::new();
         let response = client
-            .post(format!(
-                "{}/_matrix/client/v3/user_directory/search",
-                base_url()
-            ))
+            .post(format!("{}/_matrix/client/v3/user_directory/search", base_url()))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({
                 "search_term": username,
@@ -245,11 +211,7 @@ mod e2e_tests {
         json["results"].as_array().cloned().unwrap_or_default()
     }
 
-    async fn send_friend_request(
-        access_token: &str,
-        to_user_id: &str,
-        message: Option<&str>,
-    ) -> FriendRequestResponse {
+    async fn send_friend_request(access_token: &str, to_user_id: &str, message: Option<&str>) -> FriendRequestResponse {
         let client = Client::new();
         let mut body = json!({"user_id": to_user_id});
         if let Some(msg) = message {
@@ -270,11 +232,7 @@ mod e2e_tests {
     async fn accept_friend_request(access_token: &str, user_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(format!(
-                "{}/_matrix/client/r0/friends/request/{}/accept",
-                base_url(),
-                user_id
-            ))
+            .post(format!("{}/_matrix/client/r0/friends/request/{}/accept", base_url(), user_id))
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
@@ -305,11 +263,7 @@ mod e2e_tests {
     async fn join_room(access_token: &str, room_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(format!(
-                "{}/_matrix/client/r0/rooms/{}/join",
-                base_url(),
-                room_id
-            ))
+            .post(format!("{}/_matrix/client/r0/rooms/{}/join", base_url(), room_id))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({}))
             .send()
@@ -343,8 +297,7 @@ mod e2e_tests {
 
             assert!(!room.room_id.is_empty());
 
-            let msg_response =
-                send_message(&alice.access_token, &room.room_id, "Hello, Bob!").await;
+            let msg_response = send_message(&alice.access_token, &room.room_id, "Hello, Bob!").await;
 
             assert!(!msg_response.event_id.is_empty());
 
@@ -378,15 +331,12 @@ mod e2e_tests {
             let search_results = search_user(&alice.access_token, &bob_username).await;
 
             assert!(
-                search_results
-                    .iter()
-                    .any(|r| r["user_id"].as_str() == Some(bob.user_id.as_str())),
+                search_results.iter().any(|r| r["user_id"].as_str() == Some(bob.user_id.as_str())),
                 "Should find bob in search"
             );
 
             let friend_request =
-                send_friend_request(&alice.access_token, &bob.user_id, Some("Let's be friends!"))
-                    .await;
+                send_friend_request(&alice.access_token, &bob.user_id, Some("Let's be friends!")).await;
 
             assert!(friend_request.request_id > 0);
             assert_eq!(friend_request.status, "pending");
@@ -416,43 +366,26 @@ mod e2e_tests {
 
             let search_results = search_user(&alice.access_token, &bob_username).await;
             assert!(
-                search_results
-                    .iter()
-                    .any(|r| r["user_id"].as_str() == Some(bob.user_id.as_str())),
+                search_results.iter().any(|r| r["user_id"].as_str() == Some(bob.user_id.as_str())),
                 "Should find bob in search"
             );
 
             // Send friend request
-            let _friend_request =
-                send_friend_request(&alice.access_token, &bob.user_id, None).await;
+            let _friend_request = send_friend_request(&alice.access_token, &bob.user_id, None).await;
             let accept_response = accept_friend_request(&bob.access_token, &alice.user_id).await;
-            let dm_room_id = accept_response["room_id"]
-                .as_str()
-                .expect("room_id should be string")
-                .to_owned();
+            let dm_room_id = accept_response["room_id"].as_str().expect("room_id should be string").to_owned();
             assert!(!dm_room_id.is_empty(), "DM room ID should not be empty");
 
             join_room(&alice.access_token, &dm_room_id).await;
 
-            let msg_response = send_message(
-                &alice.access_token,
-                &dm_room_id,
-                "Private message from Alice",
-            )
-            .await;
+            let msg_response = send_message(&alice.access_token, &dm_room_id, "Private message from Alice").await;
 
-            assert!(
-                !msg_response.event_id.is_empty(),
-                "Event ID should not be empty"
-            );
+            assert!(!msg_response.event_id.is_empty(), "Event ID should not be empty");
 
             // Redact (delete) the message
-            let redact_response =
-                redact_event(&alice.access_token, &dm_room_id, &msg_response.event_id).await;
+            let redact_response = redact_event(&alice.access_token, &dm_room_id, &msg_response.event_id).await;
             assert!(
-                redact_response["event_id"]
-                    .as_str()
-                    .is_some_and(|v| !v.is_empty()),
+                redact_response["event_id"].as_str().is_some_and(|v| !v.is_empty()),
                 "Redaction should return event_id"
             );
 
@@ -473,13 +406,10 @@ mod e2e_tests {
             let alice_username = unique_username("alice_media");
             let alice = register_user(&alice_username, "Password123!").await;
 
-            let image_data = vec![
-                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
-                0x44, 0x52,
-            ];
+            let image_data =
+                vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
 
-            let upload_response =
-                upload_media(&alice.access_token, image_data.clone(), "image/png").await;
+            let upload_response = upload_media(&alice.access_token, image_data.clone(), "image/png").await;
 
             assert!(!upload_response.content_uri.is_empty());
             assert_eq!(upload_response.content_type, "image/png");
@@ -492,12 +422,7 @@ mod e2e_tests {
             let media_id = parts.next().unwrap_or(upload_response.media_id.as_str());
 
             let response = client
-                .get(format!(
-                    "{}/_matrix/media/v3/download/{}/{}",
-                    base_url(),
-                    server_name,
-                    media_id
-                ))
+                .get(format!("{}/_matrix/media/v3/download/{}/{}", base_url(), server_name, media_id))
                 .header("Authorization", format!("Bearer {}", alice.access_token))
                 .send()
                 .await

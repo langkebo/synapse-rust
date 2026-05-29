@@ -54,10 +54,7 @@ impl FriendRoomStorage {
     }
 
     /// 查找用户的好友列表房间 ID
-    pub async fn get_friend_list_room_id(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let row = sqlx::query(
             r"
             SELECT e.room_id
@@ -78,10 +75,7 @@ impl FriendRoomStorage {
     }
 
     /// 获取房间内的所有好友列表事件内容
-    pub async fn get_friend_list_content(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    pub async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let row = sqlx::query(
             r"
             SELECT e.content
@@ -101,10 +95,7 @@ impl FriendRoomStorage {
     }
 
     /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
-    pub async fn find_friend_lists_by_dm_room_id(
-        &self,
-        dm_room_id: &str,
-    ) -> Result<Vec<FriendDmLink>, sqlx::Error> {
+    pub async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {
         sqlx::query_as::<_, FriendDmLink>(
             r"
             WITH latest_friend_lists AS (
@@ -167,16 +158,9 @@ impl FriendRoomStorage {
     pub async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error> {
         let content = self.get_friend_list_content(room_id).await?;
 
-        Ok(content
-            .and_then(|c| c.get("friends").cloned())
-            .and_then(|f| f.as_array().cloned())
-            .is_some_and(|friends| {
-                friends.iter().any(|f| {
-                    f.get("user_id")
-                        .and_then(|u| u.as_str())
-                        .is_some_and(|u| u == friend_id)
-                })
-            }))
+        Ok(content.and_then(|c| c.get("friends").cloned()).and_then(|f| f.as_array().cloned()).is_some_and(|friends| {
+            friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()).is_some_and(|u| u == friend_id))
+        }))
     }
 
     /// 获取好友信息
@@ -187,26 +171,13 @@ impl FriendRoomStorage {
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let content = self.get_friend_list_content(room_id).await?;
 
-        Ok(content
-            .and_then(|c| c.get("friends").cloned())
-            .and_then(|f| f.as_array().cloned())
-            .and_then(|friends| {
-                friends
-                    .iter()
-                    .find(|f| {
-                        f.get("user_id")
-                            .and_then(|u| u.as_str())
-                            .is_some_and(|u| u == friend_id)
-                    })
-                    .cloned()
-            }))
+        Ok(content.and_then(|c| c.get("friends").cloned()).and_then(|f| f.as_array().cloned()).and_then(|friends| {
+            friends.iter().find(|f| f.get("user_id").and_then(|u| u.as_str()).is_some_and(|u| u == friend_id)).cloned()
+        }))
     }
 
     /// 获取好友分组信息
-    pub async fn get_friend_groups(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    pub async fn get_friend_groups(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let row = sqlx::query(
             r"
             SELECT e.content
@@ -226,11 +197,7 @@ impl FriendRoomStorage {
     }
 
     /// 获取好友所在的分组列表
-    pub async fn get_friend_groups_for_user(
-        &self,
-        room_id: &str,
-        friend_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_friend_groups_for_user(&self, room_id: &str, friend_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let groups = self.get_friend_groups(room_id).await?;
 
         Ok(groups
@@ -254,12 +221,7 @@ impl FriendRoomStorage {
     }
 
     /// 创建好友分组
-    pub async fn create_friend_group(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        group_name: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn create_friend_group(&self, room_id: &str, user_id: &str, group_name: &str) -> Result<(), sqlx::Error> {
         let mut groups = self.get_friend_groups(room_id).await?;
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -272,16 +234,10 @@ impl FriendRoomStorage {
         }
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
-        let mut groups_array = groups_val
-            .get("groups")
-            .and_then(|g| g.as_array().cloned())
-            .unwrap_or_default();
+        let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
 
-        let exists = groups_array.iter().any(|g| {
-            g.get("name")
-                .and_then(|n| n.as_str())
-                .is_some_and(|n| n == group_name)
-        });
+        let exists =
+            groups_array.iter().any(|g| g.get("name").and_then(|n| n.as_str()).is_some_and(|n| n == group_name));
 
         if exists {
             return Err(sqlx::Error::RowNotFound);
@@ -300,8 +256,7 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups)
-            .await
+        self.save_friend_groups(room_id, user_id, &updated_groups).await
     }
 
     /// 删除好友分组
@@ -315,17 +270,11 @@ impl FriendRoomStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
-        let groups_array = groups_val
-            .get("groups")
-            .and_then(|g| g.as_array().cloned())
-            .unwrap_or_default();
+        let groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
 
         let filtered: Vec<_> = groups_array
             .iter()
-            .filter(|g| {
-                g.get("name")
-                    .and_then(|n| n.as_str()) != Some(group_name)
-            })
+            .filter(|g| g.get("name").and_then(|n| n.as_str()) != Some(group_name))
             .cloned()
             .collect();
 
@@ -339,8 +288,7 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups)
-            .await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
         Ok(true)
     }
 
@@ -356,10 +304,7 @@ impl FriendRoomStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
-        let mut groups_array = groups_val
-            .get("groups")
-            .and_then(|g| g.as_array().cloned())
-            .unwrap_or_default();
+        let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
 
         let mut found = false;
         for group in &mut groups_array {
@@ -381,8 +326,7 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups)
-            .await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
         Ok(true)
     }
 
@@ -398,18 +342,12 @@ impl FriendRoomStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
-        let mut groups_array = groups_val
-            .get("groups")
-            .and_then(|g| g.as_array().cloned())
-            .unwrap_or_default();
+        let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
 
         let mut found = false;
         for group in &mut groups_array {
             if group.get("name").and_then(|n| n.as_str()) == Some(group_name) {
-                let members = group
-                    .get("members")
-                    .and_then(|m| m.as_array().cloned())
-                    .unwrap_or_default();
+                let members = group.get("members").and_then(|m| m.as_array().cloned()).unwrap_or_default();
 
                 if members.iter().any(|m| m.as_str() == Some(friend_id)) {
                     return Ok(false);
@@ -434,8 +372,7 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups)
-            .await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
         Ok(true)
     }
 
@@ -451,24 +388,14 @@ impl FriendRoomStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
-        let mut groups_array = groups_val
-            .get("groups")
-            .and_then(|g| g.as_array().cloned())
-            .unwrap_or_default();
+        let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
 
         let mut found = false;
         for group in &mut groups_array {
             if group.get("name").and_then(|n| n.as_str()) == Some(group_name) {
-                let members = group
-                    .get("members")
-                    .and_then(|m| m.as_array().cloned())
-                    .unwrap_or_default();
+                let members = group.get("members").and_then(|m| m.as_array().cloned()).unwrap_or_default();
 
-                let filtered: Vec<_> = members
-                    .iter()
-                    .filter(|m| m.as_str() != Some(friend_id))
-                    .cloned()
-                    .collect();
+                let filtered: Vec<_> = members.iter().filter(|m| m.as_str() != Some(friend_id)).cloned().collect();
 
                 if filtered.len() == members.len() {
                     return Ok(false);
@@ -491,8 +418,7 @@ impl FriendRoomStorage {
             "updated_ts": now
         });
 
-        self.save_friend_groups(room_id, user_id, &updated_groups)
-            .await?;
+        self.save_friend_groups(room_id, user_id, &updated_groups).await?;
         Ok(true)
     }
 
@@ -555,12 +481,11 @@ impl FriendRoomStorage {
             return Ok(row.get("id"));
         }
 
-        let fallback =
-            sqlx::query("SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2")
-                .bind(sender_id)
-                .bind(receiver_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let fallback = sqlx::query("SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2")
+            .bind(sender_id)
+            .bind(receiver_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         match fallback {
             Some(row) => Ok(row.get("id")),
@@ -634,10 +559,7 @@ impl FriendRoomStorage {
         Ok(rows)
     }
 
-    pub async fn get_outgoing_friend_requests(
-        &self,
-        sender_id: &str,
-    ) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
+    pub async fn get_outgoing_friend_requests(&self, sender_id: &str) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
         let rows = sqlx::query_as::<_, FriendRequestRecord>(
             r"
             SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
@@ -678,11 +600,7 @@ impl FriendRoomStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn delete_friend_request(
-        &self,
-        sender_id: &str,
-        receiver_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_friend_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
             DELETE FROM friend_requests
@@ -697,11 +615,7 @@ impl FriendRoomStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn has_pending_request(
-        &self,
-        sender_id: &str,
-        receiver_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn has_pending_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
         let row = sqlx::query(
             r"
             SELECT 1 FROM friend_requests
@@ -716,11 +630,7 @@ impl FriendRoomStorage {
         Ok(row.is_some())
     }
 
-    pub async fn has_any_pending_request(
-        &self,
-        user_a: &str,
-        user_b: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn has_any_pending_request(&self, user_a: &str, user_b: &str) -> Result<bool, sqlx::Error> {
         let row = sqlx::query(
             r"
             SELECT 1 FROM friend_requests
@@ -737,16 +647,11 @@ impl FriendRoomStorage {
     }
 
     pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let existing = sqlx::query("SELECT 1 FROM users WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let existing =
+            sqlx::query("SELECT 1 FROM users WHERE user_id = $1").bind(user_id).fetch_optional(&*self.pool).await?;
 
         if existing.is_none() {
-            tracing::warn!(
-                "Friend request references non-existent user: {} - refusing to auto-create",
-                user_id
-            );
+            tracing::warn!("Friend request references non-existent user: {} - refusing to auto-create", user_id);
             return Err(sqlx::Error::RowNotFound);
         }
 
@@ -762,22 +667,14 @@ impl FriendRoomStorage {
         self.ensure_user_exists(sender_id).await?;
         self.ensure_user_exists(receiver_id).await?;
 
-        self.create_friend_request(sender_id, receiver_id, message)
-            .await
+        self.create_friend_request(sender_id, receiver_id, message).await
     }
 
-    pub async fn get_mutual_friends(
-        &self,
-        user_id: &str,
-        target_user_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_mutual_friends(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let user_friends = self.get_user_friend_ids(user_id).await?;
         let target_friends = self.get_user_friend_ids(target_user_id).await?;
 
-        let mutual: Vec<String> = user_friends
-            .into_iter()
-            .filter(|f| target_friends.contains(f))
-            .collect();
+        let mutual: Vec<String> = user_friends.into_iter().filter(|f| target_friends.contains(f)).collect();
 
         Ok(mutual)
     }
@@ -792,11 +689,7 @@ impl FriendRoomStorage {
                 if let Some(friends) = content.get("friends").and_then(|f| f.as_array()) {
                     return Ok(friends
                         .iter()
-                        .filter_map(|f| {
-                            f.get("user_id")
-                                .and_then(|u| u.as_str())
-                                .map(|s| s.to_string())
-                        })
+                        .filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string()))
                         .collect());
                 }
             }
@@ -805,17 +698,13 @@ impl FriendRoomStorage {
         Ok(Vec::new())
     }
 
-    pub async fn get_shared_rooms(
-        &self,
-        user_id: &str,
-        target_user_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_shared_rooms(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query(
             r"
             SELECT DISTINCT r1.room_id
             FROM room_memberships r1
             INNER JOIN room_memberships r2 ON r1.room_id = r2.room_id
-            WHERE r1.user_id = $1 
+            WHERE r1.user_id = $1
             AND r2.user_id = $2
             AND r1.membership = 'join'
             AND r2.membership = 'join'
@@ -827,10 +716,7 @@ impl FriendRoomStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows
-            .iter()
-            .filter_map(|r| r.try_get("room_id").ok())
-            .collect())
+        Ok(rows.iter().filter_map(|r| r.try_get("room_id").ok()).collect())
     }
 
     pub async fn get_friend_suggestions_from_mutual_friends(
@@ -847,7 +733,7 @@ impl FriendRoomStorage {
                 AND sender = $1
             ),
             friends_of_friends AS (
-                SELECT 
+                SELECT
                     f2.friend_id AS suggested_user,
                     COUNT(DISTINCT f1.friend_id) AS mutual_count
                 FROM user_friends f1
@@ -863,7 +749,7 @@ impl FriendRoomStorage {
                 ORDER BY mutual_count DESC
                 LIMIT $2
             )
-            SELECT 
+            SELECT
                 f.suggested_user AS user_id,
                 f.mutual_count,
                 u.displayname,
@@ -903,7 +789,7 @@ impl FriendRoomStorage {
                 WHERE user_id = $1 AND membership = 'join'
             ),
             room_users AS (
-                SELECT 
+                SELECT
                     rm.user_id,
                     COUNT(DISTINCT rm.room_id) AS shared_rooms_count
                 FROM room_memberships rm
@@ -920,7 +806,7 @@ impl FriendRoomStorage {
                 ORDER BY shared_rooms_count DESC
                 LIMIT $2
             )
-            SELECT 
+            SELECT
                 ru.user_id,
                 ru.shared_rooms_count,
                 u.displayname,

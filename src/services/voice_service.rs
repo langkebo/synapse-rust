@@ -3,15 +3,8 @@ use crate::services::media_service::MediaService;
 use crate::storage::voice::VoiceStorage;
 use serde_json::json;
 
-const ALLOWED_AUDIO_TYPES: &[&str] = &[
-    "audio/ogg",
-    "audio/mp4",
-    "audio/mpeg",
-    "audio/webm",
-    "audio/wav",
-    "audio/aac",
-    "audio/flac",
-];
+const ALLOWED_AUDIO_TYPES: &[&str] =
+    &["audio/ogg", "audio/mp4", "audio/mpeg", "audio/webm", "audio/wav", "audio/aac", "audio/flac"];
 
 const MAX_VOICE_SIZE: usize = 50 * 1024 * 1024;
 
@@ -34,18 +27,11 @@ pub struct VoiceService {
 
 impl VoiceService {
     pub fn new(media_service: MediaService, voice_storage: VoiceStorage, server_name: &str) -> Self {
-        Self {
-            media_service,
-            voice_storage,
-            server_name: server_name.to_string(),
-        }
+        Self { media_service, voice_storage, server_name: server_name.to_string() }
     }
 
     pub fn validate_audio_content_type(content_type: &str) -> Result<(), ApiError> {
-        if !ALLOWED_AUDIO_TYPES
-            .iter()
-            .any(|t| content_type.starts_with(t))
-        {
+        if !ALLOWED_AUDIO_TYPES.iter().any(|t| content_type.starts_with(t)) {
             return Err(ApiError::bad_request(format!(
                 "Unsupported audio content type: {}. Allowed: {:?}",
                 content_type, ALLOWED_AUDIO_TYPES
@@ -54,10 +40,7 @@ impl VoiceService {
         Ok(())
     }
 
-    pub async fn upload_voice_message(
-        &self,
-        params: VoiceMessageUploadParams,
-    ) -> ApiResult<serde_json::Value> {
+    pub async fn upload_voice_message(&self, params: VoiceMessageUploadParams) -> ApiResult<serde_json::Value> {
         Self::validate_audio_content_type(&params.content_type)?;
 
         if params.content.len() > MAX_VOICE_SIZE {
@@ -68,19 +51,12 @@ impl VoiceService {
             )));
         }
 
-        let media_result = self
-            .media_service
-            .upload_media(&params.user_id, &params.content, &params.content_type, None)
-            .await?;
+        let media_result =
+            self.media_service.upload_media(&params.user_id, &params.content, &params.content_type, None).await?;
 
-        let content_uri = media_result["content_uri"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let content_uri = media_result["content_uri"].as_str().unwrap_or_default().to_string();
 
-        let media_id = content_uri
-            .trim_start_matches(&format!("mxc://{}/", self.server_name))
-            .to_string();
+        let media_id = content_uri.trim_start_matches(&format!("mxc://{}/", self.server_name)).to_string();
 
         let size_bytes = params.content.len() as i64;
         let duration_ms = params.duration_ms;
@@ -104,14 +80,11 @@ impl VoiceService {
             voice_content["org.matrix.msc3245.voice"]["waveform"] = json!(waveform);
         }
 
-        if let Err(e) = self.voice_storage.record_upload(
-            &user_id,
-            room_id.as_deref(),
-            &media_id,
-            &content_type,
-            duration_ms,
-            size_bytes,
-        ).await {
+        if let Err(e) = self
+            .voice_storage
+            .record_upload(&user_id, room_id.as_deref(), &media_id, &content_type, duration_ms, size_bytes)
+            .await
+        {
             ::tracing::warn!(target: "voice", "Failed to record voice usage stats: {}", e);
         }
 
@@ -125,16 +98,11 @@ impl VoiceService {
     }
 
     pub async fn get_voice_media(&self, media_id: &str) -> ApiResult<Option<Vec<u8>>> {
-        Ok(self
-            .media_service
-            .get_media(&self.server_name, media_id)
-            .await)
+        Ok(self.media_service.get_media(&self.server_name, media_id).await)
     }
 
     pub async fn delete_voice_media(&self, media_id: &str) -> ApiResult<()> {
-        self.media_service
-            .delete_media(&self.server_name, media_id)
-            .await
+        self.media_service.delete_media(&self.server_name, media_id).await
     }
 
     pub async fn get_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
@@ -213,10 +181,7 @@ impl VoiceService {
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
 
-        let messages: Vec<serde_json::Value> = records
-            .iter()
-            .map(|r| self.record_to_message_json(r))
-            .collect();
+        let messages: Vec<serde_json::Value> = records.iter().map(|r| self.record_to_message_json(r)).collect();
 
         let end_token = messages.last().and_then(|m| m.get("created_ts").and_then(|v| v.as_i64()));
 
@@ -239,10 +204,7 @@ impl VoiceService {
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
 
-        let messages: Vec<serde_json::Value> = records
-            .iter()
-            .map(|r| self.record_to_message_json(r))
-            .collect();
+        let messages: Vec<serde_json::Value> = records.iter().map(|r| self.record_to_message_json(r)).collect();
 
         let end_token = messages.last().and_then(|m| m.get("created_ts").and_then(|v| v.as_i64()));
 

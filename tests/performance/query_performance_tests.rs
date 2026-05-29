@@ -29,8 +29,7 @@ mod tests {
         let room_ids: Vec<String> = (0..1000).map(|i| format!("!room_{}", i)).collect();
 
         let start = Instant::now();
-        let mut result: HashMap<String, Vec<String>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+        let mut result: HashMap<String, Vec<String>> = room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
 
         for i in 0..1000 {
             let room_id = format!("!room_{}", i);
@@ -40,10 +39,7 @@ mod tests {
         }
         let duration = start.elapsed();
 
-        assert!(
-            duration.as_millis() < 10,
-            "HashMap aggregation should be fast"
-        );
+        assert!(duration.as_millis() < 10, "HashMap aggregation should be fast");
         assert_eq!(result.len(), 1000);
     }
 
@@ -67,9 +63,7 @@ mod tests {
 
     #[test]
     fn test_hashset_membership_check_efficiency() {
-        let user_ids: HashSet<String> = (0..10000)
-            .map(|i| format!("@user_{}:example.com", i))
-            .collect();
+        let user_ids: HashSet<String> = (0..10000).map(|i| format!("@user_{}:example.com", i)).collect();
 
         let start = Instant::now();
         let mut found_count = 0;
@@ -80,10 +74,7 @@ mod tests {
         }
         let duration = start.elapsed();
 
-        assert!(
-            duration.as_millis() < 5,
-            "HashSet membership should be O(1)"
-        );
+        assert!(duration.as_millis() < 5, "HashSet membership should be O(1)");
         assert_eq!(found_count, 10000);
     }
 
@@ -97,11 +88,7 @@ mod tests {
                 (
                     format!("!room_{}", i),
                     format!("Room {}", i),
-                    if i % 2 == 0 {
-                        Some(format!("topic_{}", i))
-                    } else {
-                        None
-                    },
+                    if i % 2 == 0 { Some(format!("topic_{}", i)) } else { None },
                 )
             })
             .collect();
@@ -113,14 +100,8 @@ mod tests {
 
     #[test]
     fn test_batch_update_efficiency() {
-        let updates: Vec<(String, Option<String>)> = (0..100)
-            .map(|i| {
-                (
-                    format!("@user_{}:example.com", i),
-                    Some(format!("User {}", i)),
-                )
-            })
-            .collect();
+        let updates: Vec<(String, Option<String>)> =
+            (0..100).map(|i| (format!("@user_{}:example.com", i), Some(format!("User {}", i)))).collect();
 
         let start = Instant::now();
         let mut count = 0u64;
@@ -142,17 +123,11 @@ mod tests {
         let result: HashMap<String, Vec<String>> = if empty_ids.is_empty() {
             HashMap::new()
         } else {
-            empty_ids
-                .iter()
-                .map(|id| (id.clone(), Vec::new()))
-                .collect()
+            empty_ids.iter().map(|id| (id.clone(), Vec::new())).collect()
         };
         let duration = start.elapsed();
 
-        assert!(
-            duration.as_micros() < 100,
-            "Empty batch should return immediately"
-        );
+        assert!(duration.as_micros() < 100, "Empty batch should return immediately");
         assert!(result.is_empty());
     }
 
@@ -167,10 +142,7 @@ mod tests {
         }
         let duration = start.elapsed();
 
-        assert!(
-            duration.as_millis() < 100,
-            "Large batch should be processed efficiently"
-        );
+        assert!(duration.as_millis() < 100, "Large batch should be processed efficiently");
         assert_eq!(map.len(), 100000);
     }
 
@@ -197,10 +169,7 @@ mod tests {
         let results: Vec<i32> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         let duration = start.elapsed();
 
-        assert!(
-            duration.as_millis() < 50,
-            "Concurrent queries should complete quickly"
-        );
+        assert!(duration.as_millis() < 50, "Concurrent queries should complete quickly");
         assert_eq!(results.len(), 4);
     }
 
@@ -288,17 +257,11 @@ mod batch_query_correctness_tests {
     #[test]
     fn test_batch_membership_check() {
         let existing_ids: HashSet<String> =
-            vec!["id_1".to_string(), "id_2".to_string(), "id_3".to_string()]
-                .into_iter()
-                .collect();
+            vec!["id_1".to_string(), "id_2".to_string(), "id_3".to_string()].into_iter().collect();
 
         let query_ids = ["id_1".to_string(), "id_4".to_string(), "id_2".to_string()];
 
-        let found: HashSet<String> = query_ids
-            .iter()
-            .filter(|id| existing_ids.contains(*id))
-            .cloned()
-            .collect();
+        let found: HashSet<String> = query_ids.iter().filter(|id| existing_ids.contains(*id)).cloned().collect();
 
         assert_eq!(found.len(), 2);
         assert!(found.contains("id_1"));
@@ -308,10 +271,8 @@ mod batch_query_correctness_tests {
 
     #[test]
     fn test_join_result_combines_correctly() {
-        let rooms: Vec<(String, String)> = vec![
-            ("!room1".to_string(), "Room 1".to_string()),
-            ("!room2".to_string(), "Room 2".to_string()),
-        ];
+        let rooms: Vec<(String, String)> =
+            vec![("!room1".to_string(), "Room 1".to_string()), ("!room2".to_string(), "Room 2".to_string())];
 
         let members: Vec<(String, String)> = vec![
             ("!room1".to_string(), "@user1:example.com".to_string()),
@@ -324,11 +285,7 @@ mod batch_query_correctness_tests {
         let mut result: HashMap<String, (String, Vec<String>)> = HashMap::new();
         for (room_id, user_id) in members {
             let room_name = room_map.get(&room_id).cloned().unwrap_or_default();
-            result
-                .entry(room_id.clone())
-                .or_insert_with(|| (room_name, Vec::new()))
-                .1
-                .push(user_id);
+            result.entry(room_id.clone()).or_insert_with(|| (room_name, Vec::new())).1.push(user_id);
         }
 
         assert_eq!(result.len(), 2);
@@ -351,8 +308,7 @@ mod query_performance_benchmarks {
         let ids: Vec<String> = (0..BATCH_SIZE).map(|i| format!("id_{}", i)).collect();
 
         let start = Instant::now();
-        let map: HashMap<String, Vec<String>> =
-            ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+        let map: HashMap<String, Vec<String>> = ids.iter().map(|id| (id.clone(), Vec::new())).collect();
         let duration = start.elapsed();
 
         assert!(
@@ -391,8 +347,7 @@ mod query_performance_benchmarks {
 
     #[test]
     fn benchmark_set_membership() {
-        let set: std::collections::HashSet<String> =
-            (0..BATCH_SIZE).map(|i| format!("item_{}", i)).collect();
+        let set: std::collections::HashSet<String> = (0..BATCH_SIZE).map(|i| format!("item_{}", i)).collect();
 
         let start = Instant::now();
         let mut found = 0;
@@ -403,27 +358,17 @@ mod query_performance_benchmarks {
         }
         let duration = start.elapsed();
 
-        assert!(
-            duration < Duration::from_millis(5),
-            "Set membership took {:?}, expected < 5ms",
-            duration
-        );
+        assert!(duration < Duration::from_millis(5), "Set membership took {:?}, expected < 5ms", duration);
         assert_eq!(found, BATCH_SIZE);
     }
 
     #[test]
     fn benchmark_string_formatting() {
         let start = Instant::now();
-        let items: Vec<String> = (0..BATCH_SIZE)
-            .map(|i| format!("!room_{}:example.com", i))
-            .collect();
+        let items: Vec<String> = (0..BATCH_SIZE).map(|i| format!("!room_{}:example.com", i)).collect();
         let duration = start.elapsed();
 
-        assert!(
-            duration < Duration::from_millis(10),
-            "String formatting took {:?}, expected < 10ms",
-            duration
-        );
+        assert!(duration < Duration::from_millis(10), "String formatting took {:?}, expected < 10ms", duration);
         assert_eq!(items.len(), BATCH_SIZE);
     }
 }

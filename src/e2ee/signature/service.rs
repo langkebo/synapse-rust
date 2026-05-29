@@ -30,10 +30,7 @@ impl SignatureService {
             event_id: event_id.to_string(),
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
-            signature: base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                signature.to_bytes(),
-            ),
+            signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.to_bytes()),
             key_id: format!("ed25519:{device_id}"),
             created_ts: Utc::now().timestamp(),
         };
@@ -52,9 +49,8 @@ impl SignatureService {
         public_key: &[u8; 32],
     ) -> Result<bool, ApiError> {
         let message = event_id.as_bytes();
-        let signature_bytes =
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
-                .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
+        let signature_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
+            .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
 
         if signature_bytes.len() != 64 {
             return Err(ApiError::invalid_input("Invalid signature length"));
@@ -63,36 +59,22 @@ impl SignatureService {
         let sig = ed25519_dalek::Signature::try_from(&signature_bytes[..])
             .map_err(|_| ApiError::invalid_input("Invalid signature"))?;
 
-        let public = VerifyingKey::from_bytes(public_key)
-            .map_err(|_| ApiError::invalid_input("Invalid public key"))?;
+        let public = VerifyingKey::from_bytes(public_key).map_err(|_| ApiError::invalid_input("Invalid public key"))?;
 
         Ok(public.verify(message, &sig).is_ok())
     }
 
-    pub fn sign_key(
-        &self,
-        key: &str,
-        signing_key: &Ed25519KeyPair,
-    ) -> Result<String, ApiError> {
+    pub fn sign_key(&self, key: &str, signing_key: &Ed25519KeyPair) -> Result<String, ApiError> {
         let message = key.as_bytes();
         let signature = signing_key.sign(message)?;
 
-        Ok(base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            signature.to_bytes(),
-        ))
+        Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.to_bytes()))
     }
 
-    pub fn verify_key(
-        &self,
-        key: &str,
-        signature: &str,
-        public_key: &[u8; 32],
-    ) -> Result<bool, ApiError> {
+    pub fn verify_key(&self, key: &str, signature: &str, public_key: &[u8; 32]) -> Result<bool, ApiError> {
         let message = key.as_bytes();
-        let signature_bytes =
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
-                .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
+        let signature_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)
+            .map_err(|_| ApiError::invalid_input("Invalid signature encoding"))?;
 
         if signature_bytes.len() != 64 {
             return Err(ApiError::invalid_input("Invalid signature length"));
@@ -101,8 +83,7 @@ impl SignatureService {
         let sig = ed25519_dalek::Signature::try_from(&signature_bytes[..])
             .map_err(|_| ApiError::invalid_input("Invalid signature"))?;
 
-        let public = VerifyingKey::from_bytes(public_key)
-            .map_err(|_| ApiError::invalid_input("Invalid public key"))?;
+        let public = VerifyingKey::from_bytes(public_key).map_err(|_| ApiError::invalid_input("Invalid public key"))?;
 
         Ok(public.verify(message, &sig).is_ok())
     }

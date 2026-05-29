@@ -173,10 +173,7 @@ fn test_incoming_requests_filter() {
     ];
 
     // Filter pending requests
-    let pending: Vec<_> = requests
-        .iter()
-        .filter(|r| r["status"] == "pending")
-        .collect();
+    let pending: Vec<_> = requests.iter().filter(|r| r["status"] == "pending").collect();
 
     assert_eq!(pending.len(), 2);
 }
@@ -190,10 +187,7 @@ fn test_outgoing_requests_filter() {
     ];
 
     // Filter pending requests
-    let pending: Vec<_> = requests
-        .iter()
-        .filter(|r| r["status"] == "pending")
-        .collect();
+    let pending: Vec<_> = requests.iter().filter(|r| r["status"] == "pending").collect();
 
     assert_eq!(pending.len(), 1);
 }

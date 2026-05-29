@@ -48,77 +48,35 @@ impl CaptchaService {
 
         let (code_length, expiry_minutes, max_attempts, rate_limit) = match captcha_type {
             "email" => {
-                let length = self
-                    .storage
-                    .get_config_as_int("email.code_length", 6)
-                    .await?;
-                let expiry = self
-                    .storage
-                    .get_config_as_int("email.code_expiry_minutes", 10)
-                    .await?;
-                let attempts = self
-                    .storage
-                    .get_config_as_int("email.max_attempts", 5)
-                    .await?;
-                let limit = self
-                    .storage
-                    .get_config_as_int("email.rate_limit_per_hour", 5)
-                    .await?;
+                let length = self.storage.get_config_as_int("email.code_length", 6).await?;
+                let expiry = self.storage.get_config_as_int("email.code_expiry_minutes", 10).await?;
+                let attempts = self.storage.get_config_as_int("email.max_attempts", 5).await?;
+                let limit = self.storage.get_config_as_int("email.rate_limit_per_hour", 5).await?;
                 (length, expiry, attempts, limit)
             }
             "sms" => {
                 let length = self.storage.get_config_as_int("sms.code_length", 6).await?;
-                let expiry = self
-                    .storage
-                    .get_config_as_int("sms.code_expiry_minutes", 5)
-                    .await?;
-                let attempts = self
-                    .storage
-                    .get_config_as_int("sms.max_attempts", 5)
-                    .await?;
-                let limit = self
-                    .storage
-                    .get_config_as_int("sms.rate_limit_per_hour", 5)
-                    .await?;
+                let expiry = self.storage.get_config_as_int("sms.code_expiry_minutes", 5).await?;
+                let attempts = self.storage.get_config_as_int("sms.max_attempts", 5).await?;
+                let limit = self.storage.get_config_as_int("sms.rate_limit_per_hour", 5).await?;
                 (length, expiry, attempts, limit)
             }
             "image" => {
-                let length = self
-                    .storage
-                    .get_config_as_int("image.code_length", 4)
-                    .await?;
-                let expiry = self
-                    .storage
-                    .get_config_as_int("image.code_expiry_minutes", 5)
-                    .await?;
-                let attempts = self
-                    .storage
-                    .get_config_as_int("image.max_attempts", 3)
-                    .await?;
-                let limit = self
-                    .storage
-                    .get_config_as_int("global.ip_rate_limit_per_hour", 20)
-                    .await?;
+                let length = self.storage.get_config_as_int("image.code_length", 4).await?;
+                let expiry = self.storage.get_config_as_int("image.code_expiry_minutes", 5).await?;
+                let attempts = self.storage.get_config_as_int("image.max_attempts", 3).await?;
+                let limit = self.storage.get_config_as_int("global.ip_rate_limit_per_hour", 20).await?;
                 (length, expiry, attempts, limit)
             }
             _ => return Err(ApiError::bad_request("Invalid captcha type")),
         };
 
-        if !self
-            .storage
-            .check_rate_limit(&request.target, captcha_type, rate_limit)
-            .await?
-        {
-            return Err(ApiError::rate_limited(
-                "Rate limit exceeded for this target",
-            ));
+        if !self.storage.check_rate_limit(&request.target, captcha_type, rate_limit).await? {
+            return Err(ApiError::rate_limited("Rate limit exceeded for this target"));
         }
 
         if let Some(ip) = ip_address {
-            let ip_limit = self
-                .storage
-                .get_config_as_int("global.ip_rate_limit_per_hour", 20)
-                .await?;
+            let ip_limit = self.storage.get_config_as_int("global.ip_rate_limit_per_hour", 20).await?;
             if !self.storage.check_ip_rate_limit(ip, ip_limit).await? {
                 return Err(ApiError::rate_limited("Rate limit exceeded for this IP"));
             }
@@ -142,14 +100,8 @@ impl CaptchaService {
             })
             .await?;
 
-        let send_result = self
-            .send_captcha_via_provider(
-                &captcha,
-                &code,
-                expiry_minutes,
-                request.template_name.as_deref(),
-            )
-            .await;
+        let send_result =
+            self.send_captcha_via_provider(&captcha, &code, expiry_minutes, request.template_name.as_deref()).await;
 
         self.storage
             .create_send_log(CreateSendLogRequest {
@@ -177,10 +129,7 @@ impl CaptchaService {
     }
 
     pub async fn verify_captcha(&self, request: VerifyCaptchaRequest) -> Result<bool, ApiError> {
-        let verified = self
-            .storage
-            .verify_captcha(&request.captcha_id, &request.code)
-            .await?;
+        let verified = self.storage.verify_captcha(&request.captcha_id, &request.code).await?;
 
         if verified {
             info!("Captcha verified successfully: {}", request.captcha_id);
@@ -191,10 +140,7 @@ impl CaptchaService {
         Ok(verified)
     }
 
-    pub async fn get_captcha(
-        &self,
-        captcha_id: &str,
-    ) -> Result<Option<RegistrationCaptcha>, ApiError> {
+    pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
         self.storage.get_captcha(captcha_id).await
     }
 
@@ -204,25 +150,17 @@ impl CaptchaService {
 
     fn generate_code(length: usize) -> String {
         let mut rng = rand::thread_rng();
-        (0..length)
-            .map(|_| rng.gen_range(0..10).to_string())
-            .collect()
+        (0..length).map(|_| rng.gen_range(0..10).to_string()).collect()
     }
 
     #[cfg(test)]
     fn generate_code_static(length: usize) -> String {
         let mut rng = rand::thread_rng();
-        (0..length)
-            .map(|_| rng.gen_range(0..10).to_string())
-            .collect()
+        (0..length).map(|_| rng.gen_range(0..10).to_string()).collect()
     }
 
     #[cfg(test)]
-    fn render_template_static(
-        template: &CaptchaTemplate,
-        code: &str,
-        expiry_minutes: i32,
-    ) -> String {
+    fn render_template_static(template: &CaptchaTemplate, code: &str, expiry_minutes: i32) -> String {
         let mut content = template.content.clone();
         content = content.replace("{{code}}", code);
         content = content.replace("{{expiry_minutes}}", &expiry_minutes.to_string());
@@ -237,15 +175,13 @@ impl CaptchaService {
         template_name: Option<&str>,
     ) -> Result<(), ApiError> {
         let template = if let Some(name) = template_name {
-            self.storage
-                .get_template(name)
-                .await?
-                .ok_or_else(|| ApiError::bad_request("Template not found"))?
+            self.storage.get_template(name).await?.ok_or_else(|| ApiError::bad_request("Template not found"))?
         } else {
-            self.storage
-                .get_default_template(&captcha.captcha_type)
-                .await?
-                .ok_or_else(|| ApiError::bad_request("No captcha template configured for this type. Please contact the server administrator."))?
+            self.storage.get_default_template(&captcha.captcha_type).await?.ok_or_else(|| {
+                ApiError::bad_request(
+                    "No captcha template configured for this type. Please contact the server administrator.",
+                )
+            })?
         };
 
         let content = Self::render_template(&template, code, expiry_minutes);
@@ -258,11 +194,7 @@ impl CaptchaService {
         }
     }
 
-    fn render_template(
-        template: &CaptchaTemplate,
-        code: &str,
-        expiry_minutes: i32,
-    ) -> String {
+    fn render_template(template: &CaptchaTemplate, code: &str, expiry_minutes: i32) -> String {
         let mut content = template.content.clone();
         content = content.replace("{{code}}", code);
         content = content.replace("{{expiry_minutes}}", &expiry_minutes.to_string());

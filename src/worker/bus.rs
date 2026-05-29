@@ -19,16 +19,9 @@ pub struct RedisBusConfig {
     pub channel_prefix: String,
 }
 
-#[deprecated(since = "0.1.0", note = "Use RedisBusConfig instead to avoid confusion with config::RedisConfig")]
-pub type RedisConfig = RedisBusConfig;
-
 impl Default for RedisBusConfig {
     fn default() -> Self {
-        Self {
-            url: "redis://127.0.0.1:6379".to_string(),
-            pool_size: 10,
-            channel_prefix: "synapse".to_string(),
-        }
+        Self { url: "redis://127.0.0.1:6379".to_string(), pool_size: 10, channel_prefix: "synapse".to_string() }
     }
 }
 
@@ -105,10 +98,7 @@ impl WorkerBus {
         Ok(())
     }
 
-    pub async fn subscribe(
-        &self,
-        channels: &[&str],
-    ) -> Result<broadcast::Receiver<BusMessage>, ApiError> {
+    pub async fn subscribe(&self, channels: &[&str]) -> Result<broadcast::Receiver<BusMessage>, ApiError> {
         if !self.is_connected().await {
             return Err(ApiError::internal("Redis bus not connected"));
         }
@@ -130,31 +120,23 @@ impl WorkerBus {
     }
 
     pub async fn broadcast_command(&self, command: &ReplicationCommand) -> Result<(), ApiError> {
-        let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
+        let encoded =
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         self.publish("broadcast", &encoded).await
     }
 
-    pub async fn send_to_worker(
-        &self,
-        worker_id: &str,
-        command: &ReplicationCommand,
-    ) -> Result<(), ApiError> {
-        let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
+    pub async fn send_to_worker(&self, worker_id: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
+        let encoded =
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         let channel = format!("worker:{worker_id}");
         self.publish(&channel, &encoded).await
     }
 
-    pub async fn send_to_stream_writer(
-        &self,
-        stream_name: &str,
-        command: &ReplicationCommand,
-    ) -> Result<(), ApiError> {
-        let encoded = serde_json::to_vec(command)
-            .map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
+    pub async fn send_to_stream_writer(&self, stream_name: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
+        let encoded =
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_log("Failed to encode command", &e))?;
 
         let channel = format!("stream:{stream_name}");
         self.publish(&channel, &encoded).await
@@ -168,15 +150,8 @@ impl WorkerBus {
         self.command_rx.take()
     }
 
-    pub async fn publish_stream_position(
-        &self,
-        stream_name: &str,
-        position: i64,
-    ) -> Result<(), ApiError> {
-        let command = ReplicationCommand::Position {
-            stream_name: stream_name.to_string(),
-            position,
-        };
+    pub async fn publish_stream_position(&self, stream_name: &str, position: i64) -> Result<(), ApiError> {
+        let command = ReplicationCommand::Position { stream_name: stream_name.to_string(), position };
 
         self.broadcast_command(&command).await
     }
@@ -186,33 +161,20 @@ impl WorkerBus {
 
         let command = ReplicationCommand::UserSync {
             user_id: user_id.to_string(),
-            state: if online {
-                UserSyncState::Online
-            } else {
-                UserSyncState::Offline
-            },
+            state: if online { UserSyncState::Online } else { UserSyncState::Offline },
         };
 
         self.broadcast_command(&command).await
     }
 
     pub async fn publish_federation_ack(&self, origin: &str) -> Result<(), ApiError> {
-        let command = ReplicationCommand::FederationAck {
-            origin: origin.to_string(),
-        };
+        let command = ReplicationCommand::FederationAck { origin: origin.to_string() };
 
         self.broadcast_command(&command).await
     }
 
-    pub async fn publish_remove_pushers(
-        &self,
-        app_id: &str,
-        push_key: &str,
-    ) -> Result<(), ApiError> {
-        let command = ReplicationCommand::RemovePushers {
-            app_id: app_id.to_string(),
-            push_key: push_key.to_string(),
-        };
+    pub async fn publish_remove_pushers(&self, app_id: &str, push_key: &str) -> Result<(), ApiError> {
+        let command = ReplicationCommand::RemovePushers { app_id: app_id.to_string(), push_key: push_key.to_string() };
 
         self.broadcast_command(&command).await
     }
@@ -252,13 +214,11 @@ impl Clone for WorkerBus {
 }
 
 pub fn parse_bus_message(data: &[u8]) -> Result<BusMessage, ApiError> {
-    serde_json::from_slice(data)
-        .map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))
+    serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))
 }
 
 pub fn parse_replication_command(data: &[u8]) -> Result<ReplicationCommand, ApiError> {
-    serde_json::from_slice(data)
-        .map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))
+    serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))
 }
 
 #[cfg(test)]

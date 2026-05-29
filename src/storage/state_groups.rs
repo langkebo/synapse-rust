@@ -45,9 +45,7 @@ pub struct StateGroupStorage {
 
 impl StateGroupStorage {
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
-        Self {
-            pool: pool.as_ref().clone(),
-        }
+        Self { pool: pool.as_ref().clone() }
     }
 
     // ---- state_groups ---- //
@@ -88,10 +86,7 @@ impl StateGroupStorage {
         .await
     }
 
-    pub async fn get_state_group_by_event(
-        &self,
-        event_id: &str,
-    ) -> Result<Option<StateGroup>, sqlx::Error> {
+    pub async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
         sqlx::query_as::<_, StateGroup>(
             r#"SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1"#,
         )
@@ -100,11 +95,7 @@ impl StateGroupStorage {
         .await
     }
 
-    pub async fn get_room_state_groups(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<StateGroup>, sqlx::Error> {
+    pub async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {
         sqlx::query_as::<_, StateGroup>(
             r#"SELECT id, room_id, event_id, state_hash, created_ts
                FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT $2"#,
@@ -118,11 +109,7 @@ impl StateGroupStorage {
     // ---- state_group_edges ---- //
 
     /// 添加 state_group 边关系
-    pub async fn add_state_group_edge(
-        &self,
-        state_group_id: i64,
-        prev_state_group_id: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn add_state_group_edge(&self, state_group_id: i64, prev_state_group_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO state_group_edges (state_group_id, prev_state_group_id)
@@ -162,30 +149,22 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    pub async fn get_prev_state_groups(
-        &self,
-        state_group_id: i64,
-    ) -> Result<Vec<i64>, sqlx::Error> {
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            r#"SELECT prev_state_group_id FROM state_group_edges WHERE state_group_id = $1"#,
-        )
-        .bind(state_group_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn get_prev_state_groups(&self, state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let rows: Vec<(i64,)> =
+            sqlx::query_as(r#"SELECT prev_state_group_id FROM state_group_edges WHERE state_group_id = $1"#)
+                .bind(state_group_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    pub async fn get_next_state_groups(
-        &self,
-        prev_state_group_id: i64,
-    ) -> Result<Vec<i64>, sqlx::Error> {
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            r#"SELECT state_group_id FROM state_group_edges WHERE prev_state_group_id = $1"#,
-        )
-        .bind(prev_state_group_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn get_next_state_groups(&self, prev_state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+        let rows: Vec<(i64,)> =
+            sqlx::query_as(r#"SELECT state_group_id FROM state_group_edges WHERE prev_state_group_id = $1"#)
+                .bind(prev_state_group_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -193,11 +172,7 @@ impl StateGroupStorage {
     // ---- event_to_state_groups ---- //
 
     /// 绑定事件到 state_group
-    pub async fn bind_event_to_state_group(
-        &self,
-        event_id: &str,
-        state_group_id: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn bind_event_to_state_group(&self, event_id: &str, state_group_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO event_to_state_groups (event_id, state_group_id)
@@ -213,16 +188,12 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    pub async fn get_state_group_for_event(
-        &self,
-        event_id: &str,
-    ) -> Result<Option<i64>, sqlx::Error> {
-        let row: Option<(i64,)> = sqlx::query_as(
-            r#"SELECT state_group_id FROM event_to_state_groups WHERE event_id = $1"#,
-        )
-        .bind(event_id)
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn get_state_group_for_event(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        let row: Option<(i64,)> =
+            sqlx::query_as(r#"SELECT state_group_id FROM event_to_state_groups WHERE event_id = $1"#)
+                .bind(event_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(row.map(|r| r.0))
     }
@@ -236,7 +207,11 @@ impl StateGroupStorage {
         if event_ids.is_empty() {
             return Ok(());
         }
-        tracing::debug!(state_group_id = state_group_id, count = event_ids.len(), "Batch binding events to state group");
+        tracing::debug!(
+            state_group_id = state_group_id,
+            count = event_ids.len(),
+            "Batch binding events to state group"
+        );
         sqlx::query(
             r#"
             INSERT INTO event_to_state_groups (event_id, state_group_id)
@@ -312,10 +287,7 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    pub async fn get_state_at_group(
-        &self,
-        state_group_id: i64,
-    ) -> Result<Vec<StateGroupState>, sqlx::Error> {
+    pub async fn get_state_at_group(&self, state_group_id: i64) -> Result<Vec<StateGroupState>, sqlx::Error> {
         sqlx::query_as::<_, StateGroupState>(
             r#"SELECT state_group_id, event_type, state_key, event_id
                FROM state_group_state WHERE state_group_id = $1"#,
@@ -363,7 +335,11 @@ impl StateGroupStorage {
         while let Some(sg_id) = queue.pop_front() {
             depth += 1;
             if depth > 100 {
-                tracing::warn!(state_group_id = state_group_id, depth = depth, "State resolution depth exceeds 100, possible cycle");
+                tracing::warn!(
+                    state_group_id = state_group_id,
+                    depth = depth,
+                    "State resolution depth exceeds 100, possible cycle"
+                );
             }
 
             if !visited.insert(sg_id) {
@@ -385,12 +361,11 @@ impl StateGroupStorage {
             }
 
             // Load prev groups
-            let prev_rows: Vec<(i64,)> = sqlx::query_as(
-                r#"SELECT prev_state_group_id FROM state_group_edges WHERE state_group_id = $1"#,
-            )
-            .bind(sg_id)
-            .fetch_all(&self.pool)
-            .await?;
+            let prev_rows: Vec<(i64,)> =
+                sqlx::query_as(r#"SELECT prev_state_group_id FROM state_group_edges WHERE state_group_id = $1"#)
+                    .bind(sg_id)
+                    .fetch_all(&self.pool)
+                    .await?;
 
             for (prev_id,) in prev_rows {
                 if !visited.contains(&prev_id) {

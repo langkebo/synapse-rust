@@ -15,9 +15,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping token storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping token storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -84,15 +82,13 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
 }
 
 async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) {
-    sqlx::query(
-        "INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)",
-    )
-    .bind(user_id)
-    .bind(format!("atuser{suffix}"))
-    .bind(chrono::Utc::now().timestamp_millis())
-    .execute(&**pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(format!("atuser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&**pool)
+        .await
+        .unwrap();
 }
 
 #[test]
@@ -113,10 +109,7 @@ fn test_create_token_with_device() {
         let device_id = format!("DEVICE_{suffix}");
         let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        let token = storage
-            .create_token(&token_str, &user_id, Some(&device_id), Some(future_ts))
-            .await
-            .unwrap();
+        let token = storage.create_token(&token_str, &user_id, Some(&device_id), Some(future_ts)).await.unwrap();
 
         assert!(token.id > 0);
         assert_eq!(token.user_id, user_id);
@@ -143,10 +136,7 @@ fn test_create_token_without_device() {
 
         let token_str = format!("syt_nodevice_{suffix}");
 
-        let token = storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        let token = storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         assert!(token.id > 0);
         assert!(token.device_id.is_none());
@@ -172,10 +162,7 @@ fn test_get_token_after_create() {
         let token_str = format!("syt_gettest_{suffix}");
         let device_id = format!("DEV_{suffix}");
 
-        storage
-            .create_token(&token_str, &user_id, Some(&device_id), None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, Some(&device_id), None).await.unwrap();
 
         let fetched = storage.get_token(&token_str).await.unwrap();
         assert!(fetched.is_some());
@@ -216,10 +203,7 @@ fn test_get_token_excludes_revoked() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_revoked_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         storage.delete_token(&token_str).await.unwrap();
 
@@ -245,10 +229,7 @@ fn test_get_user_tokens() {
         for i in 0..3 {
             let token_str = format!("syt_multi_{suffix}_{i}");
             let device_id = format!("DEV_{suffix}_{i}");
-            storage
-                .create_token(&token_str, &user_id, Some(&device_id), None)
-                .await
-                .unwrap();
+            storage.create_token(&token_str, &user_id, Some(&device_id), None).await.unwrap();
         }
 
         let tokens = storage.get_user_tokens(&user_id).await.unwrap();
@@ -267,10 +248,7 @@ fn test_get_user_tokens_returns_empty_for_unknown_user() {
         };
 
         let storage = AccessTokenStorage::new(&pool);
-        let tokens = storage
-            .get_user_tokens("@nonexistent:localhost")
-            .await
-            .unwrap();
+        let tokens = storage.get_user_tokens("@nonexistent:localhost").await.unwrap();
         assert!(tokens.is_empty());
     });
 }
@@ -290,10 +268,7 @@ fn test_delete_token() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_delete_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         let before = storage.get_token(&token_str).await.unwrap();
         assert!(before.is_some());
@@ -320,10 +295,7 @@ fn test_delete_token_is_soft_delete() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_softdel_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         storage.delete_token(&token_str).await.unwrap();
 
@@ -349,10 +321,7 @@ fn test_delete_user_tokens() {
 
         for i in 0..3 {
             let token_str = format!("syt_userdel_{suffix}_{i}");
-            storage
-                .create_token(&token_str, &user_id, None, None)
-                .await
-                .unwrap();
+            storage.create_token(&token_str, &user_id, None, None).await.unwrap();
         }
 
         storage.delete_user_tokens(&user_id).await.unwrap();
@@ -378,14 +347,8 @@ fn test_delete_user_tokens_skips_already_revoked() {
 
         let token_str_a = format!("syt_skipdel_{suffix}_a");
         let token_str_b = format!("syt_skipdel_{suffix}_b");
-        storage
-            .create_token(&token_str_a, &user_id, None, None)
-            .await
-            .unwrap();
-        storage
-            .create_token(&token_str_b, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str_a, &user_id, None, None).await.unwrap();
+        storage.create_token(&token_str_b, &user_id, None, None).await.unwrap();
 
         storage.delete_token(&token_str_a).await.unwrap();
 
@@ -416,20 +379,16 @@ fn test_delete_device_tokens() {
 
         let token_str_a = format!("syt_devdel_{suffix}_a");
         let token_str_b = format!("syt_devdel_{suffix}_b");
-        storage
-            .create_token(&token_str_a, &user_id, Some(&device_a), None)
-            .await
-            .unwrap();
-        storage
-            .create_token(&token_str_b, &user_id, Some(&device_b), None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str_a, &user_id, Some(&device_a), None).await.unwrap();
+        storage.create_token(&token_str_b, &user_id, Some(&device_b), None).await.unwrap();
 
         storage.delete_device_tokens(&device_a).await.unwrap();
 
         let tokens = storage.get_user_tokens(&user_id).await.unwrap();
-        let device_a_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_a.as_str())).collect();
-        let device_b_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_b.as_str())).collect();
+        let device_a_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_a.as_str())).collect();
+        let device_b_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_b.as_str())).collect();
 
         assert!(device_a_tokens.iter().all(|t| t.is_revoked));
         assert!(device_b_tokens.iter().all(|t| !t.is_revoked));
@@ -455,23 +414,16 @@ fn test_delete_user_device_tokens() {
 
         let token_str_a = format!("syt_uddevdel_{suffix}_a");
         let token_str_b = format!("syt_uddevdel_{suffix}_b");
-        storage
-            .create_token(&token_str_a, &user_id, Some(&device_a), None)
-            .await
-            .unwrap();
-        storage
-            .create_token(&token_str_b, &user_id, Some(&device_b), None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str_a, &user_id, Some(&device_a), None).await.unwrap();
+        storage.create_token(&token_str_b, &user_id, Some(&device_b), None).await.unwrap();
 
-        storage
-            .delete_user_device_tokens(&user_id, &device_a)
-            .await
-            .unwrap();
+        storage.delete_user_device_tokens(&user_id, &device_a).await.unwrap();
 
         let tokens = storage.get_user_tokens(&user_id).await.unwrap();
-        let device_a_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_a.as_str())).collect();
-        let device_b_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_b.as_str())).collect();
+        let device_a_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_a.as_str())).collect();
+        let device_b_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_b.as_str())).collect();
 
         assert!(device_a_tokens.iter().all(|t| t.is_revoked));
         assert!(device_b_tokens.iter().all(|t| !t.is_revoked));
@@ -497,23 +449,16 @@ fn test_delete_user_tokens_except_device() {
 
         let token_str_keep = format!("syt_except_{suffix}_keep");
         let token_str_revoke = format!("syt_except_{suffix}_revoke");
-        storage
-            .create_token(&token_str_keep, &user_id, Some(&device_keep), None)
-            .await
-            .unwrap();
-        storage
-            .create_token(&token_str_revoke, &user_id, Some(&device_revoke), None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str_keep, &user_id, Some(&device_keep), None).await.unwrap();
+        storage.create_token(&token_str_revoke, &user_id, Some(&device_revoke), None).await.unwrap();
 
-        storage
-            .delete_user_tokens_except_device(&user_id, &device_keep)
-            .await
-            .unwrap();
+        storage.delete_user_tokens_except_device(&user_id, &device_keep).await.unwrap();
 
         let tokens = storage.get_user_tokens(&user_id).await.unwrap();
-        let keep_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_keep.as_str())).collect();
-        let revoke_tokens: Vec<_> = tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_revoke.as_str())).collect();
+        let keep_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_keep.as_str())).collect();
+        let revoke_tokens: Vec<_> =
+            tokens.iter().filter(|t| t.device_id.as_deref() == Some(device_revoke.as_str())).collect();
 
         assert!(keep_tokens.iter().all(|t| !t.is_revoked));
         assert!(revoke_tokens.iter().all(|t| t.is_revoked));
@@ -535,10 +480,7 @@ fn test_token_exists_true() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_exists_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         let exists = storage.token_exists(&token_str).await.unwrap();
         assert!(exists);
@@ -575,10 +517,7 @@ fn test_token_exists_false_for_revoked() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_existsrev_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         storage.delete_token(&token_str).await.unwrap();
 
@@ -602,10 +541,7 @@ fn test_is_token_revoked_true() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_revcheck_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         storage.delete_token(&token_str).await.unwrap();
 
@@ -629,10 +565,7 @@ fn test_is_token_revoked_false_for_active() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let token_str = format!("syt_activecheck_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, None, None).await.unwrap();
 
         let revoked = storage.is_token_revoked(&token_str).await.unwrap();
         assert!(!revoked);
@@ -671,10 +604,7 @@ fn test_add_to_blacklist_and_is_in_blacklist() {
         let blacklisted = storage.is_in_blacklist(&token_str).await.unwrap();
         assert!(!blacklisted);
 
-        storage
-            .add_to_blacklist(&token_str, &user_id, Some("compromised"))
-            .await
-            .unwrap();
+        storage.add_to_blacklist(&token_str, &user_id, Some("compromised")).await.unwrap();
 
         let blacklisted = storage.is_in_blacklist(&token_str).await.unwrap();
         assert!(blacklisted);
@@ -695,10 +625,7 @@ fn test_add_to_blacklist_without_reason() {
         let token_str = format!("syt_blacklist_noreason_{suffix}");
         let user_id = format!("@at_user_{suffix}:localhost");
 
-        storage
-            .add_to_blacklist(&token_str, &user_id, None)
-            .await
-            .unwrap();
+        storage.add_to_blacklist(&token_str, &user_id, None).await.unwrap();
 
         let blacklisted = storage.is_in_blacklist(&token_str).await.unwrap();
         assert!(blacklisted);
@@ -719,18 +646,13 @@ fn test_add_hash_to_blacklist() {
         let hash = format!("direct_hash_{suffix}");
         let user_id = format!("@at_user_{suffix}:localhost");
 
-        storage
-            .add_hash_to_blacklist(&hash, &user_id, Some("direct hash insert"))
+        storage.add_hash_to_blacklist(&hash, &user_id, Some("direct hash insert")).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1")
+            .bind(&hash)
+            .fetch_one(&*pool)
             .await
             .unwrap();
-
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1",
-        )
-        .bind(&hash)
-        .fetch_one(&*pool)
-        .await
-        .unwrap();
         assert_eq!(count, 1);
     });
 }
@@ -749,15 +671,9 @@ fn test_add_to_blacklist_idempotent() {
         let token_str = format!("syt_idempotent_{suffix}");
         let user_id = format!("@at_user_{suffix}:localhost");
 
-        storage
-            .add_to_blacklist(&token_str, &user_id, None)
-            .await
-            .unwrap();
+        storage.add_to_blacklist(&token_str, &user_id, None).await.unwrap();
 
-        storage
-            .add_to_blacklist(&token_str, &user_id, None)
-            .await
-            .unwrap();
+        storage.add_to_blacklist(&token_str, &user_id, None).await.unwrap();
 
         let blacklisted = storage.is_in_blacklist(&token_str).await.unwrap();
         assert!(blacklisted);
@@ -863,14 +779,8 @@ fn test_cleanup_expired_tokens() {
         let expired_token = format!("syt_expired_{suffix}");
         let active_token = format!("syt_active_{suffix}");
 
-        storage
-            .create_token(&expired_token, &user_id, None, Some(past_ts))
-            .await
-            .unwrap();
-        storage
-            .create_token(&active_token, &user_id, None, Some(future_ts))
-            .await
-            .unwrap();
+        storage.create_token(&expired_token, &user_id, None, Some(past_ts)).await.unwrap();
+        storage.create_token(&active_token, &user_id, None, Some(future_ts)).await.unwrap();
 
         let deleted = storage.cleanup_expired_tokens().await.unwrap();
         assert_eq!(deleted, 1);
@@ -895,10 +805,7 @@ fn test_cleanup_expired_tokens_keeps_no_expiry() {
         insert_test_user(&pool, &user_id, suffix).await;
 
         let no_expiry_token = format!("syt_noexpiry_{suffix}");
-        storage
-            .create_token(&no_expiry_token, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&no_expiry_token, &user_id, None, None).await.unwrap();
 
         let deleted = storage.cleanup_expired_tokens().await.unwrap();
         assert_eq!(deleted, 0);
@@ -927,14 +834,8 @@ fn test_delete_user_tokens_does_not_affect_other_users() {
 
         let token_a = format!("syt_usera_{suffix_a}");
         let token_b = format!("syt_userb_{suffix_b}");
-        storage
-            .create_token(&token_a, &user_a, None, None)
-            .await
-            .unwrap();
-        storage
-            .create_token(&token_b, &user_b, None, None)
-            .await
-            .unwrap();
+        storage.create_token(&token_a, &user_a, None, None).await.unwrap();
+        storage.create_token(&token_b, &user_b, None, None).await.unwrap();
 
         storage.delete_user_tokens(&user_a).await.unwrap();
 
@@ -960,15 +861,9 @@ fn test_delete_user_tokens_except_device_with_no_other_devices() {
 
         let device_only = format!("device_only_{suffix}");
         let token_str = format!("syt_onlydev_{suffix}");
-        storage
-            .create_token(&token_str, &user_id, Some(&device_only), None)
-            .await
-            .unwrap();
+        storage.create_token(&token_str, &user_id, Some(&device_only), None).await.unwrap();
 
-        storage
-            .delete_user_tokens_except_device(&user_id, &device_only)
-            .await
-            .unwrap();
+        storage.delete_user_tokens_except_device(&user_id, &device_only).await.unwrap();
 
         let tokens = storage.get_user_tokens(&user_id).await.unwrap();
         assert_eq!(tokens.len(), 1);
@@ -994,10 +889,7 @@ fn test_multiple_tokens_same_device() {
 
         for i in 0..2 {
             let token_str = format!("syt_shared_{suffix}_{i}");
-            storage
-                .create_token(&token_str, &user_id, Some(&device_id), None)
-                .await
-                .unwrap();
+            storage.create_token(&token_str, &user_id, Some(&device_id), None).await.unwrap();
         }
 
         storage.delete_device_tokens(&device_id).await.unwrap();

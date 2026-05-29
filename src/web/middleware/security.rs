@@ -1,9 +1,9 @@
 use crate::common::error::ApiError;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request};
+use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::middleware::Next;
 use std::time::Instant;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
@@ -28,11 +28,7 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
 
     tracing::info!(
         "Request: {} {} {} {} {:?} {}ms",
-        if authenticated {
-            "authenticated"
-        } else {
-            "anonymous"
-        },
+        if authenticated { "authenticated" } else { "anonymous" },
         method,
         uri,
         status.as_u16(),
@@ -43,10 +39,7 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
-pub async fn security_headers_middleware(
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
+pub async fn security_headers_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
 
     response.headers_mut().insert(
@@ -77,16 +70,9 @@ pub async fn security_headers_middleware(
 
     // HSTS: 默认启用，max-age=31536000（1年），包含子域名
     // 可通过 HSTS_MAX_AGE_SECS=0 禁用
-    let hsts_max_age: u64 = std::env::var("HSTS_MAX_AGE_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(31536000);
+    let hsts_max_age: u64 = std::env::var("HSTS_MAX_AGE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(31536000);
     if hsts_max_age > 0 {
-        let hsts_value = if std::env::var("HSTS_INCLUDE_SUB_DOMAINS")
-            .unwrap_or_default()
-            .to_lowercase()
-            == "true"
-        {
+        let hsts_value = if std::env::var("HSTS_INCLUDE_SUB_DOMAINS").unwrap_or_default().to_lowercase() == "true" {
             format!("max-age={hsts_max_age}; includeSubDomains")
         } else {
             format!("max-age={hsts_max_age}")
@@ -124,12 +110,7 @@ pub async fn request_debug_middleware(request: Request<Body>, next: Next) -> Res
     let response = next.run(request).await;
 
     if let (Some(method), Some(path)) = (method, path) {
-        tracing::debug!(
-            "Completed request: {} {} - {}",
-            method,
-            path,
-            response.status()
-        );
+        tracing::debug!("Completed request: {} {} - {}", method, path, response.status());
     }
 
     response
@@ -138,42 +119,30 @@ pub async fn request_debug_middleware(request: Request<Body>, next: Next) -> Res
 pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
     let timeout_secs = resolve_request_timeout_secs(&request);
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        next.run(request),
-    )
-    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), next.run(request)).await;
 
     match result {
         Ok(response) => response,
         Err(_) => {
             tracing::warn!("Request timeout after {}s", timeout_secs);
-            ApiError::request_timeout(format!(
-                "Request processing exceeded server timeout of {}s",
-                timeout_secs
-            ))
-            .into_response()
+            ApiError::request_timeout(format!("Request processing exceeded server timeout of {}s", timeout_secs))
+                .into_response()
         }
     }
 }
 
 fn resolve_request_timeout_secs(request: &Request<Body>) -> u64 {
     let path = request.uri().path();
-    let default_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(30);
+    let default_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
     if !is_long_polling_endpoint(path) {
         return default_timeout_secs;
     }
 
-    let long_poll_timeout_secs = std::env::var("LONG_POLL_REQUEST_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(90);
+    let long_poll_timeout_secs =
+        std::env::var("LONG_POLL_REQUEST_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(90);
 
-    let query_timeout_secs = parse_timeout_query_secs(request.uri().query())
-        .map_or(0, |timeout_secs| timeout_secs.saturating_add(15));
+    let query_timeout_secs =
+        parse_timeout_query_secs(request.uri().query()).map_or(0, |timeout_secs| timeout_secs.saturating_add(15));
 
     long_poll_timeout_secs.max(query_timeout_secs)
 }
@@ -223,10 +192,7 @@ mod tests {
 
     #[test]
     fn test_parse_timeout_query_secs() {
-        assert_eq!(
-            parse_timeout_query_secs(Some("since=1&timeout=90000&foo=bar")),
-            Some(90)
-        );
+        assert_eq!(parse_timeout_query_secs(Some("since=1&timeout=90000&foo=bar")), Some(90));
         assert_eq!(parse_timeout_query_secs(Some("timeout=30001")), Some(31));
         assert_eq!(parse_timeout_query_secs(Some("timeout=abc")), None);
         assert_eq!(parse_timeout_query_secs(None), None);
@@ -253,19 +219,14 @@ mod tests {
             .body(Body::empty())
             .expect("request should build");
 
-        let response_task = tokio::spawn(async move {
-            app.oneshot(request)
-                .await
-                .expect("sync request should succeed")
-        });
+        let response_task =
+            tokio::spawn(async move { app.oneshot(request).await.expect("sync request should succeed") });
         tokio::task::yield_now().await;
         tokio::time::advance(Duration::from_secs(90)).await;
 
         let response = response_task.await.expect("join should succeed");
         let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .expect("body should be readable");
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
         let body_text = String::from_utf8_lossy(&body);
 
         assert_eq!(status, StatusCode::OK);
@@ -293,26 +254,20 @@ mod tests {
             .body(Body::empty())
             .expect("request should build");
 
-        let response_task = tokio::spawn(async move {
-            app.oneshot(request)
-                .await
-                .expect("request should succeed with timeout response")
-        });
+        let response_task =
+            tokio::spawn(
+                async move { app.oneshot(request).await.expect("request should succeed with timeout response") },
+            );
         tokio::task::yield_now().await;
         tokio::time::advance(Duration::from_secs(31)).await;
 
         let response = response_task.await.expect("join should succeed");
         let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .expect("body should be readable");
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
         let json: serde_json::Value = serde_json::from_slice(&body).expect("response should be json");
 
         assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
         assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
-        assert!(json["error"]
-            .as_str()
-            .expect("error should be string")
-            .contains("30"));
+        assert!(json["error"].as_str().expect("error should be string").contains("30"));
     }
 }

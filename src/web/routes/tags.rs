@@ -31,10 +31,7 @@ fn create_tags_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/tags", get(get_global_tags))
         .route("/user/{user_id}/rooms/{room_id}/tags", get(get_tags))
         .route("/user/{user_id}/rooms/{room_id}/tags/{tag}", put(put_tag))
-        .route(
-            "/user/{user_id}/rooms/{room_id}/tags/{tag}",
-            delete(delete_tag),
-        )
+        .route("/user/{user_id}/rooms/{room_id}/tags/{tag}", delete(delete_tag))
 }
 
 pub fn create_tags_router(state: AppState) -> Router<AppState> {
@@ -59,11 +56,7 @@ fn tags_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
 }
 
 pub fn tags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes(
-        "tags",
-        TAGS_NEST_PREFIXES,
-        &tags_compat_relative_routes(),
-    )
+    crate::web::routes::route_ledger::expand_under_prefixes("tags", TAGS_NEST_PREFIXES, &tags_compat_relative_routes())
 }
 
 async fn get_global_tags(
@@ -81,9 +74,8 @@ async fn get_global_tags(
 
     let mut rooms_map = serde_json::Map::new();
     for tag in tags {
-        let room_tags = rooms_map
-            .entry(tag.room_id.clone())
-            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        let room_tags =
+            rooms_map.entry(tag.room_id.clone()).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
 
         if let Some(room_tags_map) = room_tags.as_object_mut() {
             room_tags_map.insert(
@@ -138,16 +130,9 @@ async fn put_tag(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    upsert_room_tag(
-        &state.services.user_storage.pool,
-        &user_id,
-        &room_id,
-        &tag,
-        content.order,
-        now,
-    )
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to set tag", &e))?;
+    upsert_room_tag(&state.services.user_storage.pool, &user_id, &room_id, &tag, content.order, now)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to set tag", &e))?;
 
     Ok(empty_json())
 }
@@ -168,11 +153,7 @@ async fn delete_tag(
     Ok(empty_json())
 }
 
-async fn get_room_tags(
-    pool: &PgPool,
-    user_id: &str,
-    room_id: &str,
-) -> Result<Vec<RoomTag>, sqlx::Error> {
+async fn get_room_tags(pool: &PgPool, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
     sqlx::query_as::<_, RoomTag>(
         r"
         SELECT user_id, room_id, tag, order_value, created_ts
@@ -228,12 +209,7 @@ async fn upsert_room_tag(
     Ok(())
 }
 
-async fn delete_room_tag(
-    pool: &PgPool,
-    user_id: &str,
-    room_id: &str,
-    tag: &str,
-) -> Result<(), sqlx::Error> {
+async fn delete_room_tag(pool: &PgPool, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
         r"
         DELETE FROM room_tags
@@ -260,17 +236,12 @@ mod tests {
             "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]
     fn test_tags_compat_router_contains_shared_paths() {
-        let shared_paths = [
-            "/user/{user_id}/rooms/{room_id}/tags",
-            "/user/{user_id}/rooms/{room_id}/tags/{tag}",
-        ];
+        let shared_paths = ["/user/{user_id}/rooms/{room_id}/tags", "/user/{user_id}/rooms/{room_id}/tags/{tag}"];
 
         assert_eq!(shared_paths.len(), 2);
         assert!(shared_paths.iter().all(|path| path.starts_with("/user/")));
@@ -287,11 +258,7 @@ mod tests {
             "/_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags/{tag}",
         ];
 
-        assert!(supported_paths
-            .iter()
-            .all(|path| !path.starts_with("/_matrix/client/v1/")));
-        assert!(unsupported_v1_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/v1/")));
+        assert!(supported_paths.iter().all(|path| !path.starts_with("/_matrix/client/v1/")));
+        assert!(unsupported_v1_paths.iter().all(|path| path.starts_with("/_matrix/client/v1/")));
     }
 }

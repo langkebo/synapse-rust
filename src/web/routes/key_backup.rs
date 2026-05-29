@@ -139,7 +139,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .route("/room_keys/export/{version}", get(export_keys_by_version))
         .route("/room_keys/import", post(import_keys))
         .route("/room_keys/import/{version}", post(import_keys_by_version));
-        // Note: /keys/backup/secure routes are handled in e2ee_routes.rs
+    // Note: /keys/backup/secure routes are handled in e2ee_routes.rs
 
     Router::new()
         .nest("/_matrix/client/v1", router.clone())
@@ -175,12 +175,7 @@ async fn create_backup_version(
     if let Err(uia_response) = state
         .services
         .uia_service
-        .require_uia(
-            auth,
-            &auth_user.user_id,
-            UiaService::get_default_flows(),
-            &state.services.auth_service,
-        )
+        .require_uia(auth, &auth_user.user_id, UiaService::get_default_flows(), &state.services.auth_service)
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());

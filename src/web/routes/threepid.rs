@@ -7,15 +7,11 @@ use crate::web::routes::{ApiError, AppState};
 
 fn generate_token() -> String {
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
-    (0..12)
-        .map(|_| chars[rand::Rng::gen_range(&mut rand::thread_rng(), 0..chars.len())])
-        .collect()
+    (0..12).map(|_| chars[rand::Rng::gen_range(&mut rand::thread_rng(), 0..chars.len())]).collect()
 }
 
 pub fn create_threepid_router() -> Router<AppState> {
-    Router::new()
-        .route("/requestToken", post(request_token))
-        .route("/submitToken", post(submit_token))
+    Router::new().route("/requestToken", post(request_token)).route("/submitToken", post(submit_token))
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,11 +60,7 @@ pub async fn request_token(
     let session_id = format!(
         "3pid_{}_{}",
         chrono::Utc::now().timestamp_millis(),
-        uuid::Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("")
+        uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("")
     );
 
     let token = generate_token();
@@ -93,19 +85,11 @@ pub async fn request_token(
 
     // In a full implementation, send email here
     // For now, return the token in the response for testing
-    tracing::info!(
-        "3PID validation session created: sid={}, token={}, email={}",
-        session_id,
-        token,
-        email
-    );
+    tracing::info!("3PID validation session created: sid={}, token={}, email={}", session_id, token, email);
 
     let submit_url = req.next_link;
 
-    Ok(Json(RequestTokenResponse {
-        sid: session_id,
-        submit_url,
-    }))
+    Ok(Json(RequestTokenResponse { sid: session_id, submit_url }))
 }
 
 pub async fn submit_token(
@@ -113,9 +97,7 @@ pub async fn submit_token(
     Json(req): Json<SubmitTokenRequest>,
 ) -> Result<Json<SubmitTokenResponse>, ApiError> {
     if req.sid.is_empty() || req.client_secret.is_empty() || req.token.is_empty() {
-        return Err(ApiError::bad_request(
-            "sid, client_secret, and token are required",
-        ));
+        return Err(ApiError::bad_request("sid, client_secret, and token are required"));
     }
 
     let session = state
@@ -133,11 +115,7 @@ pub async fn submit_token(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;
 
-    tracing::info!(
-        "3PID validation successful: email={}, sid={}",
-        session.address,
-        session.session_id
-    );
+    tracing::info!("3PID validation successful: email={}, sid={}", session.address, session.session_id);
 
     Ok(Json(SubmitTokenResponse { is_success: true }))
 }

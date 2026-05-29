@@ -27,9 +27,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
     {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping federation service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping federation service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -60,10 +58,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
 
 async fn cleanup_test_database(pool: &Pool<Postgres>) {
     // 清理测试数据
-    sqlx::query("DELETE FROM federation_signing_keys WHERE server_name LIKE 'test%'")
-        .execute(pool)
-        .await
-        .ok();
+    sqlx::query("DELETE FROM federation_signing_keys WHERE server_name LIKE 'test%'").execute(pool).await.ok();
 }
 
 fn generate_valid_test_key() -> String {
@@ -123,28 +118,16 @@ fn test_should_rotate_keys() {
 
         let valid_key = generate_valid_test_key();
         let key_id = format!("ed25519:test_{id}");
-        manager
-            .initialize(&valid_key, &key_id)
-            .await
-            .expect("Failed to initialize key");
+        manager.initialize(&valid_key, &key_id).await.expect("Failed to initialize key");
 
-        let current_key = manager
-            .get_current_key()
-            .await
-            .expect("Failed to get current key");
-        assert!(
-            current_key.is_some(),
-            "Key should be in memory after initialization"
-        );
+        let current_key = manager.get_current_key().await.expect("Failed to get current key");
+        assert!(current_key.is_some(), "Key should be in memory after initialization");
 
         let key = current_key.unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
 
-        assert!(
-            days_until_expiry >= 6,
-            "Key should have at least 6 days until expiry, got {days_until_expiry} days"
-        );
+        assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {days_until_expiry} days");
     });
 }
 
@@ -162,18 +145,13 @@ fn test_load_or_create_key_recovers_missing_signing_key_table() {
         let manager = KeyRotationManager::new(&pool, &server_name);
 
         // 先尝试初始化（如果不存在表会自动创建）
-        manager
-            .load_or_create_key()
-            .await
-            .expect("Failed to load or create key");
+        manager.load_or_create_key().await.expect("Failed to load or create key");
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM federation_signing_keys WHERE server_name = $1",
-        )
-        .bind(&server_name)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to count federation signing keys");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_signing_keys WHERE server_name = $1")
+            .bind(&server_name)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to count federation signing keys");
 
         assert!(count >= 1, "Expected at least 1 key, found {count}");
     });
@@ -207,10 +185,7 @@ fn test_device_sync_cache() {
         .await
         .ok();
 
-        let devices = manager
-            .get_local_devices("@test:example.com")
-            .await
-            .unwrap();
+        let devices = manager.get_local_devices("@test:example.com").await.unwrap();
         assert!(devices.is_empty());
     });
 }
@@ -243,9 +218,7 @@ fn test_device_revocation() {
         .await
         .ok();
 
-        let result = manager
-            .revoke_device("DEVICE123", "@test:example.com")
-            .await;
+        let result = manager.revoke_device("DEVICE123", "@test:example.com").await;
         assert!(result.is_ok());
     });
 }

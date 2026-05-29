@@ -8,7 +8,7 @@ mod auth_service_unit_tests {
     fn test_password_hashing() {
         // Test password hashing logic
         let password = "test_password";
-        
+
         // Verify we can check password length
         assert!(password.len() >= 8);
         assert!(password.len() <= 128);
@@ -32,11 +32,11 @@ mod auth_service_unit_tests {
     fn test_token_expiry() {
         // Test token expiry calculations
         let token_lifetime = 3_600_000i64; // 1 hour in ms
-        
+
         // Add to current time
         let now = 1700000000000i64;
         let expires_at = now + token_lifetime;
-        
+
         assert!(expires_at > now);
     }
 
@@ -70,11 +70,11 @@ mod room_service_unit_tests {
     fn test_room_creation_params() {
         // Test room creation parameter validation
         let mut params = HashMap::new();
-        
+
         params.insert("name".to_string(), "Test Room".to_string());
         params.insert("topic".to_string(), "A test room".to_string());
         params.insert("visibility".to_string(), "public".to_string());
-        
+
         assert_eq!(params.get("name"), Some(&"Test Room".to_string()));
     }
 
@@ -83,7 +83,7 @@ mod room_service_unit_tests {
         // Test join rule permission checking
         let public_room = "public";
         let private_room = "private";
-        
+
         assert!(can_join_public(public_room));
         assert!(!can_join_public(private_room));
     }
@@ -91,12 +91,7 @@ mod room_service_unit_tests {
     #[test]
     fn test_room_history_visibility() {
         // Test history visibility options
-        let visibilities = vec![
-            "invited",
-            "joined",
-            "shared",
-            "world_readable",
-        ];
+        let visibilities = vec!["invited", "joined", "shared", "world_readable"];
 
         for v in visibilities {
             assert!(is_valid_visibility(v), "Visibility {} should be valid", v);
@@ -115,16 +110,8 @@ mod room_service_unit_tests {
 mod message_service_unit_tests {
     #[test]
     fn test_message_type_validation() {
-        let valid_types = vec![
-            "m.text",
-            "m.emote",
-            "m.notice",
-            "m.image",
-            "m.video",
-            "m.audio",
-            "m.file",
-            "m.location",
-        ];
+        let valid_types =
+            vec!["m.text", "m.emote", "m.notice", "m.image", "m.video", "m.audio", "m.file", "m.location"];
 
         for msg_type in valid_types {
             assert!(is_valid_message_type(msg_type), "Type {} should be valid", msg_type);
@@ -135,7 +122,7 @@ mod message_service_unit_tests {
     fn test_msg_id_format() {
         // Test message ID format
         let txn_id = "m1234567890.abc";
-        
+
         assert!(txn_id.starts_with('m'));
         assert!(txn_id.contains('.'));
     }
@@ -144,15 +131,15 @@ mod message_service_unit_tests {
     fn test_pagination_params() {
         // Test pagination parameter validation
         let limit = 50;
-        
+
         assert!(limit > 0);
         assert!(limit <= 1000); // Max limit
     }
 
     fn is_valid_message_type(msg_type: &str) -> bool {
-        matches!(msg_type,
-            "m.text" | "m.emote" | "m.notice" | "m.image" |
-            "m.video" | "m.audio" | "m.file" | "m.location"
+        matches!(
+            msg_type,
+            "m.text" | "m.emote" | "m.notice" | "m.image" | "m.video" | "m.audio" | "m.file" | "m.location"
         )
     }
 }
@@ -161,7 +148,7 @@ mod presence_service_unit_tests {
     #[test]
     fn test_presence_states() {
         let states = vec!["online", "offline", "unavailable"];
-        
+
         for state in states {
             assert!(is_valid_presence(state), "Presence {} should be valid", state);
         }
@@ -171,7 +158,7 @@ mod presence_service_unit_tests {
     fn test_status_message() {
         // Test status message constraints
         let status = "Working from home";
-        
+
         assert!(!status.is_empty());
         assert!(status.len() <= 255);
     }
@@ -186,7 +173,7 @@ mod sync_service_unit_tests {
     fn test_sync_filter_validation() {
         // Test sync filter validation
         let filter = r#"{"room":{"timeline":{"limit":10}}}"#;
-        
+
         assert!(!filter.is_empty());
         assert!(filter.contains("limit"));
     }
@@ -195,7 +182,7 @@ mod sync_service_unit_tests {
     fn test_since_token_parsing() {
         // Test since token parsing
         let since = "s1234567890_abc";
-        
+
         assert!(!since.is_empty());
     }
 
@@ -203,7 +190,7 @@ mod sync_service_unit_tests {
     fn test_sync_timeout() {
         // Test sync timeout configuration
         let timeout_ms = 30000;
-        
+
         assert!(timeout_ms >= 5000);
         assert!(timeout_ms <= 120000);
     }
@@ -226,12 +213,7 @@ mod push_service_unit_tests {
     #[test]
     fn test_push_actions() {
         // Test push notification actions
-        let actions = vec![
-            "notify",
-            "dont_notify",
-            "coalesce",
-            "set_tweak",
-        ];
+        let actions = vec!["notify", "dont_notify", "coalesce", "set_tweak"];
 
         for action in actions {
             assert!(is_valid_push_action(action), "Action {} should be valid", action);
@@ -252,7 +234,7 @@ mod media_service_unit_tests {
     fn test_media_id_format() {
         // Test media ID format
         let media_id = "AgSGHSBCuEeLHAYXoLMBpXSJKwojLBmzc";
-        
+
         assert!(!media_id.is_empty());
         assert!(media_id.len() >= 20);
     }
@@ -260,14 +242,7 @@ mod media_service_unit_tests {
     #[test]
     fn test_content_type_validation() {
         // Test content type validation
-        let valid_types = vec![
-            "image/jpeg",
-            "image/png",
-            "image/gif",
-            "video/mp4",
-            "audio/mpeg",
-            "application/json",
-        ];
+        let valid_types = vec!["image/jpeg", "image/png", "image/gif", "video/mp4", "audio/mpeg", "application/json"];
 
         for ct in valid_types {
             assert!(is_valid_content_type(ct), "Content type {} should be valid", ct);
@@ -279,7 +254,7 @@ mod media_service_unit_tests {
         // Test thumbnail dimension parameters
         let width = 100;
         let height = 100;
-        
+
         assert!(width > 0 && width <= 4096);
         assert!(height > 0 && height <= 4096);
     }

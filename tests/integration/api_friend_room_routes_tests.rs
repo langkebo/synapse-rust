@@ -24,21 +24,14 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn json_request(
@@ -63,18 +56,10 @@ async fn json_request(
         })
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json = if bytes.is_empty() {
-        json!({})
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json = if bytes.is_empty() { json!({}) } else { serde_json::from_slice(&bytes).unwrap() };
 
     (status, json)
 }
@@ -98,41 +83,21 @@ async fn establish_friend_dm(
         })),
     )
     .await;
-    assert_eq!(
-        send_status,
-        StatusCode::OK,
-        "send friend request failed: {send_body}"
-    );
+    assert_eq!(send_status, StatusCode::OK, "send friend request failed: {send_body}");
 
     let (accept_status, accept_body) = json_request(
         app,
         "POST",
-        format!(
-            "/_matrix/client/v1/friends/request/{}/accept",
-            alice_user_id
-        ),
+        format!("/_matrix/client/v1/friends/request/{}/accept", alice_user_id),
         Some(&bob_token),
         None,
     )
     .await;
-    assert_eq!(
-        accept_status,
-        StatusCode::OK,
-        "accept friend request failed: {accept_body}"
-    );
+    assert_eq!(accept_status, StatusCode::OK, "accept friend request failed: {accept_body}");
 
-    let dm_room_id = accept_body["room_id"]
-        .as_str()
-        .expect("friend accept should return dm room id")
-        .to_string();
+    let dm_room_id = accept_body["room_id"].as_str().expect("friend accept should return dm room id").to_string();
 
-    (
-        alice_token,
-        alice_user_id,
-        bob_token,
-        bob_user_id,
-        dm_room_id,
-    )
+    (alice_token, alice_user_id, bob_token, bob_user_id, dm_room_id)
 }
 
 async fn fetch_friend_entry(app: &axum::Router, token: &str, target_user_id: &str) -> Value {
@@ -162,10 +127,7 @@ async fn test_v1_and_r0_friend_list_routes_work_after_nesting() {
     };
     let (token, _) = register_user(&app, "friend_routes_list").await;
 
-    for path in [
-        "/_matrix/client/v1/friends",
-        "/_matrix/client/r0/friendships",
-    ] {
+    for path in ["/_matrix/client/v1/friends", "/_matrix/client/r0/friendships"] {
         let request = Request::builder()
             .method("GET")
             .uri(path)
@@ -173,9 +135,7 @@ async fn test_v1_and_r0_friend_list_routes_work_after_nesting() {
             .body(Body::empty())
             .unwrap();
 
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK, "failed path: {path}");
     }
@@ -201,15 +161,11 @@ async fn test_r0_friendships_alias_keeps_send_friend_request_validation() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["error"], "Cannot send friend request to yourself");
 }
@@ -228,9 +184,7 @@ async fn test_v3_friends_keeps_get_only_contract() {
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
     let post_request = Request::builder()
@@ -246,12 +200,9 @@ async fn test_v3_friends_keeps_get_only_contract() {
         ))
         .unwrap();
 
-    let post_response = ServiceExt::<Request<Body>>::oneshot(app, post_request)
-        .await
-        .unwrap();
+    let post_response = ServiceExt::<Request<Body>>::oneshot(app, post_request).await.unwrap();
     assert!(
-        post_response.status() == StatusCode::METHOD_NOT_ALLOWED
-            || post_response.status() == StatusCode::BAD_REQUEST,
+        post_response.status() == StatusCode::METHOD_NOT_ALLOWED || post_response.status() == StatusCode::BAD_REQUEST,
         "Expected 405 or 400 for POST to GET-only route, got: {}",
         post_response.status()
     );
@@ -272,30 +223,16 @@ async fn test_v3_friend_search_supports_exact_mode() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     if status != StatusCode::OK {
-        eprintln!(
-            "unexpected search response body: {}",
-            String::from_utf8_lossy(&body)
-        );
+        eprintln!("unexpected search response body: {}", String::from_utf8_lossy(&body));
     }
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "unexpected search response: {}",
-        String::from_utf8_lossy(&body)
-    );
+    assert_eq!(status, StatusCode::OK, "unexpected search response: {}", String::from_utf8_lossy(&body));
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().expect("results array");
-    assert!(results
-        .iter()
-        .any(|entry| entry["user_id"].as_str() == Some(target_user_id.as_str())));
+    assert!(results.iter().any(|entry| entry["user_id"].as_str() == Some(target_user_id.as_str())));
 }
 
 #[tokio::test]
@@ -312,14 +249,10 @@ async fn test_v1_friend_list_accepts_pagination_and_sort_params() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["limit"].as_u64(), Some(10));
     assert_eq!(json["offset"].as_u64(), Some(0));
@@ -336,22 +269,14 @@ async fn test_create_friend_dm_reuses_existing_room() {
     let (alice_token, _alice_user_id, _bob_token, bob_user_id, existing_dm_room_id) =
         establish_friend_dm(&app, "friend_reuse_alice", "friend_reuse_bob").await;
 
-    let (status, body) = json_request(
-        &app,
-        "POST",
-        format!("/_matrix/client/v1/friends/dm/{}", bob_user_id),
-        Some(&alice_token),
-        None,
-    )
-    .await;
+    let (status, body) =
+        json_request(&app, "POST", format!("/_matrix/client/v1/friends/dm/{}", bob_user_id), Some(&alice_token), None)
+            .await;
     assert_eq!(status, StatusCode::OK, "create friend dm failed: {body}");
     assert_eq!(body["room_id"].as_str(), Some(existing_dm_room_id.as_str()));
 
     let friend_entry = fetch_friend_entry(&app, &alice_token, &bob_user_id).await;
-    assert_eq!(
-        friend_entry["dm_room_id"].as_str(),
-        Some(existing_dm_room_id.as_str())
-    );
+    assert_eq!(friend_entry["dm_room_id"].as_str(), Some(existing_dm_room_id.as_str()));
     assert_eq!(friend_entry["dm_room_state"].as_str(), Some("active"));
     assert_eq!(friend_entry["dm_room_active"].as_bool(), Some(true));
 }
@@ -365,14 +290,9 @@ async fn test_friend_dm_leave_updates_friend_list_state() {
     let (alice_token, alice_user_id, bob_token, bob_user_id, dm_room_id) =
         establish_friend_dm(&app, "friend_leave_alice", "friend_leave_bob").await;
 
-    let (leave_status, leave_body) = json_request(
-        &app,
-        "POST",
-        format!("/_matrix/client/r0/rooms/{}/leave", dm_room_id),
-        Some(&bob_token),
-        None,
-    )
-    .await;
+    let (leave_status, leave_body) =
+        json_request(&app, "POST", format!("/_matrix/client/r0/rooms/{}/leave", dm_room_id), Some(&bob_token), None)
+            .await;
     assert_eq!(leave_status, StatusCode::OK, "leave failed: {leave_body}");
 
     let alice_entry = fetch_friend_entry(&app, &alice_token, &bob_user_id).await;
@@ -382,14 +302,8 @@ async fn test_friend_dm_leave_updates_friend_list_state() {
         assert_eq!(entry["dm_room_id"].as_str(), Some(dm_room_id.as_str()));
         assert_eq!(entry["dm_room_state"].as_str(), Some("left"));
         assert_eq!(entry["dm_room_active"].as_bool(), Some(false));
-        assert_eq!(
-            entry["dm_room_affected_user_id"].as_str(),
-            Some(bob_user_id.as_str())
-        );
-        assert_eq!(
-            entry["dm_room_changed_by"].as_str(),
-            Some(bob_user_id.as_str())
-        );
+        assert_eq!(entry["dm_room_affected_user_id"].as_str(), Some(bob_user_id.as_str()));
+        assert_eq!(entry["dm_room_changed_by"].as_str(), Some(bob_user_id.as_str()));
     }
 }
 
@@ -423,10 +337,7 @@ async fn test_friend_dm_kick_updates_friend_list_state() {
         assert_eq!(entry["dm_room_id"].as_str(), Some(dm_room_id.as_str()));
         assert_eq!(entry["dm_room_state"].as_str(), Some("kicked"));
         assert_eq!(entry["dm_room_active"].as_bool(), Some(false));
-        assert_eq!(
-            entry["dm_room_affected_user_id"].as_str(),
-            Some(bob_user_id.as_str())
-        );
+        assert_eq!(entry["dm_room_affected_user_id"].as_str(), Some(bob_user_id.as_str()));
         assert!(entry["dm_room_changed_by"].as_str().is_some());
         assert_eq!(entry["dm_room_reason"].as_str(), Some("moderation kick"));
     }
@@ -463,10 +374,7 @@ async fn test_friend_dm_ban_updates_friend_list_state() {
         assert_eq!(entry["dm_room_id"].as_str(), Some(dm_room_id.as_str()));
         assert_eq!(entry["dm_room_state"].as_str(), Some("banned"));
         assert_eq!(entry["dm_room_active"].as_bool(), Some(false));
-        assert_eq!(
-            entry["dm_room_affected_user_id"].as_str(),
-            Some(bob_user_id.as_str())
-        );
+        assert_eq!(entry["dm_room_affected_user_id"].as_str(), Some(bob_user_id.as_str()));
         assert!(entry["dm_room_changed_by"].as_str().is_some());
         assert_eq!(entry["dm_room_reason"].as_str(), Some("moderation ban"));
     }

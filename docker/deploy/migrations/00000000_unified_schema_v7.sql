@@ -1689,7 +1689,7 @@ CREATE TABLE IF NOT EXISTS worker_statistics (
 
 -- 活跃工作进程视图
 CREATE OR REPLACE VIEW active_workers AS
-SELECT id, worker_id, worker_name, worker_type, host, port, status, 
+SELECT id, worker_id, worker_name, worker_type, host, port, status,
        last_heartbeat_ts, started_ts, stopped_ts, config, metadata, version, is_enabled
 FROM workers
 WHERE status = 'running' OR status = 'starting';
@@ -3448,7 +3448,7 @@ END $$;
 -- 密码: 通过环境变量 ADMIN_PASSWORD 配置，或使用随机生成的强密码
 -- 密码策略要求：至少8位，包含大写字母、小写字母、数字、特殊字符
 -- 哈希算法: Argon2id (项目标准)
--- 
+--
 -- 注意：生产环境应通过以下方式管理初始密码：
 -- 1. 环境变量: ADMIN_PASSWORD
 -- 2. 配置文件: config.yaml 中的 admin.initial_password
@@ -3484,7 +3484,7 @@ VALUES (
 
 -- 插入默认同步流类型
 INSERT INTO sync_stream_id (stream_type, last_id, updated_ts)
-VALUES 
+VALUES
     ('events', 0, EXTRACT(EPOCH FROM NOW()) * 1000),
     ('presence', 0, EXTRACT(EPOCH FROM NOW()) * 1000),
     ('receipts', 0, EXTRACT(EPOCH FROM NOW()) * 1000),
@@ -3517,29 +3517,29 @@ UPDATE users SET must_change_password = TRUE WHERE username = 'admin';
 -- 以下外键约束使用 ON DELETE CASCADE 确保数据一致性
 
 -- 用户相关外键
-ALTER TABLE devices ADD CONSTRAINT fk_devices_user_id 
+ALTER TABLE devices ADD CONSTRAINT fk_devices_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_user_id 
+ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_user_id 
+ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
 
 -- 房间相关外键
-ALTER TABLE events ADD CONSTRAINT fk_events_room_id 
+ALTER TABLE events ADD CONSTRAINT fk_events_room_id
     FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_room_id 
+ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_room_id
     FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_user_id 
+ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
 
 -- E2EE 相关外键
-ALTER TABLE device_keys ADD CONSTRAINT fk_device_keys_user_id 
+ALTER TABLE device_keys ADD CONSTRAINT fk_device_keys_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE cross_signing_keys ADD CONSTRAINT fk_cross_signing_keys_user_id 
+ALTER TABLE cross_signing_keys ADD CONSTRAINT fk_cross_signing_keys_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
 
 -- 推送相关外键
-ALTER TABLE push_notification_queue ADD CONSTRAINT fk_push_queue_user_id 
+ALTER TABLE push_notification_queue ADD CONSTRAINT fk_push_queue_user_id
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
 
 -- ============================================================================
@@ -3548,33 +3548,33 @@ ALTER TABLE push_notification_queue ADD CONSTRAINT fk_push_queue_user_id
 
 -- 复合索引：优化常用查询场景
 -- 用户房间列表查询优化
-CREATE INDEX IF NOT EXISTS idx_room_memberships_user_membership 
+CREATE INDEX IF NOT EXISTS idx_room_memberships_user_membership
     ON room_memberships(user_id, membership);
 
 -- 房间消息历史查询优化
-CREATE INDEX IF NOT EXISTS idx_events_room_time 
+CREATE INDEX IF NOT EXISTS idx_events_room_time
     ON events(room_id, origin_server_ts DESC);
 
 -- 用户设备列表查询优化
-CREATE INDEX IF NOT EXISTS idx_device_keys_user_device 
+CREATE INDEX IF NOT EXISTS idx_device_keys_user_device
     ON device_keys(user_id, device_id);
 
 -- 推送规则匹配优化
-CREATE INDEX IF NOT EXISTS idx_push_rules_user_priority 
+CREATE INDEX IF NOT EXISTS idx_push_rules_user_priority
     ON push_rules(user_id, priority);
 
 -- 用户事件查询优化
-CREATE INDEX IF NOT EXISTS idx_events_sender_type 
+CREATE INDEX IF NOT EXISTS idx_events_sender_type
     ON events(sender, event_type);
 
 -- 房间成员查询优化
-CREATE INDEX IF NOT EXISTS idx_room_memberships_room_membership 
+CREATE INDEX IF NOT EXISTS idx_room_memberships_room_membership
     ON room_memberships(room_id, membership);
 
 -- JSONB GIN 索引：优化 JSON 内容搜索
-CREATE INDEX IF NOT EXISTS idx_events_content_gin 
+CREATE INDEX IF NOT EXISTS idx_events_content_gin
     ON events USING GIN (content);
-CREATE INDEX IF NOT EXISTS idx_account_data_content_gin 
+CREATE INDEX IF NOT EXISTS idx_account_data_content_gin
     ON account_data USING GIN (content);
 -- user_account_data.content is TEXT type, GIN index not applicable
 

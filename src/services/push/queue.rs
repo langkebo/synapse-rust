@@ -65,12 +65,7 @@ pub struct QueueConfig {
 
 impl Default for QueueConfig {
     fn default() -> Self {
-        Self {
-            max_size: 10000,
-            batch_size: 100,
-            max_attempts: 3,
-            retry_delay_ms: 1000,
-        }
+        Self { max_size: 10000, batch_size: 100, max_attempts: 3, retry_delay_ms: 1000 }
     }
 }
 
@@ -198,10 +193,7 @@ impl PushQueue {
 
         let removed = original_len - queue.len();
         if removed > 0 {
-            debug!(
-                "Removed {} notifications for device {}:{}",
-                removed, user_id, device_id
-            );
+            debug!("Removed {} notifications for device {}:{}", removed, user_id, device_id);
         }
 
         removed
@@ -259,14 +251,8 @@ mod tests {
 
     #[test]
     fn test_queued_notification_retry() {
-        let mut notification = QueuedNotification::new(
-            "@user:example.com",
-            "DEVICE123",
-            "fcm",
-            "token123",
-            serde_json::json!({}),
-            5,
-        );
+        let mut notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token123", serde_json::json!({}), 5);
 
         assert!(notification.can_retry());
         notification.increment_attempt();
@@ -286,14 +272,8 @@ mod tests {
     async fn test_push_queue_enqueue() {
         let queue = PushQueue::new(QueueConfig::default());
 
-        let notification = QueuedNotification::new(
-            "@user:example.com",
-            "DEVICE123",
-            "fcm",
-            "token123",
-            serde_json::json!({}),
-            5,
-        );
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token123", serde_json::json!({}), 5);
 
         queue.enqueue(notification).await.unwrap();
         assert_eq!(queue.get_size().await, 1);
@@ -324,14 +304,8 @@ mod tests {
     async fn test_push_queue_mark_sent() {
         let queue = PushQueue::new(QueueConfig::default());
 
-        let notification = QueuedNotification::new(
-            "@user:example.com",
-            "DEVICE123",
-            "fcm",
-            "token",
-            serde_json::json!({}),
-            5,
-        );
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token", serde_json::json!({}), 5);
         let id = notification.id.clone();
 
         queue.enqueue(notification).await.unwrap();
@@ -358,9 +332,7 @@ mod tests {
             queue.enqueue(notification).await.unwrap();
         }
 
-        let removed = queue
-            .remove_for_device("@user:example.com", "DEVICE1")
-            .await;
+        let removed = queue.remove_for_device("@user:example.com", "DEVICE1").await;
         assert_eq!(removed, 1);
         assert_eq!(queue.get_size().await, 2);
     }

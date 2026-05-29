@@ -171,9 +171,7 @@ mod tests {
 
     #[test]
     fn test_backup_upload_request() {
-        let request = BackupUploadRequest {
-            algorithm: "m.megolm_backup.v1".to_string(),
-        };
+        let request = BackupUploadRequest { algorithm: "m.megolm_backup.v1".to_string() };
 
         assert_eq!(request.algorithm, "m.megolm_backup.v1");
     }
@@ -194,10 +192,7 @@ mod tests {
 
     #[test]
     fn test_backup_upload_response() {
-        let response = BackupUploadResponse {
-            etag: "etag123".to_string(),
-            count: 50,
-        };
+        let response = BackupUploadResponse { etag: "etag123".to_string(), count: 50 };
 
         assert_eq!(response.etag, "etag123");
         assert_eq!(response.count, 50);

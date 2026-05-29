@@ -9,18 +9,12 @@ mod tests {
             issuer: "https://accounts.google.com".to_string(),
             client_id: "test_client_id".to_string(),
             client_secret: Some("test_client_secret".to_string()),
-            scopes: vec![
-                "openid".to_string(),
-                "profile".to_string(),
-                "email".to_string(),
-            ],
+            scopes: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
             attribute_mapping: Default::default(),
             callback_url: Some("http://localhost:8008/_matrix/client/v3/oidc/callback".to_string()),
             allow_existing_users: true,
             block_unknown_users: false,
-            authorization_endpoint: Some(
-                "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
-            ),
+            authorization_endpoint: Some("https://accounts.google.com/o/oauth2/v2/auth".to_string()),
             token_endpoint: Some("https://oauth2.googleapis.com/token".to_string()),
             userinfo_endpoint: Some("https://openidconnect.googleapis.com/v1/userinfo".to_string()),
             jwks_uri: Some("https://www.googleapis.com/oauth2/v3/certs".to_string()),
@@ -111,13 +105,9 @@ mod tests {
 
     #[test]
     fn test_identity_config_custom_trusted_servers() {
-        let config = IdentityConfig {
-            trusted_servers: vec!["custom.example.com".to_string()],
-        };
+        let config = IdentityConfig { trusted_servers: vec!["custom.example.com".to_string()] };
         assert_eq!(config.trusted_servers.len(), 1);
-        assert!(config
-            .trusted_servers
-            .contains(&"custom.example.com".to_string()));
+        assert!(config.trusted_servers.contains(&"custom.example.com".to_string()));
     }
 
     #[test]
@@ -141,9 +131,7 @@ mod tests {
         assert!(discovery.get("jwks_uri").is_some());
         assert!(discovery.get("response_types_supported").is_some());
         assert!(discovery.get("subject_types_supported").is_some());
-        assert!(discovery
-            .get("id_token_signing_alg_values_supported")
-            .is_some());
+        assert!(discovery.get("id_token_signing_alg_values_supported").is_some());
     }
 
     #[test]

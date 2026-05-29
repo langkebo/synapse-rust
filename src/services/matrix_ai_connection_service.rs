@@ -65,16 +65,9 @@ impl MatrixAiConnectionService {
     }
 
     /// Get a specific AI connection by ID, checking ownership
-    pub async fn get_connection(
-        &self,
-        id: &str,
-        user_id: &str,
-    ) -> Result<Option<AiConnection>, ApiError> {
-        let conn = self
-            .storage
-            .get_connection(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    pub async fn get_connection(&self, id: &str, user_id: &str) -> Result<Option<AiConnection>, ApiError> {
+        let conn =
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(ref c) = conn {
             if c.user_id != user_id {
@@ -121,11 +114,8 @@ impl MatrixAiConnectionService {
         request: UpdateConnectionRequest,
     ) -> Result<Option<AiConnection>, ApiError> {
         // First check ownership
-        let existing = self
-            .storage
-            .get_connection(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let existing =
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let existing = match existing {
             Some(c) => c,
@@ -141,17 +131,12 @@ impl MatrixAiConnectionService {
             self.storage
                 .update_connection_status(id, is_active)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to update connection status", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to update connection status", &e))?;
         }
 
         // Fetch and return updated connection
-        let updated = self
-            .storage
-            .get_connection(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let updated =
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if updated.is_some() {
             info!("Updated AI connection {}", id);
@@ -200,12 +185,7 @@ impl MatrixAiConnectionService {
             .get_user_provider_connection(user_id, provider)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .ok_or_else(|| {
-                ApiError::not_found(format!(
-                    "Active connection for provider {} not found",
-                    provider
-                ))
-            })?;
+            .ok_or_else(|| ApiError::not_found(format!("Active connection for provider {} not found", provider)))?;
 
         let mcp_url = self.extract_mcp_url(&conn)?;
 
@@ -214,34 +194,21 @@ impl MatrixAiConnectionService {
     }
 
     /// Call an MCP tool for a user
-    pub async fn call_mcp_tool(
-        &self,
-        user_id: &str,
-        request: McpToolCallRequest,
-    ) -> Result<Value, ApiError> {
+    pub async fn call_mcp_tool(&self, user_id: &str, request: McpToolCallRequest) -> Result<Value, ApiError> {
         let conn = self
             .storage
             .get_user_provider_connection(user_id, &request.provider)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .ok_or_else(|| {
-                ApiError::not_found(format!(
-                    "Active connection for provider {} not found",
-                    request.provider
-                ))
+                ApiError::not_found(format!("Active connection for provider {} not found", request.provider))
             })?;
 
         let mcp_url = self.extract_mcp_url(&conn)?;
 
         let result = self
             .mcp_proxy
-            .call_tool(
-                &mcp_url,
-                &request.tool_name,
-                request.arguments,
-                &request.provider,
-                user_id,
-            )
+            .call_tool(&mcp_url, &request.tool_name, request.arguments, &request.provider, user_id)
             .await?;
 
         Ok(result)
@@ -267,10 +234,7 @@ mod tests {
 
     #[test]
     fn test_update_connection_request() {
-        let request = UpdateConnectionRequest {
-            is_active: Some(false),
-            config: None,
-        };
+        let request = UpdateConnectionRequest { is_active: Some(false), config: None };
 
         assert_eq!(request.is_active, Some(false));
         assert!(request.config.is_none());

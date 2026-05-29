@@ -11,10 +11,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
-    let suffix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let username = format!("{}_{}", username, suffix);
     let request = Request::builder()
         .method("POST")
@@ -30,26 +27,15 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     if status != StatusCode::OK {
-        panic!(
-            "register failed: status={} body={}",
-            status,
-            String::from_utf8_lossy(&body)
-        );
+        panic!("register failed: status={} body={}", status, String::from_utf8_lossy(&body));
     }
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -61,37 +47,24 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .body(Body::from(json!({ "name": name }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
 
-async fn invite_user_to_room(
-    app: &axum::Router,
-    inviter_token: &str,
-    room_id: &str,
-    invitee_user_id: &str,
-) {
+async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &str, invitee_user_id: &str) {
     let request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", inviter_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "user_id": invitee_user_id }).to_string(),
-        ))
+        .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -103,9 +76,7 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -117,19 +88,12 @@ async fn get_first_device_id(app: &axum::Router, token: &str, path: &str) -> Str
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    json["devices"][0]["device_id"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    json["devices"][0]["device_id"].as_str().unwrap().to_string()
 }
 
 async fn get_device_response(
@@ -145,13 +109,9 @@ async fn get_device_response(
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     (status, json)
 }
@@ -177,9 +137,7 @@ async fn test_devices_routes_round_trip_across_versions() {
         ))
         .unwrap();
 
-    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
-        .await
-        .unwrap();
+    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request).await.unwrap();
     assert_eq!(update_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
@@ -189,14 +147,10 @@ async fn test_devices_routes_round_trip_across_versions() {
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["device_id"], device_id);
     assert_eq!(json["display_name"], "Nested Device Router");
@@ -216,14 +170,10 @@ async fn test_devices_routes_round_trip_across_versions() {
         ))
         .unwrap();
 
-    let updates_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), updates_request)
-        .await
-        .unwrap();
+    let updates_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), updates_request).await.unwrap();
     assert_eq!(updates_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(updates_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(updates_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["changed"].as_array().is_some());
 
@@ -240,14 +190,10 @@ async fn test_devices_routes_round_trip_across_versions() {
         ))
         .unwrap();
 
-    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
-        .await
-        .unwrap();
+    let update_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request).await.unwrap();
     assert_eq!(update_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(update_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(update_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["changed"].as_array().is_some());
 }
@@ -273,9 +219,7 @@ async fn test_delete_devices_alias_is_shared() {
         ))
         .unwrap();
 
-    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
-        .await
-        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(delete_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
@@ -285,12 +229,9 @@ async fn test_delete_devices_alias_is_shared() {
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request).await.unwrap();
     assert!(
-        get_response.status() == StatusCode::NOT_FOUND
-            || get_response.status() == StatusCode::UNAUTHORIZED,
+        get_response.status() == StatusCode::NOT_FOUND || get_response.status() == StatusCode::UNAUTHORIZED,
         "expected 404 or 401 after deleting current device, got {}",
         get_response.status()
     );
@@ -320,21 +261,17 @@ async fn test_delete_devices_only_removes_current_users_devices() {
         ))
         .unwrap();
 
-    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
-        .await
-        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(delete_response.status(), StatusCode::OK);
 
-    let (owner_status, _) =
-        get_device_response(&app, &token_a, &device_a, "/_matrix/client/v3/devices").await;
+    let (owner_status, _) = get_device_response(&app, &token_a, &device_a, "/_matrix/client/v3/devices").await;
     assert!(
         owner_status == StatusCode::NOT_FOUND || owner_status == StatusCode::UNAUTHORIZED,
         "expected 404 or 401 after deleting current device, got {}",
         owner_status
     );
 
-    let (other_status, other_body) =
-        get_device_response(&app, &token_b, &device_b, "/_matrix/client/v3/devices").await;
+    let (other_status, other_body) = get_device_response(&app, &token_b, &device_b, "/_matrix/client/v3/devices").await;
     assert_eq!(other_status, StatusCode::OK);
     assert_eq!(other_body["device_id"], device_b);
 }
@@ -348,13 +285,7 @@ async fn test_get_device_returns_not_found_for_other_users_device() {
     let (bob_token, _) = register_user(&app, "device_routes_target").await;
     let bob_device = get_first_device_id(&app, &bob_token, "/_matrix/client/v3/devices").await;
 
-    let (status, body) = get_device_response(
-        &app,
-        &alice_token,
-        &bob_device,
-        "/_matrix/client/v3/devices",
-    )
-    .await;
+    let (status, body) = get_device_response(&app, &alice_token, &bob_device, "/_matrix/client/v3/devices").await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["errcode"], "M_NOT_FOUND");
@@ -382,20 +313,14 @@ async fn test_device_list_updates_filters_users_without_shared_rooms() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let changed = json["changed"].as_array().unwrap();
 
-    assert!(!changed
-        .iter()
-        .any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }));
+    assert!(!changed.iter().any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }));
 }
 
 #[tokio::test]
@@ -424,21 +349,15 @@ async fn test_device_list_updates_allows_users_with_shared_rooms() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let changed = json["changed"].as_array().unwrap();
 
     assert!(
-        changed
-            .iter()
-            .any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }),
+        changed.iter().any(|entry| { entry["user_id"] == bob_user_id && entry["device_id"] == bob_device }),
         "expected shared-room user's device to be returned"
     );
 }

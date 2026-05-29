@@ -1,10 +1,6 @@
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 
-pub(crate) async fn is_joined_room_member(
-    state: &AppState,
-    user_id: &str,
-    room_id: &str,
-) -> Result<bool, ApiError> {
+pub(crate) async fn is_joined_room_member(state: &AppState, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
     state
         .services
         .member_storage

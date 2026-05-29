@@ -99,7 +99,9 @@ def build_entries(sample_dir: Path) -> list[QueryEntry]:
                     source=source,
                     queryid=row.get("queryid", ""),
                     calls=row.get("calls", ""),
-                    mean_exec_time=row.get("mean_exec_time", row.get("mean_exec_time ", "")),
+                    mean_exec_time=row.get(
+                        "mean_exec_time", row.get("mean_exec_time ", "")
+                    ),
                     total_exec_time=row.get("total_exec_time", ""),
                     rows=row.get("rows", ""),
                     query=row.get("query", "").strip(),
@@ -158,8 +160,15 @@ def render_markdown(entries: list[QueryEntry], output: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Classify PostgreSQL pg_stat_statements hotspots.")
-    parser.add_argument("--sample-dir", type=Path, required=True, help="Path to one PostgreSQL sample directory")
+    parser = argparse.ArgumentParser(
+        description="Classify PostgreSQL pg_stat_statements hotspots."
+    )
+    parser.add_argument(
+        "--sample-dir",
+        type=Path,
+        required=True,
+        help="Path to one PostgreSQL sample directory",
+    )
     parser.add_argument(
         "--output",
         type=Path,

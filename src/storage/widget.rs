@@ -201,10 +201,7 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    pub async fn get_widget_permissions(
-        &self,
-        widget_id: &str,
-    ) -> Result<Vec<WidgetPermission>, sqlx::Error> {
+    pub async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WidgetPermission>(
             r#"
             SELECT * FROM widget_permissions WHERE widget_id = $1
@@ -235,11 +232,7 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    pub async fn delete_widget_permission(
-        &self,
-        widget_id: &str,
-        user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM widget_permissions WHERE widget_id = $1 AND user_id = $2
@@ -283,10 +276,7 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    pub async fn get_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<WidgetSession>, sqlx::Error> {
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, WidgetSession>(
             r#"
             SELECT * FROM widget_sessions WHERE session_id = $1 AND is_active = TRUE
@@ -328,15 +318,12 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn get_widget_sessions(
-        &self,
-        widget_id: &str,
-    ) -> Result<Vec<WidgetSession>, sqlx::Error> {
+    pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let rows = sqlx::query_as::<_, WidgetSession>(
             r#"
-            SELECT * FROM widget_sessions 
+            SELECT * FROM widget_sessions
             WHERE widget_id = $1 AND is_active = TRUE AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY last_active_ts DESC
             "#,
@@ -354,7 +341,7 @@ impl WidgetStorage {
 
         let result = sqlx::query(
             r#"
-            UPDATE widget_sessions SET is_active = FALSE 
+            UPDATE widget_sessions SET is_active = FALSE
             WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = TRUE
             "#,
         )

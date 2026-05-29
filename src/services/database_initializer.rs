@@ -21,10 +21,7 @@ pub enum DatabaseInitMode {
 
 impl Environment {
     pub fn from_env() -> Self {
-        std::env::var("RUST_ENV")
-            .unwrap_or_else(|_| "development".to_string())
-            .to_lowercase()
-            .into()
+        std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()).to_lowercase().into()
     }
 
     pub fn is_development(&self) -> bool {
@@ -149,8 +146,7 @@ impl DatabaseInitService {
         }
 
         if mode == DatabaseInitMode::Strict {
-            let message =
-                "严格模式仅执行 migrations/*.sql；运行时 DDL 已禁用并由迁移链路兜底".to_string();
+            let message = "严格模式仅执行 migrations/*.sql；运行时 DDL 已禁用并由迁移链路兜底".to_string();
             info!("{}", message);
             report.steps.push(message);
             return Ok(report);
@@ -222,9 +218,7 @@ impl DatabaseInitService {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
                     report.is_success = false;
-                    report
-                        .errors
-                        .push(format!("运行时 E2EE 兼容表检查失败: {}", e));
+                    report.errors.push(format!("运行时 E2EE 兼容表检查失败: {}", e));
                 }
             }
 
@@ -232,9 +226,7 @@ impl DatabaseInitService {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
                     report.is_success = false;
-                    report
-                        .errors
-                        .push(format!("运行时 E2EE 核心表检查失败: {}", e));
+                    report.errors.push(format!("运行时 E2EE 核心表检查失败: {}", e));
                 }
             }
 
@@ -242,9 +234,7 @@ impl DatabaseInitService {
                 Ok(message) => report.steps.push(message),
                 Err(e) => {
                     report.is_success = false;
-                    report
-                        .errors
-                        .push(format!("运行时附加表兼容检查失败: {}", e));
+                    report.errors.push(format!("运行时附加表兼容检查失败: {}", e));
                 }
             }
 
@@ -252,9 +242,7 @@ impl DatabaseInitService {
                 Ok(status) => report.schema_status = Some(status),
                 Err(e) => {
                     report.is_success = false;
-                    report
-                        .errors
-                        .push(format!("运行时修复后 Schema 复检失败: {}", e));
+                    report.errors.push(format!("运行时修复后 Schema 复检失败: {}", e));
                 }
             }
         }
@@ -279,9 +267,7 @@ impl DatabaseInitService {
 
     fn resolved_mode(&self) -> Option<DatabaseInitMode> {
         match self.mode {
-            DatabaseInitMode::Auto => {
-                Self::runtime_db_init_enabled().then_some(DatabaseInitMode::Compatible)
-            }
+            DatabaseInitMode::Auto => Self::runtime_db_init_enabled().then_some(DatabaseInitMode::Compatible),
             DatabaseInitMode::Strict => Some(DatabaseInitMode::Strict),
             DatabaseInitMode::Compatible => Some(DatabaseInitMode::Compatible),
         }
@@ -339,9 +325,7 @@ impl DatabaseInitService {
     }
 
     async fn step_connection_test(&self) -> Result<String, sqlx::Error> {
-        sqlx::query("SELECT 1 as test")
-            .fetch_one(&*self.pool)
-            .await?;
+        sqlx::query("SELECT 1 as test").fetch_one(&*self.pool).await?;
         Ok("数据库连接测试通过".to_string())
     }
 
@@ -350,18 +334,15 @@ impl DatabaseInitService {
 
         self.ensure_schema_migrations_table().await?;
 
-        let lock_key: i64 = sqlx::query_scalar(
-            "SELECT hashtext(current_database() || ':' || current_schema())::bigint",
-        )
-        .fetch_one(&*self.pool)
-        .await?;
+        let lock_key: i64 =
+            sqlx::query_scalar("SELECT hashtext(current_database() || ':' || current_schema())::bigint")
+                .fetch_one(&*self.pool)
+                .await?;
         let mut lock_conn = self.pool.acquire().await?;
         let lock_start = std::time::Instant::now();
         loop {
-            let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-                .bind(lock_key)
-                .fetch_one(&mut *lock_conn)
-                .await?;
+            let locked: bool =
+                sqlx::query_scalar("SELECT pg_try_advisory_lock($1)").bind(lock_key).fetch_one(&mut *lock_conn).await?;
             if locked {
                 break;
             }
@@ -380,19 +361,13 @@ impl DatabaseInitService {
             std::path::Path::new("./migrations")
         } else {
             info!("未找到迁移目录，跳过迁移");
-            let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-                .bind(lock_key)
-                .execute(&mut *lock_conn)
-                .await;
+            let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *lock_conn).await;
             return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
 
         info!("使用运行时迁移文件: {:?}", migrations_dir);
         let result = self.run_runtime_migrations(migrations_dir).await;
-        let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(lock_key)
-            .execute(&mut *lock_conn)
-            .await;
+        let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *lock_conn).await;
         result
     }
 
@@ -427,11 +402,10 @@ impl DatabaseInitService {
     }
 
     async fn is_migration_executed(&self, version: &str) -> Result<bool, sqlx::Error> {
-        let result: Option<(bool,)> =
-            sqlx::query_as("SELECT success FROM schema_migrations WHERE version = $1")
-                .bind(version)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let result: Option<(bool,)> = sqlx::query_as("SELECT success FROM schema_migrations WHERE version = $1")
+            .bind(version)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(result.is_some_and(|(success,)| success))
     }
@@ -474,20 +448,14 @@ impl DatabaseInitService {
         format!("{:016x}", hasher.finish())
     }
 
-    async fn run_runtime_migrations(
-        &self,
-        migrations_dir: &std::path::Path,
-    ) -> Result<String, sqlx::Error> {
+    async fn run_runtime_migrations(&self, migrations_dir: &std::path::Path) -> Result<String, sqlx::Error> {
         let mut migration_files: Vec<std::path::PathBuf> = std::fs::read_dir(migrations_dir)
             .map_err(|e| sqlx::Error::Configuration(e.to_string().into()))?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| {
                 path.extension().is_some_and(|ext| ext == "sql")
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|name| !name.ends_with(".undo.sql"))
+                    && path.file_name().and_then(|name| name.to_str()).is_some_and(|name| !name.ends_with(".undo.sql"))
             })
             .collect();
 
@@ -500,10 +468,7 @@ impl DatabaseInitService {
         let mut error_count = 0;
 
         for migration_file in migration_files {
-            let filename = migration_file
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
+            let filename = migration_file.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
             let version = filename.trim_end_matches(".sql");
 
@@ -542,9 +507,7 @@ impl DatabaseInitService {
                 }
 
                 // Set statement timeout to 30 seconds to prevent indefinite hangs
-                let timeout_result = sqlx::query("SET statement_timeout = '30s'")
-                    .execute(&mut *conn)
-                    .await;
+                let timeout_result = sqlx::query("SET statement_timeout = '30s'").execute(&mut *conn).await;
 
                 if let Err(e) = timeout_result {
                     debug!("无法设置 statement_timeout: {}", e);
@@ -579,9 +542,7 @@ impl DatabaseInitService {
 
             let execution_time_ms = start_time.elapsed().as_millis() as i64;
 
-            let _ = self
-                .record_migration(version, &checksum, execution_time_ms, file_success)
-                .await;
+            let _ = self.record_migration(version, &checksum, execution_time_ms, file_success).await;
 
             if file_success {
                 info!("迁移 {} 执行成功 ({}ms)", filename, execution_time_ms);
@@ -591,13 +552,8 @@ impl DatabaseInitService {
             }
         }
 
-        info!(
-            "迁移完成: 成功={}, 跳过={}, 错误={}",
-            success_count, skip_count, error_count
-        );
-        Ok(format!(
-            "数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"
-        ))
+        info!("迁移完成: 成功={}, 跳过={}, 错误={}", success_count, skip_count, error_count);
+        Ok(format!("数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"))
     }
 
     fn split_sql_statements(sql: &str) -> Vec<String> {
@@ -621,11 +577,7 @@ impl DatabaseInitService {
 
         while i < chars.len() {
             let c = chars[i];
-            let next_c = if i + 1 < chars.len() {
-                Some(chars[i + 1])
-            } else {
-                None
-            };
+            let next_c = if i + 1 < chars.len() { Some(chars[i + 1]) } else { None };
             let prev_c = if i > 0 { Some(chars[i - 1]) } else { None };
 
             match state {
@@ -694,8 +646,7 @@ impl DatabaseInitService {
                         let tag_len = dollar_tag.len();
                         let start = i.saturating_sub(tag_len - 1);
                         if start + tag_len <= chars.len() {
-                            let potential_tag: String =
-                                chars[start..start + tag_len].iter().collect();
+                            let potential_tag: String = chars[start..start + tag_len].iter().collect();
                             if potential_tag == dollar_tag {
                                 state = State::Normal;
                                 dollar_tag.clear();
@@ -748,9 +699,7 @@ impl DatabaseInitService {
         None
     }
 
-    async fn step_schema_validation(
-        &self,
-    ) -> Result<crate::storage::SchemaValidationResult, sqlx::Error> {
+    async fn step_schema_validation(&self) -> Result<crate::storage::SchemaValidationResult, sqlx::Error> {
         self.schema_validator.validate_all().await
     }
 
@@ -834,11 +783,9 @@ impl DatabaseInitService {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_accounts_user ON olm_accounts(user_id)")
             .execute(&*self.pool)
             .await?;
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_olm_accounts_device ON olm_accounts(device_id)",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_accounts_device ON olm_accounts(device_id)")
+            .execute(&*self.pool)
+            .await?;
 
         // Create olm_sessions table
         sqlx::query(
@@ -865,11 +812,9 @@ impl DatabaseInitService {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_sessions_user ON olm_sessions(user_id)")
             .execute(&*self.pool)
             .await?;
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_olm_sessions_device ON olm_sessions(device_id)",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_olm_sessions_device ON olm_sessions(device_id)")
+            .execute(&*self.pool)
+            .await?;
 
         // Create megolm_sessions table
         sqlx::query(
@@ -894,11 +839,9 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id)",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id)")
+            .execute(&*self.pool)
+            .await?;
 
         // Create cross_signing_keys table
         sqlx::query(
@@ -965,11 +908,9 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id)",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id)")
+            .execute(&*self.pool)
+            .await?;
 
         sqlx::query(
             r#"
@@ -1241,11 +1182,9 @@ impl DatabaseInitService {
             .execute(&*self.pool)
             .await?;
 
-        sqlx::query(
-            "ALTER TABLE device_keys ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN DEFAULT FALSE",
-        )
-        .execute(&*self.pool)
-        .await?;
+        sqlx::query("ALTER TABLE device_keys ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN DEFAULT FALSE")
+            .execute(&*self.pool)
+            .await?;
 
         // Ensure room_tags table exists
         sqlx::query(
@@ -1649,9 +1588,7 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq").execute(&*self.pool).await?;
 
         sqlx::query(
             r#"
@@ -1936,10 +1873,8 @@ impl DatabaseInitService {
         .await?;
 
         // Seed default captcha templates if not present
-        let captcha_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template")
-            .fetch_one(&*self.pool)
-            .await
-            .unwrap_or(0);
+        let captcha_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template").fetch_one(&*self.pool).await.unwrap_or(0);
         if captcha_count == 0 {
             let now_ts = chrono::Utc::now().timestamp_millis();
             sqlx::query(
@@ -1997,16 +1932,10 @@ impl InitializationReport {
 
         if let Some(ref status) = self.schema_status {
             if !status.is_healthy {
-                summary.push_str(&format!(
-                    "\n  Schema问题: {} 个表有问题",
-                    status.schema_info.len()
-                ));
+                summary.push_str(&format!("\n  Schema问题: {} 个表有问题", status.schema_info.len()));
                 for info in &status.schema_info {
                     if !info.missing_columns.is_empty() {
-                        summary.push_str(&format!(
-                            "\n    - {}: 缺少列 {:?}",
-                            info.table_name, info.missing_columns
-                        ));
+                        summary.push_str(&format!("\n    - {}: 缺少列 {:?}", info.table_name, info.missing_columns));
                     }
                 }
             } else {

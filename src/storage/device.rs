@@ -73,9 +73,7 @@ impl DeviceStorage {
         device_id: Option<&str>,
         change_type: &str,
     ) {
-        let _ = self
-            .record_device_list_change(user_id, device_id, change_type)
-            .await;
+        let _ = self.record_device_list_change(user_id, device_id, change_type).await;
     }
 
     pub async fn get_lazy_loaded_members(
@@ -153,11 +151,7 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())
     }
 
-    async fn delete_lazy_loaded_members_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<u64, sqlx::Error> {
+    async fn delete_lazy_loaded_members_for_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
         sqlx::query(
             r"
             DELETE FROM lazy_loaded_members
@@ -212,12 +206,8 @@ impl DeviceStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        let _ = self
-            .delete_lazy_loaded_members_for_device(user_id, device_id)
-            .await;
-        let _ = self
-            .record_device_list_change(user_id, Some(device_id), "changed")
-            .await;
+        let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
+        let _ = self.record_device_list_change(user_id, Some(device_id), "changed").await;
 
         Ok(device)
     }
@@ -302,11 +292,7 @@ impl DeviceStorage {
         .await
     }
 
-    pub async fn update_device_display_name(
-        &self,
-        device_id: &str,
-        display_name: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_device_display_name(&self, device_id: &str, display_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE devices SET display_name = $1 WHERE device_id = $2
@@ -318,9 +304,7 @@ impl DeviceStorage {
         .await?;
 
         if let Some(device) = self.get_device(device_id).await? {
-            let _ = self
-                .record_device_list_change(&device.user_id, Some(device_id), "changed")
-                .await;
+            let _ = self.record_device_list_change(&device.user_id, Some(device_id), "changed").await;
         }
         Ok(())
     }
@@ -346,9 +330,7 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = self
-                .record_device_list_change(user_id, Some(device_id), "changed")
-                .await;
+            let _ = self.record_device_list_change(user_id, Some(device_id), "changed").await;
         }
 
         Ok(rows_affected)
@@ -383,12 +365,8 @@ impl DeviceStorage {
             Ok(res) => {
                 if res.rows_affected() > 0 {
                     if let Some(device) = existing {
-                        let _ = self
-                            .delete_lazy_loaded_members_for_device(&device.user_id, device_id)
-                            .await;
-                        let _ = self
-                            .record_device_list_change(&device.user_id, Some(device_id), "deleted")
-                            .await;
+                        let _ = self.delete_lazy_loaded_members_for_device(&device.user_id, device_id).await;
+                        let _ = self.record_device_list_change(&device.user_id, Some(device_id), "deleted").await;
                     }
                 }
                 Ok(())
@@ -397,11 +375,7 @@ impl DeviceStorage {
         }
     }
 
-    pub async fn delete_user_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn delete_user_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
         let rows_affected = sqlx::query(
             r"
             DELETE FROM devices
@@ -415,12 +389,8 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = self
-                .delete_lazy_loaded_members_for_device(user_id, device_id)
-                .await;
-            let _ = self
-                .record_device_list_change(user_id, Some(device_id), "deleted")
-                .await;
+            let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
+            let _ = self.record_device_list_change(user_id, Some(device_id), "deleted").await;
         }
 
         Ok(rows_affected)
@@ -450,9 +420,7 @@ impl DeviceStorage {
                 if res.rows_affected() > 0 {
                     let _ = self.delete_lazy_loaded_members_for_user(user_id).await;
                     for device_id in device_ids {
-                        let _ = self
-                            .record_device_list_change(user_id, Some(&device_id), "deleted")
-                            .await;
+                        let _ = self.record_device_list_change(user_id, Some(&device_id), "deleted").await;
                     }
                 }
                 Ok(())
@@ -483,43 +451,30 @@ impl DeviceStorage {
 
         if rows_affected > 0 {
             for (user_id, device_id) in rows {
-                let _ = self
-                    .delete_lazy_loaded_members_for_device(&user_id, &device_id)
-                    .await;
-                let _ = self
-                    .record_device_list_change(&user_id, Some(&device_id), "deleted")
-                    .await;
+                let _ = self.delete_lazy_loaded_members_for_device(&user_id, &device_id).await;
+                let _ = self.record_device_list_change(&user_id, Some(&device_id), "deleted").await;
             }
         }
 
         Ok(rows_affected)
     }
 
-    pub async fn delete_user_devices_batch(
-        &self,
-        user_id: &str,
-        device_ids: &[String],
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         if device_ids.is_empty() {
             return Ok(0);
         }
 
-        let rows_affected =
-            sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
-                .bind(user_id)
-                .bind(device_ids)
-                .execute(&*self.pool)
-                .await
-                .map(|result| result.rows_affected())?;
+        let rows_affected = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
+            .bind(user_id)
+            .bind(device_ids)
+            .execute(&*self.pool)
+            .await
+            .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
             for device_id in device_ids {
-                let _ = self
-                    .delete_lazy_loaded_members_for_device(user_id, device_id)
-                    .await;
-                let _ = self
-                    .record_device_list_change(user_id, Some(device_id.as_str()), "deleted")
-                    .await;
+                let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
+                let _ = self.record_device_list_change(user_id, Some(device_id.as_str()), "deleted").await;
             }
         }
 
@@ -538,10 +493,7 @@ impl DeviceStorage {
         Ok(result.is_some())
     }
 
-    pub async fn get_devices_batch(
-        &self,
-        device_ids: &[String],
-    ) -> Result<Vec<Device>, sqlx::Error> {
+    pub async fn get_devices_batch(&self, device_ids: &[String]) -> Result<Vec<Device>, sqlx::Error> {
         if device_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -592,10 +544,7 @@ impl DeviceStorage {
     pub async fn get_device_keys_for_users(
         &self,
         user_ids: &[String],
-    ) -> Result<
-        std::collections::HashMap<String, std::collections::HashMap<String, Device>>,
-        sqlx::Error,
-    > {
+    ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, Device>>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
@@ -603,7 +552,7 @@ impl DeviceStorage {
         let devices: Vec<Device> = sqlx::query_as(
             r"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices 
+            FROM devices
             WHERE user_id = ANY($1) AND device_key IS NOT NULL
             ",
         )
@@ -611,13 +560,8 @@ impl DeviceStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut result: std::collections::HashMap<
-            String,
-            std::collections::HashMap<String, Device>,
-        > = user_ids
-            .iter()
-            .map(|id| (id.clone(), std::collections::HashMap::new()))
-            .collect();
+        let mut result: std::collections::HashMap<String, std::collections::HashMap<String, Device>> =
+            user_ids.iter().map(|id| (id.clone(), std::collections::HashMap::new())).collect();
 
         for device in devices {
             if let Some(user_devices) = result.get_mut(&device.user_id) {
@@ -640,11 +584,7 @@ impl DeviceStorage {
         Ok(count)
     }
 
-    pub async fn get_user_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<Device>, sqlx::Error> {
+    pub async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
@@ -657,10 +597,7 @@ impl DeviceStorage {
         .await
     }
 
-    pub async fn filter_existing_users(
-        &self,
-        user_ids: &[String],
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -675,10 +612,7 @@ impl DeviceStorage {
         .await
     }
 
-    pub async fn update_devices_last_seen_batch(
-        &self,
-        device_ids: &[String],
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn update_devices_last_seen_batch(&self, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         if device_ids.is_empty() {
             return Ok(0);
         }
@@ -1126,12 +1060,7 @@ mod tests {
 
         let members = HashSet::from(["@alice:localhost".to_string(), "@bob:localhost".to_string()]);
         storage
-            .upsert_lazy_loaded_members(
-                "@alice:localhost",
-                "DEVICE123",
-                "!room:localhost",
-                &members,
-            )
+            .upsert_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost", &members)
             .await
             .expect("Failed to store lazy-loaded members");
 
@@ -1141,10 +1070,7 @@ mod tests {
             .expect("Failed to fetch lazy-loaded members");
         assert_eq!(before_delete, members);
 
-        let rows = storage
-            .delete_user_device("@alice:localhost", "DEVICE123")
-            .await
-            .expect("Failed to delete device");
+        let rows = storage.delete_user_device("@alice:localhost", "DEVICE123").await.expect("Failed to delete device");
         assert_eq!(rows, 1);
 
         let after_delete = storage

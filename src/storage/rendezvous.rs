@@ -132,10 +132,7 @@ impl RendezvousStorage {
         .await
     }
 
-    pub async fn get_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<RendezvousSession>, sqlx::Error> {
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, RendezvousSession>(
@@ -150,14 +147,10 @@ impl RendezvousStorage {
         .await
     }
 
-    pub async fn update_session_status(
-        &self,
-        session_id: &str,
-        status: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
-            UPDATE rendezvous_session 
+            UPDATE rendezvous_session
             SET status = $2
             WHERE session_id = $1
             ",
@@ -178,7 +171,7 @@ impl RendezvousStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
-            UPDATE rendezvous_session 
+            UPDATE rendezvous_session
             SET user_id = $2, device_id = $3, status = 'connected'
             WHERE session_id = $1
             ",
@@ -195,7 +188,7 @@ impl RendezvousStorage {
     pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
-            UPDATE rendezvous_session 
+            UPDATE rendezvous_session
             SET status = 'completed'
             WHERE session_id = $1
             ",
@@ -273,7 +266,7 @@ impl RendezvousMessageStorage {
 
         sqlx::query(
             r"
-            INSERT INTO rendezvous_messages 
+            INSERT INTO rendezvous_messages
                 (session_id, direction, message_type, content, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ",
@@ -298,7 +291,7 @@ impl RendezvousMessageStorage {
             Some(after) => {
                 sqlx::query_as::<_, StoredRendezvousMessage>(
                     r"
-                    SELECT * FROM rendezvous_messages 
+                    SELECT * FROM rendezvous_messages
                     WHERE session_id = $1 AND id > $2
                     ORDER BY id ASC
                     ",
@@ -311,7 +304,7 @@ impl RendezvousMessageStorage {
             None => {
                 sqlx::query_as::<_, StoredRendezvousMessage>(
                     r"
-                    SELECT * FROM rendezvous_messages 
+                    SELECT * FROM rendezvous_messages
                     WHERE session_id = $1
                     ORDER BY id ASC
                     ",
@@ -343,10 +336,7 @@ mod tests {
 
     #[test]
     fn test_rendezvous_intent() {
-        assert_eq!(
-            RendezvousIntent::LoginReciprocate.as_str(),
-            "login.reciprocate"
-        );
+        assert_eq!(RendezvousIntent::LoginReciprocate.as_str(), "login.reciprocate");
         assert_eq!(RendezvousIntent::LoginStart.as_str(), "login.start");
     }
 

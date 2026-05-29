@@ -2,9 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::state_groups::{
-    StateGroupStateEntry, StateGroupStorage,
-};
+use synapse_rust::storage::state_groups::{StateGroupStateEntry, StateGroupStorage};
 use tokio::runtime::Runtime;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -17,9 +15,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping state groups storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping state groups storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -151,15 +147,13 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
 }
 
 async fn insert_room(pool: &sqlx::PgPool, room_id: &str) {
-    sqlx::query(
-        r#"INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3)"#,
-    )
-    .bind(room_id)
-    .bind("@creator:test")
-    .bind(1000_i64)
-    .execute(pool)
-    .await
-    .expect("Failed to insert room");
+    sqlx::query(r#"INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3)"#)
+        .bind(room_id)
+        .bind("@creator:test")
+        .bind(1000_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to insert room");
 }
 
 async fn insert_event(pool: &sqlx::PgPool, event_id: &str, room_id: &str) {
@@ -195,10 +189,7 @@ fn test_create_and_get_state_group() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let sg = storage.get_state_group(id).await.unwrap().unwrap();
         assert_eq!(sg.id, id);
@@ -243,15 +234,9 @@ fn test_create_state_group_upsert_on_conflict() {
         insert_event(&pool, &event_id1, &room_id).await;
         insert_event(&pool, &event_id2, &room_id).await;
 
-        let id1 = storage
-            .create_state_group(&room_id, &event_id1, &state_hash, 1000)
-            .await
-            .unwrap();
+        let id1 = storage.create_state_group(&room_id, &event_id1, &state_hash, 1000).await.unwrap();
 
-        let id2 = storage
-            .create_state_group(&room_id, &event_id2, &state_hash, 2000)
-            .await
-            .unwrap();
+        let id2 = storage.create_state_group(&room_id, &event_id2, &state_hash, 2000).await.unwrap();
 
         assert_eq!(id1, id2);
 
@@ -277,10 +262,7 @@ fn test_get_state_group_by_event() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let sg = storage.get_state_group_by_event(&event_id).await.unwrap().unwrap();
         assert_eq!(sg.event_id, event_id);
@@ -321,10 +303,7 @@ fn test_get_room_state_groups() {
             let event_id = format!("$event_{suffix}_{i}:test");
             let state_hash = format!("hash_{suffix}_{i}");
             insert_event(&pool, &event_id, &room_id).await;
-            storage
-                .create_state_group(&room_id, &event_id, &state_hash, 1000 + i)
-                .await
-                .unwrap();
+            storage.create_state_group(&room_id, &event_id, &state_hash, 1000 + i).await.unwrap();
         }
 
         let groups = storage.get_room_state_groups(&room_id, 10).await.unwrap();
@@ -354,10 +333,7 @@ fn test_add_and_get_state_group_edges() {
             let event_id = format!("$event_{suffix}_{i}:test");
             let state_hash = format!("hash_{suffix}_{i}");
             insert_event(&pool, &event_id, &room_id).await;
-            let id = storage
-                .create_state_group(&room_id, &event_id, &state_hash, 1000 + i)
-                .await
-                .unwrap();
+            let id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000 + i).await.unwrap();
             sg_ids.push(id);
         }
 
@@ -397,17 +373,11 @@ fn test_add_state_group_edges_batch() {
             let event_id = format!("$event_{suffix}_{i}:test");
             let state_hash = format!("hash_{suffix}_{i}");
             insert_event(&pool, &event_id, &room_id).await;
-            let id = storage
-                .create_state_group(&room_id, &event_id, &state_hash, 1000 + i)
-                .await
-                .unwrap();
+            let id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000 + i).await.unwrap();
             sg_ids.push(id);
         }
 
-        storage
-            .add_state_group_edges(sg_ids[2], &[sg_ids[0], sg_ids[1]])
-            .await
-            .unwrap();
+        storage.add_state_group_edges(sg_ids[2], &[sg_ids[0], sg_ids[1]]).await.unwrap();
 
         let prev = storage.get_prev_state_groups(sg_ids[2]).await.unwrap();
         assert_eq!(prev.len(), 2);
@@ -436,14 +406,8 @@ fn test_add_state_group_edge_duplicate_no_error() {
         let state_hash2 = format!("hash_{suffix}_2");
         insert_event(&pool, &event_id1, &room_id).await;
         insert_event(&pool, &event_id2, &room_id).await;
-        let id1 = storage
-            .create_state_group(&room_id, &event_id1, &state_hash1, 1000)
-            .await
-            .unwrap();
-        let id2 = storage
-            .create_state_group(&room_id, &event_id2, &state_hash2, 2000)
-            .await
-            .unwrap();
+        let id1 = storage.create_state_group(&room_id, &event_id1, &state_hash1, 1000).await.unwrap();
+        let id2 = storage.create_state_group(&room_id, &event_id2, &state_hash2, 2000).await.unwrap();
 
         storage.add_state_group_edge(id2, id1).await.unwrap();
         storage.add_state_group_edge(id2, id1).await.unwrap();
@@ -470,18 +434,12 @@ fn test_bind_and_get_event_to_state_group() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let bind_event_id = format!("$bind_event_{suffix}:test");
         insert_event(&pool, &bind_event_id, &room_id).await;
 
-        storage
-            .bind_event_to_state_group(&bind_event_id, sg_id)
-            .await
-            .unwrap();
+        storage.bind_event_to_state_group(&bind_event_id, sg_id).await.unwrap();
 
         let result = storage.get_state_group_for_event(&bind_event_id).await.unwrap();
         assert_eq!(result, Some(sg_id));
@@ -523,26 +481,14 @@ fn test_bind_event_to_state_group_upsert() {
         let state_hash2 = format!("hash2_{suffix}");
         insert_event(&pool, &event_id1, &room_id).await;
         insert_event(&pool, &event_id2, &room_id).await;
-        let sg_id1 = storage
-            .create_state_group(&room_id, &event_id1, &state_hash1, 1000)
-            .await
-            .unwrap();
-        let sg_id2 = storage
-            .create_state_group(&room_id, &event_id2, &state_hash2, 2000)
-            .await
-            .unwrap();
+        let sg_id1 = storage.create_state_group(&room_id, &event_id1, &state_hash1, 1000).await.unwrap();
+        let sg_id2 = storage.create_state_group(&room_id, &event_id2, &state_hash2, 2000).await.unwrap();
 
         let bind_event_id = format!("$bind_event_{suffix}:test");
         insert_event(&pool, &bind_event_id, &room_id).await;
 
-        storage
-            .bind_event_to_state_group(&bind_event_id, sg_id1)
-            .await
-            .unwrap();
-        storage
-            .bind_event_to_state_group(&bind_event_id, sg_id2)
-            .await
-            .unwrap();
+        storage.bind_event_to_state_group(&bind_event_id, sg_id1).await.unwrap();
+        storage.bind_event_to_state_group(&bind_event_id, sg_id2).await.unwrap();
 
         let result = storage.get_state_group_for_event(&bind_event_id).await.unwrap();
         assert_eq!(result, Some(sg_id2));
@@ -566,10 +512,7 @@ fn test_batch_bind_events_to_state_group() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let bind_ids: Vec<String> = (0..3)
             .map(|i| {
@@ -582,10 +525,7 @@ fn test_batch_bind_events_to_state_group() {
             insert_event(&pool, id, &room_id).await;
         }
 
-        storage
-            .batch_bind_events_to_state_group(&bind_ids, sg_id)
-            .await
-            .unwrap();
+        storage.batch_bind_events_to_state_group(&bind_ids, sg_id).await.unwrap();
 
         for id in &bind_ids {
             let result = storage.get_state_group_for_event(id).await.unwrap();
@@ -611,23 +551,14 @@ fn test_set_and_get_state_entry() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let state_event_id = format!("$state_event_{suffix}:test");
         insert_event(&pool, &state_event_id, &room_id).await;
 
-        storage
-            .set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id)
-            .await
-            .unwrap();
+        storage.set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id).await.unwrap();
 
-        let result = storage
-            .get_state_entry(sg_id, "m.room.member", "@user:test")
-            .await
-            .unwrap();
+        let result = storage.get_state_entry(sg_id, "m.room.member", "@user:test").await.unwrap();
         assert_eq!(result, Some(state_event_id.clone()));
     });
 }
@@ -642,10 +573,7 @@ fn test_get_state_entry_not_found() {
         };
         let storage = StateGroupStorage::new(&pool);
 
-        let result = storage
-            .get_state_entry(99999, "m.room.member", "@user:test")
-            .await
-            .unwrap();
+        let result = storage.get_state_entry(99999, "m.room.member", "@user:test").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -667,29 +595,17 @@ fn test_set_state_entry_upsert() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let state_event_id1 = format!("$state_event1_{suffix}:test");
         let state_event_id2 = format!("$state_event2_{suffix}:test");
         insert_event(&pool, &state_event_id1, &room_id).await;
         insert_event(&pool, &state_event_id2, &room_id).await;
 
-        storage
-            .set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id1)
-            .await
-            .unwrap();
-        storage
-            .set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id2)
-            .await
-            .unwrap();
+        storage.set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id1).await.unwrap();
+        storage.set_state_entry(sg_id, "m.room.member", "@user:test", &state_event_id2).await.unwrap();
 
-        let result = storage
-            .get_state_entry(sg_id, "m.room.member", "@user:test")
-            .await
-            .unwrap();
+        let result = storage.get_state_entry(sg_id, "m.room.member", "@user:test").await.unwrap();
         assert_eq!(result, Some(state_event_id2));
     });
 }
@@ -711,10 +627,7 @@ fn test_set_state_entries_batch() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let entries = vec![
             StateGroupStateEntry {
@@ -762,10 +675,7 @@ fn test_get_state_at_group_empty() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let state = storage.get_state_at_group(sg_id).await.unwrap();
         assert!(state.is_empty());
@@ -789,35 +699,20 @@ fn test_resolve_state_for_group_single() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let state_event1 = format!("$state_member_{suffix}:test");
         let state_event2 = format!("$state_name_{suffix}:test");
         insert_event(&pool, &state_event1, &room_id).await;
         insert_event(&pool, &state_event2, &room_id).await;
 
-        storage
-            .set_state_entry(sg_id, "m.room.member", "@user:test", &state_event1)
-            .await
-            .unwrap();
-        storage
-            .set_state_entry(sg_id, "m.room.name", "", &state_event2)
-            .await
-            .unwrap();
+        storage.set_state_entry(sg_id, "m.room.member", "@user:test", &state_event1).await.unwrap();
+        storage.set_state_entry(sg_id, "m.room.name", "", &state_event2).await.unwrap();
 
         let resolved = storage.resolve_state_for_group(sg_id).await.unwrap();
         assert_eq!(resolved.len(), 2);
-        assert_eq!(
-            resolved.get(&("m.room.member".to_string(), "@user:test".to_string())),
-            Some(&state_event1)
-        );
-        assert_eq!(
-            resolved.get(&("m.room.name".to_string(), "".to_string())),
-            Some(&state_event2)
-        );
+        assert_eq!(resolved.get(&("m.room.member".to_string(), "@user:test".to_string())), Some(&state_event1));
+        assert_eq!(resolved.get(&("m.room.name".to_string(), "".to_string())), Some(&state_event2));
     });
 }
 
@@ -842,41 +737,23 @@ fn test_resolve_state_for_group_with_edges() {
         insert_event(&pool, &event_id1, &room_id).await;
         insert_event(&pool, &event_id2, &room_id).await;
 
-        let sg_id1 = storage
-            .create_state_group(&room_id, &event_id1, &state_hash1, 1000)
-            .await
-            .unwrap();
-        let sg_id2 = storage
-            .create_state_group(&room_id, &event_id2, &state_hash2, 2000)
-            .await
-            .unwrap();
+        let sg_id1 = storage.create_state_group(&room_id, &event_id1, &state_hash1, 1000).await.unwrap();
+        let sg_id2 = storage.create_state_group(&room_id, &event_id2, &state_hash2, 2000).await.unwrap();
 
         let state_event_a = format!("$state_a_{suffix}:test");
         let state_event_b = format!("$state_b_{suffix}:test");
         insert_event(&pool, &state_event_a, &room_id).await;
         insert_event(&pool, &state_event_b, &room_id).await;
 
-        storage
-            .set_state_entry(sg_id1, "m.room.member", "@alice:test", &state_event_a)
-            .await
-            .unwrap();
-        storage
-            .set_state_entry(sg_id2, "m.room.member", "@bob:test", &state_event_b)
-            .await
-            .unwrap();
+        storage.set_state_entry(sg_id1, "m.room.member", "@alice:test", &state_event_a).await.unwrap();
+        storage.set_state_entry(sg_id2, "m.room.member", "@bob:test", &state_event_b).await.unwrap();
 
         storage.add_state_group_edge(sg_id2, sg_id1).await.unwrap();
 
         let resolved = storage.resolve_state_for_group(sg_id2).await.unwrap();
         assert_eq!(resolved.len(), 2);
-        assert_eq!(
-            resolved.get(&("m.room.member".to_string(), "@alice:test".to_string())),
-            Some(&state_event_a)
-        );
-        assert_eq!(
-            resolved.get(&("m.room.member".to_string(), "@bob:test".to_string())),
-            Some(&state_event_b)
-        );
+        assert_eq!(resolved.get(&("m.room.member".to_string(), "@alice:test".to_string())), Some(&state_event_a));
+        assert_eq!(resolved.get(&("m.room.member".to_string(), "@bob:test".to_string())), Some(&state_event_b));
     });
 }
 
@@ -901,37 +778,22 @@ fn test_resolve_state_child_overrides_parent() {
         insert_event(&pool, &event_id1, &room_id).await;
         insert_event(&pool, &event_id2, &room_id).await;
 
-        let sg_id1 = storage
-            .create_state_group(&room_id, &event_id1, &state_hash1, 1000)
-            .await
-            .unwrap();
-        let sg_id2 = storage
-            .create_state_group(&room_id, &event_id2, &state_hash2, 2000)
-            .await
-            .unwrap();
+        let sg_id1 = storage.create_state_group(&room_id, &event_id1, &state_hash1, 1000).await.unwrap();
+        let sg_id2 = storage.create_state_group(&room_id, &event_id2, &state_hash2, 2000).await.unwrap();
 
         let old_event = format!("$old_name_{suffix}:test");
         let new_event = format!("$new_name_{suffix}:test");
         insert_event(&pool, &old_event, &room_id).await;
         insert_event(&pool, &new_event, &room_id).await;
 
-        storage
-            .set_state_entry(sg_id1, "m.room.name", "", &old_event)
-            .await
-            .unwrap();
-        storage
-            .set_state_entry(sg_id2, "m.room.name", "", &new_event)
-            .await
-            .unwrap();
+        storage.set_state_entry(sg_id1, "m.room.name", "", &old_event).await.unwrap();
+        storage.set_state_entry(sg_id2, "m.room.name", "", &new_event).await.unwrap();
 
         storage.add_state_group_edge(sg_id2, sg_id1).await.unwrap();
 
         let resolved = storage.resolve_state_for_group(sg_id2).await.unwrap();
         assert_eq!(resolved.len(), 1);
-        assert_eq!(
-            resolved.get(&("m.room.name".to_string(), "".to_string())),
-            Some(&new_event)
-        );
+        assert_eq!(resolved.get(&("m.room.name".to_string(), "".to_string())), Some(&new_event));
     });
 }
 
@@ -952,10 +814,7 @@ fn test_get_prev_state_groups_empty() {
         insert_room(&pool, &room_id).await;
         insert_event(&pool, &event_id, &room_id).await;
 
-        let sg_id = storage
-            .create_state_group(&room_id, &event_id, &state_hash, 1000)
-            .await
-            .unwrap();
+        let sg_id = storage.create_state_group(&room_id, &event_id, &state_hash, 1000).await.unwrap();
 
         let prev = storage.get_prev_state_groups(sg_id).await.unwrap();
         assert!(prev.is_empty());

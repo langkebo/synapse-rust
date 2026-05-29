@@ -35,10 +35,7 @@ fn default_burst_size() -> u32 {
 
 impl Default for RateLimitRule {
     fn default() -> Self {
-        Self {
-            per_second: default_per_second(),
-            burst_size: default_burst_size(),
-        }
+        Self { per_second: default_per_second(), burst_size: default_burst_size() }
     }
 }
 
@@ -103,11 +100,7 @@ fn default_include_headers() -> bool {
 }
 
 fn default_ip_header_priority() -> Vec<String> {
-    vec![
-        "x-forwarded-for".to_string(),
-        "x-real-ip".to_string(),
-        "forwarded".to_string(),
-    ]
+    vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()]
 }
 
 fn default_config_reload_interval() -> u64 {
@@ -123,26 +116,17 @@ impl Default for RateLimitConfigFile {
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/login".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule {
-                        per_second: 1,
-                        burst_size: 3,
-                    },
+                    rule: RateLimitRule { per_second: 1, burst_size: 3 },
                 },
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/register".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule {
-                        per_second: 1,
-                        burst_size: 2,
-                    },
+                    rule: RateLimitRule { per_second: 1, burst_size: 2 },
                 },
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/register/captcha".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule {
-                        per_second: 1,
-                        burst_size: 1,
-                    },
+                    rule: RateLimitRule { per_second: 1, burst_size: 1 },
                 },
             ],
             ip_header_priority: default_ip_header_priority(),
@@ -160,20 +144,14 @@ impl Default for RateLimitConfigFile {
 impl RateLimitConfigFile {
     pub fn validate(&self) -> Result<(), RateLimitConfigError> {
         if self.default.per_second == 0 {
-            return Err(RateLimitConfigError::ValidationError(
-                "default.per_second cannot be zero".to_string(),
-            ));
+            return Err(RateLimitConfigError::ValidationError("default.per_second cannot be zero".to_string()));
         }
         if self.default.burst_size == 0 {
-            return Err(RateLimitConfigError::ValidationError(
-                "default.burst_size cannot be zero".to_string(),
-            ));
+            return Err(RateLimitConfigError::ValidationError("default.burst_size cannot be zero".to_string()));
         }
         for (idx, endpoint) in self.endpoints.iter().enumerate() {
             if endpoint.path.is_empty() {
-                return Err(RateLimitConfigError::ValidationError(format!(
-                    "endpoints[{idx}].path cannot be empty"
-                )));
+                return Err(RateLimitConfigError::ValidationError(format!("endpoints[{idx}].path cannot be empty")));
             }
             if endpoint.rule.per_second == 0 {
                 return Err(RateLimitConfigError::ValidationError(format!(
@@ -190,11 +168,8 @@ impl RateLimitConfigFile {
     }
 
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self, RateLimitConfigError> {
-        let content = fs::read_to_string(path.as_ref())
-            .await
-            .map_err(RateLimitConfigError::ReadError)?;
-        let config: Self =
-            serde_yaml::from_str(&content).map_err(RateLimitConfigError::ParseError)?;
+        let content = fs::read_to_string(path.as_ref()).await.map_err(RateLimitConfigError::ReadError)?;
+        let config: Self = serde_yaml::from_str(&content).map_err(RateLimitConfigError::ParseError)?;
         config.validate()?;
         Ok(config)
     }
@@ -202,13 +177,9 @@ impl RateLimitConfigFile {
     pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), RateLimitConfigError> {
         let content = serde_yaml::to_string(self).map_err(RateLimitConfigError::ParseError)?;
         if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(RateLimitConfigError::ReadError)?;
+            fs::create_dir_all(parent).await.map_err(RateLimitConfigError::ReadError)?;
         }
-        fs::write(path.as_ref(), content)
-            .await
-            .map_err(RateLimitConfigError::ReadError)?;
+        fs::write(path.as_ref(), content).await.map_err(RateLimitConfigError::ReadError)?;
         Ok(())
     }
 }
@@ -220,10 +191,7 @@ pub struct RateLimitConfigManager {
 
 impl RateLimitConfigManager {
     pub fn new(config: RateLimitConfigFile, config_path: PathBuf) -> Self {
-        Self {
-            config: Arc::new(RwLock::new(config)),
-            config_path,
-        }
+        Self { config: Arc::new(RwLock::new(config)), config_path }
     }
 
     pub async fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self, RateLimitConfigError> {
@@ -246,10 +214,7 @@ impl RateLimitConfigManager {
             let mut config = self.config.write();
             *config = new_config;
         }
-        tracing::info!(
-            "Rate limit configuration reloaded from {:?}",
-            self.config_path
-        );
+        tracing::info!("Rate limit configuration reloaded from {:?}", self.config_path);
         Ok(())
     }
 
@@ -264,10 +229,7 @@ impl RateLimitConfigManager {
             config.clone()
         };
         config_to_save.save(&self.config_path).await?;
-        tracing::info!(
-            "Rate limit configuration updated and saved to {:?}",
-            self.config_path
-        );
+        tracing::info!("Rate limit configuration updated and saved to {:?}", self.config_path);
         Ok(())
     }
 
@@ -279,10 +241,7 @@ impl RateLimitConfigManager {
         self.update(|c| c.default = rule).await
     }
 
-    pub async fn add_endpoint_rule(
-        &self,
-        rule: RateLimitEndpointRule,
-    ) -> Result<(), RateLimitConfigError> {
+    pub async fn add_endpoint_rule(&self, rule: RateLimitEndpointRule) -> Result<(), RateLimitConfigError> {
         self.update(|c| {
             c.endpoints.push(rule);
         })
@@ -331,11 +290,7 @@ pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String
 
     match best_match {
         Some(rule) => {
-            let endpoint_id = config
-                .endpoint_aliases
-                .get(&rule.path)
-                .cloned()
-                .unwrap_or_else(|| rule.path.clone());
+            let endpoint_id = config.endpoint_aliases.get(&rule.path).cloned().unwrap_or_else(|| rule.path.clone());
             (endpoint_id, rule.rule.clone())
         }
         None => (path.to_string(), config.default.clone()),
@@ -363,11 +318,7 @@ pub fn select_endpoint_rule_runtime(
 
     match best_match {
         Some(rule) => {
-            let endpoint_id = config
-                .endpoint_aliases
-                .get(&rule.path)
-                .cloned()
-                .unwrap_or_else(|| rule.path.clone());
+            let endpoint_id = config.endpoint_aliases.get(&rule.path).cloned().unwrap_or_else(|| rule.path.clone());
             (endpoint_id, rule.rule.clone())
         }
         None => (path.to_string(), config.default.clone()),
@@ -416,12 +367,8 @@ impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
                 .map(|e| crate::common::config::RateLimitEndpointRule {
                     path: e.path,
                     match_type: match e.match_type {
-                        RateLimitMatchType::Exact => {
-                            crate::common::config::RateLimitMatchType::Exact
-                        }
-                        RateLimitMatchType::Prefix => {
-                            crate::common::config::RateLimitMatchType::Prefix
-                        }
+                        RateLimitMatchType::Exact => crate::common::config::RateLimitMatchType::Exact,
+                        RateLimitMatchType::Prefix => crate::common::config::RateLimitMatchType::Prefix,
                     },
                     rule: crate::common::config::RateLimitRule {
                         per_second: e.rule.per_second,
@@ -479,17 +426,11 @@ mod tests {
     async fn test_config_save_and_load() {
         let config = RateLimitConfigFile {
             enabled: true,
-            default: RateLimitRule {
-                per_second: 50,
-                burst_size: 100,
-            },
+            default: RateLimitRule { per_second: 50, burst_size: 100 },
             endpoints: vec![RateLimitEndpointRule {
                 path: "/_matrix/client/r0/login".to_string(),
                 match_type: RateLimitMatchType::Exact,
-                rule: RateLimitRule {
-                    per_second: 5,
-                    burst_size: 10,
-                },
+                rule: RateLimitRule { per_second: 5, burst_size: 10 },
             }],
             ..Default::default()
         };
@@ -510,10 +451,7 @@ mod tests {
             endpoints: vec![RateLimitEndpointRule {
                 path: "/_matrix/client/r0/login".to_string(),
                 match_type: RateLimitMatchType::Exact,
-                rule: RateLimitRule {
-                    per_second: 5,
-                    burst_size: 10,
-                },
+                rule: RateLimitRule { per_second: 5, burst_size: 10 },
             }],
             ..Default::default()
         };
@@ -530,18 +468,12 @@ mod tests {
                 RateLimitEndpointRule {
                     path: "/_matrix/client".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule {
-                        per_second: 50,
-                        burst_size: 100,
-                    },
+                    rule: RateLimitRule { per_second: 50, burst_size: 100 },
                 },
                 RateLimitEndpointRule {
                     path: "/_matrix/client/r0/sync".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule {
-                        per_second: 20,
-                        burst_size: 40,
-                    },
+                    rule: RateLimitRule { per_second: 20, burst_size: 40 },
                 },
             ],
             ..Default::default()
@@ -567,17 +499,11 @@ mod tests {
     #[test]
     fn test_endpoint_aliases() {
         let mut config = RateLimitConfigFile::default();
-        config.endpoint_aliases.insert(
-            "/_matrix/client/r0/login".to_string(),
-            "login_endpoint".to_string(),
-        );
+        config.endpoint_aliases.insert("/_matrix/client/r0/login".to_string(), "login_endpoint".to_string());
         config.endpoints.push(RateLimitEndpointRule {
             path: "/_matrix/client/r0/login".to_string(),
             match_type: RateLimitMatchType::Exact,
-            rule: RateLimitRule {
-                per_second: 5,
-                burst_size: 10,
-            },
+            rule: RateLimitRule { per_second: 5, burst_size: 10 },
         });
 
         let (id, _) = select_endpoint_rule(&config, "/_matrix/client/r0/login");

@@ -8,10 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
-        self.presence_storage
-            .set_presence(user_id, set_presence, None)
-            .await
-            .ok();
+        self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
         Ok(())
     }
 
@@ -26,10 +23,9 @@ impl SyncService {
                 "m.receipt" => {
                     if let Some(content) = event.get("content").and_then(|v| v.as_object()) {
                         for (event_id, receipt_data) in content {
-                            let entry =
-                                receipt_content.entry(event_id.clone()).or_insert_with(|| {
-                                    serde_json::Value::Object(serde_json::Map::new())
-                                });
+                            let entry = receipt_content
+                                .entry(event_id.clone())
+                                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
                             if let Some(entry_obj) = entry.as_object_mut() {
                                 if let Some(data_obj) = receipt_data.as_object() {
                                     for (receipt_type, user_data) in data_obj {
@@ -76,10 +72,7 @@ impl SyncService {
         Ok(state_events
             .into_iter()
             .map(|(room_id, events)| {
-                let values = events
-                    .iter()
-                    .map(|event| Self::state_event_to_json(event, event_format))
-                    .collect();
+                let values = events.iter().map(|event| Self::state_event_to_json(event, event_format)).collect();
                 (room_id, values)
             })
             .collect())
@@ -96,25 +89,19 @@ impl SyncService {
         }
 
         if !params.is_incremental {
-            return self
-                .get_room_state_events_batch(room_ids, event_format)
-                .await;
+            return self.get_room_state_events_batch(room_ids, event_format).await;
         }
 
         let delta_state_by_room = if let Some(stream_ord) = params.since_stream_ordering {
             self.event_storage
                 .get_state_events_since_stream_batch(room_ids, stream_ord)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get room state events", &e)
-                })?
+                .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         } else {
             self.event_storage
                 .get_state_events_since_batch(room_ids, params.since_ts)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get room state events", &e)
-                })?
+                .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         };
 
         let newly_visible_rooms: Vec<String> = delta_state_by_room
@@ -123,10 +110,7 @@ impl SyncService {
                 let user_just_joined = events.iter().any(|e| {
                     e.event_type.as_deref() == Some("m.room.member")
                         && e.state_key.as_deref() == Some(params.user_id)
-                        && matches!(
-                            e.content.get("membership").and_then(|v| v.as_str()),
-                            Some("join") | Some("invite")
-                        )
+                        && matches!(e.content.get("membership").and_then(|v| v.as_str()), Some("join") | Some("invite"))
                         && e.stream_ordering.is_some()
                 });
                 if user_just_joined {
@@ -143,25 +127,18 @@ impl SyncService {
             self.event_storage
                 .get_state_events_batch(&newly_visible_rooms)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e)
-                })?
+                .map_err(|e| ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e))?
         };
 
         if !params.lazy_load_members {
             let mut result: HashMap<String, Vec<Value>> = HashMap::new();
             for (room_id, events) in delta_state_by_room {
                 if let Some(full_state) = full_state_for_newly_visible.get(&room_id) {
-                    let values = full_state
-                        .iter()
-                        .map(|event| Self::state_event_to_json(event, event_format))
-                        .collect();
+                    let values =
+                        full_state.iter().map(|event| Self::state_event_to_json(event, event_format)).collect();
                     result.insert(room_id, values);
                 } else {
-                    let values = events
-                        .iter()
-                        .map(|event| Self::state_event_to_json(event, event_format))
-                        .collect();
+                    let values = events.iter().map(|event| Self::state_event_to_json(event, event_format)).collect();
                     result.insert(room_id, values);
                 }
             }
@@ -194,11 +171,7 @@ impl SyncService {
                 }
             }
 
-            for event in current_member_state_by_room
-                .get(room_id)
-                .into_iter()
-                .flatten()
-            {
+            for event in current_member_state_by_room.get(room_id).into_iter().flatten() {
                 values.push(Self::state_event_to_json(event, event_format));
             }
 
@@ -224,16 +197,9 @@ impl SyncService {
         };
 
         let now = chrono::Utc::now().timestamp_millis();
-        let last_active_ago = if presence == "offline" {
-            None
-        } else {
-            last_active_ts.map(|ts| (now - ts).max(0))
-        };
+        let last_active_ago = if presence == "offline" { None } else { last_active_ts.map(|ts| (now - ts).max(0)) };
         let currently_active = if presence == "online" {
-            Some(
-                last_active_ts
-                    .is_some_and(|ts| (now - ts) <= 5 * 60 * 1000),
-            )
+            Some(last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
         } else if presence == "offline" {
             None
         } else {
@@ -287,11 +253,7 @@ impl SyncService {
                     if let Some(rooms) = value.as_array_mut() {
                         rooms.retain(|room| {
                             room.as_str()
-                                .is_some_and(|id| {
-                                    !id.is_empty()
-                                        && id.starts_with('!')
-                                        && joined_room_ids.contains(id)
-                                })
+                                .is_some_and(|id| !id.is_empty() && id.starts_with('!') && joined_room_ids.contains(id))
                         });
                         !rooms.is_empty()
                     } else {
@@ -301,16 +263,10 @@ impl SyncService {
             }
         }
 
-        let username = user_id
-            .trim_start_matches('@')
-            .split(':')
-            .next()
-            .unwrap_or("");
+        let username = user_id.trim_start_matches('@').split(':').next().unwrap_or("");
         if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
             if let Some(content) = existing.get_mut("content") {
-                crate::web::routes::push_rules::merge_default_push_rules(
-                    content, user_id, username,
-                );
+                crate::web::routes::push_rules::merge_default_push_rules(content, user_id, username);
             }
         } else {
             events.push(json!({
@@ -460,17 +416,11 @@ impl SyncService {
     }
 
     pub(crate) fn to_device_since_stream_id(since: &Option<SyncToken>) -> i64 {
-        since
-            .as_ref()
-            .and_then(|token| token.to_device_stream_id)
-            .unwrap_or(0)
+        since.as_ref().and_then(|token| token.to_device_stream_id).unwrap_or(0)
     }
 
     pub(crate) fn device_list_since_stream_id(since: &Option<SyncToken>) -> i64 {
-        since
-            .as_ref()
-            .and_then(|token| token.device_list_stream_id)
-            .unwrap_or(0)
+        since.as_ref().and_then(|token| token.device_list_stream_id).unwrap_or(0)
     }
 
     pub(crate) async fn get_room_ephemeral_events(
@@ -522,11 +472,8 @@ impl SyncService {
         room_ids: &[String],
     ) -> ApiResult<HashMap<String, Vec<serde_json::Value>>> {
         let limit = self.sync_ephemeral_limit();
-        let mut result: HashMap<String, Vec<serde_json::Value>> = room_ids
-            .iter()
-            .cloned()
-            .map(|room_id| (room_id, Vec::new()))
-            .collect();
+        let mut result: HashMap<String, Vec<serde_json::Value>> =
+            room_ids.iter().cloned().map(|room_id| (room_id, Vec::new())).collect();
         if room_ids.is_empty() {
             return Ok(result);
         }
@@ -589,14 +536,13 @@ impl SyncService {
         room_id: &str,
         user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = sqlx::query(
-            "SELECT data_type, data as content FROM room_account_data WHERE user_id = $1 AND room_id = $2",
-        )
-        .bind(user_id)
-        .bind(room_id)
-        .fetch_all(&*self.event_storage.pool)
-        .await
-        .map_err(map_internal!("Failed to get room account data"))?;
+        let rows =
+            sqlx::query("SELECT data_type, data as content FROM room_account_data WHERE user_id = $1 AND room_id = $2")
+                .bind(user_id)
+                .bind(room_id)
+                .fetch_all(&*self.event_storage.pool)
+                .await
+                .map_err(map_internal!("Failed to get room account data"))?;
 
         Ok(rows
             .iter()
@@ -617,11 +563,8 @@ impl SyncService {
         user_id: &str,
         room_ids: &[String],
     ) -> ApiResult<HashMap<String, Vec<serde_json::Value>>> {
-        let mut result: HashMap<String, Vec<serde_json::Value>> = room_ids
-            .iter()
-            .cloned()
-            .map(|room_id| (room_id, Vec::new()))
-            .collect();
+        let mut result: HashMap<String, Vec<serde_json::Value>> =
+            room_ids.iter().cloned().map(|room_id| (room_id, Vec::new())).collect();
         if room_ids.is_empty() {
             return Ok(result);
         }
@@ -721,11 +664,8 @@ impl SyncService {
         room_ids: &[String],
         user_id: &str,
     ) -> ApiResult<HashMap<String, (i64, i64)>> {
-        let mut result: HashMap<String, (i64, i64)> = room_ids
-            .iter()
-            .cloned()
-            .map(|room_id| (room_id, (0, 0)))
-            .collect();
+        let mut result: HashMap<String, (i64, i64)> =
+            room_ids.iter().cloned().map(|room_id| (room_id, (0, 0))).collect();
         if room_ids.is_empty() {
             return Ok(result);
         }

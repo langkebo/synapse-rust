@@ -18,13 +18,7 @@ pub type RateLimitConfig = RateLimitState;
 
 impl Default for RateLimitState {
     fn default() -> Self {
-        Self {
-            requests_per_second: 10,
-            burst_size: 100,
-            per_user: true,
-            per_ip: true,
-            window_seconds: 60,
-        }
+        Self { requests_per_second: 10, burst_size: 100, per_user: true, per_ip: true, window_seconds: 60 }
     }
 }
 
@@ -38,12 +32,7 @@ struct RateLimitEntry {
 
 impl RateLimitEntry {
     fn new(burst_size: u32) -> Self {
-        Self {
-            tokens: burst_size,
-            last_refill: Instant::now(),
-            blocked_until: None,
-            request_count: 0,
-        }
+        Self { tokens: burst_size, last_refill: Instant::now(), blocked_until: None, request_count: 0 }
     }
 
     fn refill(&mut self, rate: u32, burst: u32) {
@@ -118,11 +107,7 @@ impl RateLimiter {
         self.check_entry(&key, &endpoint_config).await
     }
 
-    async fn check_entry(
-        &self,
-        key: &str,
-        config: &RateLimitState,
-    ) -> Result<RateLimitInfo, RateLimitInfo> {
+    async fn check_entry(&self, key: &str, config: &RateLimitState) -> Result<RateLimitInfo, RateLimitInfo> {
         let entries = if key.starts_with("user:") {
             self.user_entries.clone()
         } else if key.starts_with("ip:") {
@@ -132,9 +117,7 @@ impl RateLimiter {
         };
 
         let mut entries = entries.write().await;
-        let entry = entries
-            .entry(key.to_string())
-            .or_insert_with(|| RateLimitEntry::new(config.burst_size));
+        let entry = entries.entry(key.to_string()).or_insert_with(|| RateLimitEntry::new(config.burst_size));
 
         entry.refill(config.requests_per_second, config.burst_size);
 
@@ -173,26 +156,11 @@ impl RateLimiter {
 
     fn get_endpoint_config(&self, endpoint: &str) -> RateLimitState {
         if endpoint.contains("/login") || endpoint.contains("/register") {
-            RateLimitState {
-                requests_per_second: 1,
-                burst_size: 5,
-                window_seconds: 300,
-                ..Default::default()
-            }
+            RateLimitState { requests_per_second: 1, burst_size: 5, window_seconds: 300, ..Default::default() }
         } else if endpoint.contains("/sync") {
-            RateLimitState {
-                requests_per_second: 5,
-                burst_size: 50,
-                window_seconds: 60,
-                ..Default::default()
-            }
+            RateLimitState { requests_per_second: 5, burst_size: 50, window_seconds: 60, ..Default::default() }
         } else if endpoint.contains("/send") {
-            RateLimitState {
-                requests_per_second: 20,
-                burst_size: 200,
-                window_seconds: 60,
-                ..Default::default()
-            }
+            RateLimitState { requests_per_second: 20, burst_size: 200, window_seconds: 60, ..Default::default() }
         } else {
             self.config.clone()
         }
@@ -208,8 +176,7 @@ impl RateLimiter {
 
         user_entries.retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
         ip_entries.retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
-        endpoint_entries
-            .retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
+        endpoint_entries.retain(|_, entry| now.duration_since(entry.last_refill) < expire_threshold);
     }
 
     pub async fn get_stats(&self) -> RateLimitStats {
@@ -223,10 +190,7 @@ impl RateLimiter {
             active_endpoints: endpoint_entries.len(),
             total_requests: user_entries.values().map(|e| e.request_count).sum::<u64>()
                 + ip_entries.values().map(|e| e.request_count).sum::<u64>()
-                + endpoint_entries
-                    .values()
-                    .map(|e| e.request_count)
-                    .sum::<u64>(),
+                + endpoint_entries.values().map(|e| e.request_count).sum::<u64>(),
         }
     }
 }
@@ -245,58 +209,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_allows_within_limit() {
-        let config = RateLimitState {
-            requests_per_second: 10,
-            burst_size: 5,
-            ..Default::default()
-        };
+        let config = RateLimitState { requests_per_second: 10, burst_size: 5, ..Default::default() };
         let limiter = RateLimiter::new(config);
 
         for _ in 0..5 {
-            let result = limiter
-                .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
-                .await;
+            let result = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await;
             assert!(result.is_ok());
         }
     }
 
     #[tokio::test]
     async fn test_rate_limiter_blocks_over_limit() {
-        let config = RateLimitState {
-            requests_per_second: 1,
-            burst_size: 2,
-            ..Default::default()
-        };
+        let config = RateLimitState { requests_per_second: 1, burst_size: 2, ..Default::default() };
         let limiter = RateLimiter::new(config);
 
-        limiter
-            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
-            .await
-            .ok();
-        limiter
-            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
-            .await
-            .ok();
+        limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.ok();
+        limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.ok();
 
-        let result = limiter
-            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
-            .await;
+        let result = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_rate_limit_info() {
-        let config = RateLimitState {
-            requests_per_second: 10,
-            burst_size: 100,
-            ..Default::default()
-        };
+        let config = RateLimitState { requests_per_second: 10, burst_size: 100, ..Default::default() };
         let limiter = RateLimiter::new(config);
 
-        let info = limiter
-            .check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test")
-            .await
-            .unwrap();
+        let info = limiter.check_rate_limit(Some("@user:test.com"), "127.0.0.1", "/test").await.unwrap();
         assert_eq!(info.limit, 100);
         assert!(info.remaining < 100);
         assert!(info.retry_after.is_none());
@@ -322,14 +261,8 @@ mod tests {
         let config = RateLimitState::default();
         let limiter = RateLimiter::new(config);
 
-        limiter
-            .check_rate_limit(Some("@user1:test.com"), "127.0.0.1", "/test")
-            .await
-            .ok();
-        limiter
-            .check_rate_limit(Some("@user2:test.com"), "127.0.0.2", "/test")
-            .await
-            .ok();
+        limiter.check_rate_limit(Some("@user1:test.com"), "127.0.0.1", "/test").await.ok();
+        limiter.check_rate_limit(Some("@user2:test.com"), "127.0.0.2", "/test").await.ok();
 
         let stats = limiter.get_stats().await;
         assert!(stats.active_users >= 2);

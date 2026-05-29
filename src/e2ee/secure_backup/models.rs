@@ -91,12 +91,7 @@ pub struct KeyDerivationParams {
 
 impl Default for KeyDerivationParams {
     fn default() -> Self {
-        Self {
-            salt: vec![0u8; 16],
-            iterations: 500000,
-            memory_kb: 65536,
-            parallelism: 4,
-        }
+        Self { salt: vec![0u8; 16], iterations: 500000, memory_kb: 65536, parallelism: 4 }
     }
 }
 
@@ -140,8 +135,7 @@ mod tests {
             public_key: None,
         };
 
-        let backup =
-            SecureBackupInfo::new("@user:example.com", "m.megolm_backup.v1.secure", auth_data);
+        let backup = SecureBackupInfo::new("@user:example.com", "m.megolm_backup.v1.secure", auth_data);
 
         assert_eq!(backup.user_id, "@user:example.com");
         assert_eq!(backup.algorithm, "m.megolm_backup.v1.secure");

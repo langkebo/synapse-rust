@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use synapse_rust::services::ServiceContainer;
     use synapse_rust::storage::room_summary::*;
     use synapse_rust::worker::StreamPosition;
-    use synapse_rust::services::ServiceContainer;
 
     #[test]
     fn test_create_room_summary_request() {
@@ -332,12 +332,7 @@ mod tests {
         let container = ServiceContainer::new_test();
         let service = &container.room_summary_service;
 
-        let result = service.queue_update(
-            "!test:example.com",
-            "$event:example.com",
-            "m.room.message",
-            None,
-        ).await;
+        let result = service.queue_update("!test:example.com", "$event:example.com", "m.room.message", None).await;
 
         if result.is_err() {
             eprintln!("Skipping test_queue_update: database table not available");

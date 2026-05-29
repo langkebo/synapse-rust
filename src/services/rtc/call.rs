@@ -119,10 +119,7 @@ impl CallOrchestrationService {
             call_id: content.call_id.clone(),
             room_id: room_id.to_string(),
             caller_id: sender_id.to_string(),
-            callee_id: content
-                .invitee
-                .as_ref()
-                .and_then(|v| v.as_str().map(|s| s.to_string())),
+            callee_id: content.invitee.as_ref().and_then(|v| v.as_str().map(|s| s.to_string())),
             offer_sdp: content.offer.as_ref().map(|o| o.sdp.clone()),
             lifetime: content.lifetime,
         };
@@ -155,9 +152,7 @@ impl CallOrchestrationService {
 
         // 验证发送者是呼叫的参与者
         if session.caller_id != sender_id && session.callee_id.as_deref() != Some(sender_id) {
-            return Err(ApiError::forbidden(
-                "Not authorized to send candidates for this call",
-            ));
+            return Err(ApiError::forbidden("Not authorized to send candidates for this call"));
         }
 
         // 添加所有候选人
@@ -167,9 +162,8 @@ impl CallOrchestrationService {
                     &content.call_id,
                     room_id,
                     sender_id,
-                    serde_json::to_value(candidate).map_err(|e| {
-                        ApiError::internal_with_log("Failed to serialize candidate", &e)
-                    })?,
+                    serde_json::to_value(candidate)
+                        .map_err(|e| ApiError::internal_with_log("Failed to serialize candidate", &e))?,
                 )
                 .await
                 .map_err(|e| ApiError::database_with_log("Failed to add candidate", &e))?;
@@ -244,11 +238,7 @@ impl CallOrchestrationService {
     }
 
     /// 获取呼叫会话
-    pub async fn get_session(
-        &self,
-        call_id: &str,
-        room_id: &str,
-    ) -> Result<Option<CallSession>, ApiError> {
+    pub async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, ApiError> {
         self.storage
             .get_session(call_id, room_id)
             .await
@@ -256,11 +246,7 @@ impl CallOrchestrationService {
     }
 
     /// 获取会话的候选人
-    pub async fn get_candidates(
-        &self,
-        call_id: &str,
-        room_id: &str,
-    ) -> Result<Vec<serde_json::Value>, ApiError> {
+    pub async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<serde_json::Value>, ApiError> {
         let candidates = self
             .storage
             .get_candidates(call_id, room_id)
@@ -341,10 +327,7 @@ mod tests {
         let event = CallAnswerEvent {
             call_id: "call123".to_string(),
             version: 1,
-            answer: CallAnswer {
-                answer_type: "answer".to_string(),
-                sdp: "v=0...answer".to_string(),
-            },
+            answer: CallAnswer { answer_type: "answer".to_string(), sdp: "v=0...answer".to_string() },
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -356,10 +339,7 @@ mod tests {
 
     #[test]
     fn test_call_hangup_event() {
-        let event = CallHangupEvent {
-            call_id: "call123".to_string(),
-            version: 1,
-        };
+        let event = CallHangupEvent { call_id: "call123".to_string(), version: 1 };
 
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(json, r#"{"call_id":"call123","version":1}"#);
@@ -383,10 +363,8 @@ mod tests {
 
     #[test]
     fn test_call_offer_serialization() {
-        let offer = CallOffer {
-            offer_type: "offer".to_string(),
-            sdp: "v=0\r\no=- 123456 2 IN IP4 127.0.0.1".to_string(),
-        };
+        let offer =
+            CallOffer { offer_type: "offer".to_string(), sdp: "v=0\r\no=- 123456 2 IN IP4 127.0.0.1".to_string() };
 
         let json = serde_json::to_string(&offer).unwrap();
         assert!(json.contains("\"type\":\"offer\""));
@@ -395,10 +373,8 @@ mod tests {
 
     #[test]
     fn test_call_answer_serialization() {
-        let answer = CallAnswer {
-            answer_type: "answer".to_string(),
-            sdp: "v=0\r\no=- 654321 2 IN IP4 127.0.0.1".to_string(),
-        };
+        let answer =
+            CallAnswer { answer_type: "answer".to_string(), sdp: "v=0\r\no=- 654321 2 IN IP4 127.0.0.1".to_string() };
 
         let json = serde_json::to_string(&answer).unwrap();
         assert!(json.contains("\"type\":\"answer\""));

@@ -12,11 +12,7 @@ pub struct IdentityService {
 
 impl IdentityService {
     pub fn new(storage: IdentityStorage, trusted_servers: Vec<String>) -> Self {
-        Self {
-            storage,
-            http_client: Client::new(),
-            trusted_servers,
-        }
+        Self { storage, http_client: Client::new(), trusted_servers }
     }
 
     pub async fn get_user_three_pids(&self, user_id: &str) -> ApiResult<Vec<ThirdPartyId>> {
@@ -28,15 +24,8 @@ impl IdentityService {
         self.storage.add_three_pid(&three_pid).await
     }
 
-    pub async fn remove_three_pid(
-        &self,
-        address: &str,
-        medium: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
-        self.storage
-            .remove_three_pid(address, medium, user_id)
-            .await
+    pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> ApiResult<()> {
+        self.storage.remove_three_pid(address, medium, user_id).await
     }
 
     pub async fn bind_three_pid(
@@ -66,10 +55,7 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to bind 3PID", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Identity server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
         }
 
         let three_pid = ThirdPartyId::new(&format!("{id_server}:{sid}"), "unknown", user_id);
@@ -104,10 +90,7 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to unbind 3PID", &e))?;
 
         if !response.status().is_success() && response.status().as_u16() != 404 {
-            return Err(ApiError::internal_with_log(
-                "Identity server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
         }
 
         Ok(())
@@ -142,16 +125,11 @@ impl IdentityService {
             .map_err(|e| ApiError::internal_with_log("Failed to request verification", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Identity server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
         let sid = json
             .get("sid")
@@ -162,16 +140,9 @@ impl IdentityService {
         Ok(sid)
     }
 
-    pub async fn check_3pid_validity(
-        &self,
-        id_server: &str,
-        sid: &str,
-        client_secret: &str,
-    ) -> ApiResult<bool> {
+    pub async fn check_3pid_validity(&self, id_server: &str, sid: &str, client_secret: &str) -> ApiResult<bool> {
         self.validate_id_server(id_server)?;
-        let url = format!(
-            "https://{id_server}/_matrix/identity/v3/3pid/getValidationStatus"
-        );
+        let url = format!("https://{id_server}/_matrix/identity/v3/3pid/getValidationStatus");
 
         let body = serde_json::json!({
             "sid": sid,
@@ -190,10 +161,8 @@ impl IdentityService {
             return Ok(false);
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
         Ok(json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false))
     }
@@ -202,11 +171,7 @@ impl IdentityService {
         self.storage.get_three_pid_user(address, medium).await
     }
 
-    pub async fn hash_lookup(
-        &self,
-        addresses: &[String],
-        mediums: &[String],
-    ) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn hash_lookup(&self, addresses: &[String], mediums: &[String]) -> ApiResult<Vec<serde_json::Value>> {
         let mut results = Vec::new();
 
         for address in addresses {
@@ -254,26 +219,15 @@ impl IdentityService {
         if !response.status().is_success() {
             let status = response.status();
             if status.as_u16() == 404 {
-                return Ok(InvitationResponse {
-                    user_id: None,
-                    signed: None,
-                });
+                return Ok(InvitationResponse { user_id: None, signed: None });
             }
-            return Err(ApiError::internal_with_log(
-                "Identity server returned error",
-                &status,
-            ));
+            return Err(ApiError::internal_with_log("Identity server returned error", &status));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
-        let user_id = json
-            .get("user_id")
-            .and_then(|v| v.as_str())
-            .map(String::from);
+        let user_id = json.get("user_id").and_then(|v| v.as_str()).map(String::from);
         let signed = json.get("signed").cloned();
 
         Ok(InvitationResponse { user_id, signed })
@@ -285,28 +239,20 @@ impl IdentityService {
 
     pub fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
         if id_server.is_empty() {
-            return Err(ApiError::bad_request(
-                "id_server cannot be empty".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server cannot be empty".to_string()));
         }
 
         if id_server.contains('/') || id_server.contains('\\') {
-            return Err(ApiError::bad_request(
-                "id_server must be a hostname only".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server must be a hostname only".to_string()));
         }
 
         if id_server.starts_with('.') || id_server.ends_with('.') {
-            return Err(ApiError::bad_request(
-                "id_server has invalid format".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server has invalid format".to_string()));
         }
 
         let host = id_server.split(':').next().unwrap_or("");
         if host.is_empty() {
-            return Err(ApiError::bad_request(
-                "id_server has empty hostname".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server has empty hostname".to_string()));
         }
 
         if host == "localhost"
@@ -315,22 +261,15 @@ impl IdentityService {
             || host.starts_with("192.168.")
             || host.starts_with("169.254.")
         {
-            return Err(ApiError::bad_request(
-                "id_server must not be a private/local address".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server must not be a private/local address".to_string()));
         }
 
         if host.starts_with("0.") || host == "0.0.0.0" {
-            return Err(ApiError::bad_request(
-                "id_server must not be a broadcast address".to_string(),
-            ));
+            return Err(ApiError::bad_request("id_server must not be a broadcast address".to_string()));
         }
 
-        if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server)
-        {
-            return Err(ApiError::bad_request(format!(
-                "id_server '{id_server}' is not in the trusted servers list"
-            )));
+        if !self.trusted_servers.is_empty() && !self.trusted_servers.iter().any(|s| s == id_server) {
+            return Err(ApiError::bad_request(format!("id_server '{id_server}' is not in the trusted servers list")));
         }
 
         Ok(())

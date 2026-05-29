@@ -8,6 +8,7 @@ Enhanced version with coverage threshold support and detailed reporting.
 Usage:
     python3 check_schema_contract_coverage.py [--threshold PERCENT] [--report OUTPUT]
 """
+
 import argparse
 import pathlib
 import re
@@ -79,7 +80,14 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
         "constraints": ["pk_push_rules", "uq_push_rules_user_scope_kind_rule"],
     },
     "room_account_data": {
-        "columns": ["user_id", "room_id", "data_type", "data", "created_ts", "updated_ts"],
+        "columns": [
+            "user_id",
+            "room_id",
+            "data_type",
+            "data",
+            "created_ts",
+            "updated_ts",
+        ],
         "constraints": ["pk_room_account_data", "uq_room_account_data_user_room_type"],
     },
     "room_memberships": {
@@ -122,10 +130,20 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "updated_ts",
         ],
         "indexes": ["idx_room_retention_policies_server_default"],
-        "constraints": ["uq_room_retention_policies_room", "fk_room_retention_policies_room"],
+        "constraints": [
+            "uq_room_retention_policies_room",
+            "fk_room_retention_policies_room",
+        ],
     },
     "room_summary_state": {
-        "columns": ["room_id", "event_type", "state_key", "event_id", "content", "updated_ts"],
+        "columns": [
+            "room_id",
+            "event_type",
+            "state_key",
+            "event_id",
+            "content",
+            "updated_ts",
+        ],
         "indexes": ["idx_room_summary_state_room"],
         "constraints": [
             "uq_room_summary_state_room_type_state",
@@ -233,7 +251,11 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "created_ts",
             "updated_ts",
         ],
-        "indexes": ["idx_search_index_room", "idx_search_index_user", "idx_search_index_type"],
+        "indexes": [
+            "idx_search_index_room",
+            "idx_search_index_user",
+            "idx_search_index_type",
+        ],
         "constraints": ["uq_search_index_event"],
     },
     "deleted_events_index": {
@@ -441,7 +463,9 @@ def iter_sql_files() -> List[pathlib.Path]:
     return sorted(MIGRATIONS_DIR.rglob("*.sql"))
 
 
-def collect_schema_metadata() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Set[str]]]:
+def collect_schema_metadata() -> Tuple[
+    Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Set[str]]
+]:
     table_columns: Dict[str, Set[str]] = {}
     table_constraints: Dict[str, Set[str]] = {}
     table_indexes: Dict[str, Set[str]] = {}
@@ -489,7 +513,7 @@ def print_contract_scope_note() -> None:
 def calculate_coverage(
     table_columns: Dict[str, Set[str]],
     table_indexes: Dict[str, Set[str]],
-    table_constraints: Dict[str, Set[str]]
+    table_constraints: Dict[str, Set[str]],
 ) -> Tuple[int, int, List[str]]:
     """Calculate coverage percentage and return (passed, total, failures)."""
     total_checks = 0
@@ -532,19 +556,18 @@ def calculate_coverage(
 
 
 def generate_coverage_report(
-    passed: int,
-    total: int,
-    failures: List[str],
-    output_path: str
+    passed: int, total: int, failures: List[str], output_path: str
 ) -> None:
     """Generate detailed coverage report in Markdown format."""
     coverage_pct = (passed / total * 100) if total > 0 else 0
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         f.write("# Schema Contract Coverage Report\n\n")
         f.write(f"> Generated: {pathlib.Path.cwd()}\n\n")
         f.write("## Summary\n\n")
-        f.write(f"- **Coverage**: {coverage_pct:.1f}% ({passed}/{total} checks passed)\n")
+        f.write(
+            f"- **Coverage**: {coverage_pct:.1f}% ({passed}/{total} checks passed)\n"
+        )
         f.write(f"- **Tables Checked**: {len(TABLE_CONTRACTS)}\n")
         f.write(f"- **Status**: {'✅ PASS' if not failures else '❌ FAIL'}\n\n")
 
@@ -572,12 +595,16 @@ def write_json_report(output_path: str | None, payload: dict) -> None:
         return
     path = pathlib.Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def structured_failures(failures: List[str], threshold: float) -> List[dict]:
     output = []
-    reproduce = f"python3 scripts/check_schema_contract_coverage.py --threshold {threshold:g}"
+    reproduce = (
+        f"python3 scripts/check_schema_contract_coverage.py --threshold {threshold:g}"
+    )
     for failure in failures:
         text = failure.lstrip("- ").strip()
         if ": missing table definition" in text:
@@ -626,7 +653,9 @@ def structured_failures(failures: List[str], threshold: float) -> List[dict]:
             continue
         if ": missing constraint '" in text:
             table, rest = text.split(":", 1)
-            constraint_name = rest.split("missing constraint '", 1)[1].rstrip("'").strip()
+            constraint_name = (
+                rest.split("missing constraint '", 1)[1].rstrip("'").strip()
+            )
             output.append(
                 {
                     "migration_id": None,
@@ -662,12 +691,10 @@ def main() -> int:
         "--threshold",
         type=float,
         default=90.0,
-        help="Minimum coverage percentage required (default: 90.0)"
+        help="Minimum coverage percentage required (default: 90.0)",
     )
     parser.add_argument(
-        "--report",
-        type=str,
-        help="Generate detailed coverage report to file"
+        "--report", type=str, help="Generate detailed coverage report to file"
     )
     parser.add_argument(
         "--json-report",
@@ -678,7 +705,9 @@ def main() -> int:
     args = parser.parse_args()
 
     table_columns, table_indexes, table_constraints = collect_schema_metadata()
-    passed, total, failures = calculate_coverage(table_columns, table_indexes, table_constraints)
+    passed, total, failures = calculate_coverage(
+        table_columns, table_indexes, table_constraints
+    )
 
     coverage_pct = (passed / total * 100) if total > 0 else 0
 

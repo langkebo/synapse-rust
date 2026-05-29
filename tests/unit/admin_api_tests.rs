@@ -32,10 +32,8 @@ fn test_admin_server_stats_response() {
 // Test 3: User list response format
 #[test]
 fn test_admin_user_list_response() {
-    let users = [
-        json!({"user_id": "@user1:localhost", "admin": false}),
-        json!({"user_id": "@user2:localhost", "admin": true}),
-    ];
+    let users =
+        [json!({"user_id": "@user1:localhost", "admin": false}), json!({"user_id": "@user2:localhost", "admin": true})];
 
     assert_eq!(users.len(), 2);
     assert_eq!(users[0]["user_id"], "@user1:localhost");

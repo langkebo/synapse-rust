@@ -9,9 +9,7 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_rust::services::admin_registration_service::{
-    AdminRegisterRequest, AdminRegistrationService,
-};
+use synapse_rust::services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
 use tokio::runtime::Runtime;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -55,7 +53,14 @@ fn make_admin_config(shared_secret: &str, enabled: bool) -> AdminRegistrationCon
     }
 }
 
-fn compute_hmac(shared_secret: &str, nonce: &str, username: &str, password: &str, admin: bool, user_type: Option<&str>) -> String {
+fn compute_hmac(
+    shared_secret: &str,
+    nonce: &str,
+    username: &str,
+    password: &str,
+    admin: bool,
+    user_type: Option<&str>,
+) -> String {
     let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).unwrap();
     mac.update(nonce.as_bytes());
     mac.update(b"\0");
@@ -79,9 +84,7 @@ async fn setup_test_database() -> Option<Arc<PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping admin registration service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping admin registration service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -513,9 +516,7 @@ fn test_hmac_invalid_hex_mac() {
 #[test]
 fn test_nonce_response_serialization() {
     use synapse_rust::services::admin_registration_service::NonceResponse;
-    let response = NonceResponse {
-        nonce: "test_nonce_value".to_string(),
-    };
+    let response = NonceResponse { nonce: "test_nonce_value".to_string() };
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains("test_nonce_value"));
     let parsed: NonceResponse = serde_json::from_str(&json).unwrap();

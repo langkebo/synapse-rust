@@ -12,34 +12,19 @@ pub fn create_server_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/server", get(get_admin_info_compat))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route("/_synapse/admin/v1/whoami", get(get_admin_whoami))
-        .route(
-            "/_synapse/admin/v1/purge_media_cache",
-            post(purge_media_cache),
-        )
+        .route("/_synapse/admin/v1/purge_media_cache", post(purge_media_cache))
         .route("/_synapse/admin/v1/restart", post(restart_server))
         .route("/_synapse/admin/v1/statistics", get(get_statistics))
         .route("/_synapse/admin/v1/status", get(get_status))
         .route("/_synapse/admin/v1/whois/{user_id}", get(whois))
-        .route(
-            "/_synapse/admin/v1/whois/{user_id}/{device_id}",
-            get(whois_device),
-        )
+        .route("/_synapse/admin/v1/whois/{user_id}/{device_id}", get(whois_device))
         .route("/_synapse/admin/v1/health", get(get_health))
         .route("/_synapse/admin/v1/config", get(get_config))
-        .route(
-            "/_synapse/admin/v1/experimental_features",
-            get(get_experimental_features),
-        )
+        .route("/_synapse/admin/v1/experimental_features", get(get_experimental_features))
         .route("/_synapse/admin/v1/backups", get(get_backups))
         .route("/_synapse/admin/v1/jitsi/config", get(get_jitsi_config))
-        .route(
-            "/_synapse/admin/v1/invite/blocklist",
-            get(get_invite_blocklist_admin),
-        )
-        .route(
-            "/_synapse/admin/v1/invite/allowlist",
-            get(get_invite_allowlist_admin),
-        )
+        .route("/_synapse/admin/v1/invite/blocklist", get(get_invite_blocklist_admin))
+        .route("/_synapse/admin/v1/invite/allowlist", get(get_invite_allowlist_admin))
 }
 
 pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -52,10 +37,7 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::GET, "/_synapse/admin/v1/statistics"),
         (Method::GET, "/_synapse/admin/v1/status"),
         (Method::GET, "/_synapse/admin/v1/whois/{user_id}"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/whois/{user_id}/{device_id}",
-        ),
+        (Method::GET, "/_synapse/admin/v1/whois/{user_id}/{device_id}"),
         (Method::GET, "/_synapse/admin/v1/health"),
         (Method::GET, "/_synapse/admin/v1/config"),
         (Method::GET, "/_synapse/admin/v1/experimental_features"),
@@ -74,23 +56,15 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 }
 
 #[axum::debug_handler]
-pub async fn get_admin_info_compat(
-    admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info_compat(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     get_admin_info(admin, State(state)).await
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_admin_info(
-    admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     // Only super_admin can access server info
     if admin.role != "super_admin" {
-        return Err(ApiError::forbidden(
-            "Only super_admin can access server information".to_string(),
-        ));
+        return Err(ApiError::forbidden("Only super_admin can access server information".to_string()));
     }
 
     Ok(Json(json!({
@@ -101,10 +75,7 @@ pub async fn get_admin_info(
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_admin_whoami(
-    admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_whoami(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "user_id": admin.user_id,
         "name": format!("@{}:{}", admin.user_id, state.services.config.server.name),
@@ -119,22 +90,15 @@ pub async fn get_backups(
     State(_state): State<AppState>,
     axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Admin server endpoint 'backups' is not implemented in this deployment",
-    ))
+    Err(ApiError::unrecognized("Admin server endpoint 'backups' is not implemented in this deployment"))
 }
 
 fn unsupported_admin_server_feature(feature: &str) -> ApiError {
-    ApiError::unrecognized(format!(
-        "Admin server endpoint '{feature}' is not implemented in this deployment"
-    ))
+    ApiError::unrecognized(format!("Admin server endpoint '{feature}' is not implemented in this deployment"))
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_server_version(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_server_version(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
@@ -175,10 +139,7 @@ pub async fn restart_server(
 }
 
 #[axum::debug_handler]
-pub async fn get_statistics(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let total_users = state
         .services
         .user_storage
@@ -211,14 +172,8 @@ pub async fn get_statistics(
 }
 
 #[axum::debug_handler]
-pub async fn get_status(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
-    let db_ok = sqlx::query("SELECT 1")
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .is_ok();
+pub async fn get_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let db_ok = sqlx::query("SELECT 1").fetch_one(&*state.services.user_storage.pool).await.is_ok();
 
     Ok(Json(json!({
         "db_ok": db_ok,
@@ -300,14 +255,8 @@ pub async fn whois_device(
 }
 
 #[axum::debug_handler]
-pub async fn get_health(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
-    let db_ok = sqlx::query("SELECT 1")
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .is_ok();
+pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let db_ok = sqlx::query("SELECT 1").fetch_one(&*state.services.user_storage.pool).await.is_ok();
 
     Ok(Json(json!({
         "status": if db_ok { "ok" } else { "error" },
@@ -316,10 +265,7 @@ pub async fn get_health(
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_config(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "server_name": state.services.config.server.name,
         "public_baseurl": state.services.config.server.public_baseurl,
@@ -333,16 +279,11 @@ pub async fn get_experimental_features(
     _admin: AdminUser,
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized(
-        "Admin server endpoint 'experimental_features' is not implemented in this deployment",
-    ))
+    Err(ApiError::unrecognized("Admin server endpoint 'experimental_features' is not implemented in this deployment"))
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_jitsi_config(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_jitsi_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "domain": "meet.jit.si",
         "app_id": null,

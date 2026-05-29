@@ -13,11 +13,7 @@ impl FriendFederation {
     }
 
     /// 处理来自联邦的好友请求
-    pub async fn on_receive_friend_request(
-        &self,
-        origin: &str,
-        event_content: Value,
-    ) -> ApiResult<()> {
+    pub async fn on_receive_friend_request(&self, origin: &str, event_content: Value) -> ApiResult<()> {
         // 1. 验证 Origin (简单检查)
         if origin.is_empty() {
             return Err(ApiError::forbidden("Missing origin".to_string()));
@@ -39,15 +35,11 @@ impl FriendFederation {
 
         // 3. 验证 requester_id 是否属于 origin
         if !requester_id.ends_with(&format!(":{origin}")) {
-            return Err(ApiError::forbidden(
-                "Requester ID does not match origin".to_string(),
-            ));
+            return Err(ApiError::forbidden("Requester ID does not match origin".to_string()));
         }
 
         // 4. 调用 Service 处理请求
-        self.friend_service
-            .handle_incoming_friend_request(&target_user_id, &requester_id, event_content)
-            .await?;
+        self.friend_service.handle_incoming_friend_request(&target_user_id, &requester_id, event_content).await?;
 
         Ok(())
     }
@@ -108,11 +100,7 @@ mod tests {
 
     #[test]
     fn test_friend_federation_user_id_format() {
-        let user_ids = vec![
-            "@alice:example.com",
-            "@bob:matrix.org",
-            "@user123:server.local",
-        ];
+        let user_ids = vec!["@alice:example.com", "@bob:matrix.org", "@user123:server.local"];
 
         for user_id in user_ids {
             assert!(user_id.starts_with('@'));
@@ -143,10 +131,7 @@ mod tests {
         let json_str = serde_json::to_string(&content).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-        assert_eq!(
-            parsed.get("target_user_id").unwrap().as_str().unwrap(),
-            "@alice:example.com"
-        );
+        assert_eq!(parsed.get("target_user_id").unwrap().as_str().unwrap(), "@alice:example.com");
     }
 
     #[test]

@@ -8,10 +8,7 @@ pub struct VecBuilder<T> {
 
 impl<T> VecBuilder<T> {
     pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            _phantom: PhantomData,
-        }
+        Self { capacity, _phantom: PhantomData }
     }
 
     pub fn build(&self) -> Vec<T> {
@@ -34,11 +31,7 @@ pub struct HashMapBuilder<K, V> {
 
 impl<K, V> HashMapBuilder<K, V> {
     pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            _phantom_key: PhantomData,
-            _phantom_value: PhantomData,
-        }
+        Self { capacity, _phantom_key: PhantomData, _phantom_value: PhantomData }
     }
 
     pub fn build(&self) -> HashMap<K, V> {
@@ -61,10 +54,7 @@ pub struct HashSetBuilder<T> {
 
 impl<T> HashSetBuilder<T> {
     pub fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            _phantom: PhantomData,
-        }
+        Self { capacity, _phantom: PhantomData }
     }
 
     pub fn build(&self) -> HashSet<T>
@@ -129,11 +119,8 @@ mod tests {
     #[test]
     fn test_hashmap_builder_from_iter() {
         let builder = HashMapBuilder::new(10);
-        let map: HashMap<String, i32> = builder.from_iter(vec![
-            ("a".to_string(), 1),
-            ("b".to_string(), 2),
-            ("c".to_string(), 3),
-        ]);
+        let map: HashMap<String, i32> =
+            builder.from_iter(vec![("a".to_string(), 1), ("b".to_string(), 2), ("c".to_string(), 3)]);
         assert_eq!(map.len(), 3);
         assert_eq!(map.get("a"), Some(&1));
         assert_eq!(map.get("b"), Some(&2));

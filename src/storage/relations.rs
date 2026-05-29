@@ -55,10 +55,7 @@ impl RelationsStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_relation(
-        &self,
-        params: CreateRelationParams,
-    ) -> Result<EventRelation, sqlx::Error> {
+    pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, EventRelation>(
@@ -88,11 +85,7 @@ impl RelationsStorage {
         .await
     }
 
-    pub async fn get_relation(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<Option<EventRelation>, sqlx::Error> {
+    pub async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
         sqlx::query_as::<_, EventRelation>(
             r"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
@@ -131,10 +124,7 @@ impl RelationsStorage {
         Ok(count.0)
     }
 
-    pub async fn get_relations(
-        &self,
-        params: RelationQueryParams,
-    ) -> Result<Vec<EventRelation>, sqlx::Error> {
+    pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50).min(100);
         let direction = params.direction.as_deref().unwrap_or("f");
 
@@ -354,12 +344,7 @@ impl RelationsStorage {
         Ok(())
     }
 
-    pub async fn delete_relation(
-        &self,
-        room_id: &str,
-        event_id: &str,
-        sender: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
             DELETE FROM event_relations

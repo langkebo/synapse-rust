@@ -1,8 +1,8 @@
 use crate::common::ApiError;
 use crate::services::admin_audit_service::AdminAuditService;
 use crate::storage::{
-    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagStorage,
-    FeatureFlagTargetInput, UpdateFeatureFlagRequest,
+    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput,
+    UpdateFeatureFlagRequest,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -15,10 +15,7 @@ pub struct FeatureFlagService {
 
 impl FeatureFlagService {
     pub fn new(storage: Arc<FeatureFlagStorage>, audit_service: Arc<AdminAuditService>) -> Self {
-        Self {
-            storage,
-            audit_service,
-        }
+        Self { storage, audit_service }
     }
 
     pub async fn create_flag(
@@ -29,11 +26,7 @@ impl FeatureFlagService {
     ) -> Result<FeatureFlag, ApiError> {
         validate_create_request(&request)?;
         let created_ts = chrono::Utc::now().timestamp_millis();
-        let flag = self
-            .storage
-            .create_flag(&request, actor_id, created_ts)
-            .await
-            .map_err(map_storage_error)?;
+        let flag = self.storage.create_flag(&request, actor_id, created_ts).await.map_err(map_storage_error)?;
 
         self.audit_service
             .create_event(crate::storage::CreateAuditEventRequest {
@@ -100,10 +93,7 @@ impl FeatureFlagService {
             .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {flag_key}")))
     }
 
-    pub async fn list_flags(
-        &self,
-        filters: FeatureFlagFilters,
-    ) -> Result<(Vec<FeatureFlag>, i64), ApiError> {
+    pub async fn list_flags(&self, filters: FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), ApiError> {
         if let Some(ref scope) = filters.target_scope {
             validate_target_scope(scope)?;
         }
@@ -111,10 +101,7 @@ impl FeatureFlagService {
             validate_status(status)?;
         }
 
-        self.storage
-            .list_flags(&filters)
-            .await
-            .map_err(map_storage_error)
+        self.storage.list_flags(&filters).await.map_err(map_storage_error)
     }
 }
 
@@ -131,10 +118,7 @@ fn validate_create_request(request: &CreateFeatureFlagRequest) -> Result<(), Api
     Ok(())
 }
 
-fn validate_update_request(
-    flag_key: &str,
-    request: &UpdateFeatureFlagRequest,
-) -> Result<(), ApiError> {
+fn validate_update_request(flag_key: &str, request: &UpdateFeatureFlagRequest) -> Result<(), ApiError> {
     validate_flag_key(flag_key)?;
     if let Some(percent) = request.rollout_percent {
         validate_rollout_percent(percent)?;
@@ -154,14 +138,9 @@ fn validate_update_request(
 
 fn validate_flag_key(flag_key: &str) -> Result<(), ApiError> {
     if flag_key.trim().is_empty() {
-        return Err(ApiError::bad_request(
-            "FLAG_INVALID_SCOPE: flag_key is required",
-        ));
+        return Err(ApiError::bad_request("FLAG_INVALID_SCOPE: flag_key is required"));
     }
-    if !flag_key
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
-    {
+    if !flag_key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')) {
         return Err(ApiError::bad_request(
             "FLAG_INVALID_SCOPE: flag_key must use lowercase alphanumeric, dot, underscore or hyphen",
         ));
@@ -172,9 +151,7 @@ fn validate_flag_key(flag_key: &str) -> Result<(), ApiError> {
 fn validate_target_scope(target_scope: &str) -> Result<(), ApiError> {
     match target_scope {
         "global" | "tenant" | "room" | "user" => Ok(()),
-        _ => Err(ApiError::bad_request(
-            "FLAG_INVALID_SCOPE: target_scope must be one of global, tenant, room, user",
-        )),
+        _ => Err(ApiError::bad_request("FLAG_INVALID_SCOPE: target_scope must be one of global, tenant, room, user")),
     }
 }
 
@@ -182,9 +159,7 @@ fn validate_rollout_percent(rollout_percent: i32) -> Result<(), ApiError> {
     if (0..=100).contains(&rollout_percent) {
         Ok(())
     } else {
-        Err(ApiError::bad_request(
-            "FLAG_GUARDRAIL_BLOCKED: rollout_percent must be between 0 and 100",
-        ))
+        Err(ApiError::bad_request("FLAG_GUARDRAIL_BLOCKED: rollout_percent must be between 0 and 100"))
     }
 }
 
@@ -198,9 +173,7 @@ fn validate_status(status: &str) -> Result<(), ApiError> {
         | "rolled_back"
         | "removed"
         | "expired_pending_removal" => Ok(()),
-        _ => Err(ApiError::bad_request(
-            "FLAG_CONFLICT: unsupported feature flag status",
-        )),
+        _ => Err(ApiError::bad_request("FLAG_CONFLICT: unsupported feature flag status")),
     }
 }
 
@@ -217,21 +190,15 @@ fn validate_targets(targets: &[FeatureFlagTargetInput]) -> Result<(), ApiError> 
         match target.subject_type.as_str() {
             "tenant" | "room" | "user" => {}
             _ => {
-                return Err(ApiError::bad_request(
-                    "FLAG_INVALID_SCOPE: subject_type must be one of tenant, room, user",
-                ))
+                return Err(ApiError::bad_request("FLAG_INVALID_SCOPE: subject_type must be one of tenant, room, user"))
             }
         }
         if target.subject_id.trim().is_empty() {
-            return Err(ApiError::bad_request(
-                "FLAG_CONFLICT: subject_id is required for feature flag targets",
-            ));
+            return Err(ApiError::bad_request("FLAG_CONFLICT: subject_id is required for feature flag targets"));
         }
         let dedupe_key = format!("{}:{}", target.subject_type, target.subject_id);
         if !seen.insert(dedupe_key) {
-            return Err(ApiError::bad_request(
-                "FLAG_CONFLICT: duplicated feature flag target",
-            ));
+            return Err(ApiError::bad_request("FLAG_CONFLICT: duplicated feature flag target"));
         }
     }
     Ok(())
@@ -240,9 +207,7 @@ fn validate_targets(targets: &[FeatureFlagTargetInput]) -> Result<(), ApiError> 
 fn validate_expiration(expires_at: Option<i64>) -> Result<(), ApiError> {
     if let Some(expires_at) = expires_at {
         if expires_at <= chrono::Utc::now().timestamp_millis() {
-            return Err(ApiError::bad_request(
-                "FLAG_EXPIRED: expires_at must be greater than current timestamp",
-            ));
+            return Err(ApiError::bad_request("FLAG_EXPIRED: expires_at must be greater than current timestamp"));
         }
     }
     Ok(())

@@ -14,8 +14,7 @@ async fn setup_test_app_with_rate_limit_rule(rule: RateLimitEndpointRule) -> Opt
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.rate_limit.enabled = true;
-    container.config.rate_limit.exempt_paths =
-        vec!["/".to_string(), "/_matrix/client/versions".to_string()];
+    container.config.rate_limit.exempt_paths = vec!["/".to_string(), "/_matrix/client/versions".to_string()];
     container.config.rate_limit.exempt_path_prefixes = Vec::new();
     container.config.rate_limit.endpoints = vec![rule];
 
@@ -55,15 +54,9 @@ async fn register_user_and_get_token(app: &axum::Router) -> String {
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -73,10 +66,7 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
     let rule = RateLimitEndpointRule {
         path: "/_matrix/client/v3/sync".to_string(),
         match_type: RateLimitMatchType::Exact,
-        rule: RateLimitRule {
-            per_second: 1,
-            burst_size: 1,
-        },
+        rule: RateLimitRule { per_second: 1, burst_size: 1 },
     };
 
     let Some(app) = setup_test_app_with_rate_limit_rule(rule).await else {
@@ -90,11 +80,7 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert!(response.status().is_success());
 
     let request = Request::builder()
@@ -103,43 +89,22 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(
-        response.headers().get("x-ratelimit-limit").unwrap(),
-        "1"
-    );
-    assert_eq!(
-        response.headers().get("x-ratelimit-retry-after").unwrap(),
-        "1000"
-    );
+    assert_eq!(response.headers().get("x-ratelimit-limit").unwrap(), "1");
+    assert_eq!(response.headers().get("x-ratelimit-retry-after").unwrap(), "1000");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_LIMIT_EXCEEDED");
-    assert!(json
-        .get("retry_after_ms")
-        .and_then(|v| v.as_u64())
-        .is_some());
+    assert!(json.get("retry_after_ms").and_then(|v| v.as_u64()).is_some());
 }
 
 #[tokio::test]
 async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
     let Some(app) = setup_test_app_with_sliding_sync_rate_limit(
-        RateLimitRule {
-            per_second: 1,
-            burst_size: 1,
-        },
-        RateLimitRule {
-            per_second: 10,
-            burst_size: 10,
-        },
+        RateLimitRule { per_second: 1, burst_size: 1 },
+        RateLimitRule { per_second: 10, burst_size: 10 },
     )
     .await
     else {
@@ -154,11 +119,7 @@ async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
         .header("Content-Type", "application/json")
         .body(Body::from("{}"))
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert!(response.status().is_success());
 
     let request = Request::builder()
@@ -168,28 +129,13 @@ async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
         .header("Content-Type", "application/json")
         .body(Body::from("{}"))
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(
-        response.headers().get("x-ratelimit-limit").unwrap(),
-        "1"
-    );
-    assert_eq!(
-        response.headers().get("x-ratelimit-retry-after").unwrap(),
-        "1000"
-    );
+    assert_eq!(response.headers().get("x-ratelimit-limit").unwrap(), "1");
+    assert_eq!(response.headers().get("x-ratelimit-retry-after").unwrap(), "1000");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_LIMIT_EXCEEDED");
-    assert!(json
-        .get("retry_after_ms")
-        .and_then(|v| v.as_u64())
-        .is_some());
+    assert!(json.get("retry_after_ms").and_then(|v| v.as_u64()).is_some());
 }

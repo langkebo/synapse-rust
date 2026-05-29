@@ -33,22 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let consumer_name = format!("worker-{worker_id}");
     let group_name = "synapse_workers";
 
-    tracing::info!(
-        "Worker {} started. Joining group {}",
-        consumer_name,
-        group_name
-    );
+    tracing::info!("Worker {} started. Joining group {}", consumer_name, group_name);
 
     let event_storage_clone = event_storage.clone();
     let job_handler = move |job: BackgroundJob| {
         let event_storage = event_storage_clone.clone();
         async move {
             match job {
-                BackgroundJob::SendEmail {
-                    to,
-                    subject,
-                    body: _,
-                } => {
+                BackgroundJob::SendEmail { to, subject, body: _ } => {
                     tracing::info!("[EMAIL] Sending email to: {}", to);
                     tracing::info!("[EMAIL] Subject: {}", subject);
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -62,15 +54,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tracing::info!("[MEDIA] Thumbnails generated for {}", file_id);
                     Ok(())
                 }
-                BackgroundJob::FederationTransaction {
-                    txn_id,
-                    destination,
-                } => {
-                    tracing::info!(
-                        "[FEDERATION] Processing transaction {} to {}",
-                        txn_id,
-                        destination
-                    );
+                BackgroundJob::FederationTransaction { txn_id, destination } => {
+                    tracing::info!("[FEDERATION] Processing transaction {} to {}", txn_id, destination);
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                     Ok(())
                 }
@@ -92,16 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     Ok(())
                 }
-                BackgroundJob::RedactEvent {
-                    room_id,
-                    event_id,
-                    reason,
-                } => {
-                    tracing::info!(
-                        "[REDACT] Executing redaction for room {} event {}",
-                        room_id,
-                        event_id
-                    );
+                BackgroundJob::RedactEvent { room_id, event_id, reason } => {
+                    tracing::info!("[REDACT] Executing redaction for room {} event {}", room_id, event_id);
                     if let Some(r) = reason {
                         tracing::info!("[REDACT] Reason: {}", r);
                     }
@@ -127,33 +104,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue_clone = queue.clone();
     let group_name_clone = group_name.to_string();
     let handle = tokio::spawn(async move {
-        if let Err(e) = queue_clone
-            .consume_loop(&group_name_clone, &consumer_name, job_handler)
-            .await
-        {
+        if let Err(e) = queue_clone.consume_loop(&group_name_clone, &consumer_name, job_handler).await {
             tracing::error!("Worker loop terminated with error: {}", e);
         }
     });
 
-    let metrics_host =
-        std::env::var("SYNAPSE_WORKER_METRICS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let metrics_port: u16 = std::env::var("SYNAPSE_WORKER_METRICS_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(9091);
+    let metrics_host = std::env::var("SYNAPSE_WORKER_METRICS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let metrics_port: u16 =
+        std::env::var("SYNAPSE_WORKER_METRICS_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(9091);
     let metrics_addr: SocketAddr = format!("{metrics_host}:{metrics_port}").parse()?;
-    let metrics_token = std::env::var("SYNAPSE_WORKER_METRICS_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty());
+    let metrics_token = std::env::var("SYNAPSE_WORKER_METRICS_TOKEN").ok().filter(|t| !t.is_empty());
     let refuse_unprotected_metrics = !metrics_addr.ip().is_loopback() && metrics_token.is_none();
 
-    let metrics_state = MetricsState {
-        queue: queue.clone(),
-        token: metrics_token.clone(),
-    };
-    let metrics_app = Router::new()
-        .route("/metrics", get(get_metrics))
-        .with_state(metrics_state);
+    let metrics_state = MetricsState { queue: queue.clone(), token: metrics_token.clone() };
+    let metrics_app = Router::new().route("/metrics", get(get_metrics)).with_state(metrics_state);
 
     let metrics_handle = if refuse_unprotected_metrics {
         tracing::error!(
@@ -188,10 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tracing::warn!("High Queue Depth: {} tasks pending!", metrics.queue_length);
                     }
                     if metrics.consumer_lag > 500 {
-                        tracing::warn!(
-                            "High Consumer Lag: {} unacknowledged tasks!",
-                            metrics.consumer_lag
-                        );
+                        tracing::warn!("High Consumer Lag: {} unacknowledged tasks!", metrics.consumer_lag);
                     }
                 }
                 Err(e) => {
@@ -220,10 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn get_metrics(
-    State(state): State<MetricsState>,
-    headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
+async fn get_metrics(State(state): State<MetricsState>, headers: axum::http::HeaderMap) -> impl IntoResponse {
     if let Some(token) = &state.token {
         let provided = headers
             .get(axum::http::header::AUTHORIZATION)
@@ -241,34 +199,19 @@ async fn get_metrics(
 
             body.push_str("# HELP synapse_worker_queue_length Current length of the job queue\n");
             body.push_str("# TYPE synapse_worker_queue_length gauge\n");
-            body.push_str(&format!(
-                "synapse_worker_queue_length {}\n",
-                metrics.queue_length
-            ));
+            body.push_str(&format!("synapse_worker_queue_length {}\n", metrics.queue_length));
 
             body.push_str("# HELP synapse_worker_consumer_lag Total unacknowledged messages\n");
             body.push_str("# TYPE synapse_worker_consumer_lag gauge\n");
-            body.push_str(&format!(
-                "synapse_worker_consumer_lag {}\n",
-                metrics.consumer_lag
-            ));
+            body.push_str(&format!("synapse_worker_consumer_lag {}\n", metrics.consumer_lag));
 
             body.push_str("# HELP synapse_worker_consumer_pending Pending messages per consumer\n");
             body.push_str("# TYPE synapse_worker_consumer_pending gauge\n");
             for (consumer, pending) in metrics.consumers {
-                body.push_str(&format!(
-                    "synapse_worker_consumer_pending{{consumer=\"{consumer}\"}} {pending}\n"
-                ));
+                body.push_str(&format!("synapse_worker_consumer_pending{{consumer=\"{consumer}\"}} {pending}\n"));
             }
 
-            (
-                [(
-                    axum::http::header::CONTENT_TYPE,
-                    "text/plain; version=0.0.4",
-                )],
-                body,
-            )
-                .into_response()
+            ([(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")], body).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to get metrics: {}", e);

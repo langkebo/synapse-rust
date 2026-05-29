@@ -11,9 +11,7 @@ use synapse_rust::e2ee::cross_signing::storage::CrossSigningStorage;
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Arc<Pool<Postgres>> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool()
-        .await
-        .expect("Failed to prepare test pool");
+    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"
@@ -96,11 +94,7 @@ fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
 
         storage.create_cross_signing_key(&key).await.unwrap();
 
-        let fetched = storage
-            .get_cross_signing_key("@alice:localhost", "master")
-            .await
-            .unwrap()
-            .unwrap();
+        let fetched = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
         assert_eq!(fetched.public_key, "master_public_key");
         assert!(fetched.created_ts.timestamp_millis() > 1_700_000_000_000);
         assert!(fetched.updated_ts.timestamp_millis() > 1_700_000_000_000);
@@ -118,19 +112,13 @@ fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
 
         storage.save_device_signature(&signature).await.unwrap();
 
-        let user_signatures = storage
-            .get_user_signatures("@alice:localhost")
-            .await
-            .unwrap();
+        let user_signatures = storage.get_user_signatures("@alice:localhost").await.unwrap();
         assert_eq!(user_signatures.len(), 1);
         assert_eq!(user_signatures[0].signature, "device_sig");
         assert!(user_signatures[0].created_ts.timestamp_millis() > 1_700_000_000_000);
 
-        let fetched_signature = storage
-            .get_signature("@alice:localhost", "ed25519:MASTER", "ALICEDEVICE")
-            .await
-            .unwrap()
-            .unwrap();
+        let fetched_signature =
+            storage.get_signature("@alice:localhost", "ed25519:MASTER", "ALICEDEVICE").await.unwrap().unwrap();
         assert_eq!(fetched_signature.signature, "device_sig");
         assert!(fetched_signature.created_ts.timestamp_millis() > 1_700_000_000_000);
     });
@@ -181,21 +169,9 @@ fn test_upload_cross_signing_keys_accepts_dynamic_ed25519_key_ids() {
 
         service.upload_cross_signing_keys(upload).await.unwrap();
 
-        let master = storage
-            .get_cross_signing_key("@alice:localhost", "master")
-            .await
-            .unwrap()
-            .unwrap();
-        let self_signing = storage
-            .get_cross_signing_key("@alice:localhost", "self_signing")
-            .await
-            .unwrap()
-            .unwrap();
-        let user_signing = storage
-            .get_cross_signing_key("@alice:localhost", "user_signing")
-            .await
-            .unwrap()
-            .unwrap();
+        let master = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
+        let self_signing = storage.get_cross_signing_key("@alice:localhost", "self_signing").await.unwrap().unwrap();
+        let user_signing = storage.get_cross_signing_key("@alice:localhost", "user_signing").await.unwrap().unwrap();
 
         assert_eq!(master.public_key, "master_public_key");
         assert_eq!(self_signing.public_key, "self_signing_public_key");

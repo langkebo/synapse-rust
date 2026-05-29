@@ -144,11 +144,10 @@ impl FederationQueueStorage {
     }
 
     pub async fn count_pending(&self) -> Result<i64, sqlx::Error> {
-        let row = sqlx::query_as::<_, (Option<i64>,)>(
-            r"SELECT COUNT(*) FROM federation_queue WHERE status = 'pending'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, (Option<i64>,)>(r"SELECT COUNT(*) FROM federation_queue WHERE status = 'pending'")
+                .fetch_one(&self.pool)
+                .await?;
 
         Ok(row.0.unwrap_or(0))
     }

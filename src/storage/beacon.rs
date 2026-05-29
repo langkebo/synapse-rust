@@ -73,16 +73,9 @@ impl BeaconStorage {
         Self { pool }
     }
 
-    pub async fn create_beacon_info(
-        &self,
-        params: CreateBeaconInfoParams,
-    ) -> Result<BeaconInfo, sqlx::Error> {
+    pub async fn create_beacon_info(&self, params: CreateBeaconInfoParams) -> Result<BeaconInfo, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let expires_at = if params.timeout > 0 {
-            Some(params.created_ts + params.timeout)
-        } else {
-            None
-        };
+        let expires_at = if params.timeout > 0 { Some(params.created_ts + params.timeout) } else { None };
 
         let row = sqlx::query_as::<_, BeaconInfo>(
             r#"
@@ -111,11 +104,7 @@ impl BeaconStorage {
         Ok(row)
     }
 
-    pub async fn deactivate_beacons_by_state_key(
-        &self,
-        room_id: &str,
-        state_key: &str,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn deactivate_beacons_by_state_key(&self, room_id: &str, state_key: &str) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
             r#"
@@ -132,11 +121,7 @@ impl BeaconStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn get_beacon_info(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<Option<BeaconInfo>, sqlx::Error> {
+    pub async fn get_beacon_info(&self, room_id: &str, event_id: &str) -> Result<Option<BeaconInfo>, sqlx::Error> {
         let row = sqlx::query_as::<_, BeaconInfo>(
             r#"
             SELECT * FROM beacon_info
@@ -177,8 +162,8 @@ impl BeaconStorage {
         let rows = sqlx::query_as::<_, BeaconInfo>(
             r#"
             SELECT * FROM beacon_info
-            WHERE room_id = $1 
-              AND is_live = true 
+            WHERE room_id = $1
+              AND is_live = true
               AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY created_ts DESC
             "#,
@@ -205,7 +190,7 @@ impl BeaconStorage {
         let row = sqlx::query_as::<_, BeaconInfo>(
             r#"
             UPDATE beacon_info
-            SET is_live = $3, timeout = COALESCE($4, timeout), 
+            SET is_live = $3, timeout = COALESCE($4, timeout),
                 expires_at = COALESCE($5, expires_at), updated_ts = $6
             WHERE room_id = $1 AND event_id = $2
             RETURNING *
@@ -223,11 +208,7 @@ impl BeaconStorage {
         Ok(row)
     }
 
-    pub async fn delete_beacon_info(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_beacon_info(&self, room_id: &str, event_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM beacon_info
@@ -269,23 +250,17 @@ impl BeaconStorage {
         .await?;
 
         if params.timestamp > 0 {
-            self.update_beacon_expiry(&params.beacon_info_id, params.timestamp)
-                .await?;
+            self.update_beacon_expiry(&params.beacon_info_id, params.timestamp).await?;
         }
 
         Ok(row)
     }
 
-    async fn update_beacon_expiry(
-        &self,
-        beacon_info_id: &str,
-        location_ts: i64,
-    ) -> Result<(), sqlx::Error> {
-        let beacon_info =
-            sqlx::query_as::<_, BeaconInfo>("SELECT * FROM beacon_info WHERE event_id = $1")
-                .bind(beacon_info_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+    async fn update_beacon_expiry(&self, beacon_info_id: &str, location_ts: i64) -> Result<(), sqlx::Error> {
+        let beacon_info = sqlx::query_as::<_, BeaconInfo>("SELECT * FROM beacon_info WHERE event_id = $1")
+            .bind(beacon_info_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         if let Some(info) = beacon_info {
             if info.timeout > 0 {
@@ -331,10 +306,7 @@ impl BeaconStorage {
         Ok(rows)
     }
 
-    pub async fn get_latest_location(
-        &self,
-        beacon_info_id: &str,
-    ) -> Result<Option<BeaconLocation>, sqlx::Error> {
+    pub async fn get_latest_location(&self, beacon_info_id: &str) -> Result<Option<BeaconLocation>, sqlx::Error> {
         let row = sqlx::query_as::<_, BeaconLocation>(
             r#"
             SELECT * FROM beacon_locations
@@ -350,11 +322,7 @@ impl BeaconStorage {
         Ok(row)
     }
 
-    pub async fn count_locations_in_room_since(
-        &self,
-        room_id: &str,
-        since_ts: i64,
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn count_locations_in_room_since(&self, room_id: &str, since_ts: i64) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*)
@@ -410,10 +378,7 @@ impl BeaconStorage {
 
         if let Some(info) = beacon_info {
             let locations = self.get_beacon_locations(&info.event_id, None).await?;
-            Ok(Some(BeaconInfoWithLocations {
-                beacon_info: info,
-                locations,
-            }))
+            Ok(Some(BeaconInfoWithLocations { beacon_info: info, locations }))
         } else {
             Ok(None)
         }
@@ -457,7 +422,7 @@ impl BeaconStorage {
             sqlx::query_as::<_, BeaconInfo>(
                 r#"
                 SELECT * FROM beacon_info
-                WHERE room_id = $1 
+                WHERE room_id = $1
                   AND (expires_at IS NULL OR expires_at > $2)
                 ORDER BY created_ts DESC
                 "#,
@@ -471,10 +436,7 @@ impl BeaconStorage {
         let mut result = Vec::new();
         for info in beacon_infos {
             let locations = self.get_beacon_locations(&info.event_id, None).await?;
-            result.push(BeaconInfoWithLocations {
-                beacon_info: info,
-                locations,
-            });
+            result.push(BeaconInfoWithLocations { beacon_info: info, locations });
         }
 
         Ok(result)

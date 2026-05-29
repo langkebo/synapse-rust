@@ -1,10 +1,10 @@
 #![cfg(test)]
 
 mod qr_login_suite {
-    use synapse_rust::storage::qr_login::QrLoginStorage;
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
     use std::time::Duration;
+    use synapse_rust::storage::qr_login::QrLoginStorage;
 
     /// Integration test for QR login storage
     /// Run with: TEST_DATABASE_URL=postgresql://user:pass@localhost/db cargo test qr_login_tests --test unit
@@ -27,14 +27,10 @@ mod qr_login_suite {
         let device_id = Some("TEST_DEVICE");
 
         // Create QR login transaction
-        storage.create_qr_login(&transaction_id, user_id, device_id)
-            .await
-            .expect("Failed to create QR login");
+        storage.create_qr_login(&transaction_id, user_id, device_id).await.expect("Failed to create QR login");
 
         // Get QR transaction
-        let result = storage.get_qr_transaction(&transaction_id)
-            .await
-            .expect("Failed to get QR transaction");
+        let result = storage.get_qr_transaction(&transaction_id).await.expect("Failed to get QR transaction");
 
         assert!(result.is_some());
         let txn = result.unwrap();
@@ -44,21 +40,15 @@ mod qr_login_suite {
         assert_eq!(txn.status, "pending");
 
         // Update status
-        storage.update_qr_status(&transaction_id, "confirmed")
-            .await
-            .expect("Failed to update status");
+        storage.update_qr_status(&transaction_id, "confirmed").await.expect("Failed to update status");
 
-        let result = storage.get_qr_transaction(&transaction_id)
-            .await
-            .expect("Failed to get QR transaction");
+        let result = storage.get_qr_transaction(&transaction_id).await.expect("Failed to get QR transaction");
 
         assert!(result.is_some());
         assert_eq!(result.unwrap().status, "confirmed");
 
         // Cleanup
-        storage.delete_qr_transaction(&transaction_id)
-            .await
-            .expect("Failed to delete transaction");
+        storage.delete_qr_transaction(&transaction_id).await.expect("Failed to delete transaction");
     }
 
     #[tokio::test]
@@ -66,7 +56,7 @@ mod qr_login_suite {
         // This test verifies the storage handles non-existent transactions gracefully
         // In a real scenario with a mock, we would test this without a database
         let non_existent_id = "non_existent_qr_123";
-        
+
         // Verify the ID format is valid (starts with qr_)
         assert!(non_existent_id.starts_with("qr_") || !non_existent_id.is_empty());
     }
@@ -75,7 +65,7 @@ mod qr_login_suite {
     fn test_transaction_id_format() {
         // Test that transaction IDs are properly formatted
         let transaction_id = format!("qr_{}_{}", uuid::Uuid::new_v4(), 1700000000000i64);
-        
+
         assert!(transaction_id.starts_with("qr_"));
         assert!(transaction_id.len() > 10);
     }
@@ -86,7 +76,7 @@ mod qr_login_suite {
         let created_at = 1700000000000i64; // Some timestamp
         let expires_in_ms = 5 * 60 * 1000; // 5 minutes
         let expected_expires_at = created_at + expires_in_ms;
-        
+
         assert_eq!(expected_expires_at, 1700000300000i64);
     }
 }

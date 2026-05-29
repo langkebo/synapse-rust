@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::retention::*;
     use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::retention::*;
 
     #[test]
     fn test_create_room_retention_policy_request() {
@@ -43,11 +43,8 @@ mod tests {
 
     #[test]
     fn test_effective_retention_policy() {
-        let policy = EffectiveRetentionPolicy {
-            max_lifetime: Some(86_400_000),
-            min_lifetime: 0,
-            expire_on_clients: true,
-        };
+        let policy =
+            EffectiveRetentionPolicy { max_lifetime: Some(86_400_000), min_lifetime: 0, expire_on_clients: true };
 
         assert_eq!(policy.max_lifetime, Some(86_400_000));
         assert_eq!(policy.min_lifetime, 0);

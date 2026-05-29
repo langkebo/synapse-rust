@@ -17,9 +17,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping friend room storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping friend room storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -176,27 +174,23 @@ fn create_storage(pool: &Arc<Pool<Postgres>>) -> FriendRoomStorage {
 
 async fn insert_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
     let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
-        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-    )
-    .bind(user_id)
-    .bind(username)
-    .bind(now)
-    .execute(pool)
-    .await
-    .expect("Failed to insert test user");
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to insert test user");
 }
 
 async fn insert_room(pool: &Pool<Postgres>, room_id: &str) {
     let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
-        "INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-    )
-    .bind(room_id)
-    .bind(now)
-    .execute(pool)
-    .await
-    .expect("Failed to insert test room");
+    sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(room_id)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to insert test room");
 }
 
 async fn insert_event(
@@ -297,16 +291,8 @@ fn test_get_friend_list_content() {
                 {"user_id": "@bob:localhost", "dm_room_id": "!dm2:localhost"}
             ]
         });
-        insert_event(
-            &pool,
-            &format!("$flist_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$flist_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let result = storage.get_friend_list_content(&room_id).await.unwrap();
         assert!(result.is_some());
@@ -355,16 +341,8 @@ fn test_is_friend_true() {
                 {"user_id": "@bob:localhost"}
             ]
         });
-        insert_event(
-            &pool,
-            &format!("$isfriend_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$isfriend_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let result = storage.is_friend(&room_id, "@alice:localhost").await.unwrap();
         assert!(result);
@@ -392,16 +370,8 @@ fn test_is_friend_false() {
                 {"user_id": "@alice:localhost"}
             ]
         });
-        insert_event(
-            &pool,
-            &format!("$notfriend_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$notfriend_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let result = storage.is_friend(&room_id, "@charlie:localhost").await.unwrap();
         assert!(!result);
@@ -430,16 +400,8 @@ fn test_get_friend_info_found() {
                 {"user_id": "@bob:localhost", "displayname": "Bob"}
             ]
         });
-        insert_event(
-            &pool,
-            &format!("$finfo_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$finfo_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let result = storage.get_friend_info(&room_id, "@alice:localhost").await.unwrap();
         assert!(result.is_some());
@@ -465,16 +427,8 @@ fn test_get_friend_info_not_found() {
         insert_room(&pool, &room_id).await;
 
         let content = json!({"friends": [{"user_id": "@alice:localhost"}]});
-        insert_event(
-            &pool,
-            &format!("$finfonf_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$finfonf_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let result = storage.get_friend_info(&room_id, "@nobody:localhost").await.unwrap();
         assert_eq!(result, None);
@@ -497,17 +451,10 @@ fn test_create_friend_request() {
         insert_user(&pool, &sender_id, &format!("sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("receiver_{suffix}")).await;
 
-        let id = storage
-            .create_friend_request(&sender_id, &receiver_id, Some("Hello!"))
-            .await
-            .unwrap();
+        let id = storage.create_friend_request(&sender_id, &receiver_id, Some("Hello!")).await.unwrap();
         assert!(id > 0);
 
-        let req = storage
-            .get_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let req = storage.get_friend_request(&sender_id, &receiver_id).await.unwrap().unwrap();
         assert_eq!(req.sender_id, sender_id);
         assert_eq!(req.receiver_id, receiver_id);
         assert_eq!(req.message, Some("Hello!".to_string()));
@@ -531,23 +478,13 @@ fn test_create_friend_request_upsert() {
         insert_user(&pool, &sender_id, &format!("upsert_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("upsert_receiver_{suffix}")).await;
 
-        let id1 = storage
-            .create_friend_request(&sender_id, &receiver_id, Some("First"))
-            .await
-            .unwrap();
+        let id1 = storage.create_friend_request(&sender_id, &receiver_id, Some("First")).await.unwrap();
 
-        let id2 = storage
-            .create_friend_request(&sender_id, &receiver_id, Some("Second"))
-            .await
-            .unwrap();
+        let id2 = storage.create_friend_request(&sender_id, &receiver_id, Some("Second")).await.unwrap();
 
         assert_eq!(id1, id2);
 
-        let req = storage
-            .get_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let req = storage.get_friend_request(&sender_id, &receiver_id).await.unwrap().unwrap();
         assert_eq!(req.message, Some("Second".to_string()));
         assert_eq!(req.status, "pending");
     });
@@ -569,26 +506,14 @@ fn test_get_pending_friend_request() {
         insert_user(&pool, &sender_id, &format!("pending_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("pending_receiver_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender_id, &receiver_id, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &receiver_id, None).await.unwrap();
 
-        let result = storage
-            .get_pending_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap();
+        let result = storage.get_pending_friend_request(&sender_id, &receiver_id).await.unwrap();
         assert!(result.is_some());
 
-        storage
-            .update_friend_request_status(&sender_id, &receiver_id, "accepted")
-            .await
-            .unwrap();
+        storage.update_friend_request_status(&sender_id, &receiver_id, "accepted").await.unwrap();
 
-        let result = storage
-            .get_pending_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap();
+        let result = storage.get_pending_friend_request(&sender_id, &receiver_id).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -611,19 +536,10 @@ fn test_get_incoming_friend_requests() {
         insert_user(&pool, &sender1, &format!("incoming_s1_{suffix}")).await;
         insert_user(&pool, &sender2, &format!("incoming_s2_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender1, &receiver_id, None)
-            .await
-            .unwrap();
-        storage
-            .create_friend_request(&sender2, &receiver_id, Some("Hi"))
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender1, &receiver_id, None).await.unwrap();
+        storage.create_friend_request(&sender2, &receiver_id, Some("Hi")).await.unwrap();
 
-        let incoming = storage
-            .get_incoming_friend_requests(&receiver_id)
-            .await
-            .unwrap();
+        let incoming = storage.get_incoming_friend_requests(&receiver_id).await.unwrap();
         assert_eq!(incoming.len(), 2);
     });
 }
@@ -646,19 +562,10 @@ fn test_get_outgoing_friend_requests() {
         insert_user(&pool, &recv1, &format!("outgoing_r1_{suffix}")).await;
         insert_user(&pool, &recv2, &format!("outgoing_r2_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender_id, &recv1, None)
-            .await
-            .unwrap();
-        storage
-            .create_friend_request(&sender_id, &recv2, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &recv1, None).await.unwrap();
+        storage.create_friend_request(&sender_id, &recv2, None).await.unwrap();
 
-        let outgoing = storage
-            .get_outgoing_friend_requests(&sender_id)
-            .await
-            .unwrap();
+        let outgoing = storage.get_outgoing_friend_requests(&sender_id).await.unwrap();
         assert_eq!(outgoing.len(), 2);
     });
 }
@@ -679,22 +586,12 @@ fn test_update_friend_request_status() {
         insert_user(&pool, &sender_id, &format!("status_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("status_receiver_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender_id, &receiver_id, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &receiver_id, None).await.unwrap();
 
-        let updated = storage
-            .update_friend_request_status(&sender_id, &receiver_id, "accepted")
-            .await
-            .unwrap();
+        let updated = storage.update_friend_request_status(&sender_id, &receiver_id, "accepted").await.unwrap();
         assert!(updated);
 
-        let req = storage
-            .get_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let req = storage.get_friend_request(&sender_id, &receiver_id).await.unwrap().unwrap();
         assert_eq!(req.status, "accepted");
     });
 }
@@ -715,20 +612,11 @@ fn test_update_friend_request_status_already_accepted() {
         insert_user(&pool, &sender_id, &format!("already_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("already_receiver_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender_id, &receiver_id, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &receiver_id, None).await.unwrap();
 
-        storage
-            .update_friend_request_status(&sender_id, &receiver_id, "accepted")
-            .await
-            .unwrap();
+        storage.update_friend_request_status(&sender_id, &receiver_id, "accepted").await.unwrap();
 
-        let updated = storage
-            .update_friend_request_status(&sender_id, &receiver_id, "rejected")
-            .await
-            .unwrap();
+        let updated = storage.update_friend_request_status(&sender_id, &receiver_id, "rejected").await.unwrap();
         assert!(!updated);
     });
 }
@@ -749,21 +637,12 @@ fn test_delete_friend_request() {
         insert_user(&pool, &sender_id, &format!("del_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("del_receiver_{suffix}")).await;
 
-        storage
-            .create_friend_request(&sender_id, &receiver_id, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &receiver_id, None).await.unwrap();
 
-        let deleted = storage
-            .delete_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap();
+        let deleted = storage.delete_friend_request(&sender_id, &receiver_id).await.unwrap();
         assert!(deleted);
 
-        let result = storage
-            .get_friend_request(&sender_id, &receiver_id)
-            .await
-            .unwrap();
+        let result = storage.get_friend_request(&sender_id, &receiver_id).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -805,10 +684,7 @@ fn test_has_pending_request() {
 
         assert!(!storage.has_pending_request(&sender_id, &receiver_id).await.unwrap());
 
-        storage
-            .create_friend_request(&sender_id, &receiver_id, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&sender_id, &receiver_id, None).await.unwrap();
 
         assert!(storage.has_pending_request(&sender_id, &receiver_id).await.unwrap());
     });
@@ -832,10 +708,7 @@ fn test_has_any_pending_request_bidirectional() {
 
         assert!(!storage.has_any_pending_request(&user_a, &user_b).await.unwrap());
 
-        storage
-            .create_friend_request(&user_a, &user_b, None)
-            .await
-            .unwrap();
+        storage.create_friend_request(&user_a, &user_b, None).await.unwrap();
 
         assert!(storage.has_any_pending_request(&user_a, &user_b).await.unwrap());
         assert!(storage.has_any_pending_request(&user_b, &user_a).await.unwrap());
@@ -894,10 +767,7 @@ fn test_create_friend_request_with_user_ensure_success() {
         insert_user(&pool, &sender_id, &format!("ensure_ok_sender_{suffix}")).await;
         insert_user(&pool, &receiver_id, &format!("ensure_ok_receiver_{suffix}")).await;
 
-        let id = storage
-            .create_friend_request_with_user_ensure(&sender_id, &receiver_id, Some("Hi"))
-            .await
-            .unwrap();
+        let id = storage.create_friend_request_with_user_ensure(&sender_id, &receiver_id, Some("Hi")).await.unwrap();
         assert!(id > 0);
     });
 }
@@ -917,9 +787,7 @@ fn test_create_friend_request_with_user_ensure_sender_missing() {
 
         insert_user(&pool, &receiver_id, &format!("missing_receiver_{suffix}")).await;
 
-        let result = storage
-            .create_friend_request_with_user_ensure(&sender_id, &receiver_id, None)
-            .await;
+        let result = storage.create_friend_request_with_user_ensure(&sender_id, &receiver_id, None).await;
         assert!(result.is_err());
     });
 }
@@ -940,20 +808,14 @@ fn test_create_and_delete_friend_group() {
         insert_user(&pool, &user_id, &format!("group_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "Work")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "Work").await.unwrap();
 
         let groups = storage.get_friend_groups(&room_id).await.unwrap().unwrap();
         let groups_arr = groups.get("groups").unwrap().as_array().unwrap();
         assert_eq!(groups_arr.len(), 1);
         assert_eq!(groups_arr[0].get("name").unwrap().as_str(), Some("Work"));
 
-        let deleted = storage
-            .delete_friend_group(&room_id, &user_id, "Work")
-            .await
-            .unwrap();
+        let deleted = storage.delete_friend_group(&room_id, &user_id, "Work").await.unwrap();
         assert!(deleted);
 
         let groups = storage.get_friend_groups(&room_id).await.unwrap().unwrap();
@@ -978,14 +840,9 @@ fn test_create_friend_group_duplicate() {
         insert_user(&pool, &user_id, &format!("dup_group_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "Family")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "Family").await.unwrap();
 
-        let result = storage
-            .create_friend_group(&room_id, &user_id, "Family")
-            .await;
+        let result = storage.create_friend_group(&room_id, &user_id, "Family").await;
         assert!(result.is_err());
     });
 }
@@ -1006,10 +863,7 @@ fn test_delete_friend_group_nonexistent() {
         insert_user(&pool, &user_id, &format!("del_nogroup_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        let deleted = storage
-            .delete_friend_group(&room_id, &user_id, "Nonexistent")
-            .await
-            .unwrap();
+        let deleted = storage.delete_friend_group(&room_id, &user_id, "Nonexistent").await.unwrap();
         assert!(!deleted);
     });
 }
@@ -1030,15 +884,9 @@ fn test_rename_friend_group() {
         insert_user(&pool, &user_id, &format!("rename_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "OldName")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "OldName").await.unwrap();
 
-        let renamed = storage
-            .rename_friend_group(&room_id, &user_id, "OldName", "NewName")
-            .await
-            .unwrap();
+        let renamed = storage.rename_friend_group(&room_id, &user_id, "OldName", "NewName").await.unwrap();
         assert!(renamed);
 
         let groups = storage.get_friend_groups(&room_id).await.unwrap().unwrap();
@@ -1064,10 +912,7 @@ fn test_rename_friend_group_nonexistent() {
         insert_user(&pool, &user_id, &format!("rename_nf_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        let renamed = storage
-            .rename_friend_group(&room_id, &user_id, "Ghost", "NewGhost")
-            .await
-            .unwrap();
+        let renamed = storage.rename_friend_group(&room_id, &user_id, "Ghost", "NewGhost").await.unwrap();
         assert!(!renamed);
     });
 }
@@ -1089,33 +934,18 @@ fn test_add_and_remove_friend_from_group() {
         insert_user(&pool, &user_id, &format!("addrem_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "Close")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "Close").await.unwrap();
 
-        let added = storage
-            .add_friend_to_group(&room_id, &user_id, "Close", &friend_id)
-            .await
-            .unwrap();
+        let added = storage.add_friend_to_group(&room_id, &user_id, "Close", &friend_id).await.unwrap();
         assert!(added);
 
-        let groups_for = storage
-            .get_friend_groups_for_user(&room_id, &friend_id)
-            .await
-            .unwrap();
+        let groups_for = storage.get_friend_groups_for_user(&room_id, &friend_id).await.unwrap();
         assert_eq!(groups_for, vec!["Close"]);
 
-        let removed = storage
-            .remove_friend_from_group(&room_id, &user_id, "Close", &friend_id)
-            .await
-            .unwrap();
+        let removed = storage.remove_friend_from_group(&room_id, &user_id, "Close", &friend_id).await.unwrap();
         assert!(removed);
 
-        let groups_for = storage
-            .get_friend_groups_for_user(&room_id, &friend_id)
-            .await
-            .unwrap();
+        let groups_for = storage.get_friend_groups_for_user(&room_id, &friend_id).await.unwrap();
         assert!(groups_for.is_empty());
     });
 }
@@ -1137,20 +967,11 @@ fn test_add_friend_to_group_duplicate() {
         insert_user(&pool, &user_id, &format!("dup_add_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "Test")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "Test").await.unwrap();
 
-        storage
-            .add_friend_to_group(&room_id, &user_id, "Test", &friend_id)
-            .await
-            .unwrap();
+        storage.add_friend_to_group(&room_id, &user_id, "Test", &friend_id).await.unwrap();
 
-        let added = storage
-            .add_friend_to_group(&room_id, &user_id, "Test", &friend_id)
-            .await
-            .unwrap();
+        let added = storage.add_friend_to_group(&room_id, &user_id, "Test", &friend_id).await.unwrap();
         assert!(!added);
     });
 }
@@ -1172,10 +993,7 @@ fn test_add_friend_to_group_nonexistent_group() {
         insert_user(&pool, &user_id, &format!("nogroup_add_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        let added = storage
-            .add_friend_to_group(&room_id, &user_id, "Ghost", &friend_id)
-            .await
-            .unwrap();
+        let added = storage.add_friend_to_group(&room_id, &user_id, "Ghost", &friend_id).await.unwrap();
         assert!(!added);
     });
 }
@@ -1197,15 +1015,9 @@ fn test_remove_friend_from_group_not_member() {
         insert_user(&pool, &user_id, &format!("rem_notmember_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "Test")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "Test").await.unwrap();
 
-        let removed = storage
-            .remove_friend_from_group(&room_id, &user_id, "Test", &friend_id)
-            .await
-            .unwrap();
+        let removed = storage.remove_friend_from_group(&room_id, &user_id, "Test", &friend_id).await.unwrap();
         assert!(!removed);
     });
 }
@@ -1227,31 +1039,16 @@ fn test_get_friend_groups_for_user_multiple_groups() {
         insert_user(&pool, &user_id, &format!("multigroup_user_{suffix}")).await;
         insert_room(&pool, &room_id).await;
 
-        storage
-            .create_friend_group(&room_id, &user_id, "GroupA")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "GroupA").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        storage
-            .create_friend_group(&room_id, &user_id, "GroupB")
-            .await
-            .unwrap();
+        storage.create_friend_group(&room_id, &user_id, "GroupB").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
 
-        storage
-            .add_friend_to_group(&room_id, &user_id, "GroupA", &friend_id)
-            .await
-            .unwrap();
+        storage.add_friend_to_group(&room_id, &user_id, "GroupA", &friend_id).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        storage
-            .add_friend_to_group(&room_id, &user_id, "GroupB", &friend_id)
-            .await
-            .unwrap();
+        storage.add_friend_to_group(&room_id, &user_id, "GroupB", &friend_id).await.unwrap();
 
-        let groups_for = storage
-            .get_friend_groups_for_user(&room_id, &friend_id)
-            .await
-            .unwrap();
+        let groups_for = storage.get_friend_groups_for_user(&room_id, &friend_id).await.unwrap();
         assert_eq!(groups_for.len(), 2);
         assert!(groups_for.contains(&"GroupA".to_string()));
         assert!(groups_for.contains(&"GroupB".to_string()));
@@ -1443,16 +1240,8 @@ fn test_find_friend_lists_by_dm_room_id() {
                 {"user_id": "@friend2:localhost", "dm_room_id": "!other_dm:localhost"}
             ]
         });
-        insert_event(
-            &pool,
-            &format!("$dm_flist_{suffix}"),
-            &room_id,
-            &user_id,
-            "m.friends.list",
-            Some(""),
-            &content,
-        )
-        .await;
+        insert_event(&pool, &format!("$dm_flist_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
+            .await;
 
         let links = storage.find_friend_lists_by_dm_room_id(&dm_room_id).await.unwrap();
         assert_eq!(links.len(), 1);

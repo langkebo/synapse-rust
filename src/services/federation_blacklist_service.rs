@@ -41,10 +41,7 @@ impl FederationBlacklistService {
         request: AddBlacklistRequest,
         blocked_by: &str,
     ) -> Result<FederationBlacklist, ApiError> {
-        if !matches!(
-            request.block_type.as_str(),
-            "blacklist" | "whitelist" | "quarantine"
-        ) {
+        if !matches!(request.block_type.as_str(), "blacklist" | "whitelist" | "quarantine") {
             return Err(ApiError::bad_request("Invalid block type"));
         }
 
@@ -78,21 +75,12 @@ impl FederationBlacklistService {
             })
             .await?;
 
-        info!(
-            "Added {} to {} by {}",
-            entry.server_name, entry.block_type, blocked_by
-        );
+        info!("Added {} to {} by {}", entry.server_name, entry.block_type, blocked_by);
         Ok(entry)
     }
 
-    pub async fn remove_from_blacklist(
-        &self,
-        server_name: &str,
-        performed_by: &str,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .remove_from_blacklist(server_name, performed_by)
-            .await
+    pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
+        self.storage.remove_from_blacklist(server_name, performed_by).await
     }
 
     pub async fn check_server(&self, server_name: &str) -> Result<CheckResult, ApiError> {
@@ -146,10 +134,7 @@ impl FederationBlacklistService {
             }
         }
 
-        let default_action = self
-            .storage
-            .get_config("default_action")?
-            .unwrap_or_else(|| "allow".to_string());
+        let default_action = self.storage.get_config("default_action")?.unwrap_or_else(|| "allow".to_string());
 
         Ok(CheckResult {
             is_blocked: default_action == "block",
@@ -160,15 +145,12 @@ impl FederationBlacklistService {
         })
     }
 
-    fn matches_rule(
-        server_name: &str,
-        rule: &FederationBlacklistRule,
-    ) -> Result<bool, ApiError> {
+    fn matches_rule(server_name: &str, rule: &FederationBlacklistRule) -> Result<bool, ApiError> {
         match rule.rule_type.as_str() {
             "domain" => Ok(server_name == rule.pattern),
             "regex" => {
-                let re = Regex::new(&rule.pattern)
-                    .map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e))?;
+                let re =
+                    Regex::new(&rule.pattern).map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e))?;
                 Ok(re.is_match(server_name))
             }
             "wildcard" => {
@@ -205,34 +187,24 @@ impl FederationBlacklistService {
     }
 
     async fn check_auto_blacklist(&self, server_name: &str) -> Result<(), ApiError> {
-        let auto_blacklist_enabled = self
-            .storage
-            .get_config_as_bool("enable_auto_blacklist", true)?;
+        let auto_blacklist_enabled = self.storage.get_config_as_bool("enable_auto_blacklist", true)?;
 
         if !auto_blacklist_enabled {
             return Ok(());
         }
 
-        let threshold = self
-            .storage
-            .get_config_as_int("auto_blacklist_threshold", 10)?;
-        let window_minutes = self
-            .storage
-            .get_config_as_int("auto_blacklist_window_minutes", 60)?;
+        let threshold = self.storage.get_config_as_int("auto_blacklist_threshold", 10)?;
+        let window_minutes = self.storage.get_config_as_int("auto_blacklist_window_minutes", 60)?;
 
         let stats = self.storage.get_access_stats(server_name).await?;
 
         if let Some(stats) = stats {
             if stats.failed_requests >= threshold as i64 {
                 if let Some(last_failure_ts) = stats.last_failure_ts {
-                    let window_start = (chrono::Utc::now()
-                        - chrono::Duration::minutes(window_minutes as i64))
-                    .timestamp_millis();
+                    let window_start =
+                        (chrono::Utc::now() - chrono::Duration::minutes(window_minutes as i64)).timestamp_millis();
                     if last_failure_ts > window_start {
-                        info!(
-                            "Auto-blacklisting server {} due to {} failures",
-                            server_name, stats.failed_requests
-                        );
+                        info!("Auto-blacklisting server {} due to {} failures", server_name, stats.failed_requests);
 
                         self.add_to_blacklist(
                             AddBlacklistRequest {
@@ -263,10 +235,7 @@ impl FederationBlacklistService {
         self.storage.get_all_blacklist(limit, from).await
     }
 
-    pub async fn get_stats(
-        &self,
-        server_name: &str,
-    ) -> Result<Option<FederationAccessStats>, ApiError> {
+    pub async fn get_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
         self.storage.get_access_stats(server_name).await
     }
 
@@ -278,17 +247,11 @@ impl FederationBlacklistService {
         &self,
         request: crate::storage::federation_blacklist::CreateRuleRequest,
     ) -> Result<FederationBlacklistRule, ApiError> {
-        if !matches!(
-            request.rule_type.as_str(),
-            "domain" | "regex" | "wildcard" | "cidr"
-        ) {
+        if !matches!(request.rule_type.as_str(), "domain" | "regex" | "wildcard" | "cidr") {
             return Err(ApiError::bad_request("Invalid rule type"));
         }
 
-        if !matches!(
-            request.action.as_str(),
-            "block" | "allow" | "quarantine" | "rate_limit"
-        ) {
+        if !matches!(request.action.as_str(), "block" | "allow" | "quarantine" | "rate_limit") {
             return Err(ApiError::bad_request("Invalid action"));
         }
 
@@ -384,9 +347,7 @@ mod tests {
 
     #[test]
     fn test_check_server_request() {
-        let request = CheckServerRequest {
-            server_name: "matrix.example.com".to_string(),
-        };
+        let request = CheckServerRequest { server_name: "matrix.example.com".to_string() };
         assert_eq!(request.server_name, "matrix.example.com");
     }
 
@@ -394,10 +355,7 @@ mod tests {
     fn test_valid_block_types() {
         let valid_types = vec!["blacklist", "whitelist", "quarantine"];
         for block_type in valid_types {
-            assert!(matches!(
-                block_type,
-                "blacklist" | "whitelist" | "quarantine"
-            ));
+            assert!(matches!(block_type, "blacklist" | "whitelist" | "quarantine"));
         }
     }
 
@@ -405,10 +363,7 @@ mod tests {
     fn test_valid_rule_types() {
         let valid_types = vec!["domain", "regex", "wildcard", "cidr"];
         for rule_type in valid_types {
-            assert!(matches!(
-                rule_type,
-                "domain" | "regex" | "wildcard" | "cidr"
-            ));
+            assert!(matches!(rule_type, "domain" | "regex" | "wildcard" | "cidr"));
         }
     }
 
@@ -416,10 +371,7 @@ mod tests {
     fn test_valid_actions() {
         let valid_actions = vec!["block", "allow", "quarantine", "rate_limit"];
         for action in valid_actions {
-            assert!(matches!(
-                action,
-                "block" | "allow" | "quarantine" | "rate_limit"
-            ));
+            assert!(matches!(action, "block" | "allow" | "quarantine" | "rate_limit"));
         }
     }
 

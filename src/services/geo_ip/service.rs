@@ -103,33 +103,19 @@ impl GeoIpService {
             .map_err(|e| ApiError::internal_with_log("IPAPI request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "IPAPI returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("IPAPI returned error", &response.status()));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse IPAPI response", &e))?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse IPAPI response", &e))?;
 
         Ok(GeoIpResult {
-            country: json
-                .get("country_code")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            region: json
-                .get("region_name")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            country: json.get("country_code").and_then(|v| v.as_str()).map(String::from),
+            region: json.get("region_name").and_then(|v| v.as_str()).map(String::from),
             city: json.get("city").and_then(|v| v.as_str()).map(String::from),
             latitude: json.get("latitude").and_then(|v| v.as_f64()),
             longitude: json.get("longitude").and_then(|v| v.as_f64()),
-            isp: json
-                .get("connection")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            isp: json.get("connection").and_then(|v| v.as_str()).map(String::from),
             org: json.get("org").and_then(|v| v.as_str()).map(String::from),
             is_datacenter: false,
             is_vpn: false,
@@ -154,26 +140,15 @@ impl GeoIpService {
             .map_err(|e| ApiError::internal_with_log("IPStack request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "IPStack returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("IPStack returned error", &response.status()));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse IPStack response", &e))?;
+        let json: serde_json::Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse IPStack response", &e))?;
 
         Ok(GeoIpResult {
-            country: json
-                .get("country_code")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            region: json
-                .get("region_name")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            country: json.get("country_code").and_then(|v| v.as_str()).map(String::from),
+            region: json.get("region_name").and_then(|v| v.as_str()).map(String::from),
             city: json.get("city").and_then(|v| v.as_str()).map(String::from),
             latitude: json.get("latitude").and_then(|v| v.as_f64()),
             longitude: json.get("longitude").and_then(|v| v.as_f64()),
@@ -186,16 +161,12 @@ impl GeoIpService {
     }
 
     pub async fn check_access(&self, ip: &str) -> Result<bool, ApiError> {
-        let _: IpAddr = ip
-            .parse()
-            .map_err(|_| ApiError::bad_request("Invalid IP address".to_string()))?;
+        let _: IpAddr = ip.parse().map_err(|_| ApiError::bad_request("Invalid IP address".to_string()))?;
 
         let rules = self.rules.read().await;
 
-        let mut matching_rules: Vec<&IpAccessRule> = rules
-            .iter()
-            .filter(|rule| Self::matches_ip_pattern(ip, &rule.ip_pattern))
-            .collect();
+        let mut matching_rules: Vec<&IpAccessRule> =
+            rules.iter().filter(|rule| Self::matches_ip_pattern(ip, &rule.ip_pattern)).collect();
 
         matching_rules.sort_by_key(|r| r.priority);
 
@@ -210,9 +181,7 @@ impl GeoIpService {
         let geo = self.lookup(ip).await?;
 
         if let Some(ref country) = geo.country {
-            if !self.config.allowed_countries.is_empty()
-                && !self.config.allowed_countries.contains(country)
-            {
+            if !self.config.allowed_countries.is_empty() && !self.config.allowed_countries.contains(country) {
                 return Ok(false);
             }
 

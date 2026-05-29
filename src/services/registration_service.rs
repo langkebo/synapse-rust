@@ -26,17 +26,9 @@ impl RegistrationService {
     ) -> Self {
         // HP-2 FIX: Construct base URL from server_name, but make it configurable
         // Default to HTTPS for production, can be overridden via environment variable
-        let base_url = std::env::var("HOMESERVER_BASE_URL")
-            .unwrap_or_else(|_| format!("https://{server_name}"));
+        let base_url = std::env::var("HOMESERVER_BASE_URL").unwrap_or_else(|_| format!("https://{server_name}"));
 
-        Self {
-            user_storage,
-            auth_service,
-            metrics,
-            base_url,
-            enable_registration,
-            task_queue,
-        }
+        Self { user_storage, auth_service, metrics, base_url, enable_registration, task_queue }
     }
 
     pub async fn register_user(
@@ -53,22 +45,14 @@ impl RegistrationService {
         let start = std::time::Instant::now();
         let result = self
             .auth_service
-            .register_with_device_name(
-                username,
-                password,
-                false,
-                displayname,
-                initial_device_display_name,
-            )
+            .register_with_device_name(username, password, false, displayname, initial_device_display_name)
             .await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("registration_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("registration_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("registration_duration_seconds".to_string());
             hist.observe(duration);
         }
 
@@ -77,9 +61,7 @@ impl RegistrationService {
         if let Some(counter) = self.metrics.get_counter("registration_success_total") {
             counter.inc();
         } else {
-            let counter = self
-                .metrics
-                .register_counter("registration_success_total".to_string());
+            let counter = self.metrics.register_counter("registration_success_total".to_string());
             counter.inc();
         }
 
@@ -88,10 +70,7 @@ impl RegistrationService {
             let email_job = BackgroundJob::SendEmail {
                 to: user.user_id.clone(), // Assuming user_id can be an email or we look it up
                 subject: "Welcome to Synapse!".to_string(),
-                body: format!(
-                    "Hello {}, welcome to our Matrix server!",
-                    displayname.unwrap_or(username)
-                ),
+                body: format!("Hello {}, welcome to our Matrix server!", displayname.unwrap_or(username)),
             };
 
             if let Err(e) = queue.submit(email_job).await {
@@ -124,18 +103,13 @@ impl RegistrationService {
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let start = std::time::Instant::now();
-        let result = self
-            .auth_service
-            .login(username, password, device_id, initial_display_name)
-            .await;
+        let result = self.auth_service.login(username, password, device_id, initial_display_name).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("login_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("login_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("login_duration_seconds".to_string());
             hist.observe(duration);
         }
 
@@ -144,9 +118,7 @@ impl RegistrationService {
         if let Some(counter) = self.metrics.get_counter("login_success_total") {
             counter.inc();
         } else {
-            let counter = self
-                .metrics
-                .register_counter("login_success_total".to_string());
+            let counter = self.metrics.register_counter("login_success_total".to_string());
             counter.inc();
         }
 
@@ -171,9 +143,7 @@ impl RegistrationService {
         new_password: &str,
         current_device_id: Option<&str>,
     ) -> ApiResult<()> {
-        self.auth_service
-            .change_password(user_id, current_password, new_password, current_device_id)
-            .await?;
+        self.auth_service.change_password(user_id, current_password, new_password, current_device_id).await?;
         Ok(())
     }
 
@@ -219,30 +189,24 @@ impl RegistrationService {
     }
 
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
-        self.user_storage
-            .update_displayname(user_id, Some(displayname))
-            .await
-            .map_err(|e| {
-                if e.to_string().contains("too long") {
-                    ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
-                } else {
-                    ApiError::internal_with_log("Failed to update displayname", &e)
-                }
-            })?;
+        self.user_storage.update_displayname(user_id, Some(displayname)).await.map_err(|e| {
+            if e.to_string().contains("too long") {
+                ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
+            } else {
+                ApiError::internal_with_log("Failed to update displayname", &e)
+            }
+        })?;
         Ok(())
     }
 
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
-        self.user_storage
-            .update_avatar_url(user_id, Some(avatar_url))
-            .await
-            .map_err(|e| {
-                if e.to_string().contains("too long") {
-                    ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
-                } else {
-                    ApiError::internal_with_log("Failed to update avatar", &e)
-                }
-            })?;
+        self.user_storage.update_avatar_url(user_id, Some(avatar_url)).await.map_err(|e| {
+            if e.to_string().contains("too long") {
+                ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
+            } else {
+                ApiError::internal_with_log("Failed to update avatar", &e)
+            }
+        })?;
         Ok(())
     }
 
@@ -312,9 +276,7 @@ mod tests {
             None,
         );
 
-        let result = registration_service
-            .register_user("test", "pass", None, None)
-            .await;
+        let result = registration_service.register_user("test", "pass", None, None).await;
         assert!(matches!(result, Err(ApiError::Forbidden { .. })));
     }
 }

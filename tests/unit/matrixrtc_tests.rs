@@ -1,6 +1,6 @@
-use crate::storage::matrixrtc::*;
+use crate::cache::{CacheConfig, CacheManager};
 use crate::services::matrixrtc_service::*;
-use crate::cache::{CacheManager, CacheConfig};
+use crate::storage::matrixrtc::*;
 
 fn create_test_storage(pool: sqlx::PgPool) -> MatrixRTCStorage {
     MatrixRTCStorage::new(std::sync::Arc::new(pool))
@@ -128,30 +128,25 @@ mod tests {
             config: serde_json::json!({}),
         };
 
-        let memberships = vec![
-            RTCMembership {
-                id: 1,
-                room_id: "!room:example.com".to_string(),
-                session_id: "session123".to_string(),
-                user_id: "@bob:example.com".to_string(),
-                device_id: "DEVICE1".to_string(),
-                membership_id: "m1".to_string(),
-                application: "m.call".to_string(),
-                call_id: None,
-                created_ts: 1234567890000,
-                updated_ts: 1234567890000,
-                expires_ts: None,
-                foci_active: None,
-                foci_preferred: None,
-                application_data: None,
-                is_active: true,
-            },
-        ];
+        let memberships = vec![RTCMembership {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            session_id: "session123".to_string(),
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEVICE1".to_string(),
+            membership_id: "m1".to_string(),
+            application: "m.call".to_string(),
+            call_id: None,
+            created_ts: 1234567890000,
+            updated_ts: 1234567890000,
+            expires_ts: None,
+            foci_active: None,
+            foci_preferred: None,
+            application_data: None,
+            is_active: true,
+        }];
 
-        let combined = SessionWithMemberships {
-            session,
-            memberships,
-        };
+        let combined = SessionWithMemberships { session, memberships };
 
         assert_eq!(combined.session.session_id, "session123");
         assert_eq!(combined.memberships.len(), 1);

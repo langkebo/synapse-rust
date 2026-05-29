@@ -149,9 +149,7 @@ impl RegistrationTokenStorage {
     ) -> Result<RegistrationToken, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let token = request.token.unwrap_or_else(Self::generate_token);
-        let token_type = request
-            .token_type
-            .unwrap_or_else(|| "single_use".to_string());
+        let token_type = request.token_type.unwrap_or_else(|| "single_use".to_string());
 
         let row = sqlx::query_as::<_, RegistrationToken>(
             r"
@@ -186,30 +184,24 @@ impl RegistrationTokenStorage {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let chars: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-        let token: String = (0..32)
-            .map(|_| chars[rng.gen_range(0..chars.len())] as char)
-            .collect();
+        let token: String = (0..32).map(|_| chars[rng.gen_range(0..chars.len())] as char).collect();
         token
     }
 
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationToken>(
-            "SELECT * FROM registration_tokens WHERE token = $1",
-        )
-        .bind(token)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, RegistrationToken>("SELECT * FROM registration_tokens WHERE token = $1")
+            .bind(token)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
 
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RegistrationToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationToken>(
-            "SELECT * FROM registration_tokens WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, RegistrationToken>("SELECT * FROM registration_tokens WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
@@ -242,10 +234,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn delete_token(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM registration_tokens WHERE id = $1")
-            .bind(id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM registration_tokens WHERE id = $1").bind(id).execute(&*self.pool).await?;
 
         Ok(())
     }
@@ -295,11 +284,7 @@ impl RegistrationTokenStorage {
                     }
                 }
 
-                Ok(TokenValidationResult {
-                    is_valid: true,
-                    token_id: Some(t.id),
-                    error_message: None,
-                })
+                Ok(TokenValidationResult { is_valid: true, token_id: Some(t.id), error_message: None })
             }
         }
     }
@@ -410,22 +395,14 @@ impl RegistrationTokenStorage {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{
-        decode_registration_token_cursor, encode_registration_token_cursor, RegistrationTokenCursor,
-    };
+    use super::{decode_registration_token_cursor, encode_registration_token_cursor, RegistrationTokenCursor};
 
     #[test]
     fn registration_token_cursor_round_trip() {
-        let cursor = RegistrationTokenCursor {
-            created_ts: 1_746_700_000_000,
-            id: 42,
-        };
+        let cursor = RegistrationTokenCursor { created_ts: 1_746_700_000_000, id: 42 };
 
         let encoded = encode_registration_token_cursor(&cursor);
-        assert_eq!(
-            decode_registration_token_cursor(Some(&encoded)),
-            Some(cursor)
-        );
+        assert_eq!(decode_registration_token_cursor(Some(&encoded)), Some(cursor));
     }
 
     #[test]
@@ -443,8 +420,8 @@ impl RegistrationTokenStorage {
 
         let rows = sqlx::query_as::<_, RegistrationToken>(
             r"
-            SELECT * FROM registration_tokens 
-            WHERE is_enabled = TRUE 
+            SELECT * FROM registration_tokens
+            WHERE is_enabled = TRUE
             AND (expires_at IS NULL OR expires_at > $1)
             AND (max_uses = 0 OR uses_count < max_uses)
             ORDER BY created_ts DESC
@@ -457,10 +434,7 @@ impl RegistrationTokenStorage {
         Ok(rows)
     }
 
-    pub async fn get_token_usage(
-        &self,
-        token_id: i64,
-    ) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
+    pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RegistrationTokenUsage>(
             "SELECT * FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC",
         )
@@ -493,10 +467,7 @@ impl RegistrationTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn create_room_invite(
-        &self,
-        request: CreateRoomInviteRequest,
-    ) -> Result<RoomInvite, sqlx::Error> {
+    pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let invite_code = Self::generate_token();
 
@@ -521,24 +492,16 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
-    pub async fn get_room_invite(
-        &self,
-        invite_code: &str,
-    ) -> Result<Option<RoomInvite>, sqlx::Error> {
-        let row =
-            sqlx::query_as::<_, RoomInvite>("SELECT * FROM room_invites WHERE invite_code = $1")
-                .bind(invite_code)
-                .fetch_optional(&*self.pool)
-                .await?;
+    pub async fn get_room_invite(&self, invite_code: &str) -> Result<Option<RoomInvite>, sqlx::Error> {
+        let row = sqlx::query_as::<_, RoomInvite>("SELECT * FROM room_invites WHERE invite_code = $1")
+            .bind(invite_code)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         Ok(row)
     }
 
-    pub async fn use_room_invite(
-        &self,
-        invite_code: &str,
-        invitee_user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, sqlx::Error> {
         let invite = self.get_room_invite(invite_code).await?;
 
         match invite {
@@ -577,11 +540,7 @@ impl RegistrationTokenStorage {
         }
     }
 
-    pub async fn revoke_room_invite(
-        &self,
-        invite_code: &str,
-        reason: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -602,11 +561,7 @@ impl RegistrationTokenStorage {
         Ok(())
     }
 
-    pub async fn create_batch(
-        &self,
-        batch: &RegistrationTokenBatch,
-        tokens: &[String],
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn create_batch(&self, batch: &RegistrationTokenBatch, tokens: &[String]) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, RegistrationTokenBatch>(
@@ -652,16 +607,12 @@ impl RegistrationTokenStorage {
         Ok(row.id)
     }
 
-    pub async fn get_batch(
-        &self,
-        batch_id: &str,
-    ) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationTokenBatch>(
-            "SELECT * FROM registration_token_batches WHERE batch_id = $1",
-        )
-        .bind(batch_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
+        let row =
+            sqlx::query_as::<_, RegistrationTokenBatch>("SELECT * FROM registration_token_batches WHERE batch_id = $1")
+                .bind(batch_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(row)
     }
@@ -701,10 +652,7 @@ mod tests {
         assert_eq!(token.id, 1);
         assert_eq!(token.token, "TestToken123456789");
         assert_eq!(token.token_type, "single_use");
-        assert_eq!(
-            token.description,
-            Some("Test token for unit tests".to_string())
-        );
+        assert_eq!(token.description, Some("Test token for unit tests".to_string()));
         assert_eq!(token.max_uses, 1);
         assert_eq!(token.uses_count, 0);
         assert!(!token.is_used);
@@ -749,11 +697,7 @@ mod tests {
 
     #[test]
     fn test_token_validation_result_valid() {
-        let result = TokenValidationResult {
-            is_valid: true,
-            token_id: Some(1),
-            error_message: None,
-        };
+        let result = TokenValidationResult { is_valid: true, token_id: Some(1), error_message: None };
 
         assert!(result.is_valid);
         assert_eq!(result.token_id, Some(1));
@@ -876,9 +820,7 @@ mod tests {
     fn test_generate_token_valid_characters() {
         let token = RegistrationTokenStorage::generate_token();
         let valid_chars: std::collections::HashSet<char> =
-            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-                .chars()
-                .collect();
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789".chars().collect();
 
         for c in token.chars() {
             assert!(valid_chars.contains(&c), "Invalid character: {c}");
@@ -891,10 +833,7 @@ mod tests {
         let ambiguous_chars = ['I', 'O', 'l', 'i', 'o', '0', '1'];
 
         for c in token.chars() {
-            assert!(
-                !ambiguous_chars.contains(&c),
-                "Ambiguous character found: {c}"
-            );
+            assert!(!ambiguous_chars.contains(&c), "Ambiguous character found: {c}");
         }
     }
 
@@ -1013,9 +952,7 @@ mod tests {
             email: None,
         };
 
-        assert!(
-            unlimited_token.max_uses == 0 || unlimited_token.uses_count < unlimited_token.max_uses
-        );
+        assert!(unlimited_token.max_uses == 0 || unlimited_token.uses_count < unlimited_token.max_uses);
         assert!(limited_token_available.uses_count < limited_token_available.max_uses);
         assert!(limited_token_exhausted.uses_count >= limited_token_exhausted.max_uses);
     }
@@ -1120,10 +1057,7 @@ mod tests {
 
         assert!(revoked_invite.is_revoked);
         assert!(revoked_invite.revoked_at.is_some());
-        assert_eq!(
-            revoked_invite.revoked_reason,
-            Some("No longer needed".to_string())
-        );
+        assert_eq!(revoked_invite.revoked_reason, Some("No longer needed".to_string()));
     }
 
     #[test]
@@ -1187,10 +1121,7 @@ mod tests {
         };
 
         assert!(!failed_usage.is_success);
-        assert_eq!(
-            failed_usage.error_message,
-            Some("Token expired".to_string())
-        );
+        assert_eq!(failed_usage.error_message, Some("Token expired".to_string()));
     }
 
     #[test]
@@ -1211,8 +1142,7 @@ mod tests {
     fn test_token_serialization() {
         let token = create_test_token();
         let json = serde_json::to_string(&token).expect("Failed to serialize");
-        let deserialized: RegistrationToken =
-            serde_json::from_str(&json).expect("Failed to deserialize");
+        let deserialized: RegistrationToken = serde_json::from_str(&json).expect("Failed to deserialize");
 
         assert_eq!(token.id, deserialized.id);
         assert_eq!(token.token, deserialized.token);
@@ -1222,15 +1152,10 @@ mod tests {
 
     #[test]
     fn test_token_validation_result_serialization() {
-        let result = TokenValidationResult {
-            is_valid: true,
-            token_id: Some(42),
-            error_message: None,
-        };
+        let result = TokenValidationResult { is_valid: true, token_id: Some(42), error_message: None };
 
         let json = serde_json::to_string(&result).expect("Failed to serialize");
-        let deserialized: TokenValidationResult =
-            serde_json::from_str(&json).expect("Failed to deserialize");
+        let deserialized: TokenValidationResult = serde_json::from_str(&json).expect("Failed to deserialize");
 
         assert_eq!(result.is_valid, deserialized.is_valid);
         assert_eq!(result.token_id, deserialized.token_id);

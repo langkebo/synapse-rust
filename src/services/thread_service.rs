@@ -1,7 +1,7 @@
 use crate::common::error::ApiError;
 use crate::storage::thread::{
-    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt,
-    ThreadReply, ThreadRoot, ThreadStorage, ThreadSubscription, ThreadSummary,
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadReply, ThreadRoot,
+    ThreadStorage, ThreadSubscription, ThreadSummary,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -97,11 +97,7 @@ impl ThreadService {
         Self { storage }
     }
 
-    pub async fn create_thread(
-        &self,
-        sender: &str,
-        request: CreateThreadRequest,
-    ) -> Result<ThreadRoot, ApiError> {
+    pub async fn create_thread(&self, sender: &str, request: CreateThreadRequest) -> Result<ThreadRoot, ApiError> {
         info!(
             room_id = %request.room_id,
             root_event_id = %request.root_event_id,
@@ -142,11 +138,7 @@ impl ThreadService {
         Ok(thread_root)
     }
 
-    pub async fn add_reply(
-        &self,
-        sender: &str,
-        request: CreateReplyRequest,
-    ) -> Result<ThreadReply, ApiError> {
+    pub async fn add_reply(&self, sender: &str, request: CreateReplyRequest) -> Result<ThreadReply, ApiError> {
         info!(
             room_id = %request.room_id,
             thread_id = %request.thread_id,
@@ -163,9 +155,7 @@ impl ThreadService {
             .ok_or_else(|| ApiError::not_found("Thread not found"))?;
 
         if thread_root.is_fetched {
-            return Err(ApiError::bad_request(
-                "Thread is frozen and cannot accept new replies",
-            ));
+            return Err(ApiError::bad_request("Thread is frozen and cannot accept new replies"));
         }
 
         let params = CreateThreadReplyParams {
@@ -179,14 +169,10 @@ impl ThreadService {
             origin_server_ts: request.origin_server_ts,
         };
 
-        let reply = self
-            .storage
-            .create_thread_reply(params)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to create thread reply");
-                ApiError::internal_with_log("Failed to create reply", &e)
-            })?;
+        let reply = self.storage.create_thread_reply(params).await.map_err(|e| {
+            warn!(error = %e, "Failed to create thread reply");
+            ApiError::internal_with_log("Failed to create reply", &e)
+        })?;
 
         self.storage
             .create_thread_relation(
@@ -227,12 +213,7 @@ impl ThreadService {
 
         let replies = if request.include_replies {
             self.storage
-                .get_thread_replies(
-                    &request.room_id,
-                    &request.thread_id,
-                    request.reply_limit,
-                    None,
-                )
+                .get_thread_replies(&request.room_id, &request.thread_id, request.reply_limit, None)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get replies", &e))?
         } else {
@@ -275,21 +256,10 @@ impl ThreadService {
             (None, None)
         };
 
-        Ok(ThreadDetailResponse {
-            root,
-            replies,
-            reply_count,
-            participants,
-            summary,
-            user_receipt,
-            user_subscription,
-        })
+        Ok(ThreadDetailResponse { root, replies, reply_count, participants, summary, user_receipt, user_subscription })
     }
 
-    pub async fn list_threads(
-        &self,
-        request: ListThreadsRequest,
-    ) -> Result<ThreadListResponse, ApiError> {
+    pub async fn list_threads(&self, request: ListThreadsRequest) -> Result<ThreadListResponse, ApiError> {
         debug!(
             room_id = %request.room_id,
             limit = ?request.limit,
@@ -343,11 +313,7 @@ impl ThreadService {
         let next_batch = roots.last().and_then(|r| r.thread_id.clone());
         let total = summaries.len() as i32;
 
-        Ok(ThreadListResponse {
-            threads: summaries,
-            next_batch,
-            total,
-        })
+        Ok(ThreadListResponse { threads: summaries, next_batch, total })
     }
 
     pub async fn list_all_threads(
@@ -396,17 +362,10 @@ impl ThreadService {
         let next_batch = roots.last().and_then(|r| r.thread_id.clone());
         let total = summaries.len() as i32;
 
-        Ok(ThreadListResponse {
-            threads: summaries,
-            next_batch,
-            total,
-        })
+        Ok(ThreadListResponse { threads: summaries, next_batch, total })
     }
 
-    pub async fn subscribe(
-        &self,
-        request: SubscribeRequest,
-    ) -> Result<ThreadSubscription, ApiError> {
+    pub async fn subscribe(&self, request: SubscribeRequest) -> Result<ThreadSubscription, ApiError> {
         let thread_root = self
             .storage
             .get_thread_root(&request.room_id, &request.thread_id)
@@ -424,12 +383,7 @@ impl ThreadService {
         }
 
         self.storage
-            .subscribe_to_thread(
-                &request.room_id,
-                &request.thread_id,
-                &request.user_id,
-                &request.notification_level,
-            )
+            .subscribe_to_thread(&request.room_id, &request.thread_id, &request.user_id, &request.notification_level)
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to subscribe to thread");
@@ -437,19 +391,11 @@ impl ThreadService {
             })
     }
 
-    pub async fn unsubscribe(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .unsubscribe_from_thread(room_id, thread_id, user_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to unsubscribe from thread");
-                ApiError::internal_with_log("Failed to unsubscribe", &e)
-            })
+    pub async fn unsubscribe(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), ApiError> {
+        self.storage.unsubscribe_from_thread(room_id, thread_id, user_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to unsubscribe from thread");
+            ApiError::internal_with_log("Failed to unsubscribe", &e)
+        })
     }
 
     pub async fn mute_thread(
@@ -458,13 +404,10 @@ impl ThreadService {
         thread_id: &str,
         user_id: &str,
     ) -> Result<ThreadSubscription, ApiError> {
-        self.storage
-            .mute_thread(room_id, thread_id, user_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to mute thread");
-                ApiError::internal_with_log("Failed to mute thread", &e)
-            })
+        self.storage.mute_thread(room_id, thread_id, user_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to mute thread");
+            ApiError::internal_with_log("Failed to mute thread", &e)
+        })
     }
 
     pub async fn mark_read(&self, request: MarkReadRequest) -> Result<ThreadReadReceipt, ApiError> {
@@ -488,23 +431,15 @@ impl ThreadService {
         user_id: &str,
         room_id: Option<&str>,
     ) -> Result<UnreadThreadsResponse, ApiError> {
-        let threads = self
-            .storage
-            .get_threads_with_unread(user_id, room_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to get unread threads");
-                ApiError::internal_with_log("Failed to get unread threads", &e)
-            })?;
+        let threads = self.storage.get_threads_with_unread(user_id, room_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to get unread threads");
+            ApiError::internal_with_log("Failed to get unread threads", &e)
+        })?;
 
         let total_unread = threads.len() as i32;
         let total_threads = threads.len() as i32;
 
-        Ok(UnreadThreadsResponse {
-            threads,
-            total_unread,
-            total_threads,
-        })
+        Ok(UnreadThreadsResponse { threads, total_unread, total_threads })
     }
 
     pub async fn get_subscribed_threads(
@@ -524,28 +459,20 @@ impl ThreadService {
                 .storage
                 .get_thread_summary(&subscription.room_id, &subscription.thread_id)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get subscribed thread", &e)
-                })?
+                .map_err(|e| ApiError::internal_with_log("Failed to get subscribed thread", &e))?
             {
                 threads.push(summary);
             }
         }
 
-        Ok(SubscribedThreadsResponse {
-            threads,
-            subscribed: subscriptions,
-        })
+        Ok(SubscribedThreadsResponse { threads, subscribed: subscriptions })
     }
 
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .delete_thread(room_id, thread_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to delete thread");
-                ApiError::internal_with_log("Failed to delete thread", &e)
-            })
+        self.storage.delete_thread(room_id, thread_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to delete thread");
+            ApiError::internal_with_log("Failed to delete thread", &e)
+        })
     }
 
     pub async fn get_thread_statistics(
@@ -553,13 +480,10 @@ impl ThreadService {
         room_id: &str,
         thread_id: &str,
     ) -> Result<Option<crate::storage::thread::ThreadStatistics>, ApiError> {
-        self.storage
-            .get_thread_statistics(room_id, thread_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to get thread statistics");
-                ApiError::internal_with_log("Failed to get statistics", &e)
-            })
+        self.storage.get_thread_statistics(room_id, thread_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to get thread statistics");
+            ApiError::internal_with_log("Failed to get statistics", &e)
+        })
     }
 
     pub async fn search_threads(
@@ -568,53 +492,38 @@ impl ThreadService {
         query: &str,
         limit: Option<i32>,
     ) -> Result<Vec<ThreadSummary>, ApiError> {
-        self.storage
-            .search_threads(room_id, query, limit)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to search threads");
-                ApiError::internal_with_log("Failed to search threads", &e)
-            })
+        self.storage.search_threads(room_id, query, limit).await.map_err(|e| {
+            warn!(error = %e, "Failed to search threads");
+            ApiError::internal_with_log("Failed to search threads", &e)
+        })
     }
 
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .freeze_thread(room_id, thread_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to freeze thread");
-                ApiError::internal_with_log("Failed to freeze thread", &e)
-            })
+        self.storage.freeze_thread(room_id, thread_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to freeze thread");
+            ApiError::internal_with_log("Failed to freeze thread", &e)
+        })
     }
 
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .unfreeze_thread(room_id, thread_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to unfreeze thread");
-                ApiError::internal_with_log("Failed to unfreeze thread", &e)
-            })
+        self.storage.unfreeze_thread(room_id, thread_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to unfreeze thread");
+            ApiError::internal_with_log("Failed to unfreeze thread", &e)
+        })
     }
 
     pub async fn redact_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .mark_reply_redacted(room_id, event_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to redact reply");
-                ApiError::internal_with_log("Failed to redact reply", &e)
-            })
+        self.storage.mark_reply_redacted(room_id, event_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to redact reply");
+            ApiError::internal_with_log("Failed to redact reply", &e)
+        })
     }
 
     pub async fn edit_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .mark_reply_edited(room_id, event_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to edit reply");
-                ApiError::internal_with_log("Failed to edit reply", &e)
-            })
+        self.storage.mark_reply_edited(room_id, event_id).await.map_err(|e| {
+            warn!(error = %e, "Failed to edit reply");
+            ApiError::internal_with_log("Failed to edit reply", &e)
+        })
     }
 }
 
@@ -694,11 +603,7 @@ mod tests {
 
     #[test]
     fn test_thread_list_response_serialization() {
-        let response = super::ThreadListResponse {
-            threads: vec![],
-            next_batch: Some("token".to_string()),
-            total: 0,
-        };
+        let response = super::ThreadListResponse { threads: vec![], next_batch: Some("token".to_string()), total: 0 };
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("threads"));
         assert!(json.contains("total"));
@@ -706,11 +611,7 @@ mod tests {
 
     #[test]
     fn test_unread_threads_response() {
-        let response = super::UnreadThreadsResponse {
-            threads: vec![],
-            total_unread: 5,
-            total_threads: 10,
-        };
+        let response = super::UnreadThreadsResponse { threads: vec![], total_unread: 5, total_threads: 10 };
         assert_eq!(response.total_unread, 5);
         assert_eq!(response.total_threads, 10);
     }

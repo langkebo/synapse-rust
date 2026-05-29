@@ -18,43 +18,28 @@ fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     )
 }
 
-pub async fn rate_limit_middleware(
-    State(state): State<AppState>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn rate_limit_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
     let config = state.services.config.rate_limit.clone();
     let file_config = state.rate_limit_config();
 
-    let enabled = file_config
-        .as_ref()
-        .map_or(config.enabled, |c| c.enabled);
+    let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
     if !enabled {
         return next.run(request).await;
     }
 
     let path = request.uri().path();
-    let exempt_paths = file_config
-        .as_ref()
-        .map_or(&config.exempt_paths, |c| &c.exempt_paths);
-    let exempt_path_prefixes = file_config
-        .as_ref()
-        .map_or(&config.exempt_path_prefixes, |c| &c.exempt_path_prefixes);
+    let exempt_paths = file_config.as_ref().map_or(&config.exempt_paths, |c| &c.exempt_paths);
+    let exempt_path_prefixes = file_config.as_ref().map_or(&config.exempt_path_prefixes, |c| &c.exempt_path_prefixes);
 
     if is_sync_rate_limit_exempt_path(path)
         || exempt_paths.iter().any(|p: &String| p == path)
-        || exempt_path_prefixes
-            .iter()
-            .any(|p: &String| !p.is_empty() && path.starts_with(p))
+        || exempt_path_prefixes.iter().any(|p: &String| !p.is_empty() && path.starts_with(p))
     {
         return next.run(request).await;
     }
 
-    let ip_header_priority = file_config
-        .as_ref()
-        .map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
-    let ip = extract_client_ip(request.headers(), ip_header_priority)
-        .unwrap_or_else(|| "unknown".to_string());
+    let ip_header_priority = file_config.as_ref().map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
+    let ip = extract_client_ip(request.headers(), ip_header_priority).unwrap_or_else(|| "unknown".to_string());
 
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {
@@ -62,31 +47,18 @@ pub async fn rate_limit_middleware(
             (id, r.per_second, r.burst_size)
         }
         None => {
-            let (id, r) =
-                crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, path);
+            let (id, r) = crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, path);
             (id, r.per_second, r.burst_size)
         }
     };
 
     let redis_prefix = state.services.config.redis.key_prefix.as_str();
-    let cache_key = format!(
-        "{}{}",
-        redis_prefix,
-        CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str())
-    );
+    let cache_key = format!("{}{}", redis_prefix, CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str()));
 
-    let fail_open = file_config
-        .as_ref()
-        .map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
-    let include_headers = file_config
-        .as_ref()
-        .map_or(config.include_headers, |c| c.include_headers);
+    let fail_open = file_config.as_ref().map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
+    let include_headers = file_config.as_ref().map_or(config.include_headers, |c| c.include_headers);
 
-    let decision = match state
-        .cache
-        .rate_limit_token_bucket_take(&cache_key, per_second, burst_size)
-        .await
-    {
+    let decision = match state.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
         Ok(d) => d,
         Err(e) => {
             if fail_open {
@@ -112,9 +84,7 @@ pub async fn rate_limit_middleware(
                 response.headers_mut().insert("x-ratelimit-limit", v);
             }
             if let Ok(v) = HeaderValue::from_str(&retry_after_ms.to_string()) {
-                response
-                    .headers_mut()
-                    .insert("x-ratelimit-retry-after", v.clone());
+                response.headers_mut().insert("x-ratelimit-retry-after", v.clone());
                 response.headers_mut().insert("x-ratelimit-after", v);
             }
         }
@@ -130,10 +100,7 @@ pub async fn rate_limit_middleware(
         if let Ok(v) = burst_size.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-limit", v);
         }
-        response.headers_mut().insert(
-            "x-ratelimit-retry-after",
-            HeaderValue::from_static("0"),
-        );
+        response.headers_mut().insert("x-ratelimit-retry-after", HeaderValue::from_static("0"));
     }
     response
 }
@@ -142,13 +109,11 @@ pub async fn rate_limit_middleware(
 mod tests {
     use super::*;
     use crate::cache::{CacheConfig, CacheManager};
-    use crate::common::config::{
-        RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule,
-    };
-    use axum::http::StatusCode;
+    use crate::common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
     use crate::services::ServiceContainer;
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
+    use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -158,32 +123,17 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()];
 
-        headers.insert(
-            "x-forwarded-for",
-            "1.2.3.4, 5.6.7.8".parse().expect("valid header value"),
-        );
-        assert_eq!(
-            extract_client_ip(&headers, &priority),
-            Some("1.2.3.4".to_string())
-        );
+        headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().expect("valid header value"));
+        assert_eq!(extract_client_ip(&headers, &priority), Some("1.2.3.4".to_string()));
 
         headers = axum::http::HeaderMap::new();
         headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
-        assert_eq!(
-            extract_client_ip(&headers, &priority),
-            Some("10.0.0.1".to_string())
-        );
+        assert_eq!(extract_client_ip(&headers, &priority), Some("10.0.0.1".to_string()));
 
         headers = axum::http::HeaderMap::new();
-        headers.insert(
-            "x-forwarded-for",
-            "1.2.3.4".parse().expect("valid header value"),
-        );
+        headers.insert("x-forwarded-for", "1.2.3.4".parse().expect("valid header value"));
         headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
-        assert_eq!(
-            extract_client_ip(&headers, &priority),
-            Some("1.2.3.4".to_string())
-        );
+        assert_eq!(extract_client_ip(&headers, &priority), Some("1.2.3.4".to_string()));
     }
 
     #[test]
@@ -191,12 +141,8 @@ mod tests {
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/r0/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v1/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v3/sync"));
-        assert!(is_sync_rate_limit_exempt_path(
-            "/_matrix/client/unstable/org.matrix.msc3575/sync"
-        ));
-        assert!(is_sync_rate_limit_exempt_path(
-            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
-        ));
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.msc3575/sync"));
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"));
         assert!(!is_sync_rate_limit_exempt_path("/_matrix/client/v3/events"));
     }
 
@@ -205,28 +151,12 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         let priority = vec!["forwarded".to_string()];
 
-        headers.insert(
-            "forwarded",
-            "for=192.0.2.60;proto=http;by=203.0.113.43"
-                .parse()
-                .expect("valid header value"),
-        );
-        assert_eq!(
-            extract_client_ip(&headers, &priority),
-            Some("192.0.2.60".to_string())
-        );
+        headers.insert("forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43".parse().expect("valid header value"));
+        assert_eq!(extract_client_ip(&headers, &priority), Some("192.0.2.60".to_string()));
 
         headers = axum::http::HeaderMap::new();
-        headers.insert(
-            "forwarded",
-            "for=\"[2001:db8:cafe::17]:4711\""
-                .parse()
-                .expect("valid header value"),
-        );
-        assert_eq!(
-            extract_client_ip(&headers, &priority),
-            Some("2001:db8:cafe::17".to_string())
-        );
+        headers.insert("forwarded", "for=\"[2001:db8:cafe::17]:4711\"".parse().expect("valid header value"));
+        assert_eq!(extract_client_ip(&headers, &priority), Some("2001:db8:cafe::17".to_string()));
     }
 
     #[test]
@@ -235,32 +165,21 @@ mod tests {
         config.endpoints.push(RateLimitEndpointRule {
             path: "/_matrix/client/r0/login".to_string(),
             match_type: RateLimitMatchType::Exact,
-            rule: RateLimitRule {
-                per_second: 5,
-                burst_size: 10,
-            },
+            rule: RateLimitRule { per_second: 5, burst_size: 10 },
         });
         config.endpoints.push(RateLimitEndpointRule {
             path: "/_matrix/client".to_string(),
             match_type: RateLimitMatchType::Prefix,
-            rule: RateLimitRule {
-                per_second: 50,
-                burst_size: 100,
-            },
+            rule: RateLimitRule { per_second: 50, burst_size: 100 },
         });
         config.endpoints.push(RateLimitEndpointRule {
             path: "/_matrix/client/r0/sync".to_string(),
             match_type: RateLimitMatchType::Prefix,
-            rule: RateLimitRule {
-                per_second: 20,
-                burst_size: 40,
-            },
+            rule: RateLimitRule { per_second: 20, burst_size: 40 },
         });
 
-        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
-            &config,
-            "/_matrix/client/r0/login",
-        );
+        let (id, rule) =
+            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
         assert_eq!(id, "/_matrix/client/r0/login");
         assert_eq!(rule.per_second, 5);
 
@@ -271,15 +190,12 @@ mod tests {
         assert_eq!(id, "/_matrix/client/r0/sync");
         assert_eq!(rule.per_second, 20);
 
-        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
-            &config,
-            "/_matrix/client/versions",
-        );
+        let (id, rule) =
+            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/_matrix/client/versions");
         assert_eq!(id, "/_matrix/client");
         assert_eq!(rule.per_second, 50);
 
-        let (id, rule) =
-            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/other/path");
+        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/other/path");
         assert_eq!(id, "/other/path");
         assert_eq!(rule.per_second, config.default.per_second);
     }
@@ -293,17 +209,11 @@ mod tests {
         let mut services = ServiceContainer::new_test().await;
         services.config.rate_limit = RateLimitConfig {
             enabled: true,
-            default: RateLimitRule {
-                per_second: 1,
-                burst_size: 1,
-            },
+            default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {
                 path: "/".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 1,
-                    burst_size: 1,
-                },
+                rule: RateLimitRule { per_second: 1, burst_size: 1 },
             }],
             ..RateLimitConfig::default()
         };
@@ -314,10 +224,7 @@ mod tests {
         let app = Router::new()
             .route("/_matrix/client/v3/sync", get(ok_handler))
             .route("/rooms/test/send", get(ok_handler))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                rate_limit_middleware,
-            ))
+            .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
             .with_state(state);
 
         let sync_request = || {
@@ -337,25 +244,11 @@ mod tests {
                 .expect("request should build")
         };
 
-        let sync_response_1 = app
-            .clone()
-            .oneshot(sync_request())
-            .await
-            .expect("sync request should succeed");
-        let sync_response_2 = app
-            .clone()
-            .oneshot(sync_request())
-            .await
-            .expect("second sync request should succeed");
-        let normal_response_1 = app
-            .clone()
-            .oneshot(normal_request())
-            .await
-            .expect("normal request should succeed");
-        let normal_response_2 = app
-            .oneshot(normal_request())
-            .await
-            .expect("second normal request should return a response");
+        let sync_response_1 = app.clone().oneshot(sync_request()).await.expect("sync request should succeed");
+        let sync_response_2 = app.clone().oneshot(sync_request()).await.expect("second sync request should succeed");
+        let normal_response_1 = app.clone().oneshot(normal_request()).await.expect("normal request should succeed");
+        let normal_response_2 =
+            app.oneshot(normal_request()).await.expect("second normal request should return a response");
 
         assert_eq!(sync_response_1.status(), StatusCode::OK);
         assert_eq!(sync_response_2.status(), StatusCode::OK);
@@ -372,17 +265,11 @@ mod tests {
         let mut services = ServiceContainer::new_test().await;
         services.config.rate_limit = RateLimitConfig {
             enabled: true,
-            default: RateLimitRule {
-                per_second: 1,
-                burst_size: 1,
-            },
+            default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {
                 path: "/limited".to_string(),
                 match_type: RateLimitMatchType::Exact,
-                rule: RateLimitRule {
-                    per_second: 1,
-                    burst_size: 1,
-                },
+                rule: RateLimitRule { per_second: 1, burst_size: 1 },
             }],
             ..RateLimitConfig::default()
         };
@@ -392,10 +279,7 @@ mod tests {
 
         let app = Router::new()
             .route("/limited", get(ok_handler))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                rate_limit_middleware,
-            ))
+            .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
             .with_state(state);
 
         let request = || {
@@ -407,21 +291,11 @@ mod tests {
                 .expect("request should build")
         };
 
-        let first = app
-            .clone()
-            .oneshot(request())
-            .await
-            .expect("first request should succeed");
+        let first = app.clone().oneshot(request()).await.expect("first request should succeed");
         assert_eq!(first.status(), StatusCode::OK);
-        assert_eq!(
-            first.headers().get("x-ratelimit-retry-after").unwrap(),
-            "0"
-        );
+        assert_eq!(first.headers().get("x-ratelimit-retry-after").unwrap(), "0");
 
-        let second = app
-            .oneshot(request())
-            .await
-            .expect("second request should return a response");
+        let second = app.oneshot(request()).await.expect("second request should return a response");
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(second.headers().get("retry-after").is_some());
         assert!(second.headers().get("x-ratelimit-retry-after").is_some());

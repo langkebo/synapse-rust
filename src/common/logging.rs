@@ -29,8 +29,7 @@ pub fn init_logging(
             // a verbose level globally. At INFO/WARN/ERROR the base directives
             // already keep sqlx quiet enough.
             if matches!(base.to_lowercase().as_str(), "trace" | "debug") {
-                directive
-                    .push_str(",sqlx::query=warn,sqlx_core=warn,hyper=info,tower_http::trace=info");
+                directive.push_str(",sqlx::query=warn,sqlx_core=warn,hyper=info,tower_http::trace=info");
             }
             EnvFilter::new(directive)
         }
@@ -75,11 +74,7 @@ pub fn init_logging(
         }
     }
 
-    tracing::info!(
-        "Logging initialized: level={}, format={}",
-        config.level,
-        config.format
-    );
+    tracing::info!("Logging initialized: level={}, format={}", config.level, config.format);
 
     Ok(())
 }

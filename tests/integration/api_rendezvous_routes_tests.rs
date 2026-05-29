@@ -24,14 +24,10 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -50,19 +46,12 @@ async fn create_rendezvous_session(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["session_id"].as_str().unwrap().to_string(),
-        json["key"].as_str().unwrap().to_string(),
-    )
+    (json["session_id"].as_str().unwrap().to_string(), json["key"].as_str().unwrap().to_string())
 }
 
 #[tokio::test]
@@ -77,10 +66,7 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
         .uri(format!("/_matrix/client/v1/rendezvous/{}", session_id))
         .body(Body::empty())
         .unwrap();
-    let unauthorized_get_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_get)
-            .await
-            .unwrap();
+    let unauthorized_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_get).await.unwrap();
     assert_eq!(unauthorized_get_response.status(), StatusCode::UNAUTHORIZED);
 
     let authorized_get = Request::builder()
@@ -89,17 +75,12 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
         .header("X-Matrix-Rendezvous-Key", &session_key)
         .body(Body::empty())
         .unwrap();
-    let authorized_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), authorized_get)
-        .await
-        .unwrap();
+    let authorized_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), authorized_get).await.unwrap();
     assert_eq!(authorized_get_response.status(), StatusCode::OK);
 
     let unauthorized_send = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rendezvous/{}/messages",
-            session_id
-        ))
+        .uri(format!("/_matrix/client/v1/rendezvous/{}/messages", session_id))
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -110,20 +91,12 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
         ))
         .unwrap();
     let unauthorized_send_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_send)
-            .await
-            .unwrap();
-    assert_eq!(
-        unauthorized_send_response.status(),
-        StatusCode::UNAUTHORIZED
-    );
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthorized_send).await.unwrap();
+    assert_eq!(unauthorized_send_response.status(), StatusCode::UNAUTHORIZED);
 
     let authorized_send = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v1/rendezvous/{}/messages",
-            session_id
-        ))
+        .uri(format!("/_matrix/client/v1/rendezvous/{}/messages", session_id))
         .header("X-Matrix-Rendezvous-Key", &session_key)
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -134,9 +107,7 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
             .to_string(),
         ))
         .unwrap();
-    let authorized_send_response = ServiceExt::<Request<Body>>::oneshot(app, authorized_send)
-        .await
-        .unwrap();
+    let authorized_send_response = ServiceExt::<Request<Body>>::oneshot(app, authorized_send).await.unwrap();
     assert_eq!(authorized_send_response.status(), StatusCode::OK);
 }
 
@@ -158,9 +129,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "status": "connected" }).to_string()))
         .unwrap();
-    let connect_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), connect_request)
-        .await
-        .unwrap();
+    let connect_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), connect_request).await.unwrap();
     assert_eq!(connect_response.status(), StatusCode::OK);
 
     let owner_get_request = Request::builder()
@@ -169,9 +138,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let owner_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_get_request)
-        .await
-        .unwrap();
+    let owner_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_get_request).await.unwrap();
     assert_eq!(owner_get_response.status(), StatusCode::OK);
 
     let guest_get_request = Request::builder()
@@ -180,9 +147,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let guest_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), guest_get_request)
-        .await
-        .unwrap();
+    let guest_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), guest_get_request).await.unwrap();
     assert_eq!(guest_get_response.status(), StatusCode::FORBIDDEN);
 
     let admin_get_request = Request::builder()
@@ -191,9 +156,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get_request)
-        .await
-        .unwrap();
+    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get_request).await.unwrap();
     assert_eq!(admin_get_response.status(), StatusCode::FORBIDDEN);
 
     let complete_request = Request::builder()
@@ -203,14 +166,10 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "status": "completed" }).to_string()))
         .unwrap();
-    let complete_response = ServiceExt::<Request<Body>>::oneshot(app, complete_request)
-        .await
-        .unwrap();
+    let complete_response = ServiceExt::<Request<Body>>::oneshot(app, complete_request).await.unwrap();
     assert_eq!(complete_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(complete_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(complete_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "completed");
     assert!(json["login_finish"]["access_token"].is_string());

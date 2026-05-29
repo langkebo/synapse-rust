@@ -18,25 +18,17 @@ pub struct BeaconService {
 
 impl BeaconService {
     pub fn new(pool: Arc<sqlx::Pool<sqlx::Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self {
-            storage: BeaconStorage::new(pool),
-            cache,
-        }
+        Self { storage: BeaconStorage::new(pool), cache }
     }
 
     pub async fn create_beacon(
         &self,
         params: CreateBeaconInfoParams,
     ) -> Result<BeaconInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let existing = self
-            .storage
-            .get_beacon_info_by_state_key(&params.room_id, &params.state_key)
-            .await?;
+        let existing = self.storage.get_beacon_info_by_state_key(&params.room_id, &params.state_key).await?;
 
         // Same sender/state_key in a room should have a single active beacon lifecycle.
-        self.storage
-            .deactivate_beacons_by_state_key(&params.room_id, &params.state_key)
-            .await?;
+        self.storage.deactivate_beacons_by_state_key(&params.room_id, &params.state_key).await?;
         for old in existing {
             let old_cache_key = format!("beacon:info:{}", old.event_id);
             let _ = self.cache.delete(&old_cache_key).await;
@@ -97,10 +89,7 @@ impl BeaconService {
         is_live: bool,
         timeout: Option<i64>,
     ) -> Result<Option<BeaconInfo>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacon = self
-            .storage
-            .update_beacon_info(room_id, event_id, is_live, timeout)
-            .await?;
+        let beacon = self.storage.update_beacon_info(room_id, event_id, is_live, timeout).await?;
 
         if let Some(ref b) = beacon {
             let cache_key = format!("beacon:info:{}", event_id);
@@ -151,20 +140,13 @@ impl BeaconService {
         beacon_info_id: &str,
         limit: Option<i64>,
     ) -> Result<Vec<BeaconLocation>, Box<dyn std::error::Error + Send + Sync>> {
-        let cache_key = format!(
-            "beacon:locations:{}:{}",
-            beacon_info_id,
-            limit.unwrap_or(100)
-        );
+        let cache_key = format!("beacon:locations:{}:{}", beacon_info_id, limit.unwrap_or(100));
 
         if let Some(cached) = self.cache.get::<Vec<BeaconLocation>>(&cache_key).await? {
             return Ok(cached);
         }
 
-        let locations = self
-            .storage
-            .get_beacon_locations(beacon_info_id, limit)
-            .await?;
+        let locations = self.storage.get_beacon_locations(beacon_info_id, limit).await?;
 
         let _ = self.cache.set(&cache_key, &locations, 30).await;
 
@@ -195,10 +177,7 @@ impl BeaconService {
         room_id: &str,
         event_id: &str,
     ) -> Result<Option<BeaconInfoWithLocations>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacon_with_locations = self
-            .storage
-            .get_beacon_with_locations(room_id, event_id)
-            .await?;
+        let beacon_with_locations = self.storage.get_beacon_with_locations(room_id, event_id).await?;
         Ok(beacon_with_locations)
     }
 
@@ -207,16 +186,11 @@ impl BeaconService {
         room_id: &str,
         include_expired: bool,
     ) -> Result<Vec<BeaconInfoWithLocations>, Box<dyn std::error::Error + Send + Sync>> {
-        let beacons = self
-            .storage
-            .get_room_beacons(room_id, include_expired)
-            .await?;
+        let beacons = self.storage.get_room_beacons(room_id, include_expired).await?;
         Ok(beacons)
     }
 
-    pub async fn cleanup_expired_beacons(
-        &self,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn cleanup_expired_beacons(&self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let count = self.storage.cleanup_expired_beacons().await?;
         Ok(count)
     }
@@ -228,18 +202,12 @@ impl BeaconService {
         now_ts: i64,
     ) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
         let since_ts = now_ts.saturating_sub(BEACON_QUOTA_WINDOW_MS);
-        let sender_count = self
-            .storage
-            .count_locations_in_room_by_sender_since(room_id, sender, since_ts)
-            .await?;
+        let sender_count = self.storage.count_locations_in_room_by_sender_since(room_id, sender, since_ts).await?;
         if sender_count >= BEACON_MAX_PER_SENDER_PER_ROOM_WINDOW {
             return Ok(Some(1000));
         }
 
-        let room_count = self
-            .storage
-            .count_locations_in_room_since(room_id, since_ts)
-            .await?;
+        let room_count = self.storage.count_locations_in_room_since(room_id, since_ts).await?;
         if room_count >= BEACON_MAX_PER_ROOM_WINDOW {
             return Ok(Some(1000));
         }
@@ -289,13 +257,16 @@ impl BeaconService {
         let lat = coords[0].parse::<f64>().ok()?;
         let lon = coords[1].parse::<f64>().ok()?;
 
-        let accuracy = parts.iter().find_map(|p| {
-            if p.starts_with("u=") {
-                p.strip_prefix("u=")?.parse::<f64>().ok()
-            } else {
-                None
-            }
-        });
+        let accuracy =
+            parts.iter().find_map(
+                |p| {
+                    if p.starts_with("u=") {
+                        p.strip_prefix("u=")?.parse::<f64>().ok()
+                    } else {
+                        None
+                    }
+                },
+            );
 
         Some((lat, lon, accuracy))
     }

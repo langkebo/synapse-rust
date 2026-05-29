@@ -29,8 +29,8 @@ impl Default for BackpressureConfig {
             max_concurrent_requests: 1000,
             queue_size: 5000,
             timeout: Duration::from_secs(30),
-            degradation_threshold: 0.8,  // 80% 开始降级
-            recovery_threshold: 0.3,     // 30% 以下恢复
+            degradation_threshold: 0.8, // 80% 开始降级
+            recovery_threshold: 0.3,    // 30% 以下恢复
         }
     }
 }
@@ -80,24 +80,19 @@ pub struct TokenBucket {
 
 impl TokenBucket {
     pub fn new(capacity: usize, refill_rate: Duration) -> Self {
-        Self {
-            capacity,
-            tokens: AtomicUsize::new(capacity),
-            refill_rate,
-            last_refill: AtomicU64::new(0),
-        }
+        Self { capacity, tokens: AtomicUsize::new(capacity), refill_rate, last_refill: AtomicU64::new(0) }
     }
 
     /// 尝试获取一个令牌
     pub fn try_acquire(&self) -> bool {
         self.refill();
-        
+
         loop {
             let current = self.tokens.load(Ordering::Relaxed);
             if current == 0 {
                 return false;
             }
-            
+
             if self.tokens.compare_exchange(current, current - 1, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
                 return true;
             }
@@ -106,11 +101,9 @@ impl TokenBucket {
 
     /// 手动 refill
     fn refill(&self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+
         let last = self.last_refill.load(Ordering::Relaxed);
         if now - last >= self.refill_rate.as_millis() as u64 {
             self.tokens.store(self.capacity, Ordering::Relaxed);
@@ -135,23 +128,15 @@ pub struct RateLimiterMetrics {
 
 impl RateLimiterMetrics {
     pub fn new() -> Self {
-        Self {
-            active_requests: AtomicUsize::new(0),
-            rejected: AtomicU64::new(0),
-            acquired: AtomicU64::new(0),
-        }
+        Self { active_requests: AtomicUsize::new(0), rejected: AtomicU64::new(0), acquired: AtomicU64::new(0) }
     }
 }
 
 impl RateLimiter {
     pub fn new(config: BackpressureConfig) -> Self {
         let semaphore = Semaphore::new(config.max_concurrent_requests);
-        
-        Self {
-            semaphore,
-            config,
-            metrics: Arc::new(RateLimiterMetrics::new()),
-        }
+
+        Self { semaphore, config, metrics: Arc::new(RateLimiterMetrics::new()) }
     }
 
     /// 尝试获取许可（不阻塞）
@@ -175,9 +160,7 @@ impl RateLimiter {
             Ok(Ok(permit)) => {
                 self.metrics.acquired.fetch_add(1, Ordering::Relaxed);
                 self.metrics.active_requests.fetch_add(1, Ordering::Relaxed);
-                Ok(RateLimiterPermit {
-                    metrics: self.metrics.clone(),
-                })
+                Ok(RateLimiterPermit { metrics: self.metrics.clone() })
             }
             Ok(Err(_)) => Err(RateLimitError::Closed),
             Err(_) => {
@@ -293,9 +276,9 @@ impl PoolWatermarkController {
     pub fn get_state(&self) -> PoolState {
         let active = self.active_connections.load(Ordering::Relaxed);
         let waiting = self.waiting_requests.load(Ordering::Relaxed);
-        
+
         let utilization = active as f64 / self.high_watermark as f64;
-        
+
         if utilization >= 1.0 || waiting > active * 2 {
             PoolState::Critical
         } else if utilization >= 0.8 {
@@ -345,12 +328,8 @@ impl QueueMetrics {
 impl<T> BackpressureQueue<T> {
     pub fn new(capacity: usize) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-        
-        Self {
-            sender,
-            receiver,
-            metrics: Arc::new(QueueMetrics::new()),
-        }
+
+        Self { sender, receiver, metrics: Arc::new(QueueMetrics::new()) }
     }
 
     /// 入队（非阻塞）

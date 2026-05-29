@@ -73,9 +73,9 @@ load_env() {
             port="${hostport##*:}"
         fi
 
-        if [ -n "$host" ];   then export DB_HOST="$host";       fi
-        if [ -n "$port" ];   then export DB_PORT="$port";       fi
-        if [ -n "$dbname" ]; then export DB_NAME="$dbname";     fi
+        if [ -n "$host" ]; then export DB_HOST="$host"; fi
+        if [ -n "$port" ]; then export DB_PORT="$port"; fi
+        if [ -n "$dbname" ]; then export DB_NAME="$dbname"; fi
         if [ -n "$creds" ]; then
             export DB_USER="${creds%%:*}"
             if [[ "$creds" == *:* ]]; then
@@ -327,7 +327,7 @@ apply_sql_file() {
     log_info "应用迁移: $filename"
 
     if [ "$tolerant" = "true" ]; then
-        psql_db < "$file" >/dev/null 2>&1 || true
+        psql_db <"$file" >/dev/null 2>&1 || true
         local finished_at
         finished_at="$(now_ms)"
         record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
@@ -335,7 +335,7 @@ apply_sql_file() {
         return 0
     fi
 
-    if psql_db -v ON_ERROR_STOP=1 < "$file" >/dev/null; then
+    if psql_db -v ON_ERROR_STOP=1 <"$file" >/dev/null; then
         local finished_at
         finished_at="$(now_ms)"
         record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
@@ -412,7 +412,7 @@ apply_pending_migrations() {
 
     local migration_list
     migration_list="$(mktemp "${TMPDIR:-/tmp}/db_migrate.XXXXXX")"
-    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort > "$migration_list"
+    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort >"$migration_list"
 
     while IFS= read -r file; do
         local filename
@@ -434,7 +434,7 @@ apply_pending_migrations() {
 
         pending=$((pending + 1))
         apply_sql_file "$file"
-    done < "$migration_list"
+    done <"$migration_list"
 
     rm -f "$migration_list"
 
@@ -561,7 +561,7 @@ main() {
             check_db_connection
             validate_schema
             ;;
-        help|--help|-h)
+        help | --help | -h)
             show_help
             ;;
         *)

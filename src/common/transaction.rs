@@ -33,33 +33,23 @@ impl TransactionManager {
     }
 
     pub async fn begin_read_committed(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
-            .await
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL READ COMMITTED").await
     }
 
     pub async fn begin_repeatable_read(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .await
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await
     }
 
     pub async fn begin_serializable(&self) -> TransactionResult<Transaction<'static, Postgres>> {
-        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .await
+        self.begin_with_isolation_level("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").await
     }
 
     async fn begin_with_isolation_level(
         &self,
         statement: &'static str,
     ) -> TransactionResult<Transaction<'static, Postgres>> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(TransactionError::Database)?;
-        sqlx::query(statement)
-            .execute(&mut *tx)
-            .await
-            .map_err(TransactionError::Database)?;
+        let mut tx = self.pool.begin().await.map_err(TransactionError::Database)?;
+        sqlx::query(statement).execute(&mut *tx).await.map_err(TransactionError::Database)?;
         Ok(tx)
     }
 }
@@ -72,17 +62,11 @@ pub struct ManagedTransaction<'a> {
 
 impl<'a> ManagedTransaction<'a> {
     pub fn new(transaction: Transaction<'a, Postgres>) -> Self {
-        Self {
-            transaction: Some(transaction),
-            committed: false,
-            rolled_back: false,
-        }
+        Self { transaction: Some(transaction), committed: false, rolled_back: false }
     }
 
     pub fn transaction(&mut self) -> Result<&mut Transaction<'a, Postgres>, TransactionError> {
-        self.transaction
-            .as_mut()
-            .ok_or(TransactionError::NotStarted)
+        self.transaction.as_mut().ok_or(TransactionError::NotStarted)
     }
 
     pub async fn commit(&mut self) -> TransactionResult<()> {
@@ -148,9 +132,7 @@ impl<'a> Drop for ManagedTransaction<'a> {
 
 pub async fn execute_in_transaction<F, R>(pool: &Arc<PgPool>, f: F) -> TransactionResult<R>
 where
-    F: FnOnce(
-        &mut Transaction<'static, Postgres>,
-    ) -> futures::future::BoxFuture<'static, Result<R, sqlx::Error>>,
+    F: FnOnce(&mut Transaction<'static, Postgres>) -> futures::future::BoxFuture<'static, Result<R, sqlx::Error>>,
 {
     let mut tx = pool.begin().await.map_err(TransactionError::Database)?;
 
@@ -172,9 +154,7 @@ pub async fn execute_in_transaction_with_retry<F, R>(
     max_retries: u32,
 ) -> TransactionResult<R>
 where
-    F: FnMut(
-        &mut Transaction<'static, Postgres>,
-    ) -> futures::future::BoxFuture<'static, Result<R, sqlx::Error>>,
+    F: FnMut(&mut Transaction<'static, Postgres>) -> futures::future::BoxFuture<'static, Result<R, sqlx::Error>>,
 {
     let mut last_error = None;
 
@@ -191,10 +171,7 @@ where
                         if is_retryable_db_error(&e) && attempt < max_retries - 1 {
                             last_error = Some(e);
                             // No rollback needed as commit failed
-                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                100 * (attempt + 1) as u64,
-                            ))
-                            .await;
+                            tokio::time::sleep(tokio::time::Duration::from_millis(100 * (attempt + 1) as u64)).await;
                             continue;
                         }
                         return Err(TransactionError::Database(e));
@@ -205,10 +182,7 @@ where
                 if is_retryable_db_error(&e) && attempt < max_retries - 1 {
                     last_error = Some(e);
                     let _ = tx.rollback().await; // Ignore rollback error on retry
-                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                        100 * (attempt + 1) as u64,
-                    ))
-                    .await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100 * (attempt + 1) as u64)).await;
                     continue;
                 }
                 let _ = tx.rollback().await;
@@ -217,7 +191,8 @@ where
         }
     }
 
-    Err(last_error.map_or_else(|| TransactionError::Transaction("Max retries exceeded".to_string()), TransactionError::Database))
+    Err(last_error
+        .map_or_else(|| TransactionError::Transaction("Max retries exceeded".to_string()), TransactionError::Database))
 }
 
 pub fn is_retryable_db_error(error: &sqlx::Error) -> bool {
@@ -246,27 +221,13 @@ pub struct AdvisoryLockGuard {
 
 impl AdvisoryLockGuard {
     pub async fn try_acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
-        let row: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
-            .bind(lock_id)
-            .fetch_one(&**pool)
-            .await?;
-        Ok(Self {
-            pool: pool.clone(),
-            lock_id,
-            acquired: row.0,
-        })
+        let row: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)").bind(lock_id).fetch_one(&**pool).await?;
+        Ok(Self { pool: pool.clone(), lock_id, acquired: row.0 })
     }
 
     pub async fn acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
-        sqlx::query("SELECT pg_advisory_lock($1)")
-            .bind(lock_id)
-            .execute(&**pool)
-            .await?;
-        Ok(Self {
-            pool: pool.clone(),
-            lock_id,
-            acquired: true,
-        })
+        sqlx::query("SELECT pg_advisory_lock($1)").bind(lock_id).execute(&**pool).await?;
+        Ok(Self { pool: pool.clone(), lock_id, acquired: true })
     }
 
     pub fn is_acquired(&self) -> bool {
@@ -280,10 +241,7 @@ impl Drop for AdvisoryLockGuard {
             let pool = self.pool.clone();
             let lock_id = self.lock_id;
             tokio::spawn(async move {
-                let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-                    .bind(lock_id)
-                    .execute(&*pool)
-                    .await;
+                let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_id).execute(&*pool).await;
             });
         }
     }

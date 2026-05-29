@@ -16,13 +16,7 @@ pub struct CacheEntry<T> {
 impl<T> CacheEntry<T> {
     pub fn new(value: T, ttl: Duration) -> Self {
         let now = Instant::now();
-        Self {
-            value,
-            created_at: now,
-            ttl,
-            access_count: 1,
-            last_accessed: now,
-        }
+        Self { value, created_at: now, ttl, access_count: 1, last_accessed: now }
     }
 
     pub fn is_expired(&self) -> bool {
@@ -55,11 +49,11 @@ pub type CacheConfig = QueryCacheConfig;
 impl Default for QueryCacheConfig {
     fn default() -> Self {
         Self {
-            room_ttl: Duration::from_secs(1800), // 30 min - rooms change infrequently
-            user_ttl: Duration::from_secs(1800), // 30 min - user profiles stable
-            event_ttl: Duration::from_secs(600), // 10 min - events are immutable once created
+            room_ttl: Duration::from_secs(1800),      // 30 min - rooms change infrequently
+            user_ttl: Duration::from_secs(1800),      // 30 min - user profiles stable
+            event_ttl: Duration::from_secs(600),      // 10 min - events are immutable once created
             membership_ttl: Duration::from_secs(900), // 15 min - membership changes are rare
-            device_ttl: Duration::from_secs(1800), // 30 min - devices don't change often
+            device_ttl: Duration::from_secs(1800),    // 30 min - devices don't change often
             token_ttl: Duration::from_secs(3600),
             max_entries: 50000, // Increased for better capacity
             max_memory_mb: 100,
@@ -81,14 +75,7 @@ pub struct CacheStats {
 
 impl Default for CacheStats {
     fn default() -> Self {
-        Self {
-            hits: 0,
-            misses: 0,
-            evictions: 0,
-            total_entries: 0,
-            memory_usage_bytes: 0,
-            hit_rate: 0.0,
-        }
+        Self { hits: 0, misses: 0, evictions: 0, total_entries: 0, memory_usage_bytes: 0, hit_rate: 0.0 }
     }
 }
 
@@ -162,8 +149,7 @@ impl QueryCache {
     }
 
     pub async fn set_room(&self, room_id: &str, value: serde_json::Value) {
-        self.set(&self.rooms, room_id, value, self.config.room_ttl)
-            .await
+        self.set(&self.rooms, room_id, value, self.config.room_ttl).await
     }
 
     pub async fn get_user(&self, user_id: &str) -> Option<serde_json::Value> {
@@ -171,8 +157,7 @@ impl QueryCache {
     }
 
     pub async fn set_user(&self, user_id: &str, value: serde_json::Value) {
-        self.set(&self.users, user_id, value, self.config.user_ttl)
-            .await
+        self.set(&self.users, user_id, value, self.config.user_ttl).await
     }
 
     pub async fn get_event(&self, event_id: &str) -> Option<serde_json::Value> {
@@ -180,8 +165,7 @@ impl QueryCache {
     }
 
     pub async fn set_event(&self, event_id: &str, value: serde_json::Value) {
-        self.set(&self.events, event_id, value, self.config.event_ttl)
-            .await
+        self.set(&self.events, event_id, value, self.config.event_ttl).await
     }
 
     pub async fn get_membership(&self, key: &str) -> Option<serde_json::Value> {
@@ -189,8 +173,7 @@ impl QueryCache {
     }
 
     pub async fn set_membership(&self, key: &str, value: serde_json::Value) {
-        self.set(&self.memberships, key, value, self.config.membership_ttl)
-            .await
+        self.set(&self.memberships, key, value, self.config.membership_ttl).await
     }
 
     pub async fn get_device(&self, key: &str) -> Option<serde_json::Value> {
@@ -198,8 +181,7 @@ impl QueryCache {
     }
 
     pub async fn set_device(&self, key: &str, value: serde_json::Value) {
-        self.set(&self.devices, key, value, self.config.device_ttl)
-            .await
+        self.set(&self.devices, key, value, self.config.device_ttl).await
     }
 
     pub async fn get_token(&self, token: &str) -> Option<serde_json::Value> {
@@ -207,8 +189,7 @@ impl QueryCache {
     }
 
     pub async fn set_token(&self, token: &str, value: serde_json::Value) {
-        self.set(&self.tokens, token, value, self.config.token_ttl)
-            .await
+        self.set(&self.tokens, token, value, self.config.token_ttl).await
     }
 
     async fn get<T>(
@@ -247,13 +228,8 @@ impl QueryCache {
         None
     }
 
-    async fn set<T>(
-        &self,
-        cache: &RwLock<HashMap<String, CacheEntry<T>>>,
-        key: &str,
-        value: T,
-        ttl: Duration,
-    ) where
+    async fn set<T>(&self, cache: &RwLock<HashMap<String, CacheEntry<T>>>, key: &str, value: T, ttl: Duration)
+    where
         T: Clone,
     {
         let mut cache = cache.write().await;
@@ -277,11 +253,7 @@ impl QueryCache {
         entries.sort_by_key(|(_, entry)| entry.last_accessed);
 
         let to_remove = (entries.len() / 10).min(100);
-        let keys_to_remove: Vec<String> = entries
-            .into_iter()
-            .take(to_remove)
-            .map(|(k, _)| k.clone())
-            .collect();
+        let keys_to_remove: Vec<String> = entries.into_iter().take(to_remove).map(|(k, _)| k.clone()).collect();
 
         for key in keys_to_remove {
             cache.remove(&key);
@@ -322,22 +294,13 @@ impl QueryCache {
 
     pub async fn invalidate_room(&self, room_id: &str) {
         self.rooms.write().await.remove(room_id);
-        self.memberships
-            .write()
-            .await
-            .retain(|k, _| !k.starts_with(room_id));
+        self.memberships.write().await.retain(|k, _| !k.starts_with(room_id));
     }
 
     pub async fn invalidate_user(&self, user_id: &str) {
         self.users.write().await.remove(user_id);
-        self.devices
-            .write()
-            .await
-            .retain(|k, _| !k.starts_with(user_id));
-        self.tokens
-            .write()
-            .await
-            .retain(|k, _| !k.contains(user_id));
+        self.devices.write().await.retain(|k, _| !k.starts_with(user_id));
+        self.tokens.write().await.retain(|k, _| !k.contains(user_id));
     }
 
     pub async fn invalidate_event(&self, event_id: &str) {
@@ -377,11 +340,7 @@ impl QueryCache {
         let hot_keys = self.hot_keys.read().await;
         let mut entries: Vec<_> = hot_keys.iter().collect();
         entries.sort_by_key(|(_, &count)| std::cmp::Reverse(count));
-        entries
-            .into_iter()
-            .take(limit)
-            .map(|(k, v)| (k.clone(), *v))
-            .collect()
+        entries.into_iter().take(limit).map(|(k, v)| (k.clone(), *v)).collect()
     }
 
     pub async fn cleanup_expired(&self) {
@@ -436,11 +395,7 @@ impl QueryCache {
         }
     }
 
-    pub async fn peek<T>(
-        &self,
-        cache: &RwLock<HashMap<String, CacheEntry<T>>>,
-        key: &str,
-    ) -> Option<T>
+    pub async fn peek<T>(&self, cache: &RwLock<HashMap<String, CacheEntry<T>>>, key: &str) -> Option<T>
     where
         T: Clone,
     {
@@ -448,11 +403,7 @@ impl QueryCache {
         cache.get(key).map(|entry| entry.value.clone())
     }
 
-    pub async fn get_if_fresh<T>(
-        &self,
-        cache: &RwLock<HashMap<String, CacheEntry<T>>>,
-        key: &str,
-    ) -> Option<T>
+    pub async fn get_if_fresh<T>(&self, cache: &RwLock<HashMap<String, CacheEntry<T>>>, key: &str) -> Option<T>
     where
         T: Clone,
     {
@@ -492,10 +443,7 @@ impl QueryCache {
         self.update_total_entries().await;
     }
 
-    pub async fn get_multi_rooms(
-        &self,
-        room_ids: &[String],
-    ) -> HashMap<String, Option<serde_json::Value>> {
+    pub async fn get_multi_rooms(&self, room_ids: &[String]) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.rooms.read().await;
         let mut results = HashMap::new();
         let mut hits = 0u64;
@@ -518,15 +466,11 @@ impl QueryCache {
         }
 
         drop(cache);
-        self.record_batch_access_stats(hits, misses, total_entries)
-            .await;
+        self.record_batch_access_stats(hits, misses, total_entries).await;
         results
     }
 
-    pub async fn get_multi_users(
-        &self,
-        user_ids: &[String],
-    ) -> HashMap<String, Option<serde_json::Value>> {
+    pub async fn get_multi_users(&self, user_ids: &[String]) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.users.read().await;
         let mut results = HashMap::new();
         let mut hits = 0u64;
@@ -549,8 +493,7 @@ impl QueryCache {
         }
 
         drop(cache);
-        self.record_batch_access_stats(hits, misses, total_entries)
-            .await;
+        self.record_batch_access_stats(hits, misses, total_entries).await;
         results
     }
 }
@@ -633,16 +576,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_multi_rooms_updates_stats_once() {
         let cache = QueryCache::default();
-        cache
-            .set_room("!room-a:example.com", serde_json::json!({"name": "A"}))
-            .await;
+        cache.set_room("!room-a:example.com", serde_json::json!({"name": "A"})).await;
 
-        let results = cache
-            .get_multi_rooms(&[
-                "!room-a:example.com".to_string(),
-                "!room-b:example.com".to_string(),
-            ])
-            .await;
+        let results =
+            cache.get_multi_rooms(&["!room-a:example.com".to_string(), "!room-b:example.com".to_string()]).await;
 
         assert!(results["!room-a:example.com"].is_some());
         assert!(results["!room-b:example.com"].is_none());
@@ -656,19 +593,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_multi_users_updates_stats_once() {
         let cache = QueryCache::default();
-        cache
-            .set_user(
-                "@alice:example.com",
-                serde_json::json!({"displayname": "Alice"}),
-            )
-            .await;
+        cache.set_user("@alice:example.com", serde_json::json!({"displayname": "Alice"})).await;
 
-        let results = cache
-            .get_multi_users(&[
-                "@alice:example.com".to_string(),
-                "@bob:example.com".to_string(),
-            ])
-            .await;
+        let results = cache.get_multi_users(&["@alice:example.com".to_string(), "@bob:example.com".to_string()]).await;
 
         assert!(results["@alice:example.com"].is_some());
         assert!(results["@bob:example.com"].is_none());
@@ -723,11 +650,7 @@ mod tests {
         cache.set_room("!room1:server", value1.clone()).await;
         cache.set_room("!room2:server", value2.clone()).await;
 
-        let room_ids = vec![
-            "!room1:server".to_string(),
-            "!room2:server".to_string(),
-            "!room3:server".to_string(),
-        ];
+        let room_ids = vec!["!room1:server".to_string(), "!room2:server".to_string(), "!room3:server".to_string()];
         let results = cache.get_multi_rooms(&room_ids).await;
 
         assert_eq!(results[&"!room1:server".to_string()], Some(value1));

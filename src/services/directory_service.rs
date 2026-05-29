@@ -17,10 +17,10 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     let service = DirectoryService::new();
-//!     
+//!
 //!     // 设置房间别名
 //!     service.set_room_alias("!room:example.com", "#myroom:example.com").await.unwrap();
-//!     
+//!
 //!     // 通过别名获取房间 ID
 //!     let room_id = service.get_room_id_by_alias("#myroom:example.com").await.unwrap();
 //!     assert_eq!(room_id, Some("!room:example.com".to_string()));
@@ -121,10 +121,7 @@ impl DirectoryService {
         aliases.insert(alias.to_string(), room_id.to_string());
 
         let mut room_aliases = self.room_aliases.write().await;
-        room_aliases
-            .entry(room_id.to_string())
-            .or_default()
-            .push(alias.to_string());
+        room_aliases.entry(room_id.to_string()).or_default().push(alias.to_string());
 
         Ok(())
     }
@@ -140,21 +137,13 @@ impl DirectoryService {
         Ok(())
     }
 
-    pub async fn get_public_rooms(
-        &self,
-        limit: i32,
-        _since: Option<&str>,
-    ) -> ApiResult<Vec<DirectoryRoom>> {
+    pub async fn get_public_rooms(&self, limit: i32, _since: Option<&str>) -> ApiResult<Vec<DirectoryRoom>> {
         let rooms = self.public_rooms.read().await;
         let result: Vec<DirectoryRoom> = rooms.values().take(limit as usize).cloned().collect();
         Ok(result)
     }
 
-    pub async fn search_public_rooms(
-        &self,
-        filter: Option<&str>,
-        limit: i32,
-    ) -> ApiResult<Vec<DirectoryRoom>> {
+    pub async fn search_public_rooms(&self, filter: Option<&str>, limit: i32) -> ApiResult<Vec<DirectoryRoom>> {
         let rooms = self.public_rooms.read().await;
 
         let mut result: Vec<DirectoryRoom> = Vec::new();
@@ -162,14 +151,8 @@ impl DirectoryService {
         for r in rooms.values() {
             let matches = if let Some(f) = filter {
                 let f_lower = f.to_lowercase();
-                let name_match = r
-                    .name
-                    .as_ref()
-                    .is_some_and(|n| n.to_lowercase().contains(&f_lower));
-                let topic_match = r
-                    .topic
-                    .as_ref()
-                    .is_some_and(|t| t.to_lowercase().contains(&f_lower));
+                let name_match = r.name.as_ref().is_some_and(|n| n.to_lowercase().contains(&f_lower));
+                let topic_match = r.topic.as_ref().is_some_and(|t| t.to_lowercase().contains(&f_lower));
                 name_match || topic_match
             } else {
                 true
@@ -202,15 +185,9 @@ mod tests {
     async fn test_set_and_get_room_alias() {
         let service = DirectoryService::new();
 
-        service
-            .set_room_alias("!room:example.com", "#test:example.com")
-            .await
-            .unwrap();
+        service.set_room_alias("!room:example.com", "#test:example.com").await.unwrap();
 
-        let room_id = service
-            .get_room_id_by_alias("#test:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#test:example.com").await.unwrap();
         assert_eq!(room_id, Some("!room:example.com".to_string()));
     }
 
@@ -218,10 +195,7 @@ mod tests {
     async fn test_get_nonexistent_alias() {
         let service = DirectoryService::new();
 
-        let room_id = service
-            .get_room_id_by_alias("#nonexistent:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#nonexistent:example.com").await.unwrap();
         assert_eq!(room_id, None);
     }
 
@@ -229,19 +203,10 @@ mod tests {
     async fn test_remove_room_alias() {
         let service = DirectoryService::new();
 
-        service
-            .set_room_alias("!room:example.com", "#test:example.com")
-            .await
-            .unwrap();
-        service
-            .remove_room_alias("#test:example.com")
-            .await
-            .unwrap();
+        service.set_room_alias("!room:example.com", "#test:example.com").await.unwrap();
+        service.remove_room_alias("#test:example.com").await.unwrap();
 
-        let room_id = service
-            .get_room_id_by_alias("#test:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#test:example.com").await.unwrap();
         assert_eq!(room_id, None);
     }
 
@@ -302,14 +267,8 @@ mod tests {
     async fn test_get_room_aliases() {
         let service = DirectoryService::new();
 
-        service
-            .set_room_alias("!room:example.com", "#alias1:example.com")
-            .await
-            .unwrap();
-        service
-            .set_room_alias("!room:example.com", "#alias2:example.com")
-            .await
-            .unwrap();
+        service.set_room_alias("!room:example.com", "#alias1:example.com").await.unwrap();
+        service.set_room_alias("!room:example.com", "#alias2:example.com").await.unwrap();
 
         let aliases = service.get_room_aliases("!room:example.com").await;
         assert_eq!(aliases.len(), 2);

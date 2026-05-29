@@ -82,8 +82,8 @@ pub fn verify_signed_json(
 ) -> Result<bool, CryptoError> {
     let public_key = Ed25519PublicKey::from_base64(public_key_base64)?;
 
-    let signature_bytes = base64::Engine::decode(&MATRIX_BASE64, signature_base64)
-        .map_err(|_| CryptoError::InvalidBase64)?;
+    let signature_bytes =
+        base64::Engine::decode(&MATRIX_BASE64, signature_base64).map_err(|_| CryptoError::InvalidBase64)?;
 
     if signature_bytes.len() != 64 {
         return Err(CryptoError::InvalidKeyLength);
@@ -91,11 +91,10 @@ pub fn verify_signed_json(
 
     let mut sig_array = [0u8; 64];
     sig_array.copy_from_slice(&signature_bytes);
-    let ed25519_sig =
-        Signature::from_slice(&sig_array).map_err(|_| CryptoError::SignatureVerificationFailed)?;
+    let ed25519_sig = Signature::from_slice(&sig_array).map_err(|_| CryptoError::SignatureVerificationFailed)?;
 
-    let verifying_key = VerifyingKey::from_bytes(public_key.as_bytes())
-        .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+    let verifying_key =
+        VerifyingKey::from_bytes(public_key.as_bytes()).map_err(|_| CryptoError::SignatureVerificationFailed)?;
 
     let mut json_copy = json_value.clone();
     remove_signatures_and_unsigned(&mut json_copy);
@@ -106,17 +105,12 @@ pub fn verify_signed_json(
 }
 
 pub fn verify_device_keys_signature(device_keys: &Value) -> Result<bool, CryptoError> {
-    let user_id = device_keys
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or(CryptoError::SignatureVerificationFailed)?;
+    let user_id =
+        device_keys.get("user_id").and_then(|v| v.as_str()).ok_or(CryptoError::SignatureVerificationFailed)?;
 
     let signatures = device_keys.get("signatures").and_then(|v| v.as_object());
 
-    let keys = device_keys
-        .get("keys")
-        .and_then(|v| v.as_object())
-        .ok_or(CryptoError::SignatureVerificationFailed)?;
+    let keys = device_keys.get("keys").and_then(|v| v.as_object()).ok_or(CryptoError::SignatureVerificationFailed)?;
 
     let Some(signatures) = signatures else {
         return Ok(false);
@@ -160,33 +154,21 @@ pub fn verify_one_time_key_signature(
         return Ok(true);
     }
 
-    let signatures = key_data
-        .get("signatures")
-        .and_then(|v| v.as_object())
-        .ok_or(CryptoError::SignatureVerificationFailed)?;
+    let signatures =
+        key_data.get("signatures").and_then(|v| v.as_object()).ok_or(CryptoError::SignatureVerificationFailed)?;
 
-    let user_sigs = signatures
-        .get(user_id)
-        .and_then(|v| v.as_object())
-        .ok_or(CryptoError::SignatureVerificationFailed)?;
+    let user_sigs =
+        signatures.get(user_id).and_then(|v| v.as_object()).ok_or(CryptoError::SignatureVerificationFailed)?;
 
     let signing_key_id = format!("ed25519:{device_id}");
 
-    let signature = user_sigs
-        .get(&signing_key_id)
-        .and_then(|v| v.as_str())
-        .ok_or(CryptoError::SignatureVerificationFailed)?;
+    let signature =
+        user_sigs.get(&signing_key_id).and_then(|v| v.as_str()).ok_or(CryptoError::SignatureVerificationFailed)?;
 
     let mut key_json = key_data.clone();
     remove_signatures_and_unsigned(&mut key_json);
 
-    verify_signed_json(
-        user_id,
-        &signing_key_id,
-        device_ed25519_key,
-        signature,
-        &key_json,
-    )
+    verify_signed_json(user_id, &signing_key_id, device_ed25519_key, signature, &key_json)
 }
 
 #[cfg(test)]
@@ -280,13 +262,7 @@ mod tests {
             }
         });
 
-        let result = verify_signed_json(
-            "@alice:example.com",
-            "ed25519:DEVICE1",
-            &pk_base64,
-            &sig_base64,
-            &json,
-        );
+        let result = verify_signed_json("@alice:example.com", "ed25519:DEVICE1", &pk_base64, &sig_base64, &json);
         assert!(result.unwrap());
     }
 
@@ -304,17 +280,10 @@ mod tests {
         let message = canonical_json_bytes(&json);
         let wrong_signature = signing_key2.sign(&message);
 
-        let sig_base64 =
-            base64::engine::general_purpose::STANDARD.encode(wrong_signature.to_bytes());
+        let sig_base64 = base64::engine::general_purpose::STANDARD.encode(wrong_signature.to_bytes());
         let pk_base64 = base64::engine::general_purpose::STANDARD.encode(verifying_key1.as_bytes());
 
-        let result = verify_signed_json(
-            "@alice:example.com",
-            "ed25519:DEVICE1",
-            &pk_base64,
-            &sig_base64,
-            &json,
-        );
+        let result = verify_signed_json("@alice:example.com", "ed25519:DEVICE1", &pk_base64, &sig_base64, &json);
         assert!(!result.unwrap());
     }
 

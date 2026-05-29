@@ -16,10 +16,7 @@ pub struct CrossSigningService {
 }
 
 impl CrossSigningService {
-    fn extract_ed25519_key(
-        key_json: &serde_json::Value,
-        field_name: &str,
-    ) -> Result<(String, String), ApiError> {
+    fn extract_ed25519_key(key_json: &serde_json::Value, field_name: &str) -> Result<(String, String), ApiError> {
         let keys = key_json
             .get("keys")
             .and_then(|v| v.as_object())
@@ -28,9 +25,7 @@ impl CrossSigningService {
         keys.iter()
             .find_map(|(key_id, value)| {
                 if key_id.starts_with("ed25519:") {
-                    value
-                        .as_str()
-                        .map(|public_key| (key_id.clone(), public_key.to_string()))
+                    value.as_str().map(|public_key| (key_id.clone(), public_key.to_string()))
                 } else {
                     None
                 }
@@ -39,11 +34,7 @@ impl CrossSigningService {
     }
 
     pub fn new(storage: CrossSigningStorage) -> Self {
-        Self {
-            storage,
-            device_keys_storage: None,
-            dehydrated_device_service: None,
-        }
+        Self { storage, device_keys_storage: None, dehydrated_device_service: None }
     }
 
     pub fn with_device_keys_storage(mut self, storage: Arc<DeviceKeyStorage>) -> Self {
@@ -56,16 +47,12 @@ impl CrossSigningService {
         self
     }
 
-    pub async fn upload_cross_signing_keys(
-        &self,
-        upload: CrossSigningUpload,
-    ) -> Result<(), ApiError> {
+    pub async fn upload_cross_signing_keys(&self, upload: CrossSigningUpload) -> Result<(), ApiError> {
         let user_id = upload.master_key["user_id"]
             .as_str()
             .ok_or_else(|| ApiError::bad_request("Missing user_id in master_key".to_string()))?;
 
-        let (_master_key_id, master_public_key) =
-            Self::extract_ed25519_key(&upload.master_key, "master_key")?;
+        let (_master_key_id, master_public_key) = Self::extract_ed25519_key(&upload.master_key, "master_key")?;
 
         let master_usage = upload.master_key["usage"]
             .as_array()
@@ -108,9 +95,7 @@ impl CrossSigningService {
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
-        self.storage
-            .create_cross_signing_key(&self_signing_key)
-            .await?;
+        self.storage.create_cross_signing_key(&self_signing_key).await?;
 
         let (_user_signing_key_id, user_signing_public_key) =
             Self::extract_ed25519_key(&upload.user_signing_key, "user_signing_key")?;
@@ -133,17 +118,12 @@ impl CrossSigningService {
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
         };
-        self.storage
-            .create_cross_signing_key(&user_signing_key)
-            .await?;
+        self.storage.create_cross_signing_key(&user_signing_key).await?;
 
         Ok(())
     }
 
-    pub async fn get_cross_signing_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<CrossSigningKeys, ApiError> {
+    pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<CrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
         let master_key = keys
@@ -175,10 +155,7 @@ impl CrossSigningService {
         _key_id: &str,
         signature: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        let key = self
-            .storage
-            .get_cross_signing_key(user_id, "master")
-            .await?;
+        let key = self.storage.get_cross_signing_key(user_id, "master").await?;
         if let Some(mut k) = key {
             let signatures = k
                 .signatures
@@ -211,9 +188,7 @@ impl CrossSigningService {
         let key_type = if let Some(u) = usage {
             u.first().and_then(|v| v.as_str()).unwrap_or("unknown")
         } else {
-            key.get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
+            key.get("type").and_then(|v| v.as_str()).unwrap_or("unknown")
         };
 
         let keys = key.get("keys").and_then(|v| v.as_object());
@@ -230,40 +205,23 @@ impl CrossSigningService {
             }
         } else {
             (
-                key.get("algorithm")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                key.get("key")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                key.get("algorithm").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                key.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             )
         };
 
         if public_key.is_empty() {
-            return Err(ApiError::bad_request(
-                "Missing algorithm or public key".to_string(),
-            ));
+            return Err(ApiError::bad_request("Missing algorithm or public key".to_string()));
         }
 
         match key_type {
             "master" => {
                 if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) = dk_storage
-                        .get_device_key(user_id, device_id, "ed25519")
-                        .await
-                    {
+                    if let Ok(Some(device_key)) = dk_storage.get_device_key(user_id, device_id, "ed25519").await {
                         let signing_key_id = format!("ed25519:{device_id}");
-                        if !Self::verify_key_signature(
-                            user_id,
-                            key,
-                            &device_key.public_key,
-                            &signing_key_id,
-                        ) {
+                        if !Self::verify_key_signature(user_id, key, &device_key.public_key, &signing_key_id) {
                             return Err(ApiError::bad_request(
-                                "Invalid signature on master key: not signed by device\'s ed25519 key"
-                                    .to_string(),
+                                "Invalid signature on master key: not signed by device\'s ed25519 key".to_string(),
                             ));
                         }
                     } else {
@@ -274,9 +232,7 @@ impl CrossSigningService {
                 }
             }
             "self_signing" | "user_signing" => {
-                if let Ok(Some(master_key)) =
-                    self.storage.get_cross_signing_key(user_id, "master").await
-                {
+                if let Ok(Some(master_key)) = self.storage.get_cross_signing_key(user_id, "master").await {
                     if !Self::verify_cross_key_signature(user_id, key, &master_key) {
                         return Err(ApiError::bad_request(format!(
                             "Invalid signature on {key_type} key: not signed by master key"
@@ -291,10 +247,7 @@ impl CrossSigningService {
             _ => {}
         }
 
-        let signatures = key
-            .get("signatures")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
+        let signatures = key.get("signatures").cloned().unwrap_or(serde_json::json!({}));
 
         let cross_signing_key = CrossSigningKey {
             id: uuid::Uuid::new_v4(),
@@ -302,11 +255,7 @@ impl CrossSigningService {
             key_type: key_type.to_string(),
             public_key,
             usage: usage
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                 .unwrap_or_default(),
             signatures,
             key_json: Some(key.clone()),
@@ -314,9 +263,7 @@ impl CrossSigningService {
             updated_ts: Utc::now(),
         };
 
-        self.storage
-            .create_cross_signing_key(&cross_signing_key)
-            .await?;
+        self.storage.create_cross_signing_key(&cross_signing_key).await?;
         Ok(())
     }
 
@@ -338,29 +285,15 @@ impl CrossSigningService {
             Some(s) => s,
             None => return false,
         };
-        verify_signed_json(
-            user_id,
-            signing_key_id,
-            public_key_base64,
-            signature,
-            key_json,
-        )
-        .unwrap_or(false)
+        verify_signed_json(user_id, signing_key_id, public_key_base64, signature, key_json).unwrap_or(false)
     }
 
-    fn verify_cross_key_signature(
-        user_id: &str,
-        key_json: &serde_json::Value,
-        master_key: &CrossSigningKey,
-    ) -> bool {
+    fn verify_cross_key_signature(user_id: &str, key_json: &serde_json::Value, master_key: &CrossSigningKey) -> bool {
         let master_key_id = master_key
             .key_json
             .as_ref()
             .and_then(|value| Self::extract_ed25519_key(value, "master_key").ok())
-            .map_or_else(
-                || format!("ed25519:{}", master_key.public_key),
-                |(key_id, _)| key_id,
-            );
+            .map_or_else(|| format!("ed25519:{}", master_key.public_key), |(key_id, _)| key_id);
         let signatures = match key_json.get("signatures").and_then(|v| v.as_object()) {
             Some(s) => s,
             None => return false,
@@ -373,14 +306,7 @@ impl CrossSigningService {
             Some(s) => s,
             None => return false,
         };
-        verify_signed_json(
-            user_id,
-            &master_key_id,
-            &master_key.public_key,
-            signature,
-            key_json,
-        )
-        .unwrap_or(false)
+        verify_signed_json(user_id, &master_key_id, &master_key.public_key, signature, key_json).unwrap_or(false)
     }
 
     pub async fn upload_signatures(
@@ -426,38 +352,23 @@ impl CrossSigningService {
     pub async fn get_user_signatures(&self, user_id: &str) -> Result<UserSignatures, ApiError> {
         let signatures = self.storage.get_user_signatures(user_id).await?;
 
-        Ok(UserSignatures {
-            user_id: user_id.to_string(),
-            signatures,
-        })
+        Ok(UserSignatures { user_id: user_id.to_string(), signatures })
     }
 
     pub async fn verify_signature(
         &self,
         request: &SignatureVerificationRequest,
     ) -> Result<SignatureVerificationResponse, ApiError> {
-        let sig = self
-            .storage
-            .get_signature(&request.user_id, &request.key_id, &request.signing_key_id)
-            .await?;
+        let sig = self.storage.get_signature(&request.user_id, &request.key_id, &request.signing_key_id).await?;
 
         let Some(_signature_record) = sig else {
-            return Ok(SignatureVerificationResponse {
-                valid: false,
-                verified_at: Utc::now(),
-            });
+            return Ok(SignatureVerificationResponse { valid: false, verified_at: Utc::now() });
         };
 
-        let signing_key = self
-            .storage
-            .get_cross_signing_key(&request.user_id, &request.signing_key_id)
-            .await?;
+        let signing_key = self.storage.get_cross_signing_key(&request.user_id, &request.signing_key_id).await?;
 
         let Some(key) = signing_key else {
-            return Ok(SignatureVerificationResponse {
-                valid: false,
-                verified_at: Utc::now(),
-            });
+            return Ok(SignatureVerificationResponse { valid: false, verified_at: Utc::now() });
         };
 
         let valid = verify_signed_json(
@@ -472,10 +383,7 @@ impl CrossSigningService {
         )
         .unwrap_or(false);
 
-        Ok(SignatureVerificationResponse {
-            valid,
-            verified_at: Utc::now(),
-        })
+        Ok(SignatureVerificationResponse { valid, verified_at: Utc::now() })
     }
 
     pub async fn setup_cross_signing(
@@ -524,12 +432,7 @@ impl CrossSigningService {
             })
         });
 
-        Ok(CrossSigningSetupResponse {
-            master_key,
-            self_signing_key,
-            user_signing_key,
-            master_key_signature,
-        })
+        Ok(CrossSigningSetupResponse { master_key, self_signing_key, user_signing_key, master_key_signature })
     }
 
     pub async fn get_device_signatures(
@@ -543,9 +446,7 @@ impl CrossSigningService {
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
-            dehydrated_device_service
-                .delete_all_for_user(user_id)
-                .await?;
+            dehydrated_device_service.delete_all_for_user(user_id).await?;
         }
         Ok(())
     }
@@ -597,10 +498,7 @@ impl CrossSigningService {
         user_id: &str,
         device_id: &str,
     ) -> Result<DeviceVerificationStatus, ApiError> {
-        let self_signing_key = self
-            .storage
-            .get_cross_signing_key(user_id, "self_signing")
-            .await?;
+        let self_signing_key = self.storage.get_cross_signing_key(user_id, "self_signing").await?;
 
         let Some(ssk) = self_signing_key else {
             return Ok(DeviceVerificationStatus {
@@ -611,21 +509,14 @@ impl CrossSigningService {
             });
         };
 
-        let signatures = self
-            .storage
-            .get_device_signatures(user_id, device_id)
-            .await?;
+        let signatures = self.storage.get_device_signatures(user_id, device_id).await?;
 
-        let ssk_sig = signatures.iter().find(|s| {
-            s.signing_key_id.starts_with("ed25519:") || s.signing_key_id == "self_signing"
-        });
+        let ssk_sig =
+            signatures.iter().find(|s| s.signing_key_id.starts_with("ed25519:") || s.signing_key_id == "self_signing");
 
         if let Some(sig) = ssk_sig {
             let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                if let Ok(Some(device_key)) = dk_storage
-                    .get_device_key(user_id, device_id, "signed_curve25519")
-                    .await
-                {
+                if let Ok(Some(device_key)) = dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await {
                     let mut json = serde_json::json!({
                         "user_id": user_id,
                         "device_id": device_id,
@@ -658,23 +549,13 @@ impl CrossSigningService {
                 format!("ed25519:{}", ssk.key_type)
             };
 
-            let valid = verify_signed_json(
-                user_id,
-                &signing_key_id,
-                &ssk.public_key,
-                &sig.signature,
-                &device_key_json,
-            )
-            .unwrap_or(false);
+            let valid = verify_signed_json(user_id, &signing_key_id, &ssk.public_key, &sig.signature, &device_key_json)
+                .unwrap_or(false);
 
             Ok(DeviceVerificationStatus {
                 device_id: device_id.to_string(),
                 is_verified: valid,
-                verified_by: if valid {
-                    Some("self_signing".to_string())
-                } else {
-                    None
-                },
+                verified_by: if valid { Some("self_signing".to_string()) } else { None },
                 verified_at: if valid { Some(Utc::now()) } else { None },
             })
         } else {
@@ -687,22 +568,10 @@ impl CrossSigningService {
         }
     }
 
-    pub async fn get_user_verification_status(
-        &self,
-        user_id: &str,
-    ) -> Result<UserVerificationStatus, ApiError> {
-        let master_key = self
-            .storage
-            .get_cross_signing_key(user_id, "master")
-            .await?;
-        let self_signing_key = self
-            .storage
-            .get_cross_signing_key(user_id, "self_signing")
-            .await?;
-        let user_signing_key = self
-            .storage
-            .get_cross_signing_key(user_id, "user_signing")
-            .await?;
+    pub async fn get_user_verification_status(&self, user_id: &str) -> Result<UserVerificationStatus, ApiError> {
+        let master_key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let self_signing_key = self.storage.get_cross_signing_key(user_id, "self_signing").await?;
+        let user_signing_key = self.storage.get_cross_signing_key(user_id, "user_signing").await?;
 
         let has_master = master_key.is_some();
         let has_self_signing = self_signing_key.is_some();
@@ -716,20 +585,13 @@ impl CrossSigningService {
                 ssk.key_json.as_ref(),
                 "self_signing",
             );
-            let mk_signature_valid = Self::verify_cross_signing_signature(
-                &ssk.public_key,
-                &ssk.signatures,
-                mk.key_json.as_ref(),
-                "master",
-            );
+            let mk_signature_valid =
+                Self::verify_cross_signing_signature(&ssk.public_key, &ssk.signatures, mk.key_json.as_ref(), "master");
             is_verified = ssk_signature_valid || mk_signature_valid;
         }
 
         if !is_verified && has_master && has_self_signing && has_user_signing {
-            tracing::warn!(
-                "Cross-signing keys exist for user {} but signature chain is invalid",
-                user_id
-            );
+            tracing::warn!("Cross-signing keys exist for user {} but signature chain is invalid", user_id);
         }
 
         Ok(UserVerificationStatus {
@@ -778,14 +640,8 @@ impl CrossSigningService {
                         None => continue,
                     };
 
-                    if verify_signed_json(
-                        signer_id,
-                        signing_key_id,
-                        signing_public_key,
-                        signature_str,
-                        &target_json,
-                    )
-                    .unwrap_or(false)
+                    if verify_signed_json(signer_id, signing_key_id, signing_public_key, signature_str, &target_json)
+                        .unwrap_or(false)
                     {
                         return true;
                     }
@@ -801,31 +657,19 @@ impl CrossSigningService {
         user_id: &str,
         device_id: &str,
     ) -> Result<DeviceKeyVerificationResult, ApiError> {
-        let master_key = self
-            .storage
-            .get_cross_signing_key(user_id, "master")
-            .await?;
-        let self_signing_key = self
-            .storage
-            .get_cross_signing_key(user_id, "self_signing")
-            .await?;
+        let master_key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let self_signing_key = self.storage.get_cross_signing_key(user_id, "self_signing").await?;
 
         let verified_by_master = if let Some(ref mk) = master_key {
-            let signatures = self
-                .storage
-                .get_device_signatures(user_id, device_id)
-                .await?;
+            let signatures = self.storage.get_device_signatures(user_id, device_id).await?;
 
             signatures.iter().any(|sig| {
                 if sig.signing_key_id.starts_with("ed25519:") {
-                    let signing_key_id = Self::extract_ed25519_key(
-                        mk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
-                        "master_key",
-                    )
-                    .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
+                    let signing_key_id =
+                        Self::extract_ed25519_key(mk.key_json.as_ref().unwrap_or(&serde_json::json!({})), "master_key")
+                            .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
 
-                    sig.signing_key_id == signing_key_id
-                        || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
+                    sig.signing_key_id == signing_key_id || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
                 } else {
                     false
                 }
@@ -835,26 +679,19 @@ impl CrossSigningService {
         };
 
         let verified_by_self_signing = if let Some(ref ssk) = self_signing_key {
-            let signatures = self
-                .storage
-                .get_device_signatures(user_id, device_id)
-                .await?;
+            let signatures = self.storage.get_device_signatures(user_id, device_id).await?;
 
-            let ssk_key_id = Self::extract_ed25519_key(
-                ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
-                "self_signing_key",
-            )
-            .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
+            let ssk_key_id =
+                Self::extract_ed25519_key(ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})), "self_signing_key")
+                    .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
 
-            let ssk_sig = signatures.iter().find(|s| {
-                s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:")
-            });
+            let ssk_sig =
+                signatures.iter().find(|s| s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:"));
 
             if let Some(sig) = ssk_sig {
                 let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) = dk_storage
-                        .get_device_key(user_id, device_id, "signed_curve25519")
-                        .await
+                    if let Ok(Some(device_key)) =
+                        dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await
                     {
                         let mut json = serde_json::json!({
                             "user_id": user_id,
@@ -888,14 +725,8 @@ impl CrossSigningService {
                     format!("ed25519:{}", ssk.key_type)
                 };
 
-                verify_signed_json(
-                    user_id,
-                    &signing_key_id,
-                    &ssk.public_key,
-                    &sig.signature,
-                    &device_key_json,
-                )
-                .unwrap_or(false)
+                verify_signed_json(user_id, &signing_key_id, &ssk.public_key, &sig.signature, &device_key_json)
+                    .unwrap_or(false)
             } else {
                 false
             }
@@ -923,17 +754,11 @@ impl CrossSigningService {
         })
     }
 
-    pub async fn get_verified_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<VerifiedDevicesMap, ApiError> {
+    pub async fn get_verified_devices(&self, user_id: &str) -> Result<VerifiedDevicesMap, ApiError> {
         let mut verified_devices = Vec::new();
 
         if let Some(dk_storage) = &self.device_keys_storage {
-            let all_keys = dk_storage
-                .get_all_device_keys(user_id)
-                .await
-                .unwrap_or_default();
+            let all_keys = dk_storage.get_all_device_keys(user_id).await.unwrap_or_default();
 
             let mut seen_device_ids = std::collections::HashSet::new();
             for key in &all_keys {
@@ -946,10 +771,7 @@ impl CrossSigningService {
             }
         }
 
-        Ok(VerifiedDevicesMap {
-            user_id: user_id.to_string(),
-            verified_devices,
-        })
+        Ok(VerifiedDevicesMap { user_id: user_id.to_string(), verified_devices })
     }
 
     /// Batch version of `get_verified_devices` that avoids N+1 queries.
@@ -965,16 +787,10 @@ impl CrossSigningService {
         }
 
         // 1. Batch-fetch cross-signing keys for all users (1 query)
-        let cs_keys_by_user = self
-            .storage
-            .get_cross_signing_keys_batch(user_ids)
-            .await?;
+        let cs_keys_by_user = self.storage.get_cross_signing_keys_batch(user_ids).await?;
 
         // 2. Batch-fetch device signatures for all users (1 query)
-        let sigs_by_user = self
-            .storage
-            .get_device_signatures_batch(user_ids)
-            .await?;
+        let sigs_by_user = self.storage.get_device_signatures_batch(user_ids).await?;
 
         // 3. Batch-fetch device keys for all users (1 query if
         //    device_keys_storage is present; we collect unique device_ids per
@@ -983,8 +799,7 @@ impl CrossSigningService {
         if let Some(dk_storage) = &self.device_keys_storage {
             if let Ok(all_keys_by_user) = dk_storage.get_all_device_keys_batch(user_ids).await {
                 for (user_id, all_keys) in all_keys_by_user {
-                    let ids: HashSet<String> =
-                        all_keys.iter().map(|k| k.device_id.clone()).collect();
+                    let ids: HashSet<String> = all_keys.iter().map(|k| k.device_id.clone()).collect();
                     if !ids.is_empty() {
                         device_ids_by_user.insert(user_id, ids);
                     }
@@ -996,8 +811,7 @@ impl CrossSigningService {
         // IDs from the signatures we already fetched.
         for (user_id, sigs) in &sigs_by_user {
             if !device_ids_by_user.contains_key(user_id) {
-                let ids: HashSet<String> =
-                    sigs.iter().map(|s| s.target_device_id.clone()).collect();
+                let ids: HashSet<String> = sigs.iter().map(|s| s.target_device_id.clone()).collect();
                 if !ids.is_empty() {
                     device_ids_by_user.insert(user_id.clone(), ids);
                 }
@@ -1009,38 +823,20 @@ impl CrossSigningService {
         for user_id in user_ids {
             let cs_keys = cs_keys_by_user.get(user_id).cloned().unwrap_or_default();
             let sigs = sigs_by_user.get(user_id).cloned().unwrap_or_default();
-            let device_ids = device_ids_by_user
-                .get(user_id)
-                .cloned()
-                .unwrap_or_default();
+            let device_ids = device_ids_by_user.get(user_id).cloned().unwrap_or_default();
 
             let master_key = cs_keys.iter().find(|k| k.key_type == "master").cloned();
-            let self_signing_key = cs_keys
-                .iter()
-                .find(|k| k.key_type == "self_signing")
-                .cloned();
+            let self_signing_key = cs_keys.iter().find(|k| k.key_type == "self_signing").cloned();
 
             let mut verified_devices = Vec::new();
             for device_id in &device_ids {
                 let verified = self
-                    .verify_device_key_with_prefetched(
-                        user_id,
-                        device_id,
-                        &master_key,
-                        &self_signing_key,
-                        &sigs,
-                    )
+                    .verify_device_key_with_prefetched(user_id, device_id, &master_key, &self_signing_key, &sigs)
                     .await;
                 verified_devices.push(verified);
             }
 
-            result.insert(
-                user_id.clone(),
-                VerifiedDevicesMap {
-                    user_id: user_id.clone(),
-                    verified_devices,
-                },
-            );
+            result.insert(user_id.clone(), VerifiedDevicesMap { user_id: user_id.clone(), verified_devices });
         }
 
         Ok(result)
@@ -1057,22 +853,17 @@ impl CrossSigningService {
         all_signatures: &[DeviceSignature],
     ) -> DeviceKeyVerificationResult {
         // Filter signatures for this specific device
-        let signatures: Vec<&DeviceSignature> = all_signatures
-            .iter()
-            .filter(|s| s.target_device_id == *device_id)
-            .collect();
+        let signatures: Vec<&DeviceSignature> =
+            all_signatures.iter().filter(|s| s.target_device_id == *device_id).collect();
 
         let verified_by_master = if let Some(ref mk) = master_key {
             signatures.iter().any(|sig| {
                 if sig.signing_key_id.starts_with("ed25519:") {
-                    let signing_key_id = Self::extract_ed25519_key(
-                        mk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
-                        "master_key",
-                    )
-                    .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
+                    let signing_key_id =
+                        Self::extract_ed25519_key(mk.key_json.as_ref().unwrap_or(&serde_json::json!({})), "master_key")
+                            .map_or_else(|_| format!("ed25519:{}", mk.public_key), |(kid, _)| kid);
 
-                    sig.signing_key_id == signing_key_id
-                        || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
+                    sig.signing_key_id == signing_key_id || sig.signing_key_id == format!("ed25519:{}", mk.public_key)
                 } else {
                     false
                 }
@@ -1082,21 +873,17 @@ impl CrossSigningService {
         };
 
         let verified_by_self_signing = if let Some(ref ssk) = self_signing_key {
-            let ssk_key_id = Self::extract_ed25519_key(
-                ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})),
-                "self_signing_key",
-            )
-            .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
+            let ssk_key_id =
+                Self::extract_ed25519_key(ssk.key_json.as_ref().unwrap_or(&serde_json::json!({})), "self_signing_key")
+                    .map_or_else(|_| format!("ed25519:{}", ssk.public_key), |(kid, _)| kid);
 
-            let ssk_sig = signatures.iter().find(|s| {
-                s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:")
-            });
+            let ssk_sig =
+                signatures.iter().find(|s| s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:"));
 
             if let Some(sig) = ssk_sig {
                 let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) = dk_storage
-                        .get_device_key(user_id, device_id, "signed_curve25519")
-                        .await
+                    if let Ok(Some(device_key)) =
+                        dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await
                     {
                         let mut json = serde_json::json!({
                             "user_id": user_id,
@@ -1130,14 +917,8 @@ impl CrossSigningService {
                     format!("ed25519:{}", ssk.key_type)
                 };
 
-                verify_signed_json(
-                    user_id,
-                    &signing_key_id,
-                    &ssk.public_key,
-                    &sig.signature,
-                    &device_key_json,
-                )
-                .unwrap_or(false)
+                verify_signed_json(user_id, &signing_key_id, &ssk.public_key, &sig.signature, &device_key_json)
+                    .unwrap_or(false)
             } else {
                 false
             }

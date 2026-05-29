@@ -103,16 +103,11 @@ pub fn encode_room_token_sync_cursor(cursor: &RoomTokenSyncCursor) -> String {
     let encoded_user_id = URL_SAFE_NO_PAD.encode(cursor.user_id.as_bytes());
     let encoded_device_id = URL_SAFE_NO_PAD.encode(cursor.device_id.as_bytes());
     let is_conn_id_null = if cursor.conn_id.is_none() { 1 } else { 0 };
-    let encoded_conn_id =
-        URL_SAFE_NO_PAD.encode(cursor.conn_id.as_deref().unwrap_or("").as_bytes());
+    let encoded_conn_id = URL_SAFE_NO_PAD.encode(cursor.conn_id.as_deref().unwrap_or("").as_bytes());
 
     format!(
         "{}|{}|{}|{}|{}",
-        cursor.room_updated_ts,
-        encoded_user_id,
-        encoded_device_id,
-        is_conn_id_null,
-        encoded_conn_id
+        cursor.room_updated_ts, encoded_user_id, encoded_device_id, is_conn_id_null, encoded_conn_id
     )
 }
 
@@ -140,12 +135,7 @@ pub fn decode_room_token_sync_cursor(cursor: Option<&str>) -> Option<RoomTokenSy
         return None;
     }
 
-    Some(RoomTokenSyncCursor {
-        room_updated_ts,
-        user_id,
-        device_id,
-        conn_id,
-    })
+    Some(RoomTokenSyncCursor { room_updated_ts, user_id, device_id, conn_id })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,9 +153,7 @@ pub struct SlidingSyncRequest {
     pub client_timeout: Option<u32>,
 }
 
-fn deserialize_sliding_sync_lists<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, SlidingSyncListData>, D::Error>
+fn deserialize_sliding_sync_lists<'de, D>(deserializer: D) -> Result<HashMap<String, SlidingSyncListData>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -181,11 +169,7 @@ where
         ListsPayload::Vec(list_requests) => {
             let mut map = HashMap::new();
             for list in list_requests {
-                let ranges = list
-                    .ranges
-                    .into_iter()
-                    .map(|(start, end)| vec![start, end])
-                    .collect();
+                let ranges = list.ranges.into_iter().map(|(start, end)| vec![start, end]).collect();
                 map.insert(
                     list.list_key,
                     SlidingSyncListData {
@@ -315,7 +299,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncToken>(
             r"
-            SELECT * FROM sliding_sync_tokens 
+            SELECT * FROM sliding_sync_tokens
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -336,7 +320,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         let result: Option<(bool,)> = sqlx::query_as(
             r"
-            SELECT (pos = $4) FROM sliding_sync_tokens 
+            SELECT (pos = $4) FROM sliding_sync_tokens
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -365,14 +349,13 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         let now = chrono::Utc::now().timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
-        let filters_json = filters
-            .map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})))
-            .unwrap_or(serde_json::json!({}));
+        let filters_json =
+            filters.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({}))).unwrap_or(serde_json::json!({}));
         let ranges_json = serde_json::to_value(ranges).unwrap_or(serde_json::json!([]));
 
         sqlx::query_as::<_, SlidingSyncList>(
             r"
-            INSERT INTO sliding_sync_lists 
+            INSERT INTO sliding_sync_lists
                 (user_id, device_id, conn_id, list_key, sort, filters, room_subscription, ranges, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''), list_key) DO UPDATE SET
@@ -406,7 +389,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncList>(
             r"
-            SELECT * FROM sliding_sync_lists 
+            SELECT * FROM sliding_sync_lists
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
             ORDER BY created_ts ASC
             ",
@@ -428,7 +411,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query(
             r"
-            DELETE FROM sliding_sync_lists 
+            DELETE FROM sliding_sync_lists
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL)) AND list_key = $4
             ",
         )
@@ -466,7 +449,7 @@ impl SlidingSyncStorage {
 
         sqlx::query_as::<_, SlidingSyncRoom>(
             r"
-            INSERT INTO sliding_sync_rooms 
+            INSERT INTO sliding_sync_rooms
                 (user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count,
                  is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
@@ -510,15 +493,7 @@ impl SlidingSyncStorage {
         &self,
         query_params: SlidingSyncListQuery<'_>,
     ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error> {
-        let SlidingSyncListQuery {
-            user_id,
-            device_id,
-            conn_id,
-            list_key,
-            start,
-            end,
-            filters,
-        } = query_params;
+        let SlidingSyncListQuery { user_id, device_id, conn_id, list_key, start, end, filters } = query_params;
         self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r"
@@ -542,10 +517,7 @@ impl SlidingSyncStorage {
         query.push(" OFFSET ");
         query.push_bind(start as i64);
 
-        query
-            .build_query_as::<SlidingSyncRoom>()
-            .fetch_all(&*self.pool)
-            .await
+        query.build_query_as::<SlidingSyncRoom>().fetch_all(&*self.pool).await
     }
 
     pub async fn count_rooms_for_list(
@@ -587,7 +559,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r"
-            SELECT * FROM sliding_sync_rooms 
+            SELECT * FROM sliding_sync_rooms
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -722,7 +694,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query(
             r"
-            DELETE FROM sliding_sync_rooms 
+            DELETE FROM sliding_sync_rooms
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -750,7 +722,7 @@ impl SlidingSyncStorage {
 
         sqlx::query(
             r"
-            UPDATE sliding_sync_rooms 
+            UPDATE sliding_sync_rooms
             SET highlight_count = $5, notification_count = $6, updated_ts = $7
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
             ",
@@ -781,7 +753,7 @@ impl SlidingSyncStorage {
 
         sqlx::query(
             r"
-            UPDATE sliding_sync_rooms 
+            UPDATE sliding_sync_rooms
             SET bump_stamp = GREATEST(bump_stamp, $5), updated_ts = $6
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
             ",
@@ -804,7 +776,7 @@ impl SlidingSyncStorage {
 
         let result = sqlx::query(
             r"
-            DELETE FROM sliding_sync_tokens 
+            DELETE FROM sliding_sync_tokens
             WHERE expires_at IS NOT NULL AND expires_at < $1
             ",
         )
@@ -927,10 +899,7 @@ impl SlidingSyncStorage {
             .await
     }
 
-    pub async fn get_global_account_data(
-        &self,
-        user_id: &str,
-    ) -> Result<serde_json::Value, sqlx::Error> {
+    pub async fn get_global_account_data(&self, user_id: &str) -> Result<serde_json::Value, sqlx::Error> {
         self.ensure_schema()?;
         let rows = sqlx::query(
             r"
@@ -980,9 +949,7 @@ impl SlidingSyncStorage {
             let data_type: String = sqlx::Row::get(&row, "data_type");
             let data: serde_json::Value = sqlx::Row::get(&row, "data");
 
-            let entry = rooms_map
-                .entry(room_id)
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let entry = rooms_map.entry(room_id).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
             if let Some(obj) = entry.as_object_mut() {
                 obj.insert(data_type, data);
             }
@@ -992,10 +959,7 @@ impl SlidingSyncStorage {
     }
 
     #[allow(clippy::expect_used)]
-    pub async fn get_receipts_for_rooms(
-        &self,
-        room_ids: &[String],
-    ) -> Result<serde_json::Value, sqlx::Error> {
+    pub async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error> {
         self.ensure_schema()?;
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));
@@ -1058,9 +1022,7 @@ impl SlidingSyncStorage {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{
-        decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
-    };
+    use super::{decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor};
 
     #[test]
     fn room_token_sync_cursor_round_trip() {

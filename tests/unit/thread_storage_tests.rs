@@ -3,70 +3,68 @@ mod thread_storage_suite {
     use crate::common::get_test_pool_async;
     use sqlx::Row;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use synapse_rust::storage::thread::{
-        CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage,
-    };
+    use synapse_rust::storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage};
 
     fn unique_suffix() -> u128 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     }
 
     async fn connect_pool() -> Option<std::sync::Arc<sqlx::PgPool>> {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping thread storage tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping thread storage tests because test database is unavailable: {error}");
                 None
             }
         }
     }
 
-    async fn seed_room(
-        pool: &sqlx::PgPool,
-        suffix: u128,
-    ) -> (String, String, String, String, String) {
+    async fn seed_room(pool: &sqlx::PgPool, suffix: u128) -> (String, String, String, String, String) {
         let creator = format!("@threadcreator{suffix}:localhost");
         let replier = format!("@threadreplier{suffix}:localhost");
         let reader = format!("@threadreader{suffix}:localhost");
         let room_id = format!("!threadroom{suffix}:localhost");
         let thread_id = format!("thread-{suffix}");
 
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(&creator)
-            .bind(format!("threadcreator{suffix}"))
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed creator");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(&creator)
+        .bind(format!("threadcreator{suffix}"))
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed creator");
 
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(&replier)
-            .bind(format!("threadreplier{suffix}"))
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed replier");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(&replier)
+        .bind(format!("threadreplier{suffix}"))
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed replier");
 
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(&reader)
-            .bind(format!("threadreader{suffix}"))
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed reader");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(&reader)
+        .bind(format!("threadreader{suffix}"))
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed reader");
 
-        sqlx::query("INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING")
-            .bind(&room_id)
-            .bind(&creator)
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed room");
+        sqlx::query(
+            "INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(&creator)
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed room");
 
         (creator, replier, reader, room_id, thread_id)
     }
@@ -128,10 +126,7 @@ mod thread_storage_suite {
             .expect("Failed to create thread root");
 
         assert_eq!(root.root_event_id, root_event_id);
-        assert_eq!(
-            root.participants,
-            Some(serde_json::json!([creator.clone()]))
-        );
+        assert_eq!(root.participants, Some(serde_json::json!([creator.clone()])));
 
         let loaded = storage
             .get_thread_root_by_event(&room_id, &root_event_id)
@@ -159,14 +154,7 @@ mod thread_storage_suite {
         assert_eq!(reply.event_id, reply_event_id);
 
         let relation = storage
-            .create_thread_relation(
-                &room_id,
-                &reply_event_id,
-                &root_event_id,
-                "m.thread",
-                Some(&thread_id),
-                false,
-            )
+            .create_thread_relation(&room_id, &reply_event_id, &root_event_id, "m.thread", Some(&thread_id), false)
             .await
             .expect("Failed to create thread relation");
 
@@ -201,17 +189,12 @@ mod thread_storage_suite {
         assert_eq!(replies.len(), 1);
         assert_eq!(replies[0].event_id, reply_event_id);
 
-        let reply_count = storage
-            .get_reply_count(&room_id, &thread_id)
-            .await
-            .expect("Failed to get reply count");
+        let reply_count = storage.get_reply_count(&room_id, &thread_id).await.expect("Failed to get reply count");
 
         assert_eq!(reply_count, 1);
 
-        let participants = storage
-            .get_thread_participants(&room_id, &thread_id)
-            .await
-            .expect("Failed to get participants");
+        let participants =
+            storage.get_thread_participants(&room_id, &thread_id).await.expect("Failed to get participants");
 
         assert!(participants.contains(&creator));
         assert!(participants.contains(&replier));
@@ -223,19 +206,10 @@ mod thread_storage_suite {
             .expect("Thread root should exist");
 
         assert_eq!(updated_root.reply_count, 1);
-        assert_eq!(
-            updated_root.last_reply_event_id.as_deref(),
-            Some(reply_event_id.as_str())
-        );
-        assert_eq!(
-            updated_root.last_reply_sender.as_deref(),
-            Some(replier.as_str())
-        );
+        assert_eq!(updated_root.last_reply_event_id.as_deref(), Some(reply_event_id.as_str()));
+        assert_eq!(updated_root.last_reply_sender.as_deref(), Some(replier.as_str()));
         assert_eq!(updated_root.last_reply_ts, Some(1234));
-        assert_eq!(
-            updated_root.participants,
-            Some(serde_json::json!([creator.clone(), replier.clone()]))
-        );
+        assert_eq!(updated_root.participants, Some(serde_json::json!([creator.clone(), replier.clone()])));
 
         let summary = storage
             .get_thread_summary(&room_id, &thread_id)
@@ -244,10 +218,7 @@ mod thread_storage_suite {
             .expect("Thread summary should exist");
 
         assert_eq!(summary.thread_id, thread_id);
-        assert_eq!(
-            summary.latest_event_id.as_deref(),
-            Some(reply_event_id.as_str())
-        );
+        assert_eq!(summary.latest_event_id.as_deref(), Some(reply_event_id.as_str()));
         assert_eq!(summary.reply_count, 1);
 
         let statistics = storage
@@ -263,10 +234,8 @@ mod thread_storage_suite {
         assert_eq!(statistics.first_reply_ts, Some(1234));
         assert_eq!(statistics.last_reply_ts, Some(1234));
 
-        let search_results = storage
-            .search_threads(&room_id, "hello", Some(10))
-            .await
-            .expect("Failed to search threads");
+        let search_results =
+            storage.search_threads(&room_id, "hello", Some(10)).await.expect("Failed to search threads");
 
         assert_eq!(search_results.len(), 1);
         assert_eq!(search_results[0].thread_id, thread_id);
@@ -300,16 +269,10 @@ mod thread_storage_suite {
             .await
             .expect("Failed to update read receipt");
 
-        assert_eq!(
-            receipt.last_read_event_id.as_deref(),
-            Some(root_event_id.as_str())
-        );
+        assert_eq!(receipt.last_read_event_id.as_deref(), Some(root_event_id.as_str()));
         assert_eq!(receipt.unread_count, 0);
 
-        storage
-            .increment_unread_count(&room_id, &thread_id, &reader)
-            .await
-            .expect("Failed to increment unread count");
+        storage.increment_unread_count(&room_id, &thread_id, &reader).await.expect("Failed to increment unread count");
 
         let loaded = storage
             .get_read_receipt(&room_id, &thread_id, &reader)
@@ -319,22 +282,18 @@ mod thread_storage_suite {
 
         assert_eq!(loaded.unread_count, 1);
 
-        let unread = storage
-            .get_threads_with_unread(&reader, Some(&room_id))
-            .await
-            .expect("Failed to list unread threads");
+        let unread =
+            storage.get_threads_with_unread(&reader, Some(&room_id)).await.expect("Failed to list unread threads");
 
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].thread_id, thread_id);
 
-        let row = sqlx::query(
-            "SELECT root_event_id FROM thread_roots WHERE room_id = $1 AND thread_id = $2",
-        )
-        .bind(&room_id)
-        .bind(&thread_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to query root_event_id");
+        let row = sqlx::query("SELECT root_event_id FROM thread_roots WHERE room_id = $1 AND thread_id = $2")
+            .bind(&room_id)
+            .bind(&thread_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to query root_event_id");
 
         let stored_root_event_id: String = row.get("root_event_id");
         assert_eq!(stored_root_event_id, root_event_id);

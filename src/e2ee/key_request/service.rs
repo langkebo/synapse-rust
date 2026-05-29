@@ -18,9 +18,7 @@ impl KeyRequestStatusFilter {
             "fulfilled" => Ok(Self::Fulfilled),
             "cancelled" | "canceled" | "cancellation" => Ok(Self::Cancelled),
             "all" => Ok(Self::All),
-            other => Err(ApiError::bad_request(format!(
-                "Unsupported room key request status: {other}"
-            ))),
+            other => Err(ApiError::bad_request(format!("Unsupported room key request status: {other}"))),
         }
     }
 }
@@ -33,10 +31,7 @@ pub struct KeyRequestService {
 
 impl KeyRequestService {
     pub fn new(storage: KeyRequestStorage, megolm_service: MegolmService) -> Self {
-        Self {
-            storage,
-            megolm_service,
-        }
+        Self { storage, megolm_service }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -50,8 +45,7 @@ impl KeyRequestService {
         request_type: Option<&str>,
         request_id: Option<&str>,
     ) -> Result<KeyRequestInfo, ApiError> {
-        let request_id = request_id
-            .map_or_else(|| uuid::Uuid::new_v4().to_string(), ToOwned::to_owned);
+        let request_id = request_id.map_or_else(|| uuid::Uuid::new_v4().to_string(), ToOwned::to_owned);
         let action = request_type.unwrap_or("request");
 
         let request_info = KeyRequestInfo {
@@ -83,17 +77,8 @@ impl KeyRequestService {
         algorithm: &str,
         _requesting_device_id: &str,
     ) -> Result<String, ApiError> {
-        let request = self
-            .create_request(
-                user_id,
-                device_id,
-                room_id,
-                session_id,
-                algorithm,
-                Some("request"),
-                None,
-            )
-            .await?;
+        let request =
+            self.create_request(user_id, device_id, room_id, session_id, algorithm, Some("request"), None).await?;
         Ok(request.request_id)
     }
 
@@ -113,16 +98,13 @@ impl KeyRequestService {
         }
 
         if request.device_id == requesting_device_id {
-            return Err(ApiError::bad_request(
-                "Cannot fulfill your own key request from the same device".to_string(),
-            ));
+            return Err(ApiError::bad_request("Cannot fulfill your own key request from the same device".to_string()));
         }
 
-        let sessions = self
-            .megolm_service
-            .get_room_sessions(&request.room_id)
-            .await
-            .map_err(|e| { tracing::error!("Failed to get room sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let sessions = self.megolm_service.get_room_sessions(&request.room_id).await.map_err(|e| {
+            tracing::error!("Failed to get room sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
             Some(s) => s,
@@ -131,9 +113,7 @@ impl KeyRequestService {
 
         let session_key = session.session_key.clone();
 
-        self.storage
-            .fulfill_request(request_id, requesting_device_id)
-            .await?;
+        self.storage.fulfill_request(request_id, requesting_device_id).await?;
 
         let response = KeyShareResponse {
             room_id: request.room_id.clone(),
@@ -167,23 +147,13 @@ impl KeyRequestService {
         self.storage.get_request(request_id).await
     }
 
-    pub async fn get_requests(
-        &self,
-        user_id: &str,
-        status: Option<&str>,
-    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_requests(&self, user_id: &str, status: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let status_filter = KeyRequestStatusFilter::from_query(status)?;
         let requests = self.storage.get_requests_for_user(user_id).await?;
-        Ok(requests
-            .into_iter()
-            .filter(|request| request_matches_status(request, status_filter))
-            .collect())
+        Ok(requests.into_iter().filter(|request| request_matches_status(request, status_filter)).collect())
     }
 
-    pub async fn get_pending_requests(
-        &self,
-        user_id: Option<&str>,
-    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let requests = match user_id {
             Some(uid) => self.storage.get_requests_for_user(uid).await?,
             None => self.storage.get_all_pending_requests().await?,
@@ -207,16 +177,8 @@ impl KeyRequestService {
                 request.device_id
             );
 
-            if let Err(e) = self
-                .storage
-                .update_request_status(&request.request_id, "sent")
-                .await
-            {
-                tracing::warn!(
-                    "Failed to update key request {} status: {}",
-                    request.request_id,
-                    e
-                );
+            if let Err(e) = self.storage.update_request_status(&request.request_id, "sent").await {
+                tracing::warn!("Failed to update key request {} status: {}", request.request_id, e);
             }
         }
 
@@ -233,13 +195,9 @@ fn request_matches_status(request: &KeyRequestInfo, status: KeyRequestStatusFilt
     match status {
         KeyRequestStatusFilter::Pending => !request.is_fulfilled,
         KeyRequestStatusFilter::Fulfilled => {
-            request.is_fulfilled
-                && request.action != "cancellation"
-                && request.action != "cancelled"
+            request.is_fulfilled && request.action != "cancellation" && request.action != "cancelled"
         }
-        KeyRequestStatusFilter::Cancelled => {
-            request.action == "cancellation" || request.action == "cancelled"
-        }
+        KeyRequestStatusFilter::Cancelled => request.action == "cancellation" || request.action == "cancelled",
         KeyRequestStatusFilter::All => true,
     }
 }
@@ -266,41 +224,20 @@ mod tests {
 
     #[test]
     fn matches_pending_status() {
-        assert!(request_matches_status(
-            &sample_request("request", false),
-            KeyRequestStatusFilter::Pending,
-        ));
-        assert!(!request_matches_status(
-            &sample_request("request", true),
-            KeyRequestStatusFilter::Pending,
-        ));
+        assert!(request_matches_status(&sample_request("request", false), KeyRequestStatusFilter::Pending,));
+        assert!(!request_matches_status(&sample_request("request", true), KeyRequestStatusFilter::Pending,));
     }
 
     #[test]
     fn matches_cancelled_status() {
-        assert!(request_matches_status(
-            &sample_request("cancellation", true),
-            KeyRequestStatusFilter::Cancelled,
-        ));
-        assert!(request_matches_status(
-            &sample_request("cancelled", true),
-            KeyRequestStatusFilter::Cancelled,
-        ));
-        assert!(!request_matches_status(
-            &sample_request("request", true),
-            KeyRequestStatusFilter::Cancelled,
-        ));
+        assert!(request_matches_status(&sample_request("cancellation", true), KeyRequestStatusFilter::Cancelled,));
+        assert!(request_matches_status(&sample_request("cancelled", true), KeyRequestStatusFilter::Cancelled,));
+        assert!(!request_matches_status(&sample_request("request", true), KeyRequestStatusFilter::Cancelled,));
     }
 
     #[test]
     fn matches_fulfilled_status() {
-        assert!(request_matches_status(
-            &sample_request("request", true),
-            KeyRequestStatusFilter::Fulfilled,
-        ));
-        assert!(!request_matches_status(
-            &sample_request("cancellation", true),
-            KeyRequestStatusFilter::Fulfilled,
-        ));
+        assert!(request_matches_status(&sample_request("request", true), KeyRequestStatusFilter::Fulfilled,));
+        assert!(!request_matches_status(&sample_request("cancellation", true), KeyRequestStatusFilter::Fulfilled,));
     }
 }

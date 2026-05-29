@@ -21,14 +21,9 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 #[tokio::test]
@@ -48,15 +43,9 @@ async fn test_appservice_list_empty() {
         .unwrap();
 
     let response = app.clone().oneshot(list_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "AppService list should return 200 OK"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "AppService list should return 200 OK");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let list_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(list_json.is_array(), "Response should be an array");
 }
@@ -92,15 +81,9 @@ async fn test_appservice_register_and_query() {
         .unwrap();
 
     let response = app.clone().oneshot(register_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "AppService registration should return 201 CREATED"
-    );
+    assert_eq!(response.status(), StatusCode::CREATED, "AppService registration should return 201 CREATED");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let register_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(register_json["as_id"], as_id);
     assert_eq!(register_json["url"], "http://localhost:8080");
@@ -114,15 +97,9 @@ async fn test_appservice_register_and_query() {
         .unwrap();
 
     let response = app.clone().oneshot(query_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "AppService query should return 200 OK"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "AppService query should return 200 OK");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let query_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(query_json["as_id"], as_id);
     assert_eq!(query_json["url"], "http://localhost:8080");
@@ -180,15 +157,9 @@ async fn test_appservice_virtual_user() {
         .unwrap();
 
     let response = app.clone().oneshot(register_user_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "Virtual user registration should return 201 CREATED"
-    );
+    assert_eq!(response.status(), StatusCode::CREATED, "Virtual user registration should return 201 CREATED");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let user_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(user_json["user_id"], virtual_user_id);
     assert_eq!(user_json["as_id"], as_id);
@@ -202,21 +173,12 @@ async fn test_appservice_virtual_user() {
         .unwrap();
 
     let response = app.clone().oneshot(query_users_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "Virtual users query should return 200 OK"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "Virtual users query should return 200 OK");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let users_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let users = users_json.as_array().unwrap();
-    assert!(
-        users.iter().any(|u| u["user_id"] == virtual_user_id),
-        "Virtual user should be in the list"
-    );
+    assert!(users.iter().any(|u| u["user_id"] == virtual_user_id), "Virtual user should be in the list");
 }
 
 #[tokio::test]
@@ -225,16 +187,9 @@ async fn test_user_appservice_endpoint_is_self_only() {
         return;
     };
 
-    let (alice_token, alice_id) = register_user(
-        &app,
-        &format!("appservice_self_alice_{}", rand::random::<u32>()),
-    )
-    .await;
-    let (_, bob_id) = register_user(
-        &app,
-        &format!("appservice_self_bob_{}", rand::random::<u32>()),
-    )
-    .await;
+    let (alice_token, alice_id) =
+        register_user(&app, &format!("appservice_self_alice_{}", rand::random::<u32>())).await;
+    let (_, bob_id) = register_user(&app, &format!("appservice_self_bob_{}", rand::random::<u32>())).await;
     let (admin_token, _) = get_admin_token(&app).await;
 
     let own_request = Request::builder()

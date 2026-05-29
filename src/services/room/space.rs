@@ -12,33 +12,20 @@ pub struct SpaceService {
 }
 
 impl SpaceService {
-    pub fn new(
-        space_storage: Arc<SpaceStorage>,
-        room_storage: Arc<RoomStorage>,
-        server_name: String,
-    ) -> Self {
-        Self {
-            space_storage,
-            room_storage,
-            server_name,
-        }
+    pub fn new(space_storage: Arc<SpaceStorage>, room_storage: Arc<RoomStorage>, server_name: String) -> Self {
+        Self { space_storage, room_storage, server_name }
     }
 
     #[instrument(skip(self, request), fields(room_id = %request.room_id, creator = %request.creator))]
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, ApiError> {
         info!("Creating space");
 
-        self.ensure_room_creator_access(&request.room_id, &request.creator)
-            .await?;
+        self.ensure_room_creator_access(&request.room_id, &request.creator).await?;
 
-        let space = self
-            .space_storage
-            .create_space(request)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to persist space to storage");
-                ApiError::internal("Failed to create space")
-            })?;
+        let space = self.space_storage.create_space(request).await.map_err(|e| {
+            error!(error = %e, "Failed to persist space to storage");
+            ApiError::internal("Failed to create space")
+        })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -48,25 +35,14 @@ impl SpaceService {
 
         if let Err(e) = self
             .space_storage
-            .add_space_event(
-                &event_id,
-                &space.space_id,
-                "m.space.creation",
-                &space.creator,
-                content,
-                None,
-            )
+            .add_space_event(&event_id, &space.space_id, "m.space.creation", &space.creator, content, None)
             .await
         {
             error!(error = %e, space_id = %space.space_id, "Failed to add space creation event");
             return Err(ApiError::internal("Failed to add space event"));
         }
 
-        if let Err(e) = self
-            .space_storage
-            .update_space_summary(&space.space_id)
-            .await
-        {
+        if let Err(e) = self.space_storage.update_space_summary(&space.space_id).await {
             warn!(error = %e, space_id = %space.space_id, "Failed to update space summary");
         }
 
@@ -84,13 +60,10 @@ impl SpaceService {
 
     #[instrument(skip(self), fields(room_id = %room_id))]
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, ApiError> {
-        self.space_storage
-            .get_space_by_room(room_id)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to load space by room from storage");
-                ApiError::internal("Failed to get space by room")
-            })
+        self.space_storage.get_space_by_room(room_id).await.map_err(|e| {
+            error!(error = %e, "Failed to load space by room from storage");
+            ApiError::internal("Failed to get space by room")
+        })
     }
 
     #[instrument(skip(self, request), fields(space_id = %space_id, user_id = %user_id))]
@@ -104,13 +77,10 @@ impl SpaceService {
 
         self.ensure_space_creator_access(space_id, user_id).await?;
 
-        self.space_storage
-            .update_space(space_id, request)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to update space in storage");
-                ApiError::internal("Failed to update space")
-            })
+        self.space_storage.update_space(space_id, request).await.map_err(|e| {
+            error!(error = %e, "Failed to update space in storage");
+            ApiError::internal("Failed to update space")
+        })
     }
 
     #[instrument(skip(self))]
@@ -139,13 +109,9 @@ impl SpaceService {
 
     #[instrument(skip(self, request))]
     pub async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, ApiError> {
-        info!(
-            "Adding child to space: space_id={}, room_id={}",
-            request.space_id, request.room_id
-        );
+        info!("Adding child to space: space_id={}, room_id={}", request.space_id, request.room_id);
 
-        self.ensure_space_creator_access(&request.space_id, &request.sender)
-            .await?;
+        self.ensure_space_creator_access(&request.space_id, &request.sender).await?;
 
         let _room = self
             .room_storage
@@ -160,13 +126,10 @@ impl SpaceService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to add child", &e))?;
 
-        self.space_storage
-            .update_space_summary(&child.space_id)
-            .await
-            .map_err(|e| {
-                warn!("Failed to update space summary: {}", e);
-                ApiError::internal_with_log("Failed to update space summary", &e)
-            })?;
+        self.space_storage.update_space_summary(&child.space_id).await.map_err(|e| {
+            warn!("Failed to update space summary: {}", e);
+            ApiError::internal_with_log("Failed to update space summary", &e)
+        })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -176,38 +139,20 @@ impl SpaceService {
         });
 
         self.space_storage
-            .add_space_event(
-                &event_id,
-                &child.space_id,
-                "m.space.child",
-                &child.sender,
-                content,
-                Some(&child.room_id),
-            )
+            .add_space_event(&event_id, &child.space_id, "m.space.child", &child.sender, content, Some(&child.room_id))
             .await
             .map_err(|e| {
                 warn!("Failed to add space child event: {}", e);
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!(
-            "Child added successfully: space_id={}, room_id={}",
-            child.space_id, child.room_id
-        );
+        info!("Child added successfully: space_id={}, room_id={}", child.space_id, child.room_id);
         Ok(child)
     }
 
     #[instrument(skip(self))]
-    pub async fn remove_child(
-        &self,
-        space_id: &str,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        info!(
-            "Removing child from space: space_id={}, room_id={}",
-            space_id, room_id
-        );
+    pub async fn remove_child(&self, space_id: &str, room_id: &str, user_id: &str) -> Result<(), ApiError> {
+        info!("Removing child from space: space_id={}, room_id={}", space_id, room_id);
 
         self.ensure_space_creator_access(space_id, user_id).await?;
 
@@ -216,13 +161,10 @@ impl SpaceService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to remove child", &e))?;
 
-        self.space_storage
-            .update_space_summary(space_id)
-            .await
-            .map_err(|e| {
-                warn!("Failed to update space summary: {}", e);
-                ApiError::internal_with_log("Failed to update space summary", &e)
-            })?;
+        self.space_storage.update_space_summary(space_id).await.map_err(|e| {
+            warn!("Failed to update space summary: {}", e);
+            ApiError::internal_with_log("Failed to update space summary", &e)
+        })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -230,24 +172,14 @@ impl SpaceService {
         });
 
         self.space_storage
-            .add_space_event(
-                &event_id,
-                space_id,
-                "m.space.child",
-                user_id,
-                content,
-                Some(room_id),
-            )
+            .add_space_event(&event_id, space_id, "m.space.child", user_id, content, Some(room_id))
             .await
             .map_err(|e| {
                 warn!("Failed to add space child removal event: {}", e);
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!(
-            "Child removed successfully: space_id={}, room_id={}",
-            space_id, room_id
-        );
+        info!("Child removed successfully: space_id={}, room_id={}", space_id, room_id);
         Ok(())
     }
 
@@ -273,15 +205,12 @@ impl SpaceService {
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if !space.is_public {
-            let user_id =
-                user_id.ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
+            let user_id = user_id.ok_or_else(|| ApiError::unauthorized("Authentication required"))?;
             let can_see = self
                 .space_storage
                 .check_user_can_see_space(space_id, user_id)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to check space visibility", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to check space visibility", &e))?;
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
             }
@@ -372,16 +301,8 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn invite_user(
-        &self,
-        space_id: &str,
-        user_id: &str,
-        inviter: &str,
-    ) -> Result<SpaceMember, ApiError> {
-        info!(
-            "Inviting user to space: space_id={}, user={}",
-            space_id, user_id
-        );
+    pub async fn invite_user(&self, space_id: &str, user_id: &str, inviter: &str) -> Result<SpaceMember, ApiError> {
+        info!("Inviting user to space: space_id={}, user={}", space_id, user_id);
 
         self.ensure_space_creator_access(space_id, inviter).await?;
 
@@ -397,33 +318,20 @@ impl SpaceService {
         });
 
         self.space_storage
-            .add_space_event(
-                &event_id,
-                space_id,
-                "m.space.member",
-                inviter,
-                content,
-                Some(user_id),
-            )
+            .add_space_event(&event_id, space_id, "m.space.member", inviter, content, Some(user_id))
             .await
             .map_err(|e| {
                 warn!("Failed to add space member event: {}", e);
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!(
-            "User invited successfully: space_id={}, user={}",
-            space_id, user_id
-        );
+        info!("User invited successfully: space_id={}, user={}", space_id, user_id);
         Ok(member)
     }
 
     #[instrument(skip(self))]
     pub async fn join_space(&self, space_id: &str, user_id: &str) -> Result<SpaceMember, ApiError> {
-        info!(
-            "User joining space: space_id={}, user={}",
-            space_id, user_id
-        );
+        info!("User joining space: space_id={}, user={}", space_id, user_id);
 
         let space = self
             .space_storage
@@ -439,9 +347,7 @@ impl SpaceService {
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get space member", &e))?;
 
-            let is_invited = existing
-                .as_ref()
-                .is_some_and(|member| member.membership == "invite");
+            let is_invited = existing.as_ref().is_some_and(|member| member.membership == "invite");
             if !is_invited {
                 return Err(ApiError::forbidden("Space is invite-only"));
             }
@@ -453,13 +359,10 @@ impl SpaceService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to join space", &e))?;
 
-        self.space_storage
-            .update_space_summary(space_id)
-            .await
-            .map_err(|e| {
-                warn!("Failed to update space summary: {}", e);
-                ApiError::internal_with_log("Failed to update space summary", &e)
-            })?;
+        self.space_storage.update_space_summary(space_id).await.map_err(|e| {
+            warn!("Failed to update space summary: {}", e);
+            ApiError::internal_with_log("Failed to update space summary", &e)
+        })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -467,46 +370,30 @@ impl SpaceService {
         });
 
         self.space_storage
-            .add_space_event(
-                &event_id,
-                space_id,
-                "m.space.member",
-                user_id,
-                content,
-                Some(user_id),
-            )
+            .add_space_event(&event_id, space_id, "m.space.member", user_id, content, Some(user_id))
             .await
             .map_err(|e| {
                 warn!("Failed to add space member event: {}", e);
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!(
-            "User joined space successfully: space_id={}, user={}",
-            space_id, user_id
-        );
+        info!("User joined space successfully: space_id={}, user={}", space_id, user_id);
         Ok(member)
     }
 
     #[instrument(skip(self))]
     pub async fn leave_space(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
-        info!(
-            "User leaving space: space_id={}, user={}",
-            space_id, user_id
-        );
+        info!("User leaving space: space_id={}, user={}", space_id, user_id);
 
         self.space_storage
             .remove_space_member(space_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to leave space", &e))?;
 
-        self.space_storage
-            .update_space_summary(space_id)
-            .await
-            .map_err(|e| {
-                warn!("Failed to update space summary: {}", e);
-                ApiError::internal_with_log("Failed to update space summary", &e)
-            })?;
+        self.space_storage.update_space_summary(space_id).await.map_err(|e| {
+            warn!("Failed to update space summary: {}", e);
+            ApiError::internal_with_log("Failed to update space summary", &e)
+        })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -514,24 +401,14 @@ impl SpaceService {
         });
 
         self.space_storage
-            .add_space_event(
-                &event_id,
-                space_id,
-                "m.space.member",
-                user_id,
-                content,
-                Some(user_id),
-            )
+            .add_space_event(&event_id, space_id, "m.space.member", user_id, content, Some(user_id))
             .await
             .map_err(|e| {
                 warn!("Failed to add space member event: {}", e);
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!(
-            "User left space successfully: space_id={}, user={}",
-            space_id, user_id
-        );
+        info!("User left space successfully: space_id={}, user={}", space_id, user_id);
         Ok(())
     }
 
@@ -543,11 +420,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to get user spaces", &e))
     }
 
-    async fn ensure_room_creator_access(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
+    async fn ensure_room_creator_access(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         let room = self
             .room_storage
             .get_room(room_id)
@@ -556,19 +429,13 @@ impl SpaceService {
             .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
         if room.creator_user_id.as_deref() != Some(user_id) {
-            return Err(ApiError::forbidden(
-                "Only the room creator can create a space for this room",
-            ));
+            return Err(ApiError::forbidden("Only the room creator can create a space for this room"));
         }
 
         Ok(())
     }
 
-    async fn ensure_space_creator_access(
-        &self,
-        space_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
+    async fn ensure_space_creator_access(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
         let space = self
             .space_storage
             .get_space(space_id)
@@ -577,9 +444,7 @@ impl SpaceService {
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if space.creator != user_id {
-            return Err(ApiError::forbidden(
-                "Only the space creator can modify this space",
-            ));
+            return Err(ApiError::forbidden("Only the space creator can modify this space"));
         }
 
         Ok(())
@@ -599,21 +464,14 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_space_hierarchy(
-        &self,
-        space_id: &str,
-        max_depth: i32,
-    ) -> Result<SpaceHierarchy, ApiError> {
-        self.space_storage
-            .get_space_hierarchy(space_id, max_depth)
-            .await
-            .map_err(|e| {
-                if matches!(e, sqlx::Error::RowNotFound) {
-                    ApiError::not_found("Space not found".to_string())
-                } else {
-                    ApiError::internal_with_log("Failed to get space hierarchy", &e)
-                }
-            })
+    pub async fn get_space_hierarchy(&self, space_id: &str, max_depth: i32) -> Result<SpaceHierarchy, ApiError> {
+        self.space_storage.get_space_hierarchy(space_id, max_depth).await.map_err(|e| {
+            if matches!(e, sqlx::Error::RowNotFound) {
+                ApiError::not_found("Space not found".to_string())
+            } else {
+                ApiError::internal_with_log("Failed to get space hierarchy", &e)
+            }
+        })
     }
 
     pub async fn build_hierarchy_rooms(
@@ -624,8 +482,7 @@ impl SpaceService {
 
         futures::future::join_all(children.iter().map(|child| async move {
             let (name, topic, avatar_url, join_rule, world_readable, guest_can_join, room_type) =
-                if let Ok(Some(space)) = self.space_storage.get_space_by_room(&child.room_id).await
-                {
+                if let Ok(Some(space)) = self.space_storage.get_space_by_room(&child.room_id).await {
                     let world_readable = space.visibility.as_deref() == Some("public");
                     let guest_can_join = space.join_rule == "public";
                     let join_rule = space.join_rule;
@@ -639,15 +496,7 @@ impl SpaceService {
                         Some("m.space".to_string()),
                     )
                 } else {
-                    (
-                        None,
-                        None,
-                        None,
-                        "invite".to_string(),
-                        false,
-                        false,
-                        Some("m.room".to_string()),
-                    )
+                    (None, None, None, "invite".to_string(), false, false, Some("m.room".to_string()))
                 };
 
             SpaceHierarchyRoom {
@@ -675,10 +524,7 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_space_summary(
-        &self,
-        space_id: &str,
-    ) -> Result<Option<SpaceSummary>, ApiError> {
+    pub async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, ApiError> {
         self.space_storage
             .get_space_summary(space_id)
             .await
@@ -686,12 +532,7 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn search_spaces(
-        &self,
-        query: &str,
-        limit: i64,
-        user_id: Option<&str>,
-    ) -> Result<Vec<Space>, ApiError> {
+    pub async fn search_spaces(&self, query: &str, limit: i64, user_id: Option<&str>) -> Result<Vec<Space>, ApiError> {
         self.space_storage
             .search_spaces(query, limit, user_id)
             .await
@@ -726,9 +567,7 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, uid)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to check space visibility", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to check space visibility", &e))?;
 
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
@@ -748,10 +587,7 @@ impl SpaceService {
         max_depth: i32,
         suggested_only: bool,
     ) -> Result<Vec<crate::storage::space::SpaceChildInfo>, ApiError> {
-        info!(
-            "Getting recursive hierarchy: space_id={}, max_depth={}",
-            space_id, max_depth
-        );
+        info!("Getting recursive hierarchy: space_id={}, max_depth={}", space_id, max_depth);
 
         self.space_storage
             .get_recursive_hierarchy(space_id, max_depth, suggested_only)
@@ -780,11 +616,7 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn check_user_can_see_space(
-        &self,
-        space_id: &str,
-        user_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn check_user_can_see_space(&self, space_id: &str, user_id: &str) -> Result<bool, ApiError> {
         self.space_storage
             .check_user_can_see_space(space_id, user_id)
             .await
@@ -811,9 +643,7 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, uid)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to check space visibility", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to check space visibility", &e))?;
 
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
@@ -833,13 +663,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))?;
 
         let child_rooms = futures::future::join_all(children.iter().map(|child| async {
-            if let Some(child_space) = self
-                .space_storage
-                .get_space_by_room(&child.room_id)
-                .await
-                .ok()
-                .flatten()
-            {
+            if let Some(child_space) = self.space_storage.get_space_by_room(&child.room_id).await.ok().flatten() {
                 Some(serde_json::json!({
                     "room_id": child.room_id,
                     "name": child_space.name,

@@ -606,7 +606,8 @@ impl KeyBackupService {
         let mut total_sessions = 0i64;
         let mut has_more = false;
 
-        let batch_keys = self.key_storage.get_backup_keys_by_rooms(user_id, &backup.backup_id, &request.room_ids).await?;
+        let batch_keys =
+            self.key_storage.get_backup_keys_by_rooms(user_id, &backup.backup_id, &request.room_ids).await?;
 
         for room_id in &request.room_ids {
             let keys = match batch_keys.get(room_id) {

@@ -22,12 +22,7 @@ impl TcpReplicationServer {
 
         info!("TCP replication server listening on {}", addr);
 
-        Ok(Self {
-            listener,
-            server_name,
-            command_tx,
-            command_rx: Some(command_rx),
-        })
+        Ok(Self { listener, server_name, command_tx, command_rx: Some(command_rx) })
     }
 
     pub fn get_command_receiver(&mut self) -> Option<Receiver<ReplicationCommand>> {
@@ -35,12 +30,11 @@ impl TcpReplicationServer {
     }
 
     pub async fn run(&self) -> Result<(), std::io::Error> {
-        let shared_secret = std::env::var("REPLICATION_SHARED_SECRET")
-            .map_err(|_| {
-                std::io::Error::other(
-                    "REPLICATION_SHARED_SECRET not set - refusing to start unauthenticated replication listener",
-                )
-            })?;
+        let shared_secret = std::env::var("REPLICATION_SHARED_SECRET").map_err(|_| {
+            std::io::Error::other(
+                "REPLICATION_SHARED_SECRET not set - refusing to start unauthenticated replication listener",
+            )
+        })?;
 
         loop {
             let (stream, addr) = self.listener.accept().await?;
@@ -52,10 +46,7 @@ impl TcpReplicationServer {
             let secret = shared_secret.clone();
 
             tokio::spawn(async move {
-                if let Err(e) =
-                    Self::handle_connection(stream, protocol, server_name, command_tx, &secret)
-                        .await
-                {
+                if let Err(e) = Self::handle_connection(stream, protocol, server_name, command_tx, &secret).await {
                     error!("Connection error from {}: {}", addr, e);
                 }
             });
@@ -74,16 +65,10 @@ impl TcpReplicationServer {
         let mut line = String::new();
 
         if !shared_secret.is_empty() {
-            writer
-                .write_all(b"AUTH_REQUIRED\n")
-                .await
-                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+            writer.write_all(b"AUTH_REQUIRED\n").await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
             line.clear();
-            let bytes_read = reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+            let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
             if bytes_read == 0 {
                 return Err(ReplicationError::ConnectionClosed);
@@ -92,9 +77,7 @@ impl TcpReplicationServer {
             let auth_line = line.trim();
             if !auth_line.starts_with("AUTH ") {
                 tracing::warn!("Replication connection rejected: no AUTH command received");
-                return Err(ReplicationError::IoError(
-                    "Authentication required".to_string(),
-                ));
+                return Err(ReplicationError::IoError("Authentication required".to_string()));
             }
 
             let provided_secret = auth_line.strip_prefix("AUTH ").unwrap_or("");
@@ -109,32 +92,20 @@ impl TcpReplicationServer {
 
             if provided_hash != expected_hash {
                 tracing::warn!("Replication connection rejected: invalid authentication");
-                return Err(ReplicationError::IoError(
-                    "Authentication failed".to_string(),
-                ));
+                return Err(ReplicationError::IoError("Authentication failed".to_string()));
             }
 
-            writer
-                .write_all(b"AUTH_OK\n")
-                .await
-                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+            writer.write_all(b"AUTH_OK\n").await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
         }
 
         writer
-            .write_all(
-                protocol
-                    .encode_command(&ReplicationProtocol::create_pong(&server_name))
-                    .as_slice(),
-            )
+            .write_all(protocol.encode_command(&ReplicationProtocol::create_pong(&server_name)).as_slice())
             .await
             .map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
         loop {
             line.clear();
-            let bytes_read = reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+            let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
             if bytes_read == 0 {
                 info!("Connection closed by client");
@@ -146,10 +117,7 @@ impl TcpReplicationServer {
 
             match &command {
                 ReplicationCommand::Ping { timestamp } => {
-                    let pong = ReplicationCommand::Pong {
-                        timestamp: *timestamp,
-                        server_name: server_name.clone(),
-                    };
+                    let pong = ReplicationCommand::Pong { timestamp: *timestamp, server_name: server_name.clone() };
                     writer
                         .write_all(protocol.encode_command(&pong).as_slice())
                         .await
@@ -176,11 +144,7 @@ pub struct TcpReplicationClient {
 
 impl TcpReplicationClient {
     pub fn new(worker_name: String) -> Self {
-        Self {
-            stream: None,
-            protocol: ReplicationProtocol::new(),
-            worker_name,
-        }
+        Self { stream: None, protocol: ReplicationProtocol::new(), worker_name }
     }
 
     pub async fn connect(&mut self, addr: &str) -> Result<(), ReplicationError> {
@@ -198,14 +162,9 @@ impl TcpReplicationClient {
     }
 
     async fn send_name(&mut self) -> Result<(), ReplicationError> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
+        let stream = self.stream.as_mut().ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
-        let name_cmd = ReplicationCommand::Name {
-            name: self.worker_name.clone(),
-        };
+        let name_cmd = ReplicationCommand::Name { name: self.worker_name.clone() };
         stream
             .write_all(self.protocol.encode_command(&name_cmd).as_slice())
             .await
@@ -214,14 +173,8 @@ impl TcpReplicationClient {
         Ok(())
     }
 
-    pub async fn send_command(
-        &mut self,
-        command: &ReplicationCommand,
-    ) -> Result<(), ReplicationError> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
+    pub async fn send_command(&mut self, command: &ReplicationCommand) -> Result<(), ReplicationError> {
+        let stream = self.stream.as_mut().ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
         stream
             .write_all(self.protocol.encode_command(command).as_slice())
@@ -233,18 +186,12 @@ impl TcpReplicationClient {
     }
 
     pub async fn receive_command(&mut self) -> Result<ReplicationCommand, ReplicationError> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
+        let stream = self.stream.as_mut().ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
 
-        let bytes_read = reader
-            .read_line(&mut line)
-            .await
-            .map_err(|e| ReplicationError::IoError(e.to_string()))?;
+        let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
         if bytes_read == 0 {
             return Err(ReplicationError::ConnectionClosed);
@@ -257,8 +204,7 @@ impl TcpReplicationClient {
 
     pub async fn ping(&mut self) -> Result<i64, ReplicationError> {
         let start = chrono::Utc::now().timestamp_millis();
-        self.send_command(&ReplicationProtocol::create_ping())
-            .await?;
+        self.send_command(&ReplicationProtocol::create_ping()).await?;
 
         match timeout(Duration::from_secs(5), self.receive_command()).await {
             Ok(Ok(ReplicationCommand::Pong { timestamp: _, .. })) => {
@@ -266,30 +212,18 @@ impl TcpReplicationClient {
                 debug!("Ping latency: {}ms", latency);
                 Ok(latency)
             }
-            Ok(Ok(cmd)) => Err(ReplicationError::IoError(format!(
-                "Expected Pong, got {cmd:?}"
-            ))),
+            Ok(Ok(cmd)) => Err(ReplicationError::IoError(format!("Expected Pong, got {cmd:?}"))),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(ReplicationError::IoError("Ping timeout".to_string())),
         }
     }
 
-    pub async fn sync_stream(
-        &mut self,
-        stream_name: &str,
-        position: i64,
-    ) -> Result<(), ReplicationError> {
-        self.send_command(&ReplicationProtocol::create_sync(stream_name, position))
-            .await
+    pub async fn sync_stream(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
+        self.send_command(&ReplicationProtocol::create_sync(stream_name, position)).await
     }
 
-    pub async fn send_position(
-        &mut self,
-        stream_name: &str,
-        position: i64,
-    ) -> Result<(), ReplicationError> {
-        self.send_command(&ReplicationProtocol::create_position(stream_name, position))
-            .await
+    pub async fn send_position(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
+        self.send_command(&ReplicationProtocol::create_position(stream_name, position)).await
     }
 
     pub fn is_connected(&self) -> bool {
@@ -312,10 +246,7 @@ pub struct ReplicationConnection {
 
 impl ReplicationConnection {
     pub fn new(worker_name: String) -> Self {
-        Self {
-            client: Arc::new(tokio::sync::Mutex::new(None)),
-            worker_name,
-        }
+        Self { client: Arc::new(tokio::sync::Mutex::new(None)), worker_name }
     }
 
     pub async fn connect(&self, addr: &str) -> Result<(), ReplicationError> {

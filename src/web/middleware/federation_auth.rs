@@ -18,38 +18,24 @@ pub struct FederationRequestAuth {
     pub key_id: String,
 }
 
-pub async fn federation_auth_middleware(
-    State(state): State<AppState>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
-    if !state.services.config.federation.enabled || !state.services.config.federation.allow_ingress
-    {
+pub async fn federation_auth_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
+    if !state.services.config.federation.enabled || !state.services.config.federation.allow_ingress {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
     let (parts, body) = request.into_parts();
 
-    let auth_header = parts
-        .headers
-        .get("authorization")
-        .or(parts.headers.get("Authorization"))
-        .and_then(|h| h.to_str().ok());
+    let auth_header =
+        parts.headers.get("authorization").or(parts.headers.get("Authorization")).and_then(|h| h.to_str().ok());
 
     let auth_header = match auth_header {
         Some(v) => v,
-        None => {
-            return ApiError::unauthorized("Missing federation signature".to_string())
-                .into_response()
-        }
+        None => return ApiError::unauthorized("Missing federation signature".to_string()).into_response(),
     };
 
     let params = match parse_x_matrix_authorization(auth_header) {
         Some(p) => p,
-        None => {
-            return ApiError::unauthorized("Missing federation signature".to_string())
-                .into_response()
-        }
+        None => return ApiError::unauthorized("Missing federation signature".to_string()).into_response(),
     };
 
     if let Some(ref dest) = params.destination {
@@ -62,27 +48,18 @@ pub async fn federation_auth_middleware(
                 origin = params.origin,
                 "Federation request destination does not match local server - possible replay attack"
             );
-            return ApiError::unauthorized(
-                "Federation request destination does not match this server".to_string(),
-            )
-            .into_response();
+            return ApiError::unauthorized("Federation request destination does not match this server".to_string())
+                .into_response();
         }
     }
 
     let destination = state.services.server_name.as_str();
 
-    let body_limit = state
-        .services
-        .config
-        .federation
-        .max_transaction_payload
-        .max(64 * 1024) as usize;
+    let body_limit = state.services.config.federation.max_transaction_payload.max(64 * 1024) as usize;
 
     let body_bytes = match axum::body::to_bytes(body, body_limit).await {
         Ok(b) => b,
-        Err(_) => {
-            return ApiError::unauthorized("Invalid request body".to_string()).into_response()
-        }
+        Err(_) => return ApiError::unauthorized("Invalid request body".to_string()).into_response(),
     };
 
     let content = if body_bytes.is_empty() {
@@ -90,16 +67,12 @@ pub async fn federation_auth_middleware(
     } else {
         match serde_json::from_slice::<Value>(&body_bytes) {
             Ok(v) => Some(v),
-            Err(_) => {
-                return ApiError::unauthorized("Invalid JSON body".to_string()).into_response()
-            }
+            Err(_) => return ApiError::unauthorized("Invalid JSON body".to_string()).into_response(),
         }
     };
 
-    let request_target = parts
-        .uri
-        .path_and_query()
-        .map_or_else(|| parts.uri.path().to_string(), |p| p.as_str().to_string());
+    let request_target =
+        parts.uri.path_and_query().map_or_else(|| parts.uri.path().to_string(), |p| p.as_str().to_string());
     let key_fetch_priority = request_target.contains("/_matrix/federation/v1/make_join/")
         || request_target.contains("/_matrix/federation/v1/send_join/")
         || request_target.contains("/_matrix/federation/v1/invite/")
@@ -127,10 +100,7 @@ pub async fn federation_auth_middleware(
     if let Err(e) = signature_valid {
         tracing::warn!(
             "Unauthorized federation request from {:?}. Server name: {}. Error: {}",
-            parts
-                .headers
-                .get("x-forwarded-for")
-                .or(parts.headers.get("host")),
+            parts.headers.get("x-forwarded-for").or(parts.headers.get("host")),
             state.services.server_name,
             e
         );
@@ -140,22 +110,17 @@ pub async fn federation_auth_middleware(
     let origin_server = &params.origin;
 
     if state.services.config.federation.admission_mode {
-        let server_status = sqlx::query_scalar::<_, String>(
-            "SELECT status FROM federation_servers WHERE server_name = $1",
-        )
-        .bind(origin_server)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .ok()
-        .flatten();
+        let server_status =
+            sqlx::query_scalar::<_, String>("SELECT status FROM federation_servers WHERE server_name = $1")
+                .bind(origin_server)
+                .fetch_optional(&*state.services.user_storage.pool)
+                .await
+                .ok()
+                .flatten();
 
         match server_status {
             Some(status) if status != "active" => {
-                tracing::warn!(
-                    "Federation request rejected from server '{}' with status '{}'",
-                    origin_server,
-                    status
-                );
+                tracing::warn!("Federation request rejected from server '{}' with status '{}'", origin_server, status);
                 return ApiError::forbidden(format!(
                     "Server '{origin_server}' is not authorized for federation (status: {status})"
                 ))
@@ -173,10 +138,7 @@ pub async fn federation_auth_middleware(
                 .execute(&*state.services.user_storage.pool)
                 .await;
 
-                tracing::info!(
-                    "New federation server '{}' registered as pending",
-                    origin_server
-                );
+                tracing::info!("New federation server '{}' registered as pending", origin_server);
                 return ApiError::forbidden(format!(
                     "Server '{origin_server}' is pending federation admission approval"
                 ))
@@ -187,10 +149,7 @@ pub async fn federation_auth_middleware(
     }
 
     let mut parts = parts;
-    parts.extensions.insert(FederationRequestAuth {
-        origin: params.origin,
-        key_id: params.key,
-    });
+    parts.extensions.insert(FederationRequestAuth { origin: params.origin, key_id: params.key });
 
     let request = Request::from_parts(parts, Body::from(body_bytes));
     next.run(request).await
@@ -221,20 +180,12 @@ pub async fn replication_http_auth_middleware(
     } else if let Some(p) = &state.services.config.worker.replication.http.secret_path {
         match fs::read_to_string(PathBuf::from(p)) {
             Ok(s) => s.trim().to_string(),
-            Err(_) => {
-                return ApiError::unauthorized("Replication secret not available".to_string())
-                    .into_response()
-            }
+            Err(_) => return ApiError::unauthorized("Replication secret not available".to_string()).into_response(),
         }
     } else {
-        return ApiError::unauthorized("Replication secret not configured".to_string())
-            .into_response();
+        return ApiError::unauthorized("Replication secret not configured".to_string()).into_response();
     };
-    let token = request
-        .headers()
-        .get("x-synapse-worker-secret")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or_default();
+    let token = request.headers().get("x-synapse-worker-secret").and_then(|h| h.to_str().ok()).unwrap_or_default();
     use subtle::ConstantTimeEq;
     let token_bytes = token.as_bytes();
     let secret_bytes = secret.as_bytes();
@@ -287,12 +238,7 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
         }
     }
 
-    Some(XMatrixAuthParams {
-        origin: origin?,
-        key: key?,
-        sig: sig?,
-        destination,
-    })
+    Some(XMatrixAuthParams { origin: origin?, key: key?, sig: sig?, destination })
 }
 
 fn canonical_federation_request_bytes(
@@ -302,17 +248,9 @@ fn canonical_federation_request_bytes(
     destination: &str,
     content: Option<&Value>,
 ) -> Vec<u8> {
-    let result = crate::federation::signing::canonical_federation_request_bytes(
-        method,
-        uri,
-        origin,
-        destination,
-        content,
-    );
-    tracing::debug!(
-        "Canonical request bytes: {}",
-        String::from_utf8_lossy(&result)
-    );
+    let result =
+        crate::federation::signing::canonical_federation_request_bytes(method, uri, origin, destination, content);
+    tracing::debug!("Canonical request bytes: {}", String::from_utf8_lossy(&result));
     result
 }
 
@@ -335,25 +273,13 @@ pub(crate) async fn verify_federation_signature_with_cache(
             if entry.verified {
                 return Ok(());
             }
-            return Err(ApiError::unauthorized(
-                "Cached signature verification failed".to_string(),
-            ));
+            return Err(ApiError::unauthorized("Cached signature verification failed".to_string()));
         }
     }
 
-    let result = verify_federation_signature(
-        state,
-        origin,
-        key_id,
-        signature,
-        signed_bytes,
-        key_fetch_priority,
-    )
-    .await;
+    let result = verify_federation_signature(state, origin, key_id, signature, signed_bytes, key_fetch_priority).await;
 
-    state
-        .federation_signature_cache
-        .set_signature(&cache_key, result.is_ok());
+    state.federation_signature_cache.set_signature(&cache_key, result.is_ok());
 
     result
 }
@@ -378,11 +304,7 @@ async fn verify_federation_signature(
 
     let signature_bytes = match decode_ed25519_signature(signature) {
         Ok(sig) => sig,
-        Err(_) => {
-            return Err(ApiError::unauthorized(
-                "Invalid signature format".to_string(),
-            ))
-        }
+        Err(_) => return Err(ApiError::unauthorized("Invalid signature format".to_string())),
     };
 
     let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key) {
@@ -401,9 +323,7 @@ async fn verify_federation_signature(
         Ok(()) => Ok(()),
         Err(e) => {
             tracing::debug!("Signature verification failed: {:?}", e);
-            Err(ApiError::unauthorized(
-                "Signature verification failed".to_string(),
-            ))
+            Err(ApiError::unauthorized("Signature verification failed".to_string()))
         }
     }
 }
@@ -421,9 +341,7 @@ async fn get_federation_verify_key(
         }
     }
 
-    if origin == state.services.server_name
-        || origin == state.services.config.federation.server_name
-    {
+    if origin == state.services.server_name || origin == state.services.config.federation.server_name {
         if let Some(key) = get_local_verify_key(state, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
             let ttl = 3600u64;
@@ -435,14 +353,10 @@ async fn get_federation_verify_key(
     let fetched = fetch_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
     let ttl = 3600u64;
     let _ = state.cache.set(&cache_key, &fetched, ttl).await;
-    decode_ed25519_public_key(&fetched)
-        .map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
+    decode_ed25519_public_key(&fetched).map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
 }
 
-async fn get_local_verify_key(
-    state: &AppState,
-    key_id: &str,
-) -> Option<[u8; 32]> {
+async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]> {
     let config = &state.services.config.federation;
 
     if !config.enabled {
@@ -451,23 +365,11 @@ async fn get_local_verify_key(
 
     let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
     if key_id != config_key_id {
-        if state
-            .services
-            .key_rotation_manager
-            .load_or_create_key()
-            .await
-            .is_err()
-        {
+        if state.services.key_rotation_manager.load_or_create_key().await.is_err() {
             return None;
         }
 
-        let current_key = state
-            .services
-            .key_rotation_manager
-            .get_current_key()
-            .await
-            .ok()
-            .flatten()?;
+        let current_key = state.services.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
         if current_key.key_id != key_id {
             return None;
@@ -483,23 +385,11 @@ async fn get_local_verify_key(
         return Some(*verifying_key.as_bytes());
     }
 
-    if state
-        .services
-        .key_rotation_manager
-        .load_or_create_key()
-        .await
-        .is_err()
-    {
+    if state.services.key_rotation_manager.load_or_create_key().await.is_err() {
         return None;
     }
 
-    let current_key = state
-        .services
-        .key_rotation_manager
-        .get_current_key()
-        .await
-        .ok()
-        .flatten()?;
+    let current_key = state.services.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
     if current_key.key_id != key_id {
         return None;
@@ -539,12 +429,8 @@ async fn fetch_federation_verify_key(
     let urls = [
         format!("https://{origin}/_matrix/key/v2/server"),
         format!("http://{origin}/_matrix/key/v2/server"),
-        format!(
-            "https://{origin}/_matrix/key/v2/query/{origin}/{key_id}"
-        ),
-        format!(
-            "http://{origin}/_matrix/key/v2/query/{origin}/{key_id}"
-        ),
+        format!("https://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
+        format!("http://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
     ];
 
     for url in urls {
@@ -563,11 +449,7 @@ async fn fetch_federation_verify_key(
             if verify_server_keys_signature(&json, origin, key_id, &key) {
                 return Ok(key);
             }
-            tracing::warn!(
-                "Server keys signature verification failed for {} key_id={}",
-                origin,
-                key_id
-            );
+            tracing::warn!("Server keys signature verification failed for {} key_id={}", origin, key_id);
         }
     }
 
@@ -582,11 +464,7 @@ fn extract_verify_key_from_server_keys(body: &Value, origin: &str, key_id: &str)
 
     let server_keys = body.get("server_keys")?.as_array()?;
     for entry in server_keys {
-        if entry
-            .get("server_name")
-            .and_then(|v| v.as_str())
-            .is_some_and(|v| v != origin)
-        {
+        if entry.get("server_name").and_then(|v| v.as_str()).is_some_and(|v| v != origin) {
             continue;
         }
 
@@ -608,28 +486,15 @@ fn extract_verify_key_from_server_keys_object(body: &Value, key_id: &str) -> Opt
     None
 }
 
-fn verify_server_keys_signature(
-    body: &Value,
-    origin: &str,
-    key_id: &str,
-    verify_key: &str,
-) -> bool {
-    let signature = match body
-        .get("signatures")
-        .and_then(|s| s.get(origin))
-        .and_then(|s| s.get(key_id))
-        .and_then(|s| s.as_str())
-    {
-        Some(sig) => sig,
-        None => {
-            tracing::warn!(
-                "No signature found in server keys response for {} key_id={}",
-                origin,
-                key_id
-            );
-            return false;
-        }
-    };
+fn verify_server_keys_signature(body: &Value, origin: &str, key_id: &str, verify_key: &str) -> bool {
+    let signature =
+        match body.get("signatures").and_then(|s| s.get(origin)).and_then(|s| s.get(key_id)).and_then(|s| s.as_str()) {
+            Some(sig) => sig,
+            None => {
+                tracing::warn!("No signature found in server keys response for {} key_id={}", origin, key_id);
+                return false;
+            }
+        };
 
     let pub_key_bytes = match decode_ed25519_public_key(verify_key) {
         Ok(bytes) => bytes,
@@ -658,10 +523,7 @@ fn verify_server_keys_signature(
 }
 
 fn decode_ed25519_public_key(key: &str) -> Result<[u8; 32], ()> {
-    let engines = [
-        base64::engine::general_purpose::STANDARD,
-        base64::engine::general_purpose::STANDARD_NO_PAD,
-    ];
+    let engines = [base64::engine::general_purpose::STANDARD, base64::engine::general_purpose::STANDARD_NO_PAD];
 
     for engine in engines {
         if let Ok(bytes) = engine.decode(key) {
@@ -736,10 +598,9 @@ mod tests {
 
     #[test]
     fn test_parse_x_matrix_authorization_header() {
-        let params = parse_x_matrix_authorization(
-            r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123""#,
-        )
-        .expect("header should parse");
+        let params =
+            parse_x_matrix_authorization(r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123""#)
+                .expect("header should parse");
 
         assert_eq!(params.origin, "test.example.com");
         assert_eq!(params.key, "ed25519:test");
@@ -762,8 +623,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_federation_signature_with_local_config_key() {
         let signing_key_bytes = [7u8; 32];
-        let signing_key_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key_bytes);
+        let signing_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key_bytes);
         let key_id = "ed25519:test".to_string();
         let origin = "test.example.com".to_string();
         let body = serde_json::json!({
@@ -784,28 +644,17 @@ mod tests {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
 
-        let signed_bytes =
-            canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body));
+        let signed_bytes = canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body));
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
         let signature = signing_key.sign(&signed_bytes);
-        let signature_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
+        let signature_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
 
-        let header = format!(
-            "X-Matrix origin=\"{origin}\", key=\"{key_id}\", sig=\"{signature_b64}\""
-        );
+        let header = format!("X-Matrix origin=\"{origin}\", key=\"{key_id}\", sig=\"{signature_b64}\"");
         let params = parse_x_matrix_authorization(&header).expect("header should parse");
 
-        verify_federation_signature_with_cache(
-            &state,
-            &params.origin,
-            &params.key,
-            &params.sig,
-            &signed_bytes,
-            false,
-        )
-        .await
-        .expect("signature should verify against local config key");
+        verify_federation_signature_with_cache(&state, &params.origin, &params.key, &params.sig, &signed_bytes, false)
+            .await
+            .expect("signature should verify against local config key");
     }
 
     #[test]
@@ -819,15 +668,8 @@ mod tests {
         let hash3 = compute_signature_content_hash(content3);
 
         assert_eq!(hash1, hash2, "Same content should produce same hash");
-        assert_ne!(
-            hash1, hash3,
-            "Different content should produce different hash"
-        );
-        assert_eq!(
-            hash1.len(),
-            43,
-            "SHA256 Base64 output should be 43 characters"
-        );
+        assert_ne!(hash1, hash3, "Different content should produce different hash");
+        assert_eq!(hash1.len(), 43, "SHA256 Base64 output should be 43 characters");
     }
 
     #[test]
@@ -841,15 +683,11 @@ mod tests {
 
     #[test]
     fn test_compute_signature_content_hash_binary_data() {
-        let binary_data: [u8; 16] = [
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-            0x0e, 0x0f,
-        ];
+        let binary_data: [u8; 16] =
+            [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f];
         let hash = compute_signature_content_hash(&binary_data);
 
         assert_eq!(hash.len(), 43);
-        assert!(hash
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
+        assert!(hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
     }
 }

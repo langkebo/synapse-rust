@@ -36,10 +36,7 @@ mod cursor_tests {
     #[test]
     fn test_user_cursor_round_trip() {
         let cursor = encode_user_cursor(1_700_000_000_000, "@alice:example.com");
-        assert_eq!(
-            decode_user_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "@alice:example.com"))
-        );
+        assert_eq!(decode_user_cursor(Some(&cursor)), Some((1_700_000_000_000, "@alice:example.com")));
     }
 
     #[test]
@@ -136,27 +133,15 @@ pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::DELETE, "/_synapse/admin/v1/users/{user_id}"),
         (Method::PUT, "/_synapse/admin/v1/users/{user_id}/admin"),
         (Method::POST, "/_synapse/admin/v1/users/{user_id}/evict"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/users/{user_id}/deactivate",
-        ),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/deactivate"),
         (Method::POST, "/_synapse/admin/v1/users/{user_id}/password"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/rooms"),
         (Method::POST, "/_synapse/admin/v1/users/{user_id}/login"),
         (Method::POST, "/_synapse/admin/v1/users/{user_id}/logout"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/devices"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/users/{user_id}/devices/delete",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
-        ),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/devices/delete"),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/devices/{device_id}"),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete"),
         (Method::GET, "/_synapse/admin/v2/users"),
         (Method::GET, "/_synapse/admin/v2/users/{user_id}"),
         (Method::PUT, "/_synapse/admin/v2/users/{user_id}"),
@@ -166,10 +151,7 @@ pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::POST, "/_synapse/admin/v1/users/batch"),
         (Method::POST, "/_synapse/admin/v1/users/batch_deactivate"),
         (Method::GET, "/_synapse/admin/v1/user_sessions/{user_id}"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/user_sessions/{user_id}/invalidate",
-        ),
+        (Method::POST, "/_synapse/admin/v1/user_sessions/{user_id}/invalidate"),
         (Method::GET, "/_synapse/admin/v1/account/{user_id}"),
         (Method::POST, "/_synapse/admin/v1/account/{user_id}"),
     ]
@@ -195,22 +177,13 @@ async fn evict_user(
 
     let mut failures: Vec<Value> = Vec::new();
     for room_id in &joined_rooms {
-        if let Err(e) = state
-            .services
-            .member_storage
-            .remove_member(room_id, &user.user_id)
-            .await
-        {
+        if let Err(e) = state.services.member_storage.remove_member(room_id, &user.user_id).await {
             failures.push(json!({
                 "room_id": room_id,
                 "error": e.to_string()
             }));
         } else {
-            let _ = state
-                .services
-                .room_storage
-                .decrement_member_count(room_id)
-                .await;
+            let _ = state.services.room_storage.decrement_member_count(room_id).await;
         }
     }
 
@@ -272,11 +245,7 @@ pub async fn get_users(
     let users = state
         .services
         .user_storage
-        .get_users_paginated(
-            limit,
-            cursor.map(|(ts, _)| ts),
-            cursor.map(|(_, user_id)| user_id),
-        )
+        .get_users_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, user_id)| user_id))
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -304,9 +273,7 @@ pub async fn get_users(
         .collect();
 
     let next_batch = if users.len() as i64 == limit {
-        users
-            .last()
-            .map(|u| encode_user_cursor(u.created_ts, &u.user_id))
+        users.last().map(|u| encode_user_cursor(u.created_ts, &u.user_id))
     } else {
         None
     };
@@ -361,20 +328,15 @@ async fn delete_user(
         "Admin deleting user"
     );
 
-    state
-        .services
-        .user_storage
-        .delete_user(&user.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                admin_user = %admin.user_id,
-                target_user = %user.user_id,
-                error = %e,
-                "Failed to delete user"
-            );
-            ApiError::internal_with_log("Database error", &e)
-        })?;
+    state.services.user_storage.delete_user(&user.user_id).await.map_err(|e| {
+        tracing::error!(
+            admin_user = %admin.user_id,
+            target_user = %user.user_id,
+            error = %e,
+            "Failed to delete user"
+        );
+        ApiError::internal_with_log("Database error", &e)
+    })?;
 
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
@@ -431,24 +393,16 @@ pub async fn set_admin(
         "Admin changing user admin status"
     );
 
-    state
-        .services
-        .user_storage
-        .set_admin_status(&user.user_id, admin_status)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                admin_user = %admin.user_id,
-                target_user = %user.user_id,
-                error = %e,
-                "Failed to set admin status"
-            );
-            ApiError::internal_with_log("Database error", &e)
-        })?;
-    state
-        .cache
-        .set(&format!("user:admin:{}", user.user_id), admin_status, 3600)
-        .await?;
+    state.services.user_storage.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
+        tracing::error!(
+            admin_user = %admin.user_id,
+            target_user = %user.user_id,
+            error = %e,
+            "Failed to set admin status"
+        );
+        ApiError::internal_with_log("Database error", &e)
+    })?;
+    state.cache.set(&format!("user:admin:{}", user.user_id), admin_status, 3600).await?;
 
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
@@ -495,20 +449,15 @@ pub async fn deactivate_user(
         "Admin deactivating user"
     );
 
-    state
-        .services
-        .auth_service
-        .deactivate_user(&user.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                admin_user = %admin.user_id,
-                target_user = %user.user_id,
-                error = %e,
-                "Failed to deactivate user"
-            );
-            e
-        })?;
+    state.services.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
+        tracing::error!(
+            admin_user = %admin.user_id,
+            target_user = %user.user_id,
+            error = %e,
+            "Failed to deactivate user"
+        );
+        e
+    })?;
 
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
@@ -545,19 +494,11 @@ pub async fn reset_user_password(
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .auth_service
-        .validator
-        .validate_password(&body.new_password)?;
+    state.services.auth_service.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&state, &user_id).await?;
 
-    state
-        .services
-        .registration_service
-        .change_password(&user.user_id, None, &body.new_password, None)
-        .await?;
+    state.services.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
 
     Ok(Json(json!({})))
 }
@@ -620,11 +561,7 @@ pub async fn delete_user_device_admin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let rows = state
-        .services
-        .auth_service
-        .revoke_device(&user.user_id, &device_id)
-        .await?;
+    let rows = state.services.auth_service.revoke_device(&user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -715,11 +652,7 @@ pub async fn logout_user_devices(
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
-    state
-        .services
-        .auth_service
-        .logout_all(&user.user_id)
-        .await?;
+    state.services.auth_service.logout_all(&user.user_id).await?;
 
     Ok(Json(json!({
         "devices_deleted": device_count
@@ -911,11 +844,7 @@ pub async fn create_or_update_user_v2(
             format!("@{}:{}", user_id, state.services.config.server.name)
         };
 
-        let username = user_id_full
-            .strip_prefix('@')
-            .and_then(|s| s.split(':').next())
-            .unwrap_or(&user_id)
-            .to_string();
+        let username = user_id_full.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(&user_id).to_string();
 
         let password_hash = if let Some(ref pwd) = body.password {
             crate::common::crypto::hash_password(pwd)
@@ -950,10 +879,7 @@ pub async fn create_or_update_user_v2(
 }
 
 #[axum::debug_handler]
-pub async fn get_user_stats(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let stats = sqlx::query(
         r"
         SELECT
@@ -982,11 +908,7 @@ pub async fn get_user_stats(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
 
-    let average_rooms_per_user = if total_users > 0 {
-        (room_count as f64 / total_users as f64).round()
-    } else {
-        0.0
-    };
+    let average_rooms_per_user = if total_users > 0 { (room_count as f64 / total_users as f64).round() } else { 0.0 };
 
     Ok(Json(json!({
         "total_users": total_users,
@@ -1024,13 +946,12 @@ pub async fn get_single_user_stats(
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
 
-    let last_seen: Option<i64> = sqlx::query_scalar(
-        "SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1",
-    )
-    .bind(&user.user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get last seen", &e))?;
+    let last_seen: Option<i64> =
+        sqlx::query_scalar("SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1")
+            .bind(&user.user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get last seen", &e))?;
 
     Ok(Json(json!({
         "user_id": user.user_id,
@@ -1077,21 +998,18 @@ pub async fn batch_create_users(
     let now = chrono::Utc::now().timestamp_millis();
 
     for user in &body.users {
-        let password = user
-            .password
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let password = user.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let username = user.username.clone();
 
-        let password_hash = hash_password(&password)
-            .map_err(|e| ApiError::internal_with_log("Failed to hash password", &e))?;
+        let password_hash =
+            hash_password(&password).map_err(|e| ApiError::internal_with_log("Failed to hash password", &e))?;
 
         let result = sqlx::query(
             r"
             INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (username) DO NOTHING
-            "
+            ",
         )
         .bind(format!("@{}:{}", username, state.services.config.server.name))
         .bind(&username)
@@ -1134,9 +1052,7 @@ pub async fn batch_deactivate_users(
     let mut failed = Vec::new();
 
     if body.users.len() > 100 {
-        return Err(ApiError::bad_request(
-            "Too many users in batch request (max 100)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
     }
 
     for user_id in &body.users {
@@ -1215,11 +1131,7 @@ pub async fn invalidate_user_sessions(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    state
-        .services
-        .auth_service
-        .logout_all(&canonical_user_id)
-        .await?;
+    state.services.auth_service.logout_all(&canonical_user_id).await?;
 
     Ok(Json(json!({
         "invalidated": true,
@@ -1299,14 +1211,7 @@ pub async fn update_account(
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-        state
-            .cache
-            .set(
-                &format!("user:admin:{canonical_user_id}"),
-                admin_status,
-                3600,
-            )
-            .await?;
+        state.cache.set(&format!("user:admin:{canonical_user_id}"), admin_status, 3600).await?;
     }
 
     let request_id = resolve_request_id(&headers);

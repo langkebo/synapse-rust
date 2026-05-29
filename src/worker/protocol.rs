@@ -4,48 +4,17 @@ use std::fmt;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ReplicationCommand {
-    Ping {
-        timestamp: i64,
-    },
-    Pong {
-        timestamp: i64,
-        server_name: String,
-    },
-    Name {
-        name: String,
-    },
-    Replicate {
-        stream_name: String,
-        token: String,
-        data: serde_json::Value,
-    },
-    Rdata {
-        stream_name: String,
-        token: String,
-        rows: Vec<ReplicationRow>,
-    },
-    Position {
-        stream_name: String,
-        position: i64,
-    },
-    Error {
-        message: String,
-    },
-    Sync {
-        stream_name: String,
-        position: i64,
-    },
-    UserSync {
-        user_id: String,
-        state: UserSyncState,
-    },
-    FederationAck {
-        origin: String,
-    },
-    RemovePushers {
-        app_id: String,
-        push_key: String,
-    },
+    Ping { timestamp: i64 },
+    Pong { timestamp: i64, server_name: String },
+    Name { name: String },
+    Replicate { stream_name: String, token: String, data: serde_json::Value },
+    Rdata { stream_name: String, token: String, rows: Vec<ReplicationRow> },
+    Position { stream_name: String, position: i64 },
+    Error { message: String },
+    Sync { stream_name: String, position: i64 },
+    UserSync { user_id: String, state: UserSyncState },
+    FederationAck { origin: String },
+    RemovePushers { app_id: String, push_key: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,34 +134,21 @@ impl fmt::Display for ReplicationCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ping { timestamp } => write!(f, "PING {timestamp}"),
-            Self::Pong {
-                timestamp,
-                server_name,
-            } => {
+            Self::Pong { timestamp, server_name } => {
                 write!(f, "PONG {timestamp} {server_name}")
             }
             Self::Name { name } => write!(f, "NAME {name}"),
-            Self::Replicate {
-                stream_name, token, ..
-            } => {
+            Self::Replicate { stream_name, token, .. } => {
                 write!(f, "REPLICATE {stream_name} {token}")
             }
-            Self::Rdata {
-                stream_name, token, ..
-            } => {
+            Self::Rdata { stream_name, token, .. } => {
                 write!(f, "RDATA {stream_name} {token}")
             }
-            Self::Position {
-                stream_name,
-                position,
-            } => {
+            Self::Position { stream_name, position } => {
                 write!(f, "POSITION {stream_name} {position}")
             }
             Self::Error { message } => write!(f, "ERROR {message}"),
-            Self::Sync {
-                stream_name,
-                position,
-            } => {
+            Self::Sync { stream_name, position } => {
                 write!(f, "SYNC {stream_name} {position}")
             }
             Self::UserSync { user_id, state } => {
@@ -232,125 +188,73 @@ impl ReplicationCommand {
                     .ok_or_else(|| ReplicationError::MissingField("timestamp".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                let server_name = parts
-                    .get(2)
-                    .ok_or_else(|| ReplicationError::MissingField("server_name".to_string()))?
-                    .to_string();
-                Ok(Self::Pong {
-                    timestamp,
-                    server_name,
-                })
+                let server_name =
+                    parts.get(2).ok_or_else(|| ReplicationError::MissingField("server_name".to_string()))?.to_string();
+                Ok(Self::Pong { timestamp, server_name })
             }
             "NAME" => {
-                let name = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("name".to_string()))?
-                    .to_string();
+                let name = parts.get(1).ok_or_else(|| ReplicationError::MissingField("name".to_string()))?.to_string();
                 Ok(Self::Name { name })
             }
             "REPLICATE" => {
-                let stream_name = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?
-                    .to_string();
-                let token = parts
-                    .get(2)
-                    .ok_or_else(|| ReplicationError::MissingField("token".to_string()))?
-                    .to_string();
-                Ok(Self::Replicate {
-                    stream_name,
-                    token,
-                    data: serde_json::json!({}),
-                })
+                let stream_name =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?.to_string();
+                let token =
+                    parts.get(2).ok_or_else(|| ReplicationError::MissingField("token".to_string()))?.to_string();
+                Ok(Self::Replicate { stream_name, token, data: serde_json::json!({}) })
             }
             "RDATA" => {
-                let stream_name = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?
-                    .to_string();
-                let token = parts
-                    .get(2)
-                    .ok_or_else(|| ReplicationError::MissingField("token".to_string()))?
-                    .to_string();
-                Ok(Self::Rdata {
-                    stream_name,
-                    token,
-                    rows: vec![],
-                })
+                let stream_name =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?.to_string();
+                let token =
+                    parts.get(2).ok_or_else(|| ReplicationError::MissingField("token".to_string()))?.to_string();
+                Ok(Self::Rdata { stream_name, token, rows: vec![] })
             }
             "POSITION" => {
-                let stream_name = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?
-                    .to_string();
+                let stream_name =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?.to_string();
                 let position = parts
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("position".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                Ok(Self::Position {
-                    stream_name,
-                    position,
-                })
+                Ok(Self::Position { stream_name, position })
             }
             "ERROR" => {
-                let message = if parts.len() > 1 {
-                    parts[1..].join(" ")
-                } else {
-                    "Unknown error".to_string()
-                };
+                let message = if parts.len() > 1 { parts[1..].join(" ") } else { "Unknown error".to_string() };
                 Ok(Self::Error { message })
             }
             "SYNC" => {
-                let stream_name = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?
-                    .to_string();
+                let stream_name =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("stream_name".to_string()))?.to_string();
                 let position = parts
                     .get(2)
                     .ok_or_else(|| ReplicationError::MissingField("position".to_string()))?
                     .parse::<i64>()
                     .map_err(|e| ReplicationError::ParseError(e.to_string()))?;
-                Ok(Self::Sync {
-                    stream_name,
-                    position,
-                })
+                Ok(Self::Sync { stream_name, position })
             }
             "USER_SYNC" => {
-                let user_id = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("user_id".to_string()))?
-                    .to_string();
-                let state_str = parts
-                    .get(2)
-                    .ok_or_else(|| ReplicationError::MissingField("state".to_string()))?;
+                let user_id =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("user_id".to_string()))?.to_string();
+                let state_str = parts.get(2).ok_or_else(|| ReplicationError::MissingField("state".to_string()))?;
                 let state = match *state_str {
                     "Online" => UserSyncState::Online,
                     "Offline" => UserSyncState::Offline,
-                    _ => {
-                        return Err(ReplicationError::ParseError(format!(
-                            "Unknown state: {state_str}"
-                        )))
-                    }
+                    _ => return Err(ReplicationError::ParseError(format!("Unknown state: {state_str}"))),
                 };
                 Ok(Self::UserSync { user_id, state })
             }
             "FEDERATION_ACK" => {
-                let origin = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("origin".to_string()))?
-                    .to_string();
+                let origin =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("origin".to_string()))?.to_string();
                 Ok(Self::FederationAck { origin })
             }
             "REMOVE_PUSHERS" => {
-                let app_id = parts
-                    .get(1)
-                    .ok_or_else(|| ReplicationError::MissingField("app_id".to_string()))?
-                    .to_string();
-                let push_key = parts
-                    .get(2)
-                    .ok_or_else(|| ReplicationError::MissingField("push_key".to_string()))?
-                    .to_string();
+                let app_id =
+                    parts.get(1).ok_or_else(|| ReplicationError::MissingField("app_id".to_string()))?.to_string();
+                let push_key =
+                    parts.get(2).ok_or_else(|| ReplicationError::MissingField("push_key".to_string()))?.to_string();
                 Ok(Self::RemovePushers { app_id, push_key })
             }
             _ => Err(ReplicationError::UnknownCommand(parts[0].to_string())),
@@ -397,9 +301,7 @@ impl ReplicationProtocol {
     }
 
     pub fn create_ping() -> ReplicationCommand {
-        ReplicationCommand::Ping {
-            timestamp: chrono::Utc::now().timestamp_millis(),
-        }
+        ReplicationCommand::Ping { timestamp: chrono::Utc::now().timestamp_millis() }
     }
 
     pub fn create_pong(server_name: &str) -> ReplicationCommand {
@@ -410,23 +312,15 @@ impl ReplicationProtocol {
     }
 
     pub fn create_position(stream_name: &str, position: i64) -> ReplicationCommand {
-        ReplicationCommand::Position {
-            stream_name: stream_name.to_string(),
-            position,
-        }
+        ReplicationCommand::Position { stream_name: stream_name.to_string(), position }
     }
 
     pub fn create_error(message: &str) -> ReplicationCommand {
-        ReplicationCommand::Error {
-            message: message.to_string(),
-        }
+        ReplicationCommand::Error { message: message.to_string() }
     }
 
     pub fn create_sync(stream_name: &str, position: i64) -> ReplicationCommand {
-        ReplicationCommand::Sync {
-            stream_name: stream_name.to_string(),
-            position,
-        }
+        ReplicationCommand::Sync { stream_name: stream_name.to_string(), position }
     }
 }
 
@@ -448,10 +342,7 @@ mod tests {
 
     #[test]
     fn test_pong_command() {
-        let cmd = ReplicationCommand::Pong {
-            timestamp: 12345,
-            server_name: "example.com".to_string(),
-        };
+        let cmd = ReplicationCommand::Pong { timestamp: 12345, server_name: "example.com".to_string() };
         assert_eq!(cmd.to_string(), "PONG 12345 example.com");
     }
 
@@ -464,36 +355,19 @@ mod tests {
     #[test]
     fn test_parse_pong() {
         let cmd = ReplicationCommand::parse("PONG 12345 example.com").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Pong {
-                timestamp: 12345,
-                server_name: "example.com".to_string()
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Pong { timestamp: 12345, server_name: "example.com".to_string() });
     }
 
     #[test]
     fn test_parse_position() {
         let cmd = ReplicationCommand::parse("POSITION events 100").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Position {
-                stream_name: "events".to_string(),
-                position: 100
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Position { stream_name: "events".to_string(), position: 100 });
     }
 
     #[test]
     fn test_parse_error() {
         let cmd = ReplicationCommand::parse("ERROR Something went wrong").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Error {
-                message: "Something went wrong".to_string()
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Error { message: "Something went wrong".to_string() });
     }
 
     #[test]

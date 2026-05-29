@@ -23,33 +23,16 @@ use tower::ServiceExt;
 use super::{setup_test_app, with_local_connect_info};
 
 fn expected_methods(allow_header: &str) -> std::collections::HashSet<String> {
-    allow_header
-        .split(',')
-        .map(|s| s.trim().to_ascii_uppercase())
-        .filter(|s| !s.is_empty())
-        .collect()
+    allow_header.split(',').map(|s| s.trim().to_ascii_uppercase()).filter(|s| !s.is_empty()).collect()
 }
 
 async fn assert_route(app: &axum::Router, path: &str, expected: &[&str]) {
-    let req = Request::builder()
-        .method("PATCH")
-        .uri(path)
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().method("PATCH").uri(path).body(Body::empty()).unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(with_local_connect_info(req))
-        .await
-        .expect("oneshot");
+    let response = app.clone().oneshot(with_local_connect_info(req)).await.expect("oneshot");
 
     let status = response.status();
-    assert_ne!(
-        status,
-        StatusCode::NOT_FOUND,
-        "route {} returned 404 — not registered in the assembled Router",
-        path
-    );
+    assert_ne!(status, StatusCode::NOT_FOUND, "route {} returned 404 — not registered in the assembled Router", path);
     assert_eq!(
         status,
         StatusCode::METHOD_NOT_ALLOWED,
@@ -91,35 +74,14 @@ async fn key_backup_routes_are_wired_under_v3() {
     let cases: &[(&str, &[&str])] = &[
         // Spec endpoints (version as ?version= query param).
         ("/_matrix/client/v3/room_keys/version", &["GET", "POST"]),
-        (
-            "/_matrix/client/v3/room_keys/version/v123",
-            &["GET", "PUT", "DELETE"],
-        ),
-        (
-            "/_matrix/client/v3/room_keys/keys",
-            &["GET", "PUT", "DELETE"],
-        ),
-        (
-            "/_matrix/client/v3/room_keys/keys/!room:example.org",
-            &["GET", "PUT", "DELETE"],
-        ),
-        (
-            "/_matrix/client/v3/room_keys/keys/!room:example.org/abcsession",
-            &["GET", "PUT", "DELETE"],
-        ),
+        ("/_matrix/client/v3/room_keys/version/v123", &["GET", "PUT", "DELETE"]),
+        ("/_matrix/client/v3/room_keys/keys", &["GET", "PUT", "DELETE"]),
+        ("/_matrix/client/v3/room_keys/keys/!room:example.org", &["GET", "PUT", "DELETE"]),
+        ("/_matrix/client/v3/room_keys/keys/!room:example.org/abcsession", &["GET", "PUT", "DELETE"]),
         // Legacy path-version variants (kept for MSC compatibility).
-        (
-            "/_matrix/client/v3/room_keys/v123/keys",
-            &["GET", "PUT", "DELETE"],
-        ),
-        (
-            "/_matrix/client/v3/room_keys/v123/keys/!room:example.org",
-            &["GET", "PUT", "DELETE"],
-        ),
-        (
-            "/_matrix/client/v3/room_keys/v123/keys/!room:example.org/abcsession",
-            &["GET", "PUT", "DELETE"],
-        ),
+        ("/_matrix/client/v3/room_keys/v123/keys", &["GET", "PUT", "DELETE"]),
+        ("/_matrix/client/v3/room_keys/v123/keys/!room:example.org", &["GET", "PUT", "DELETE"]),
+        ("/_matrix/client/v3/room_keys/v123/keys/!room:example.org/abcsession", &["GET", "PUT", "DELETE"]),
     ];
 
     for (path, methods) in cases {
@@ -135,12 +97,7 @@ async fn key_backup_routes_are_wired_under_v1_and_r0() {
     };
 
     for prefix in ["/_matrix/client/v1", "/_matrix/client/r0"] {
-        assert_route(
-            &app,
-            &format!("{}/room_keys/version", prefix),
-            &["GET", "POST"],
-        )
-        .await;
+        assert_route(&app, &format!("{}/room_keys/version", prefix), &["GET", "POST"]).await;
         assert_route(
             &app,
             &format!("{}/room_keys/keys/!room:example.org/abcsession", prefix),

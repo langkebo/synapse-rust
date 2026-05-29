@@ -1,11 +1,9 @@
+use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
 use crate::storage::CreateEventParams;
 use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
-use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
-use axum::{
-    extract::{Json, Path, Query, State},
-};
+use axum::extract::{Json, Path, Query, State};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -28,9 +26,7 @@ pub(crate) async fn get_single_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::not_found(
-            "Event not found in this room".to_string(),
-        ));
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
     }
 
     Ok(Json(json!({
@@ -66,9 +62,7 @@ pub(crate) async fn get_event_keys(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::not_found(
-            "Event not found in this room".to_string(),
-        ));
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
     }
 
     Ok(Json(json!({
@@ -100,9 +94,7 @@ pub(crate) async fn get_room_thread(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if root_event.room_id != room_id {
-        return Err(ApiError::not_found(
-            "Event not found in this room".to_string(),
-        ));
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
     }
 
     let mut replies_json = Vec::new();
@@ -180,10 +172,7 @@ pub(crate) async fn get_room_notifications(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(20);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(20);
 
     let _from = params.get("from").cloned();
 
@@ -240,21 +229,12 @@ pub(crate) async fn get_messages(
     let from = parse_room_messages_from_token(&params);
     let limit = params
         .get("limit")
-        .and_then(|v| {
-            v.as_u64()
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
         .unwrap_or(10)
         .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    Ok(Json(
-        state
-            .services
-            .room_service
-            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
-            .await?,
-    ))
+    Ok(Json(state.services.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?))
 }
 
 pub(crate) async fn send_message(
@@ -267,9 +247,7 @@ pub(crate) async fn send_message(
 
     let s = body.to_string();
     if s.len() > 65536 {
-        return Err(ApiError::bad_request(
-            "Message content too long (max 64KB)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Message content too long (max 64KB)".to_string()));
     }
 
     if !txn_id.is_empty() {
@@ -281,11 +259,7 @@ pub(crate) async fn send_message(
         }
     }
 
-    state
-        .services
-        .auth_service
-        .verify_message_event_write(&room_id, &auth_user.user_id, &event_type)
-        .await?;
+    state.services.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
 
     if event_type == "m.room.encrypted" {
         let is_encrypted = state
@@ -303,11 +277,7 @@ pub(crate) async fn send_message(
     }
 
     if event_type == "m.room.power_levels" {
-        state
-            .services
-            .auth_service
-            .verify_power_levels_change(&room_id, &auth_user.user_id, &body)
-            .await?;
+        state.services.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
     }
 
     let mut body = body;
@@ -322,19 +292,11 @@ pub(crate) async fn send_message(
         }
     }
 
-    let result = state
-        .services
-        .room_service
-        .send_message(&room_id, &auth_user.user_id, &event_type, &body)
-        .await?;
+    let result = state.services.room_service.send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        let _ = state
-            .services
-            .cache
-            .set(&cache_key, &result.to_string(), 3600)
-            .await;
+        let _ = state.services.cache.set(&cache_key, &result.to_string(), 3600).await;
     }
 
     Ok(Json(result))
@@ -379,19 +341,10 @@ pub(crate) async fn get_room_message_queue(
         })
         .collect();
 
-    let processing_count = state
-        .services
-        .event_storage
-        .count_room_events_by_status(&room_id, "processing")
-        .await
-        .unwrap_or(0);
+    let processing_count =
+        state.services.event_storage.count_room_events_by_status(&room_id, "processing").await.unwrap_or(0);
 
-    let failed_count = state
-        .services
-        .event_storage
-        .count_room_events_by_status(&room_id, "failed")
-        .await
-        .unwrap_or(0);
+    let failed_count = state.services.event_storage.count_room_events_by_status(&room_id, "failed").await.unwrap_or(0);
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -432,13 +385,7 @@ pub(crate) async fn get_room_timeline(
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    Ok(Json(
-        state
-            .services
-            .room_service
-            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
-            .await?,
-    ))
+    Ok(Json(state.services.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?))
 }
 
 pub(crate) async fn get_room_unread_count(
@@ -460,11 +407,8 @@ pub(crate) async fn get_room_unread_count(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let (notification_count, highlight_count) = state
-        .services
-        .sync_service
-        .room_unread_counts(&room_id, &auth_user.user_id)
-        .await?;
+    let (notification_count, highlight_count) =
+        state.services.sync_service.room_unread_counts(&room_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "notification_count": notification_count,
@@ -684,9 +628,7 @@ pub(crate) async fn get_room_event_url(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
     let content = event.content.as_object().cloned().unwrap_or_default();
@@ -747,56 +689,30 @@ pub(crate) async fn sign_room_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
-    let device_id = body
-        .get("device_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
+    let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("default");
 
     let default_key_id = format!("ed25519:{device_id}");
-    let key_id = body
-        .get("key_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&default_key_id);
+    let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or(&default_key_id);
 
     let signature = body
         .get("signature")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("signature is required".to_string()))?;
 
-    let algorithm = body
-        .get("algorithm")
-        .and_then(|v| v.as_str())
-        .map_or_else(
-            || {
-                key_id
-                    .split(':')
-                    .next()
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("ed25519")
-                    .to_string()
-            },
-            str::to_owned,
-        );
+    let algorithm = body.get("algorithm").and_then(|v| v.as_str()).map_or_else(
+        || key_id.split(':').next().filter(|value| !value.is_empty()).unwrap_or("ed25519").to_string(),
+        str::to_owned,
+    );
 
     let created_ts = chrono::Utc::now().timestamp_millis();
 
     state
         .services
         .event_storage
-        .save_event_signature(
-            &event_id,
-            &auth_user.user_id,
-            device_id,
-            signature,
-            key_id,
-            &algorithm,
-            created_ts,
-        )
+        .save_event_signature(&event_id, &auth_user.user_id, device_id, signature, key_id, &algorithm, created_ts)
         .await
         .map_err(map_internal!("Failed to save signature"))?;
 
@@ -841,9 +757,7 @@ pub(crate) async fn verify_room_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
     let signatures = state
@@ -859,8 +773,7 @@ pub(crate) async fn verify_room_event(
     let verified_signatures: Vec<serde_json::Value> = signatures
         .iter()
         .filter(|s| {
-            verify_user_id.is_none_or(|uid| s.user_id == uid)
-                && verify_device_id.is_none_or(|did| s.device_id == did)
+            verify_user_id.is_none_or(|uid| s.user_id == uid) && verify_device_id.is_none_or(|did| s.device_id == did)
         })
         .map(|s| {
             serde_json::json!({
@@ -895,11 +808,7 @@ pub(crate) async fn translate_room_event(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let event = get_room_event(&state.services.event_storage, &room_id, &event_id).await?;
-    let source_text = event
-        .content
-        .get("body")
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
+    let source_text = event.content.get("body").and_then(|value| value.as_str()).unwrap_or("");
 
     // Extract target language from request body, falling back to config default
     let target_lang = body
@@ -911,21 +820,16 @@ pub(crate) async fn translate_room_event(
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
 
     // Use the text field if provided, otherwise use the event body
-    let text_to_translate = body
-        .get("text")
-        .and_then(|v| v.as_str())
-        .unwrap_or(source_text);
+    let text_to_translate = body.get("text").and_then(|v| v.as_str()).unwrap_or(source_text);
 
     // Call the translation service
-    let translation_result = state
-        .services
-        .translation_service
-        .translate(text_to_translate, target_lang, source_lang)
-        .await
-        .map_err(|e| {
-            ::tracing::warn!("Translation failed: {}", e);
-            ApiError::bad_request(format!("Translation failed: {}", e))
-        })?;
+    let translation_result =
+        state.services.translation_service.translate(text_to_translate, target_lang, source_lang).await.map_err(
+            |e| {
+                ::tracing::warn!("Translation failed: {}", e);
+                ApiError::bad_request(format!("Translation failed: {}", e))
+            },
+        )?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -943,10 +847,7 @@ pub(crate) async fn translate_text(
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let text = body
-        .get("text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
     if text.is_empty() {
         return Ok(Json(json!({
@@ -960,11 +861,7 @@ pub(crate) async fn translate_text(
     // Validate text length
     let max_len = state.services.config.translate.max_text_length;
     if text.len() > max_len {
-        return Err(ApiError::bad_request(format!(
-            "Text too long: {} bytes (max: {})",
-            text.len(),
-            max_len
-        )));
+        return Err(ApiError::bad_request(format!("Text too long: {} bytes (max: {})", text.len(), max_len)));
     }
 
     let target_lang = body
@@ -974,12 +871,8 @@ pub(crate) async fn translate_text(
 
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
 
-    let translation_result = state
-        .services
-        .translation_service
-        .translate(text, target_lang, source_lang)
-        .await
-        .map_err(|e| {
+    let translation_result =
+        state.services.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
             ::tracing::warn!("Translation failed: {}", e);
             ApiError::bad_request(format!("Translation failed: {}", e))
         })?;
@@ -1040,16 +933,10 @@ pub(crate) async fn redact_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if original_event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
-    state
-        .services
-        .auth_service
-        .can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id)
-        .await?;
+    state.services.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
@@ -1078,25 +965,18 @@ pub(crate) async fn redact_event(
         .await
         .map_err(map_internal!("Failed to redact event"))?;
 
-    state
-        .services
-        .event_storage
-        .redact_event_content(&event_id)
-        .await
-        .map_err(|e| {
-            ::tracing::warn!(
-                target: "security_audit",
-                event = "redaction_content_failed",
-                event_id = %event_id,
-                error = %e,
-                "Redaction event created but content redaction failed"
-            );
-            ApiError::internal_with_log("Failed to redact event content", &e)
-        })?;
+    state.services.event_storage.redact_event_content(&event_id).await.map_err(|e| {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "redaction_content_failed",
+            event_id = %event_id,
+            error = %e,
+            "Redaction event created but content redaction failed"
+        );
+        ApiError::internal_with_log("Failed to redact event content", &e)
+    })?;
 
     Ok(Json(json!({
         "event_id": new_event_id
     })))
 }
-
-

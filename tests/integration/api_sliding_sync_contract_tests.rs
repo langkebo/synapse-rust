@@ -34,8 +34,7 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
     Some((synapse_rust::web::create_router(state), pool))
 }
 
-async fn setup_two_test_apps_with_shared_pool(
-) -> Option<((axum::Router, axum::Router), Arc<sqlx::PgPool>)> {
+async fn setup_two_test_apps_with_shared_pool() -> Option<((axum::Router, axum::Router), Arc<sqlx::PgPool>)> {
     let (app_a, pool, _) = super::setup_test_app_with_pool().await?;
     let (app_b, _, _) = super::setup_test_app_with_pool().await?;
     Some(((app_a, app_b), pool))
@@ -49,21 +48,12 @@ async fn whoami(app: &axum::Router, token: &str) -> (String, Option<String>) {
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_id = json["user_id"].as_str().unwrap().to_string();
-    let device_id = json
-        .get("device_id")
-        .and_then(|v| v.as_str())
-        .map(|v| v.to_string());
+    let device_id = json.get("device_id").and_then(|v| v.as_str()).map(|v| v.to_string());
     (user_id, device_id)
 }
 
@@ -73,85 +63,46 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "name": "Sliding Sync Room" }).to_string(),
-        ))
+        .body(Body::from(json!({ "name": "Sliding Sync Room" }).to_string()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
 
-async fn put_global_account_data(
-    app: &axum::Router,
-    token: &str,
-    user_id: &str,
-    data_type: &str,
-    content: Value,
-) {
+async fn put_global_account_data(app: &axum::Router, token: &str, user_id: &str, data_type: &str, content: Value) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/account_data/{}",
-            user_id, data_type
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
 async fn send_room_message(app: &axum::Router, token: &str, room_id: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            room_id,
-            rand::random::<u32>()
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/{}", room_id, rand::random::<u32>()))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "msgtype": "m.text", "body": "hello" }).to_string(),
-        ))
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
 
-async fn upload_device_keys(
-    app: &axum::Router,
-    token: &str,
-    user_id: &str,
-    device_id: &str,
-    key_suffix: &str,
-) {
+async fn upload_device_keys(app: &axum::Router, token: &str, user_id: &str, device_id: &str, key_suffix: &str) {
     let mut seed = [0u8; 32];
     let suffix_bytes = key_suffix.as_bytes();
     for (i, b) in suffix_bytes.iter().take(32).enumerate() {
@@ -173,8 +124,7 @@ async fn upload_device_keys(
         }
     });
     let dk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&device_keys);
-    let dk_signature = base64::engine::general_purpose::STANDARD
-        .encode(signing_key.sign(&dk_canonical).to_bytes());
+    let dk_signature = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&dk_canonical).to_bytes());
     device_keys["signatures"] = json!({
         user_id: { format!("ed25519:{}", device_id): dk_signature }
     });
@@ -182,8 +132,7 @@ async fn upload_device_keys(
     let otk_id = format!("signed_curve25519:{}", key_suffix);
     let mut otk_payload = json!({ "key": otk_pk });
     let otk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&otk_payload);
-    let otk_signature = base64::engine::general_purpose::STANDARD
-        .encode(signing_key.sign(&otk_canonical).to_bytes());
+    let otk_signature = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&otk_canonical).to_bytes());
     otk_payload["signatures"] = json!({
         user_id: { format!("ed25519:{}", device_id): otk_signature }
     });
@@ -204,11 +153,7 @@ async fn upload_device_keys(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -223,10 +168,7 @@ async fn send_to_device_message(
 ) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/sendToDevice/{}/{}",
-            event_type, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/sendToDevice/{}/{}", event_type, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -241,40 +183,22 @@ async fn send_to_device_message(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn send_read_receipt(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    event_id: &str,
-) -> (StatusCode, Value) {
+async fn send_read_receipt(app: &axum::Router, token: &str, room_id: &str, event_id: &str) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/receipt/m.read/{}",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/receipt/m.read/{}", room_id, event_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({}).to_string()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     (status, json)
 }
@@ -288,10 +212,7 @@ async fn set_typing(
 ) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/typing/{}",
-            room_id, user_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/typing/{}", room_id, user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -303,31 +224,17 @@ async fn set_typing(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     (status, json)
 }
 
-async fn put_beacon_info(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    state_key: &str,
-) -> String {
+async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_key: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}",
-            room_id, state_key
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}", room_id, state_key))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -344,32 +251,17 @@ async fn put_beacon_info(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
 
-async fn send_beacon(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    beacon_info_id: &str,
-) -> (StatusCode, Value) {
+async fn send_beacon(app: &axum::Router, token: &str, room_id: &str, beacon_info_id: &str) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.beacon/{}",
-            room_id,
-            rand::random::<u32>()
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.beacon/{}", room_id, rand::random::<u32>()))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -388,28 +280,16 @@ async fn send_beacon(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     (status, json)
 }
 
-async fn post_sliding_sync(
-    app: &axum::Router,
-    token: Option<&str>,
-    body: Value,
-) -> (StatusCode, Value) {
-    let mut builder = Request::builder()
-        .method("POST")
-        .uri("/_matrix/client/v3/sync")
-        .header("Content-Type", "application/json");
+async fn post_sliding_sync(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+    let mut builder =
+        Request::builder().method("POST").uri("/_matrix/client/v3/sync").header("Content-Type", "application/json");
 
     if let Some(token) = token {
         builder = builder.header("Authorization", format!("Bearer {}", token));
@@ -417,22 +297,15 @@ async fn post_sliding_sync(
 
     let request = builder.body(Body::from(body.to_string())).unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
 
     let json = if body.is_empty() {
         json!({})
     } else {
-        serde_json::from_slice(&body)
-            .unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&body) }))
+        serde_json::from_slice(&body).unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&body) }))
     };
 
     (status, json)
@@ -446,21 +319,14 @@ async fn get_sync(app: &axum::Router, token: &str, uri: &str) -> (StatusCode, Va
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let json = if body.is_empty() {
         json!({})
     } else {
-        serde_json::from_slice(&body)
-            .unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&body) }))
+        serde_json::from_slice(&body).unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&body) }))
     };
 
     (status, json)
@@ -480,14 +346,8 @@ async fn test_sliding_sync_requires_authentication() {
 #[tokio::test]
 async fn test_sliding_sync_rate_limit_returns_backoff() {
     let Some((app, _pool)) = setup_test_app_with_sliding_sync_rate_limit(
-        RateLimitRule {
-            per_second: 1,
-            burst_size: 1,
-        },
-        RateLimitRule {
-            per_second: 10,
-            burst_size: 10,
-        },
+        RateLimitRule { per_second: 1, burst_size: 1 },
+        RateLimitRule { per_second: 10, burst_size: 10 },
     )
     .await
     else {
@@ -646,10 +506,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
     assert_eq!(body["lists"]["main"]["count"].as_u64().unwrap(), 3);
     assert_eq!(body["lists"]["main"]["ops"][0]["op"], "SYNC");
     assert_eq!(body["lists"]["main"]["ops"][0]["range"], json!([0, 1]));
-    assert_eq!(
-        body["lists"]["main"]["ops"][0]["room_ids"],
-        json!([room_a, room_b])
-    );
+    assert_eq!(body["lists"]["main"]["ops"][0]["room_ids"], json!([room_a, room_b]));
 
     assert!(body["rooms"].get(&room_a).is_some());
     assert!(body["rooms"].get(&room_b).is_some());
@@ -782,10 +639,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
     .await;
     assert_eq!(status, StatusCode::OK, "{:?}", body);
     assert_eq!(body["lists"]["main"]["count"], 1);
-    assert_eq!(
-        body["lists"]["main"]["ops"][0]["room_ids"],
-        json!([room_dm])
-    );
+    assert_eq!(body["lists"]["main"]["ops"][0]["room_ids"], json!([room_dm]));
     assert!(body["rooms"].get(&room_dm).is_some());
     assert!(body["rooms"].get(&room_group).is_none());
 }
@@ -973,14 +827,8 @@ async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_de
     )
     .await;
     assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
-    assert_eq!(
-        first_body["extensions"]["e2ee"]["device_one_time_keys_count"]["signed_curve25519"],
-        1
-    );
-    assert_eq!(
-        first_body["extensions"]["e2ee"]["device_unused_fallback_key_types"],
-        json!([])
-    );
+    assert_eq!(first_body["extensions"]["e2ee"]["device_one_time_keys_count"]["signed_curve25519"], 1);
+    assert_eq!(first_body["extensions"]["e2ee"]["device_unused_fallback_key_types"], json!([]));
 
     upload_device_keys(&app, &token_b, &user_b, &device_b, "bob-otk").await;
 
@@ -998,9 +846,7 @@ async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_de
     )
     .await;
     assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
-    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"]
-        .as_array()
-        .unwrap();
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
     assert!(changed.iter().any(|entry| entry == &json!(user_b)));
 }
 
@@ -1043,18 +889,9 @@ async fn test_sliding_sync_extensions_to_device_returns_events_and_next_batch() 
     )
     .await;
     assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
-    assert_eq!(
-        first_body["extensions"]["to_device"]["events"][0]["type"],
-        "org.example.test"
-    );
-    assert_eq!(
-        first_body["extensions"]["to_device"]["events"][0]["content"]["body"],
-        "hello-to-device"
-    );
-    let next_batch = first_body["extensions"]["to_device"]["next_batch"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    assert_eq!(first_body["extensions"]["to_device"]["events"][0]["type"], "org.example.test");
+    assert_eq!(first_body["extensions"]["to_device"]["events"][0]["content"]["body"], "hello-to-device");
+    let next_batch = first_body["extensions"]["to_device"]["next_batch"].as_str().unwrap().to_string();
 
     let (second_status, second_body) = post_sliding_sync(
         &app,
@@ -1085,14 +922,7 @@ async fn test_sliding_sync_extensions_account_data_returns_global_data() {
 
     let token = super::create_test_user(&app).await;
     let (user_id, _) = whoami(&app, &token).await;
-    put_global_account_data(
-        &app,
-        &token,
-        &user_id,
-        "org.example.test_settings",
-        json!({ "theme": "dark" }),
-    )
-    .await;
+    put_global_account_data(&app, &token, &user_id, "org.example.test_settings", json!({ "theme": "dark" })).await;
 
     let (status, body) = post_sliding_sync(
         &app,
@@ -1106,10 +936,7 @@ async fn test_sliding_sync_extensions_account_data_returns_global_data() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{:?}", body);
-    assert_eq!(
-        body["extensions"]["account_data"]["global"]["org.example.test_settings"]["theme"],
-        "dark"
-    );
+    assert_eq!(body["extensions"]["account_data"]["global"]["org.example.test_settings"]["theme"], "dark");
 }
 
 #[tokio::test]
@@ -1164,11 +991,7 @@ async fn test_sliding_sync_extensions_receipts_returns_room_receipts() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{:?}", body);
-    assert!(
-        body["extensions"]["receipts"]["rooms"][&room_id]["m.read"][&event_id]
-            .get(&user_id)
-            .is_some()
-    );
+    assert!(body["extensions"]["receipts"]["rooms"][&room_id]["m.read"][&event_id].get(&user_id).is_some());
 }
 
 #[tokio::test]
@@ -1223,10 +1046,7 @@ async fn test_sliding_sync_extensions_typing_returns_room_typing_users() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{:?}", body);
-    let user_ids = body["extensions"]["typing"]["rooms"][&room_id]["user_ids"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let user_ids = body["extensions"]["typing"]["rooms"][&room_id]["user_ids"].as_array().cloned().unwrap_or_default();
     assert!(user_ids.iter().any(|v| v == &json!(user_id)));
 }
 
@@ -1241,8 +1061,7 @@ async fn test_sliding_sync_beacon_room_subscription_materializes_room_snapshot()
     let (user_id, _) = whoami(&app, &token).await;
     let room_id = create_room(&app, &token).await;
     let beacon_info_event_id = put_beacon_info(&app, &token, &room_id, &user_id).await;
-    let (beacon_status, beacon_body) =
-        send_beacon(&app, &token, &room_id, &beacon_info_event_id).await;
+    let (beacon_status, beacon_body) = send_beacon(&app, &token, &room_id, &beacon_info_event_id).await;
     assert_eq!(beacon_status, StatusCode::OK, "{:?}", beacon_body);
 
     let mut room_subscriptions = serde_json::Map::new();
@@ -1269,8 +1088,7 @@ async fn test_traditional_get_sync_coexists_with_post_sliding_sync() {
 
     let token = super::create_test_user(&app).await;
 
-    let (status_post, _post_body) =
-        post_sliding_sync(&app, Some(&token), json!({ "lists": {} })).await;
+    let (status_post, _post_body) = post_sliding_sync(&app, Some(&token), json!({ "lists": {} })).await;
     assert_eq!(status_post, StatusCode::OK);
 
     let (status_get, body_get) = get_sync(&app, &token, "/_matrix/client/v3/sync?timeout=1").await;

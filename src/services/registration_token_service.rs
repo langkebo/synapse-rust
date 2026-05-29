@@ -13,10 +13,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_token(
-        &self,
-        request: CreateRegistrationTokenRequest,
-    ) -> Result<RegistrationToken, ApiError> {
+    pub async fn create_token(&self, request: CreateRegistrationTokenRequest) -> Result<RegistrationToken, ApiError> {
         info!("Creating registration token");
 
         if let Some(ref token) = request.token {
@@ -45,11 +42,8 @@ impl RegistrationTokenService {
 
     #[instrument(skip(self))]
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
-        let token = self
-            .storage
-            .get_token(token)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get token", &e))?;
+        let token =
+            self.storage.get_token(token).await.map_err(|e| ApiError::internal_with_log("Failed to get token", &e))?;
 
         Ok(token)
     }
@@ -91,11 +85,7 @@ impl RegistrationTokenService {
         let validation = self.validate_token(token).await?;
 
         if !validation.is_valid {
-            return Err(ApiError::bad_request(
-                validation
-                    .error_message
-                    .unwrap_or_else(|| "Invalid token".to_string()),
-            ));
+            return Err(ApiError::bad_request(validation.error_message.unwrap_or_else(|| "Invalid token".to_string())));
         }
 
         let success = self
@@ -144,10 +134,7 @@ impl RegistrationTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to check token", &e))?
             .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
-        self.storage
-            .delete_token(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
+        self.storage.delete_token(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
 
         info!("Deleted registration token: {}", id);
 
@@ -193,10 +180,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_token_usage(
-        &self,
-        token_id: i64,
-    ) -> Result<Vec<RegistrationTokenUsage>, ApiError> {
+    pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, ApiError> {
         let usage = self
             .storage
             .get_token_usage(token_id)
@@ -222,10 +206,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_room_invite(
-        &self,
-        request: CreateRoomInviteRequest,
-    ) -> Result<RoomInvite, ApiError> {
+    pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, ApiError> {
         info!("Creating room invite for room: {}", request.room_id);
 
         let invite = self
@@ -249,11 +230,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn use_room_invite(
-        &self,
-        invite_code: &str,
-        invitee_user_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, ApiError> {
         info!("Using room invite for user: {}", invitee_user_id);
 
         let success = self
@@ -270,11 +247,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn revoke_room_invite(
-        &self,
-        invite_code: &str,
-        reason: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), ApiError> {
         self.storage
             .revoke_room_invite(invite_code, reason)
             .await
@@ -330,10 +303,7 @@ impl RegistrationTokenService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_batch(
-        &self,
-        batch_id: &str,
-    ) -> Result<Option<RegistrationTokenBatch>, ApiError> {
+    pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, ApiError> {
         let batch = self
             .storage
             .get_batch(batch_id)
@@ -343,11 +313,7 @@ impl RegistrationTokenService {
         Ok(batch)
     }
 
-    pub async fn check_email_domain_allowed(
-        &self,
-        token: &str,
-        email: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn check_email_domain_allowed(&self, token: &str, email: &str) -> Result<bool, ApiError> {
         let token_record = self
             .storage
             .get_token(token)
@@ -361,9 +327,7 @@ impl RegistrationTokenService {
             }
 
             let email_domain = email.split('@').next_back().unwrap_or("");
-            return Ok(domains
-                .iter()
-                .any(|d| d.to_lowercase() == email_domain.to_lowercase()));
+            return Ok(domains.iter().any(|d| d.to_lowercase() == email_domain.to_lowercase()));
         }
 
         Ok(true)
@@ -539,10 +503,7 @@ mod tests {
     #[test]
     fn test_token_with_auto_join_rooms() {
         let mut token = create_test_token();
-        token.auto_join_rooms = Some(vec![
-            "!room1:example.com".to_string(),
-            "!room2:example.com".to_string(),
-        ]);
+        token.auto_join_rooms = Some(vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()]);
 
         let rooms = token.auto_join_rooms.unwrap();
         assert_eq!(rooms.len(), 2);

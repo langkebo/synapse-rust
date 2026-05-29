@@ -59,11 +59,8 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                     if matches!(method, Method::POST | Method::PUT | Method::DELETE)
                         && !path.starts_with("/_synapse/admin")
                     {
-                        let request_id = headers
-                            .get("x-request-id")
-                            .and_then(|v| v.to_str().ok())
-                            .unwrap_or("unknown")
-                            .to_string();
+                        let request_id =
+                            headers.get("x-request-id").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
 
                         let audit_request = CreateAuditEventRequest {
                             actor_id: user_id.clone(),
@@ -79,24 +76,12 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                             })),
                         };
 
-                        if let Err(e) = state
-                            .services
-                            .admin_audit_service
-                            .create_event(audit_request)
-                            .await
-                        {
+                        if let Err(e) = state.services.admin_audit_service.create_event(audit_request).await {
                             ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
                         }
                     }
 
-                    Ok(Self {
-                        user_id,
-                        device_id,
-                        is_admin,
-                        is_shadow_banned,
-                        is_guest,
-                        access_token: token,
-                    })
+                    Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
                 }
                 Err(e) => Err(e),
             }
@@ -142,16 +127,14 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
         async move {
             match token_result {
                 Ok(token) => match state.services.auth_service.validate_token(&token).await {
-                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                        Ok(Self {
-                            user_id: Some(user_id),
-                            device_id,
-                            is_admin,
-                            is_shadow_banned,
-                            is_guest,
-                            access_token: Some(token),
-                        })
-                    }
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
                     Err(_) => Ok(Self {
                         user_id: None,
                         device_id: None,

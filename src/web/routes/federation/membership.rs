@@ -1,9 +1,7 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
-use axum::{
-    extract::{Extension, Json, Path, State},
-};
+use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
 
 pub(super) async fn get_room_members(
@@ -50,10 +48,7 @@ pub(super) async fn knock_room(
     validate_federation_user_origin(&auth.origin, &user_id)?;
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
 
-    let event_id = format!(
-        "${}",
-        crate::common::crypto::generate_event_id(&state.services.server_name)
-    );
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -109,10 +104,7 @@ pub(super) async fn thirdparty_invite(
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let event_id = format!(
-        "${}",
-        crate::common::crypto::generate_event_id(&state.services.server_name)
-    );
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -211,9 +203,7 @@ pub(super) async fn get_user_devices(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     if !super::user_matches_origin(&user_id, &state.services.server_name) {
-        return Err(ApiError::not_found(
-            "User is not hosted on this server".to_string(),
-        ));
+        return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
     super::validate_federation_origin_shares_user_room(&state, &user_id, &_auth.origin).await?;
@@ -302,8 +292,7 @@ pub(super) async fn invite_v2(
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
-    let (sender, state_key) =
-        validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
     let params = crate::storage::event::CreateEventParams {
@@ -326,12 +315,7 @@ pub(super) async fn invite_v2(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
 
-    ::tracing::info!(
-        "Processed v2 invite for room {} event {} from {}",
-        room_id,
-        event_id,
-        auth.origin
-    );
+    ::tracing::info!("Processed v2 invite for room {} event {} from {}", room_id, event_id, auth.origin);
 
     Ok(Json(json!({
         "event_id": event_id
@@ -387,7 +371,7 @@ pub(super) async fn make_join(
             .await
             .ok()
             .flatten()
-            .map_or_else(|| "10".to_string(), |r| r.room_version);
+            .map_or_else(|| DEFAULT_ROOM_VERSION.to_string(), |r| r.room_version);
 
         Ok(Json(json!({
             "room_version": room_version,
@@ -408,9 +392,7 @@ pub(super) async fn make_join(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => {
-            super::increment_counter(&state, "federation_join_429_total")
-        }
+        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 
@@ -449,7 +431,7 @@ pub(super) async fn make_leave(
         .await
         .ok()
         .flatten()
-        .map_or_else(|| "10".to_string(), |r| r.room_version);
+        .map_or_else(|| DEFAULT_ROOM_VERSION.to_string(), |r| r.room_version);
 
     Ok(Json(json!({
         "room_version": room_version,
@@ -490,11 +472,8 @@ pub(super) async fn send_join(
     let result = async {
         super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
 
-        let event = body
-            .get("event")
-            .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
-        let user_id =
-            validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
+        let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+        let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
         validate_federation_join_access(&state, &room_id, user_id).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
@@ -506,10 +485,7 @@ pub(super) async fn send_join(
             event_type: "m.room.member".to_string(),
             content: content.clone(),
             state_key: Some(user_id.to_string()),
-            origin_server_ts: event
-                .get("origin_server_ts")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
+            origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
         };
         state
             .services
@@ -525,12 +501,7 @@ pub(super) async fn send_join(
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
-        ::tracing::info!(
-            "Processed join for room {} event {} from {}",
-            room_id,
-            event_id,
-            auth.origin
-        );
+        ::tracing::info!("Processed join for room {} event {} from {}", room_id, event_id, auth.origin);
 
         Ok(Json(json!({
             "event_id": event_id
@@ -542,9 +513,7 @@ pub(super) async fn send_join(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => {
-            super::increment_counter(&state, "federation_join_429_total")
-        }
+        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 
@@ -559,11 +528,8 @@ pub(super) async fn send_leave(
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
 
-    let event = body
-        .get("event")
-        .ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
-    let user_id =
-        validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
+    let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
+    let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -572,10 +538,7 @@ pub(super) async fn send_leave(
         event_type: "m.room.member".to_string(),
         content: event.get("content").cloned().unwrap_or(json!({})),
         state_key: Some(user_id.to_string()),
-        origin_server_ts: event
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0),
+        origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
     };
     state
         .services
@@ -591,12 +554,7 @@ pub(super) async fn send_leave(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
-    ::tracing::info!(
-        "Processed leave for room {} event {} from {}",
-        room_id,
-        event_id,
-        auth.origin
-    );
+    ::tracing::info!("Processed leave for room {} event {} from {}", room_id, event_id, auth.origin);
 
     Ok(Json(json!({
         "event_id": event_id
@@ -651,8 +609,7 @@ pub(super) async fn send_join_v2(
         if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
             super::validate_federation_origin(&auth.origin, Some(origin))?;
         }
-        let sender =
-            validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
+        let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
         validate_federation_join_access(&state, &room_id, sender).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
@@ -703,9 +660,7 @@ pub(super) async fn send_join_v2(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => {
-            super::increment_counter(&state, "federation_join_429_total")
-        }
+        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 
@@ -725,15 +680,10 @@ pub(super) async fn send_leave_v2(
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
-    let sender =
-        validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
+    let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room =
+        state.services.room_storage.get_room(&room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     let _ = room.room_id.as_str();
     let _ = room.is_public;
@@ -797,24 +747,14 @@ pub(super) async fn exchange_third_party_invite(
         .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let default_event_id = format!(
-        "${}:{}",
-        uuid::Uuid::new_v4(),
-        room_id.split(':').next_back().unwrap_or("server")
-    );
-    let event_id = body
-        .get("event_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&default_event_id);
+    let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
+    let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id);
 
-    let origin_server_ts = body
-        .get("origin_server_ts")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let origin_server_ts =
+        body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     let room_version = room.room_version;
-    let (sender, state_key) =
-        validate_federation_exchange_third_party_invite_event(&auth.origin, &room_id, &body)?;
+    let (sender, state_key) = validate_federation_exchange_third_party_invite_event(&auth.origin, &room_id, &body)?;
     let content = body.get("content").cloned().unwrap_or_else(|| json!({}));
 
     Ok(Json(serde_json::json!({
@@ -831,14 +771,9 @@ pub(super) async fn exchange_third_party_invite(
     })))
 }
 
-fn validate_federation_user_origin(
-    authenticated_origin: &str,
-    user_id: &str,
-) -> Result<(), ApiError> {
+fn validate_federation_user_origin(authenticated_origin: &str, user_id: &str) -> Result<(), ApiError> {
     if super::sender_server_name(user_id) != Some(authenticated_origin) {
-        return Err(ApiError::forbidden(
-            "Federation user_id does not match authenticated origin".to_string(),
-        ));
+        return Err(ApiError::forbidden("Federation user_id does not match authenticated origin".to_string()));
     }
 
     Ok(())
@@ -854,9 +789,7 @@ fn validate_federation_member_event<'a>(
     let sender = event
         .get("sender")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("Missing sender in {expected_membership} event"))
-        })?;
+        .ok_or_else(|| ApiError::bad_request(format!("Missing sender in {expected_membership} event")))?;
 
     if super::sender_server_name(sender) != Some(authenticated_origin) {
         return Err(ApiError::forbidden(
@@ -869,9 +802,7 @@ fn validate_federation_member_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_id in membership event".to_string()))?;
     if event_room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Membership event room_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Membership event room_id does not match request path".to_string()));
     }
 
     let event_event_id = event
@@ -879,14 +810,13 @@ fn validate_federation_member_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing event_id in membership event".to_string()))?;
     if event_event_id != event_id {
-        return Err(ApiError::bad_request(
-            "Membership event event_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Membership event event_id does not match request path".to_string()));
     }
 
-    let event_type = event.get("type").and_then(|v| v.as_str()).ok_or_else(|| {
-        ApiError::bad_request("Missing event type in membership event".to_string())
-    })?;
+    let event_type = event
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing event type in membership event".to_string()))?;
     if event_type != "m.room.member" {
         return Err(ApiError::bad_request(
             "Federation send_join/send_leave only accepts m.room.member events".to_string(),
@@ -896,13 +826,9 @@ fn validate_federation_member_event<'a>(
     let state_key = event
         .get("state_key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing state_key in membership event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing state_key in membership event".to_string()))?;
     if state_key != sender {
-        return Err(ApiError::bad_request(
-            "Membership event state_key must match sender".to_string(),
-        ));
+        return Err(ApiError::bad_request("Membership event state_key must match sender".to_string()));
     }
 
     let membership = event
@@ -929,17 +855,10 @@ fn validate_federation_knock_event<'a>(
     user_id: &str,
     event: &'a Value,
 ) -> Result<&'a str, ApiError> {
-    let sender = validate_federation_member_event_without_event_id(
-        authenticated_origin,
-        room_id,
-        event,
-        "knock",
-    )?;
+    let sender = validate_federation_member_event_without_event_id(authenticated_origin, room_id, event, "knock")?;
 
     if sender != user_id {
-        return Err(ApiError::bad_request(
-            "Knock event sender must match request path user_id".to_string(),
-        ));
+        return Err(ApiError::bad_request("Knock event sender must match request path user_id".to_string()));
     }
 
     Ok(sender)
@@ -954,9 +873,7 @@ fn validate_federation_member_event_without_event_id<'a>(
     let sender = event
         .get("sender")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("Missing sender in {expected_membership} event"))
-        })?;
+        .ok_or_else(|| ApiError::bad_request(format!("Missing sender in {expected_membership} event")))?;
 
     if super::sender_server_name(sender) != Some(authenticated_origin) {
         return Err(ApiError::forbidden(format!(
@@ -969,14 +886,13 @@ fn validate_federation_member_event_without_event_id<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_id in membership event".to_string()))?;
     if event_room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Membership event room_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Membership event room_id does not match request path".to_string()));
     }
 
-    let event_type = event.get("type").and_then(|v| v.as_str()).ok_or_else(|| {
-        ApiError::bad_request("Missing event type in membership event".to_string())
-    })?;
+    let event_type = event
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing event type in membership event".to_string()))?;
     if event_type != "m.room.member" {
         return Err(ApiError::bad_request(
             "Federation membership endpoints only accept m.room.member events".to_string(),
@@ -986,13 +902,9 @@ fn validate_federation_member_event_without_event_id<'a>(
     let state_key = event
         .get("state_key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing state_key in membership event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing state_key in membership event".to_string()))?;
     if state_key != sender {
-        return Err(ApiError::bad_request(
-            "Membership event state_key must match sender".to_string(),
-        ));
+        return Err(ApiError::bad_request("Membership event state_key must match sender".to_string()));
     }
 
     let membership = event
@@ -1035,9 +947,7 @@ fn validate_federation_invite_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing room_id in invite event".to_string()))?;
     if event_room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Invite event room_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invite event room_id does not match request path".to_string()));
     }
 
     let event_event_id = event
@@ -1045,9 +955,7 @@ fn validate_federation_invite_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing event_id in invite event".to_string()))?;
     if event_event_id != event_id {
-        return Err(ApiError::bad_request(
-            "Invite event event_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invite event event_id does not match request path".to_string()));
     }
 
     let event_type = event
@@ -1055,9 +963,7 @@ fn validate_federation_invite_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing event type in invite event".to_string()))?;
     if event_type != "m.room.member" {
-        return Err(ApiError::bad_request(
-            "Federation invite only accepts m.room.member events".to_string(),
-        ));
+        return Err(ApiError::bad_request("Federation invite only accepts m.room.member events".to_string()));
     }
 
     let state_key = event
@@ -1071,9 +977,7 @@ fn validate_federation_invite_event<'a>(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing membership in invite event".to_string()))?;
     if membership != "invite" {
-        return Err(ApiError::bad_request(format!(
-            "Expected membership 'invite' but got '{membership}'"
-        )));
+        return Err(ApiError::bad_request(format!("Expected membership 'invite' but got '{membership}'")));
     }
 
     if let Some(event_origin) = event.get("origin").and_then(|v| v.as_str()) {
@@ -1095,9 +999,7 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
     let sender = event
         .get("sender")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing sender in third-party invite event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing sender in third-party invite event".to_string()))?;
     if super::sender_server_name(sender) != Some(authenticated_origin) {
         return Err(ApiError::forbidden(
             "Federation third-party invite sender does not match authenticated origin".to_string(),
@@ -1107,18 +1009,15 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
     let event_room_id = event
         .get("room_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing room_id in third-party invite event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing room_id in third-party invite event".to_string()))?;
     if event_room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Third-party invite room_id does not match request path".to_string(),
-        ));
+        return Err(ApiError::bad_request("Third-party invite room_id does not match request path".to_string()));
     }
 
-    let event_type = event.get("type").and_then(|v| v.as_str()).ok_or_else(|| {
-        ApiError::bad_request("Missing event type in third-party invite event".to_string())
-    })?;
+    let event_type = event
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing event type in third-party invite event".to_string()))?;
     if event_type != "m.room.member" {
         return Err(ApiError::bad_request(
             "Federation third-party invite only accepts m.room.member events".to_string(),
@@ -1128,64 +1027,45 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
     let state_key = event
         .get("state_key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing state_key in third-party invite event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing state_key in third-party invite event".to_string()))?;
     if state_key.is_empty() {
-        return Err(ApiError::bad_request(
-            "Third-party invite state_key must not be empty".to_string(),
-        ));
+        return Err(ApiError::bad_request("Third-party invite state_key must not be empty".to_string()));
     }
 
     let membership = event
         .get("content")
         .and_then(|v| v.get("membership"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ApiError::bad_request("Missing membership in third-party invite event".to_string())
-        })?;
+        .ok_or_else(|| ApiError::bad_request("Missing membership in third-party invite event".to_string()))?;
     if membership != "invite" {
-        return Err(ApiError::bad_request(format!(
-            "Expected membership 'invite' but got '{membership}'"
-        )));
+        return Err(ApiError::bad_request(format!("Expected membership 'invite' but got '{membership}'")));
     }
 
     Ok((sender, state_key))
 }
 
 async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiResult<String> {
-    let effective_join_rule =
-        if let Some(content) = get_effective_room_join_rule_content(state, room_id).await? {
-            content
-                .get("join_rule")
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string())
-        } else {
-            None
-        };
+    let effective_join_rule = if let Some(content) = get_effective_room_join_rule_content(state, room_id).await? {
+        content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
+    } else {
+        None
+    };
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room =
+        state.services.room_storage.get_room(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
-    Ok(effective_join_rule
-        .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-        .unwrap_or_else(|| {
+    Ok(effective_join_rule.or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone())).unwrap_or_else(
+        || {
             if room.is_public {
                 "public".to_string()
             } else {
                 "invite".to_string()
             }
-        }))
+        },
+    ))
 }
 
-async fn get_effective_room_join_rule_content(
-    state: &AppState,
-    room_id: &str,
-) -> ApiResult<Option<Value>> {
+async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -> ApiResult<Option<Value>> {
     Ok(state
         .services
         .event_storage
@@ -1197,11 +1077,7 @@ async fn get_effective_room_join_rule_content(
         .map(|event| event.content))
 }
 
-async fn validate_federation_join_access(
-    state: &AppState,
-    room_id: &str,
-    user_id: &str,
-) -> ApiResult<()> {
+async fn validate_federation_join_access(state: &AppState, room_id: &str, user_id: &str) -> ApiResult<()> {
     let join_rule = get_effective_room_join_rule(state, room_id).await?;
     let existing_member = state
         .services
@@ -1220,11 +1096,7 @@ async fn validate_federation_join_access(
         }
     }
 
-    if join_rule != "public"
-        && existing_member
-            .as_ref()
-            .is_none_or(|member| member.membership != "invite")
-    {
+    if join_rule != "public" && existing_member.as_ref().is_none_or(|member| member.membership != "invite") {
         return Err(ApiError::forbidden("User is not allowed to join this room"));
     }
 

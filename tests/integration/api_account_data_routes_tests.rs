@@ -11,8 +11,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
 }
 
-async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
-{
+async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     super::setup_test_app_with_pool().await
 }
 
@@ -40,21 +39,14 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 #[tokio::test]
@@ -67,38 +59,26 @@ async fn test_account_data_round_trip_across_v3_and_r0() {
 
     let put_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/account_data/im.vector.settings",
-            user_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/im.vector.settings", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
-        .await
-        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
     assert_eq!(put_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/account_data/im.vector.settings",
-            user_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/account_data/im.vector.settings", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, content);
 }
@@ -111,26 +91,18 @@ async fn test_account_data_list_returns_saved_entries() {
     let (token, user_id) = register_user(&app, "account_data_list_routes").await;
 
     for (data_type, content) in [
-        (
-            "im.vector.settings",
-            json!({ "theme": "dark", "layout": "compact" }),
-        ),
+        ("im.vector.settings", json!({ "theme": "dark", "layout": "compact" })),
         ("m.fav_color", json!({ "value": "blue" })),
     ] {
         let put_request = Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/v3/user/{}/account_data/{}",
-                user_id, data_type
-            ))
+            .uri(format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type))
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(content.to_string()))
             .unwrap();
 
-        let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
-            .await
-            .unwrap();
+        let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
     }
 
@@ -141,23 +113,13 @@ async fn test_account_data_list_returns_saved_entries() {
         .body(Body::empty())
         .unwrap();
 
-    let list_response = ServiceExt::<Request<Body>>::oneshot(app, list_request)
-        .await
-        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app, list_request).await.unwrap();
     assert_eq!(list_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(list_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(list_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(
-        json["account_data"]["im.vector.settings"],
-        json!({ "theme": "dark", "layout": "compact" })
-    );
-    assert_eq!(
-        json["account_data"]["m.fav_color"],
-        json!({ "value": "blue" })
-    );
+    assert_eq!(json["account_data"]["im.vector.settings"], json!({ "theme": "dark", "layout": "compact" }));
+    assert_eq!(json["account_data"]["m.fav_color"], json!({ "value": "blue" }));
 }
 
 #[tokio::test]
@@ -171,38 +133,26 @@ async fn test_room_account_data_round_trip_across_versions() {
 
     let put_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/rooms/{}/account_data/m.tag",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/account_data/m.tag", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
-        .await
-        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
     assert_eq!(put_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, content);
 }
@@ -229,35 +179,24 @@ async fn test_filter_round_trip_across_versions() {
         .body(Body::from(filter.to_string()))
         .unwrap();
 
-    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
-        .await
-        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
     assert_eq!(create_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(create_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(create_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let filter_id = json["filter_id"].as_str().unwrap();
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/filter/{}",
-            user_id, filter_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/filter/{}", user_id, filter_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, filter);
 }
@@ -285,35 +224,24 @@ async fn test_filter_post_route_round_trip() {
         .body(Body::from(filter.to_string()))
         .unwrap();
 
-    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
-        .await
-        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
     assert_eq!(create_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(create_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(create_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let filter_id = json["filter_id"].as_str().unwrap();
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/filter/{}",
-            user_id, filter_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/filter/{}", user_id, filter_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, filter);
 }
@@ -336,14 +264,10 @@ async fn test_openid_request_token_route_is_shared() {
             .body(Body::empty())
             .unwrap();
 
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["token_type"], "Bearer");
         assert!(json["access_token"].as_str().is_some());
@@ -360,38 +284,26 @@ async fn test_tags_routes_work_across_v3_and_r0() {
 
     let put_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "order": 0.25 }).to_string()))
         .unwrap();
 
-    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request)
-        .await
-        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
     assert_eq!(put_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/rooms/{}/tags",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/tags", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request)
-        .await
-        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
     assert_eq!(get_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(get_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["tags"]["m.favourite"]["order"], json!(0.25));
 
@@ -402,66 +314,45 @@ async fn test_tags_routes_work_across_v3_and_r0() {
         .body(Body::empty())
         .unwrap();
 
-    let global_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), global_request)
-        .await
-        .unwrap();
+    let global_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), global_request).await.unwrap();
     assert_eq!(global_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(global_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(global_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["tags"][room_id]["m.favourite"]["order"], json!(0.25));
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/r0/user/{}/rooms/{}/tags/m.favourite",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
-        .await
-        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(delete_response.status(), StatusCode::OK);
 
     let verify_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/tags",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let verify_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_request)
-        .await
-        .unwrap();
+    let verify_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_request).await.unwrap();
     assert_eq!(verify_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(verify_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(verify_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["tags"], json!({}));
 
     let v1_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v1/user/{}/rooms/{}/tags",
-            user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v1/user/{}/rooms/{}/tags", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
-    let v1_response = ServiceExt::<Request<Body>>::oneshot(app, v1_request)
-        .await
-        .unwrap();
+    let v1_response = ServiceExt::<Request<Body>>::oneshot(app, v1_request).await.unwrap();
     assert_eq!(v1_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -471,54 +362,37 @@ async fn test_tags_routes_reject_admin_access_to_other_users_data() {
         return;
     };
 
-    let (owner_token, owner_user_id) =
-        register_user(&app, &format!("tags_owner_{}", rand::random::<u32>())).await;
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("tags_admin_{}", rand::random::<u32>())).await;
+    let (owner_token, owner_user_id) = register_user(&app, &format!("tags_owner_{}", rand::random::<u32>())).await;
+    let (admin_token, admin_user_id) = register_user(&app, &format!("tags_admin_{}", rand::random::<u32>())).await;
     promote_to_admin(&pool, &cache, &admin_user_id).await;
 
     let room_id = "!tags-admin-room:localhost";
     let owner_put = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite",
-            owner_user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite", owner_user_id, room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "order": 0.5 }).to_string()))
         .unwrap();
-    let owner_put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_put)
-        .await
-        .unwrap();
+    let owner_put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), owner_put).await.unwrap();
     assert_eq!(owner_put_response.status(), StatusCode::OK);
 
     let admin_get = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/tags",
-            owner_user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags", owner_user_id, room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get)
-        .await
-        .unwrap();
+    let admin_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_get).await.unwrap();
     assert_eq!(admin_get_response.status(), StatusCode::FORBIDDEN);
 
     let admin_put = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/user/{}/rooms/{}/tags/m.lowpriority",
-            owner_user_id, room_id
-        ))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.lowpriority", owner_user_id, room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "order": 0.9 }).to_string()))
         .unwrap();
-    let admin_put_response = ServiceExt::<Request<Body>>::oneshot(app, admin_put)
-        .await
-        .unwrap();
+    let admin_put_response = ServiceExt::<Request<Body>>::oneshot(app, admin_put).await.unwrap();
     assert_eq!(admin_put_response.status(), StatusCode::FORBIDDEN);
 }

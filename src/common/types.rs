@@ -9,10 +9,7 @@ pub struct UserId {
 
 impl UserId {
     pub fn new(localpart: &str, server_name: &str) -> Self {
-        Self {
-            localpart: localpart.to_string(),
-            server_name: server_name.to_string(),
-        }
+        Self { localpart: localpart.to_string(), server_name: server_name.to_string() }
     }
 }
 
@@ -30,10 +27,7 @@ pub struct RoomAlias {
 
 impl RoomAlias {
     pub fn new(localpart: &str, server_name: &str) -> Self {
-        Self {
-            localpart: localpart.to_string(),
-            server_name: server_name.to_string(),
-        }
+        Self { localpart: localpart.to_string(), server_name: server_name.to_string() }
     }
 }
 
@@ -51,10 +45,7 @@ pub struct EventId {
 
 impl EventId {
     pub fn new(value: &str, server_name: &str) -> Self {
-        Self {
-            value: value.to_string(),
-            server_name: server_name.to_string(),
-        }
+        Self { value: value.to_string(), server_name: server_name.to_string() }
     }
 }
 
@@ -73,11 +64,7 @@ pub struct RoomVersion {
 
 impl RoomVersion {
     pub fn v1() -> Self {
-        Self {
-            identifier: "1".to_string(),
-            needs_authentication: false,
-            unstable_features: None,
-        }
+        Self { identifier: "1".to_string(), needs_authentication: false, unstable_features: None }
     }
 
     pub fn v2() -> Self {

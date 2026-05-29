@@ -21,11 +21,7 @@ pub struct LeakDetectionConfig {
 
 impl Default for LeakDetectionConfig {
     fn default() -> Self {
-        Self {
-            max_message_index_gap: 10,
-            max_time_gap_hours: 24,
-            enable_detection: true,
-        }
+        Self { max_message_index_gap: 10, max_time_gap_hours: 24, enable_detection: true }
     }
 }
 
@@ -97,10 +93,7 @@ impl LeakDetectionService {
                 session_id: session.session_id.clone(),
                 alert_type: "time_gap".to_string(),
                 severity: "medium".to_string(),
-                details: Some(format!(
-                    "Unusual time gap detected: {} hours since last use",
-                    time_since_last_use
-                )),
+                details: Some(format!("Unusual time gap detected: {} hours since last use", time_since_last_use)),
                 detected_at: Utc::now(),
                 resolved: false,
                 resolved_at: None,
@@ -119,10 +112,7 @@ impl LeakDetectionService {
                 session_id: session.session_id.clone(),
                 alert_type: "multiple_devices".to_string(),
                 severity: "high".to_string(),
-                details: Some(format!(
-                    "Session used by {} devices",
-                    device_count
-                )),
+                details: Some(format!("Session used by {} devices", device_count)),
                 detected_at: Utc::now(),
                 resolved: false,
                 resolved_at: None,
@@ -143,11 +133,7 @@ impl LeakDetectionService {
             self.storage.save_alert(alert).await?;
         }
 
-        Ok(LeakDetectionResult {
-            has_leak,
-            alerts,
-            risk_level: risk_level.to_string(),
-        })
+        Ok(LeakDetectionResult { has_leak, alerts, risk_level: risk_level.to_string() })
     }
 
     pub async fn get_user_alerts(&self, user_id: &str) -> Result<Vec<LeakAlert>, ApiError> {
@@ -183,9 +169,9 @@ impl LeakDetectionStorage {
 
     pub async fn save_alert(&self, alert: &LeakAlert) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO leak_alerts 
+            "INSERT INTO leak_alerts
              (user_id, device_id, room_id, session_id, alert_type, severity, details, detected_at, resolved)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(&alert.user_id)
         .bind(&alert.device_id)
@@ -198,7 +184,10 @@ impl LeakDetectionStorage {
         .bind(alert.resolved)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -209,16 +198,19 @@ impl LeakDetectionStorage {
 
     pub async fn get_user_alerts(&self, user_id: &str) -> Result<Vec<LeakAlert>, ApiError> {
         let rows = sqlx::query(
-            "SELECT id, user_id, device_id, room_id, session_id, alert_type, severity, 
+            "SELECT id, user_id, device_id, room_id, session_id, alert_type, severity,
              details, detected_at, resolved, resolved_at
-             FROM leak_alerts 
-             WHERE user_id = $1 
-             ORDER BY detected_at DESC"
+             FROM leak_alerts
+             WHERE user_id = $1
+             ORDER BY detected_at DESC",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         use sqlx::Row;
         let alerts = rows
@@ -243,31 +235,37 @@ impl LeakDetectionStorage {
 
     pub async fn resolve_alert(&self, alert_id: i64) -> Result<(), ApiError> {
         sqlx::query(
-            "UPDATE leak_alerts 
-             SET resolved = true, resolved_at = NOW() 
-             WHERE id = $1"
+            "UPDATE leak_alerts
+             SET resolved = true, resolved_at = NOW()
+             WHERE id = $1",
         )
         .bind(alert_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     pub async fn get_leak_statistics(&self) -> Result<LeakStatistics, ApiError> {
         let row = sqlx::query(
-            "SELECT 
+            "SELECT
              COUNT(*) as total_alerts,
              COUNT(CASE WHEN NOT resolved THEN 1 END) as unresolved_alerts,
              COUNT(CASE WHEN severity = 'high' THEN 1 END) as high_severity_count,
              COUNT(CASE WHEN severity = 'medium' THEN 1 END) as medium_severity_count,
              COUNT(CASE WHEN severity = 'low' THEN 1 END) as low_severity_count
-             FROM leak_alerts"
+             FROM leak_alerts",
         )
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         use sqlx::Row;
         Ok(LeakStatistics {

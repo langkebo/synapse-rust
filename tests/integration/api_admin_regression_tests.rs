@@ -7,9 +7,9 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::{Arc, OnceLock};
-use synapse_rust::cache::CacheManager;
 #[cfg(feature = "saml-sso")]
 use synapse_rust::cache::CacheConfig;
+use synapse_rust::cache::CacheManager;
 #[cfg(feature = "saml-sso")]
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::sliding_sync::SlidingSyncStorage;
@@ -30,11 +30,8 @@ async fn setup_test_app() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheM
 }
 
 #[cfg(feature = "saml-sso")]
-async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)>
-{
-    let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
-        .await
-        .ok()?;
+async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     container.config.saml.enabled = true;
@@ -80,23 +77,16 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<(String, St
         ))
         .ok()?;
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .ok()?;
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.ok()?;
 
     if response.status() != StatusCode::OK {
         return None;
     }
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .ok()?;
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.ok()?;
     let json: Value = serde_json::from_slice(&body).ok()?;
 
-    Some((
-        json.get("access_token")?.as_str()?.to_string(),
-        json.get("user_id")?.as_str()?.to_string(),
-    ))
+    Some((json.get("access_token")?.as_str()?.to_string(), json.get("user_id")?.as_str()?.to_string()))
 }
 
 async fn promote_to_admin(pool: &sqlx::PgPool, user_id: &str) {
@@ -129,14 +119,11 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .body(Body::from(json!({ "name": name }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("room creation request failed");
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("room creation request failed");
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -150,9 +137,8 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("room invite request failed");
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("room invite request failed");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -164,9 +150,7 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("room join request failed");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("room join request failed");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -194,18 +178,14 @@ async fn test_public_register_ignores_admin_flag() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("registration request failed");
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("registration request failed");
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .expect("failed to read registration response body");
+    let body =
+        axum::body::to_bytes(response.into_body(), 4096).await.expect("failed to read registration response body");
     let payload: Value = serde_json::from_slice(&body).expect("invalid registration json");
-    let user_id = payload["user_id"]
-        .as_str()
-        .expect("missing user_id in registration response");
+    let user_id = payload["user_id"].as_str().expect("missing user_id in registration response");
 
     let row = sqlx::query("SELECT is_admin FROM users WHERE user_id = $1")
         .bind(user_id)
@@ -221,10 +201,7 @@ async fn test_public_register_ignores_admin_flag() {
 async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            room_id, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/{}", room_id, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -236,14 +213,11 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("send message request failed");
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("send message request failed");
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
@@ -255,10 +229,9 @@ async fn test_admin_room_event_reads_from_events_table() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("admin_room_event_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_room_event_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Event").await;
@@ -266,22 +239,15 @@ async fn test_admin_room_event_reads_from_events_table() {
     let second_event_id = send_message(&app, &admin_token, &room_id, "admin-room-event-2").await;
 
     let request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/event_context/{}",
-            room_id, second_event_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/event_context/{}", room_id, second_event_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["event"]["event_id"], second_event_id);
@@ -296,12 +262,9 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("admin_room_report_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_room_report_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Report").await;
@@ -337,14 +300,10 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["total"], 1);
@@ -354,16 +313,11 @@ async fn test_admin_room_reports_follow_current_event_report_schema() {
 
     let missing_room_id = format!("!missing-report-room-{}:localhost", rand::random::<u32>());
     let missing_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/reports",
-            missing_room_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/reports", missing_room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let missing_response = ServiceExt::<Request<Body>>::oneshot(app, missing_request)
-        .await
-        .unwrap();
+    let missing_response = ServiceExt::<Request<Body>>::oneshot(app, missing_request).await.unwrap();
     assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -374,12 +328,9 @@ async fn test_admin_room_collection_queries_require_existing_room() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("admin_room_queries_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_room_queries_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
@@ -390,10 +341,7 @@ async fn test_admin_room_collection_queries_require_existing_room() {
         format!("/_synapse/admin/v1/rooms/{}/messages", missing_room_id),
         format!("/_synapse/admin/v1/rooms/{}/block", missing_room_id),
         format!("/_synapse/admin/v1/rooms/{}/room_listings", missing_room_id),
-        format!(
-            "/_synapse/admin/v1/rooms/{}/forward_extremities",
-            missing_room_id
-        ),
+        format!("/_synapse/admin/v1/rooms/{}/forward_extremities", missing_room_id),
         format!("/_synapse/admin/v1/rooms/{}/token_sync", missing_room_id),
     ] {
         let request = Request::builder()
@@ -401,39 +349,27 @@ async fn test_admin_room_collection_queries_require_existing_room() {
             .header("Authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
     }
 
     let event_context_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/event_context/$missing-event:localhost",
-            missing_room_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/event_context/$missing-event:localhost", missing_room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     let event_context_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), event_context_request)
-            .await
-            .unwrap();
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), event_context_request).await.unwrap();
     assert_eq!(event_context_response.status(), StatusCode::NOT_FOUND);
 
     let search_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/search",
-            missing_room_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/search", missing_room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "search_term": "hello" }).to_string()))
         .unwrap();
-    let search_response = ServiceExt::<Request<Body>>::oneshot(app, search_request)
-        .await
-        .unwrap();
+    let search_response = ServiceExt::<Request<Body>>::oneshot(app, search_request).await.unwrap();
     assert_eq!(search_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -444,49 +380,35 @@ async fn test_admin_room_member_delete_requires_existing_targets() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("admin_room_member_delete_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("admin_room_member_delete_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (_, managed_user_id) =
-        register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register managed user");
+    let (_, managed_user_id) = register_user(&app, &format!("managed_member_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register managed user");
 
     let missing_room_id = format!("missing-room-{}", rand::random::<u32>());
     let missing_room_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/members/{}",
-            missing_room_id, managed_user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/members/{}", missing_room_id, managed_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let missing_room_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), missing_room_request)
-            .await
-            .unwrap();
+    let missing_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), missing_room_request).await.unwrap();
     assert_eq!(missing_room_response.status(), StatusCode::NOT_FOUND);
 
     let room_id = create_room(&app, &admin_token, "Admin Member Delete Target").await;
     let missing_user_id = format!("@missing_member_{}:localhost", rand::random::<u32>());
     let missing_user_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/members/{}",
-            room_id, missing_user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/members/{}", room_id, missing_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let missing_user_response = ServiceExt::<Request<Body>>::oneshot(app, missing_user_request)
-        .await
-        .unwrap();
+    let missing_user_response = ServiceExt::<Request<Body>>::oneshot(app, missing_user_request).await.unwrap();
     assert_eq!(missing_user_response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -497,12 +419,9 @@ async fn test_admin_space_collection_queries_require_existing_space() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("admin_space_queries_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_space_queries_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let missing_space_id = format!("missing-space-{}", rand::random::<u32>());
@@ -517,9 +436,7 @@ async fn test_admin_space_collection_queries_require_existing_space() {
             .header("Authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
     }
 
@@ -548,56 +465,35 @@ async fn test_admin_space_collection_queries_require_existing_space() {
     .expect("failed to seed space fixture");
 
     let users_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/spaces/{}/users",
-            existing_space_id
-        ))
+        .uri(format!("/_synapse/admin/v1/spaces/{}/users", existing_space_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let users_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), users_request)
-        .await
-        .unwrap();
+    let users_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), users_request).await.unwrap();
     assert_eq!(users_response.status(), StatusCode::OK);
-    let users_body = axum::body::to_bytes(users_response.into_body(), 4096)
-        .await
-        .unwrap();
+    let users_body = axum::body::to_bytes(users_response.into_body(), 4096).await.unwrap();
     let users_json: Value = serde_json::from_slice(&users_body).unwrap();
     assert_eq!(users_json, json!({ "users": [], "total": 0 }));
 
     let rooms_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/spaces/{}/rooms",
-            existing_space_id
-        ))
+        .uri(format!("/_synapse/admin/v1/spaces/{}/rooms", existing_space_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let rooms_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), rooms_request)
-        .await
-        .unwrap();
+    let rooms_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), rooms_request).await.unwrap();
     assert_eq!(rooms_response.status(), StatusCode::OK);
-    let rooms_body = axum::body::to_bytes(rooms_response.into_body(), 4096)
-        .await
-        .unwrap();
+    let rooms_body = axum::body::to_bytes(rooms_response.into_body(), 4096).await.unwrap();
     let rooms_json: Value = serde_json::from_slice(&rooms_body).unwrap();
     assert_eq!(rooms_json, json!({ "rooms": [], "total": 0 }));
 
     let stats_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/spaces/{}/stats",
-            existing_space_id
-        ))
+        .uri(format!("/_synapse/admin/v1/spaces/{}/stats", existing_space_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let stats_response = ServiceExt::<Request<Body>>::oneshot(app, stats_request)
-        .await
-        .unwrap();
+    let stats_response = ServiceExt::<Request<Body>>::oneshot(app, stats_request).await.unwrap();
     assert_eq!(stats_response.status(), StatusCode::OK);
-    let stats_body = axum::body::to_bytes(stats_response.into_body(), 4096)
-        .await
-        .unwrap();
+    let stats_body = axum::body::to_bytes(stats_response.into_body(), 4096).await.unwrap();
     let stats_json: Value = serde_json::from_slice(&stats_body).unwrap();
     assert_eq!(
         stats_json,
@@ -616,36 +512,26 @@ async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_mis
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("admin_audit_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_audit_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (_, target_user_id) =
-        register_user(&app, &format!("audit_target_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register target user");
-
-    sqlx::query("DROP TABLE IF EXISTS audit_events")
-        .execute(&*pool)
+    let (_, target_user_id) = register_user(&app, &format!("audit_target_{}", rand::random::<u32>()))
         .await
-        .expect("failed to drop audit_events");
+        .expect("failed to register target user");
+
+    sqlx::query("DROP TABLE IF EXISTS audit_events").execute(&*pool).await.expect("failed to drop audit_events");
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/users/{}/shadow_ban",
-            target_user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/users/{}/shadow_ban", target_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("x-request-id", "req-admin-audit-regression")
         .body(Body::from("{}"))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -655,9 +541,7 @@ async fn test_admin_audit_endpoints_remain_available_when_schema_audit_table_mis
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -669,10 +553,9 @@ async fn test_admin_room_token_sync_returns_sliding_sync_state() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("admin_token_sync_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("admin_token_sync_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let room_id = create_room(&app, &admin_token, "Admin Room Token Sync").await;
@@ -711,14 +594,10 @@ async fn test_admin_room_token_sync_returns_sliding_sync_state() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["room_id"], room_id);
@@ -739,16 +618,14 @@ async fn test_module_admin_endpoints_require_admin_role() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("module_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("module_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, user_id) =
-        register_user(&app, &format!("module_target_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register target user");
+    let (user_token, user_id) = register_user(&app, &format!("module_target_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
 
     let admin_modules_request = Request::builder()
         .uri("/_synapse/admin/v1/modules")
@@ -756,9 +633,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_modules_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_modules_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let forbidden_modules_request = Request::builder()
@@ -767,9 +642,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_modules_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_modules_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
@@ -788,13 +661,9 @@ async fn test_module_admin_endpoints_require_admin_role() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_validity_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_validity_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["user_id"], user_id);
     assert_eq!(json["expiration_ts"], expiration_ts);
@@ -806,9 +675,7 @@ async fn test_module_admin_endpoints_require_admin_role() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
@@ -817,13 +684,9 @@ async fn test_module_admin_endpoints_require_admin_role() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["user_id"], user_id);
     assert_eq!(json["expiration_ts"], expiration_ts);
@@ -837,10 +700,9 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("cas_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("cas_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, user_id) = register_user(&app, &format!("cas_user_{}", rand::random::<u32>()))
@@ -852,9 +714,7 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_services_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_services_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_services_request = Request::builder()
@@ -862,35 +722,23 @@ async fn test_cas_admin_endpoints_require_admin_role() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_services_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_services_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let forbidden_attrs_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/cas/users/{}/attributes",
-            user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_attrs_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_attrs_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_attrs_request = Request::builder()
-        .uri(format!(
-            "/_synapse/admin/v1/cas/users/{}/attributes",
-            user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/cas/users/{}/attributes", user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_attrs_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_attrs_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -902,25 +750,21 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("cas_legacy_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("cas_legacy_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, user_id) =
-        register_user(&app, &format!("cas_legacy_user_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register regular user");
+    let (user_token, user_id) = register_user(&app, &format!("cas_legacy_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
 
     let forbidden_services_request = Request::builder()
         .uri("/admin/services")
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_services_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_services_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_services_request = Request::builder()
@@ -928,22 +772,11 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_services_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_services_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get("Deprecation").and_then(|value| value.to_str().ok()), Some("true"));
     assert_eq!(
-        response
-            .headers()
-            .get("Deprecation")
-            .and_then(|value| value.to_str().ok()),
-        Some("true")
-    );
-    assert_eq!(
-        response
-            .headers()
-            .get("Warning")
-            .and_then(|value| value.to_str().ok()),
+        response.headers().get("Warning").and_then(|value| value.to_str().ok()),
         Some(
             r#"299 synapse-rust "Legacy CAS admin aliases under /admin are deprecated; use /_synapse/admin/v1/cas/*""#
         )
@@ -954,9 +787,7 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_attrs_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), forbidden_attrs_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_attrs_request = Request::builder()
@@ -964,17 +795,9 @@ async fn test_legacy_cas_admin_aliases_remain_admin_protected() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_attrs_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_attrs_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response
-            .headers()
-            .get("Deprecation")
-            .and_then(|value| value.to_str().ok()),
-        Some("true")
-    );
+    assert_eq!(response.headers().get("Deprecation").and_then(|value| value.to_str().ok()), Some("true"));
 }
 
 #[tokio::test]
@@ -984,10 +807,9 @@ async fn test_additional_admin_routes_require_admin_role() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("extra_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("extra_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(&app, &format!("extra_user_{}", rand::random::<u32>()))
@@ -999,9 +821,7 @@ async fn test_additional_admin_routes_require_admin_role() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), appservice_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), appservice_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let push_process_request = Request::builder()
@@ -1010,9 +830,7 @@ async fn test_additional_admin_routes_require_admin_role() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), push_process_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), push_process_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let captcha_cleanup_request = Request::builder()
@@ -1021,9 +839,7 @@ async fn test_additional_admin_routes_require_admin_role() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), captcha_cleanup_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), captcha_cleanup_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let external_services_request = Request::builder()
@@ -1031,9 +847,7 @@ async fn test_additional_admin_routes_require_admin_role() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), external_services_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), external_services_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_appservice_request = Request::builder()
@@ -1041,9 +855,7 @@ async fn test_additional_admin_routes_require_admin_role() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_appservice_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_appservice_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1055,24 +867,18 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("saml_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("saml_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(&app, &format!("saml_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
 
-    let unauthenticated_request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/admin/v1/saml/metadata/refresh")
-        .body(Body::empty())
-        .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
-        .await
-        .unwrap();
+    let unauthenticated_request =
+        Request::builder().method("POST").uri("/_synapse/admin/v1/saml/metadata/refresh").body(Body::empty()).unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let user_request = Request::builder()
@@ -1081,9 +887,7 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
@@ -1092,9 +896,7 @@ async fn test_saml_admin_metadata_refresh_requires_admin_middleware() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1105,66 +907,45 @@ async fn test_moderation_report_score_rejects_client_admin_write() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("report_score_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("report_score_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, _) = register_user(
-        &app,
-        &format!("report_score_user_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register regular user");
+    let (user_token, _) = register_user(&app, &format!("report_score_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
 
     let room_id = create_room(&app, &admin_token, "Moderation Report Score").await;
     let event_id = send_message(&app, &admin_token, &room_id, "moderation-report-score").await;
 
     let unauthenticated_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/report/{}/score",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/report/{}/score", room_id, event_id))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "score": -10 }).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let user_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/report/{}/score",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/report/{}/score", room_id, event_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "score": -10 }).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/report/{}/score",
-            room_id, event_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/report/{}/score", room_id, event_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "score": -10 }).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -1175,19 +956,15 @@ async fn test_room_alias_management_requires_room_creator() {
         return;
     };
 
-    let (owner_token, _) = register_user(&app, &format!("alias_owner_{}", rand::random::<u32>()))
-        .await
-        .expect("failed to register owner");
+    let (owner_token, _) =
+        register_user(&app, &format!("alias_owner_{}", rand::random::<u32>())).await.expect("failed to register owner");
     let (admin_token, admin_user_id) =
-        register_user(&app, &format!("alias_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin");
+        register_user(&app, &format!("alias_admin_{}", rand::random::<u32>())).await.expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (member_token, member_user_id) =
-        register_user(&app, &format!("alias_member_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register joined member");
+    let (member_token, member_user_id) = register_user(&app, &format!("alias_member_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register joined member");
     let (user_token, _) = register_user(&app, &format!("alias_user_{}", rand::random::<u32>()))
         .await
         .expect("failed to register regular user");
@@ -1200,145 +977,95 @@ async fn test_room_alias_management_requires_room_creator() {
 
     let create_alias_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "room_id": room_id }).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_alias_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_alias_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let unauthenticated_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let user_v3_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_v3_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_v3_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let user_r0_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/r0/directory/room/{}/alias/{}",
-            room_id, encoded_alias
-        ))
+        .uri(format!("/_matrix/client/r0/directory/room/{}/alias/{}", room_id, encoded_alias))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_r0_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_r0_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let joined_member_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), joined_member_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), joined_member_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let member_r0_create_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/r0/directory/room/{}/alias/{}",
-            room_id, encoded_alias
-        ))
+        .uri(format!("/_matrix/client/r0/directory/room/{}/alias/{}", room_id, encoded_alias))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_create_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_create_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let member_r0_delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/r0/directory/room/{}/alias/{}",
-            room_id, encoded_alias
-        ))
+        .uri(format!("/_matrix/client/r0/directory/room/{}/alias/{}", room_id, encoded_alias))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_delete_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_r0_delete_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let second_alias = format!("#alias-security-admin-{}:localhost", rand::random::<u32>());
     let second_encoded_alias = urlencoding::encode(&second_alias);
     let admin_create_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            second_encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", second_encoded_alias))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "room_id": room_id }).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let lookup_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/directory/room/{}",
-            encoded_alias
-        ))
+        .uri(format!("/_matrix/client/v3/directory/room/{}", encoded_alias))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, lookup_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, lookup_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1352,10 +1079,9 @@ async fn test_room_summary_internal_write_routes_require_admin() {
     let (owner_token, _) = register_user(&app, &format!("summary_owner_{}", rand::random::<u32>()))
         .await
         .expect("failed to register owner");
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("summary_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("summary_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let (user_token, _) = register_user(&app, &format!("summary_user_{}", rand::random::<u32>()))
@@ -1374,9 +1100,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body.to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let user_create = Request::builder()
@@ -1386,9 +1110,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body.to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_create = Request::builder()
@@ -1398,19 +1120,12 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body.to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
-    let unauthenticated_process = Request::builder()
-        .method("POST")
-        .uri("/_synapse/room_summary/v1/updates/process")
-        .body(Body::empty())
-        .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_process)
-        .await
-        .unwrap();
+    let unauthenticated_process =
+        Request::builder().method("POST").uri("/_synapse/room_summary/v1/updates/process").body(Body::empty()).unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_process).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let user_process = Request::builder()
@@ -1419,9 +1134,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_process)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_process).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_process = Request::builder()
@@ -1430,9 +1143,7 @@ async fn test_room_summary_internal_write_routes_require_admin() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_process)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_process).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1443,26 +1154,18 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("account_validity_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("account_validity_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, _) = register_user(
-        &app,
-        &format!("account_validity_user_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register regular user");
-    let (_, target_user_id) = register_user(
-        &app,
-        &format!("account_validity_target_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register target user");
+    let (user_token, _) = register_user(&app, &format!("account_validity_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
+    let (_, target_user_id) = register_user(&app, &format!("account_validity_target_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
 
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
     let request_body = json!({
@@ -1478,9 +1181,7 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(request_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_request = Request::builder()
@@ -1490,9 +1191,7 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(request_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_request = Request::builder()
@@ -1502,14 +1201,10 @@ async fn test_account_validity_post_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(request_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, admin_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["user_id"], target_user_id);
     assert_eq!(json["expiration_ts"], expiration_ts);
@@ -1523,18 +1218,13 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("account_validity_super_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register super admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("account_validity_super_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register super admin user");
     promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let missing_user_id = format!(
-        "@missing_account_validity_{}:localhost",
-        rand::random::<u32>()
-    );
+    let missing_user_id = format!("@missing_account_validity_{}:localhost", rand::random::<u32>());
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000_i64;
 
     let create_request = Request::builder()
@@ -1551,13 +1241,9 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
             .to_string(),
         ))
         .unwrap();
-    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request)
-        .await
-        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
     let create_status = create_response.status();
-    let create_body = axum::body::to_bytes(create_response.into_body(), 8192)
-        .await
-        .unwrap();
+    let create_body = axum::body::to_bytes(create_response.into_body(), 8192).await.unwrap();
     assert_eq!(
         create_status,
         StatusCode::NOT_FOUND,
@@ -1565,20 +1251,16 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
         String::from_utf8_lossy(&create_body)
     );
 
-    let validity_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
-            .bind(&missing_user_id)
-            .fetch_one(&*pool)
-            .await
-            .expect("failed to inspect account_validity table");
+    let validity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM account_validity WHERE user_id = $1")
+        .bind(&missing_user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to inspect account_validity table");
     assert_eq!(validity_count, 0);
 
     let renew_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/account_validity/{}/renew",
-            missing_user_id
-        ))
+        .uri(format!("/_synapse/admin/v1/account_validity/{}/renew", missing_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -1589,13 +1271,9 @@ async fn test_account_validity_write_endpoints_require_existing_user() {
             .to_string(),
         ))
         .unwrap();
-    let renew_response = ServiceExt::<Request<Body>>::oneshot(app, renew_request)
-        .await
-        .unwrap();
+    let renew_response = ServiceExt::<Request<Body>>::oneshot(app, renew_request).await.unwrap();
     let renew_status = renew_response.status();
-    let renew_body = axum::body::to_bytes(renew_response.into_body(), 8192)
-        .await
-        .unwrap();
+    let renew_body = axum::body::to_bytes(renew_response.into_body(), 8192).await.unwrap();
     assert_eq!(
         renew_status,
         StatusCode::NOT_FOUND,
@@ -1611,18 +1289,13 @@ async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("batch_create_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("batch_create_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin_with_role(&pool, &admin_user_id, "super_admin").await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let existing_username = format!("batch_existing_{}", rand::random::<u32>());
-    register_user(&app, &existing_username)
-        .await
-        .expect("failed to register existing batch user");
+    register_user(&app, &existing_username).await.expect("failed to register existing batch user");
 
     let new_username = format!("batch_new_{}", rand::random::<u32>());
     let request = Request::builder()
@@ -1641,14 +1314,10 @@ async fn test_admin_batch_create_users_reports_conflicts_as_failed() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["total"], 2);
     assert_eq!(json["created"], json!([new_username]));
@@ -1676,16 +1345,14 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
         return;
     };
 
-    let (user_admin_token, user_admin_id) =
-        register_user(&app, &format!("user_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register user admin");
+    let (user_admin_token, user_admin_id) = register_user(&app, &format!("user_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
     invalidate_admin_cache(&cache, &user_admin_id).await;
-    let (_, target_user_id) =
-        register_user(&app, &format!("target_user_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register target user");
+    let (_, target_user_id) = register_user(&app, &format!("target_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
 
     let request = Request::builder()
         .method("PUT")
@@ -1695,23 +1362,18 @@ async fn test_user_admin_cannot_grant_admin_via_set_admin() {
         .body(Body::from(json!({ "admin": true }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("set_admin request failed");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("set_admin request failed");
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 
-    let target_admin: Option<bool> =
-        sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
-            .bind(&target_user_id)
-            .fetch_optional(&*pool)
-            .await
-            .expect("failed to query target admin status");
+    let target_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
+        .bind(&target_user_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("failed to query target admin status");
     assert_eq!(target_admin, Some(false));
 }
 
@@ -1722,10 +1384,9 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
         return;
     };
 
-    let (user_admin_token, user_admin_id) =
-        register_user(&app, &format!("user_admin_v2_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register user admin");
+    let (user_admin_token, user_admin_id) = register_user(&app, &format!("user_admin_v2_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register user admin");
     promote_to_admin_with_role(&pool, &user_admin_id, "user_admin").await;
     invalidate_admin_cache(&cache, &user_admin_id).await;
     let (_, target_user_id) = register_user(&app, &format!("target_v2_{}", rand::random::<u32>()))
@@ -1752,9 +1413,7 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
         .expect("create_or_update_user_v2 request failed");
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 
@@ -1765,10 +1424,7 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
         .expect("failed to query updated user");
     assert!(!row.get::<bool, _>("is_admin"));
     assert_eq!(row.get::<Option<String>, _>("user_type"), None);
-    assert_ne!(
-        row.get::<Option<String>, _>("displayname"),
-        Some("still allowed fields exist".to_string())
-    );
+    assert_ne!(row.get::<Option<String>, _>("displayname"), Some("still allowed fields exist".to_string()));
 }
 
 #[tokio::test]
@@ -1778,16 +1434,14 @@ async fn test_super_admin_can_grant_admin_via_set_admin() {
         return;
     };
 
-    let (super_admin_token, super_admin_id) =
-        register_user(&app, &format!("super_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register super admin");
+    let (super_admin_token, super_admin_id) = register_user(&app, &format!("super_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register super admin");
     promote_to_admin_with_role(&pool, &super_admin_id, "super_admin").await;
     invalidate_admin_cache(&cache, &super_admin_id).await;
-    let (_, target_user_id) =
-        register_user(&app, &format!("target_promote_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register target user");
+    let (_, target_user_id) = register_user(&app, &format!("target_promote_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
 
     let request = Request::builder()
         .method("PUT")
@@ -1797,23 +1451,18 @@ async fn test_super_admin_can_grant_admin_via_set_admin() {
         .body(Body::from(json!({ "admin": true }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .expect("set_admin request failed");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("set_admin request failed");
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["success"], true);
 
-    let target_admin: Option<bool> =
-        sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
-            .bind(&target_user_id)
-            .fetch_optional(&*pool)
-            .await
-            .expect("failed to query target admin status");
+    let target_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE user_id = $1")
+        .bind(&target_user_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("failed to query target admin status");
     assert_eq!(target_admin, Some(true));
 }
 
@@ -1824,16 +1473,14 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         return;
     };
 
-    let (admin_token, admin_user_id) =
-        register_user(&app, &format!("appservice_admin_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register admin user");
+    let (admin_token, admin_user_id) = register_user(&app, &format!("appservice_admin_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, _) =
-        register_user(&app, &format!("appservice_user_{}", rand::random::<u32>()))
-            .await
-            .expect("failed to register regular user");
+    let (user_token, _) = register_user(&app, &format!("appservice_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
 
     let as_id = format!("admin_regression_as_{}", rand::random::<u32>());
     let create_body = json!({
@@ -1854,9 +1501,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_create = Request::builder()
@@ -1866,9 +1511,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_create = Request::builder()
@@ -1878,9 +1521,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(create_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_create).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let update_body = json!({
@@ -1896,9 +1537,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_update = Request::builder()
@@ -1908,9 +1547,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_update = Request::builder()
@@ -1920,13 +1557,9 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["as_id"], as_id);
     assert_eq!(json["url"], "http://localhost:9090");
@@ -1937,9 +1570,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .uri(format!("/_synapse/admin/v1/appservices/{}", as_id))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_delete = Request::builder()
@@ -1948,9 +1579,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_delete = Request::builder()
@@ -1959,9 +1588,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     let fetch_deleted = Request::builder()
@@ -1969,9 +1596,7 @@ async fn test_appservice_post_put_delete_enforce_unauth_user_admin_states() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, fetch_deleted)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, fetch_deleted).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -1982,12 +1607,10 @@ async fn test_scattered_admin_routes_apply_request_id_middleware() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("scattered_admin_middleware_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("scattered_admin_middleware_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let request_id = "req-scattered-admin-route";
@@ -1998,18 +1621,10 @@ async fn test_scattered_admin_routes_apply_request_id_middleware() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response
-            .headers()
-            .get("x-request-id")
-            .and_then(|value| value.to_str().ok()),
-        Some(request_id)
-    );
+    assert_eq!(response.headers().get("x-request-id").and_then(|value| value.to_str().ok()), Some(request_id));
 }
 
 #[cfg(feature = "external-services")]
@@ -2020,20 +1635,15 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("external_service_update_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("external_service_update_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, _) = register_user(
-        &app,
-        &format!("external_service_update_user_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register regular user");
+    let (user_token, _) = register_user(&app, &format!("external_service_update_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
 
     let service_id = format!("external_service_update_{}", rand::random::<u32>());
     let as_id = format!("generic_webhook_{}", service_id);
@@ -2056,9 +1666,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(register_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let update_body = json!({
@@ -2077,9 +1685,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_update = Request::builder()
@@ -2089,9 +1695,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_update = Request::builder()
@@ -2101,9 +1705,7 @@ async fn test_external_service_update_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_update)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_update).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let row = sqlx::query_as::<_, (String, Option<String>, serde_json::Value, bool)>(
@@ -2128,20 +1730,15 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("external_service_delete_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("external_service_delete_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
-    let (user_token, _) = register_user(
-        &app,
-        &format!("external_service_delete_user_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register regular user");
+    let (user_token, _) = register_user(&app, &format!("external_service_delete_user_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register regular user");
 
     let service_id = format!("external_service_delete_{}", rand::random::<u32>());
     let as_id = format!("generic_webhook_{}", service_id);
@@ -2161,9 +1758,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         .header("Content-Type", "application/json")
         .body(Body::from(register_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let unauthenticated_delete = Request::builder()
@@ -2171,9 +1766,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         .uri(format!("/_synapse/admin/v1/external_services/{}", as_id))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let regular_user_delete = Request::builder()
@@ -2182,9 +1775,7 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), regular_user_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     let admin_delete = Request::builder()
@@ -2193,17 +1784,14 @@ async fn test_external_service_delete_enforces_unauth_user_admin_states() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_delete)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_delete).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    let deleted =
-        sqlx::query_scalar::<_, String>("SELECT as_id FROM application_services WHERE as_id = $1")
-            .bind(&as_id)
-            .fetch_optional(&*pool)
-            .await
-            .expect("failed to query deleted external service");
+    let deleted = sqlx::query_scalar::<_, String>("SELECT as_id FROM application_services WHERE as_id = $1")
+        .bind(&as_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("failed to query deleted external service");
     assert!(deleted.is_none());
 }
 
@@ -2215,12 +1803,10 @@ async fn test_external_webhook_requires_persisted_service_token() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("external_webhook_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("external_webhook_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_regression_{}", rand::random::<u32>());
@@ -2240,9 +1826,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
         .header("Content-Type", "application/json")
         .body(Body::from(register_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let webhook_body = json!({
@@ -2261,9 +1845,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
         .header("Content-Type", "application/json")
         .body(Body::from(webhook_body.clone()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), unauthenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let authenticated_request = Request::builder()
@@ -2273,9 +1855,7 @@ async fn test_external_webhook_requires_persisted_service_token() {
         .header("Content-Type", "application/json")
         .body(Body::from(webhook_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, authenticated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, authenticated_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -2287,12 +1867,10 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!("external_webhook_hmac_admin_{}", rand::random::<u32>()),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("external_webhook_hmac_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_hmac_{}", rand::random::<u32>());
@@ -2315,9 +1893,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         .header("Content-Type", "application/json")
         .body(Body::from(register_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let update_body = json!({
@@ -2333,9 +1909,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         .header("Content-Type", "application/json")
         .body(Body::from(update_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), update_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let webhook_payload = json!({
@@ -2361,9 +1935,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         .header("Content-Type", "application/json")
         .body(Body::from(webhook_payload.to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), old_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), old_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let new_signature = format!(
@@ -2380,9 +1952,7 @@ async fn test_external_webhook_hmac_uses_updated_persisted_secret() {
         .header("Content-Type", "application/json")
         .body(Body::from(webhook_payload.to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, new_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, new_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -2394,15 +1964,10 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
         return;
     };
 
-    let (admin_token, admin_user_id) = register_user(
-        &app,
-        &format!(
-            "external_webhook_payload_sig_admin_{}",
-            rand::random::<u32>()
-        ),
-    )
-    .await
-    .expect("failed to register admin user");
+    let (admin_token, admin_user_id) =
+        register_user(&app, &format!("external_webhook_payload_sig_admin_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register admin user");
     promote_to_admin(&pool, &admin_user_id).await;
     invalidate_admin_cache(&cache, &admin_user_id).await;
     let service_id = format!("webhook_payload_sig_{}", rand::random::<u32>());
@@ -2424,9 +1989,7 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
         .header("Content-Type", "application/json")
         .body(Body::from(register_body))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let unsigned_payload = json!({
@@ -2458,8 +2021,6 @@ async fn test_external_webhook_accepts_payload_embedded_signature() {
         .header("Content-Type", "application/json")
         .body(Body::from(signed_payload))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }

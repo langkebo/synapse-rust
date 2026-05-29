@@ -44,29 +44,20 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
             .min_connections(synapse_rust::test_utils::configured_test_pool_min_connections())
             .acquire_timeout(synapse_rust::test_utils::configured_test_pool_acquire_timeout())
             .idle_timeout(synapse_rust::test_utils::configured_test_pool_idle_timeout())
-            .max_lifetime(Some(
-                synapse_rust::test_utils::configured_test_pool_max_lifetime(),
-            ))
+            .max_lifetime(Some(synapse_rust::test_utils::configured_test_pool_max_lifetime()))
             .connect(&database_url);
 
         match tokio::time::timeout(connect_timeout, connect_future).await {
-            Err(_) => errors.push(format!(
-                "{database_url} -> connect timed out after {connect_timeout:?}"
-            )),
+            Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
             Ok(Ok(pool)) => match ensure_test_schema(&pool).await {
                 Ok(()) => return Ok(Arc::new(pool)),
-                Err(error) => {
-                    errors.push(format!("{database_url} -> schema init failed: {error}"))
-                }
+                Err(error) => errors.push(format!("{database_url} -> schema init failed: {error}")),
             },
             Ok(Err(e)) => errors.push(format!("{database_url} -> {e}")),
         }
     }
 
-    let message = format!(
-        "Failed to connect to any configured test database: {}",
-        errors.join(" | ")
-    );
+    let message = format!("Failed to connect to any configured test database: {}", errors.join(" | "));
     if db_tests_required() {
         panic!("{message}");
     }

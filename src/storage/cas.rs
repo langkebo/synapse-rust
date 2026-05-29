@@ -130,9 +130,7 @@ pub struct CasStorage {
 
 impl CasStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self {
-            pool: (**pool).clone(),
-        }
+        Self { pool: (**pool).clone() }
     }
 
     pub async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError> {
@@ -158,11 +156,7 @@ impl CasStorage {
         Ok(ticket)
     }
 
-    pub async fn validate_ticket(
-        &self,
-        ticket_id: &str,
-        service_url: &str,
-    ) -> Result<Option<CasTicket>, ApiError> {
+    pub async fn validate_ticket(&self, ticket_id: &str, service_url: &str) -> Result<Option<CasTicket>, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let ticket = sqlx::query_as::<_, CasTicket>(
@@ -184,12 +178,11 @@ impl CasStorage {
     }
 
     pub async fn get_ticket(&self, ticket_id: &str) -> Result<Option<CasTicket>, ApiError> {
-        let ticket =
-            sqlx::query_as::<_, CasTicket>(r#"SELECT * FROM cas_tickets WHERE ticket_id = $1"#)
-                .bind(ticket_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get CAS ticket", &e))?;
+        let ticket = sqlx::query_as::<_, CasTicket>(r#"SELECT * FROM cas_tickets WHERE ticket_id = $1"#)
+            .bind(ticket_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get CAS ticket", &e))?;
 
         Ok(ticket)
     }
@@ -215,10 +208,7 @@ impl CasStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn create_proxy_ticket(
-        &self,
-        request: CreateProxyTicketRequest,
-    ) -> Result<CasProxyTicket, ApiError> {
+    pub async fn create_proxy_ticket(&self, request: CreateProxyTicketRequest) -> Result<CasProxyTicket, ApiError> {
         let now = Utc::now().timestamp_millis();
         let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
@@ -267,10 +257,7 @@ impl CasStorage {
         Ok(ticket)
     }
 
-    pub async fn create_pgt(
-        &self,
-        request: CreatePgtRequest,
-    ) -> Result<CasProxyGrantingTicket, ApiError> {
+    pub async fn create_pgt(&self, request: CreatePgtRequest) -> Result<CasProxyGrantingTicket, ApiError> {
         let now = Utc::now().timestamp_millis();
         let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
@@ -306,10 +293,7 @@ impl CasStorage {
         Ok(pgt)
     }
 
-    pub async fn get_pgt_by_iou(
-        &self,
-        iou: &str,
-    ) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
+    pub async fn get_pgt_by_iou(&self, iou: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
         let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
             r#"SELECT * FROM cas_proxy_granting_tickets WHERE iou = $1 AND is_valid = TRUE"#,
         )
@@ -321,16 +305,11 @@ impl CasStorage {
         Ok(pgt)
     }
 
-    pub async fn register_service(
-        &self,
-        request: RegisterServiceRequest,
-    ) -> Result<CasRegisteredService, ApiError> {
+    pub async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
         let allowed_attributes =
-            serde_json::to_value(request.allowed_attributes.unwrap_or_default())
-                .unwrap_or(serde_json::json!([]));
+            serde_json::to_value(request.allowed_attributes.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let allowed_proxy_callbacks =
-            serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default())
-                .unwrap_or(serde_json::json!([]));
+            serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let now = Utc::now().timestamp_millis();
 
         let service = sqlx::query_as::<_, CasRegisteredService>(
@@ -361,20 +340,16 @@ impl CasStorage {
     }
 
     pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
-        let service =
-            sqlx::query_as::<_, CasRegisteredService>(r#"SELECT * FROM cas_services WHERE service_id = $1"#)
-                .bind(service_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get CAS service", &e))?;
+        let service = sqlx::query_as::<_, CasRegisteredService>(r#"SELECT * FROM cas_services WHERE service_id = $1"#)
+            .bind(service_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get CAS service", &e))?;
 
         Ok(service)
     }
 
-    pub async fn get_service_by_url(
-        &self,
-        service_url: &str,
-    ) -> Result<Option<CasRegisteredService>, ApiError> {
+    pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         let service = sqlx::query_as::<_, CasRegisteredService>(
             r#"SELECT * FROM cas_services WHERE $1 ~ service_url_pattern AND is_enabled = TRUE"#,
         )
@@ -387,12 +362,11 @@ impl CasStorage {
     }
 
     pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
-        let services = sqlx::query_as::<_, CasRegisteredService>(
-            r#"SELECT * FROM cas_services ORDER BY created_ts DESC"#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to list CAS services", &e))?;
+        let services =
+            sqlx::query_as::<_, CasRegisteredService>(r#"SELECT * FROM cas_services ORDER BY created_ts DESC"#)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to list CAS services", &e))?;
 
         Ok(services)
     }
@@ -435,17 +409,12 @@ impl CasStorage {
         Ok(attr)
     }
 
-    pub async fn get_user_attributes(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<CasUserAttribute>, ApiError> {
-        let attrs = sqlx::query_as::<_, CasUserAttribute>(
-            r#"SELECT * FROM cas_user_attributes WHERE user_id = $1"#,
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get CAS user attributes", &e))?;
+    pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
+        let attrs = sqlx::query_as::<_, CasUserAttribute>(r#"SELECT * FROM cas_user_attributes WHERE user_id = $1"#)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get CAS user attributes", &e))?;
 
         Ok(attrs)
     }
@@ -479,21 +448,17 @@ impl CasStorage {
 
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result =
-            sqlx::query(r#"UPDATE cas_slo_sessions SET logout_sent_ts = $1 WHERE session_id = $2"#)
-                .bind(now)
-                .bind(session_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to mark SLO sent", &e))?;
+        let result = sqlx::query(r#"UPDATE cas_slo_sessions SET logout_sent_ts = $1 WHERE session_id = $2"#)
+            .bind(now)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to mark SLO sent", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn get_active_slo_sessions(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<CasSloSession>, ApiError> {
+    pub async fn get_active_slo_sessions(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
         let sessions = sqlx::query_as::<_, CasSloSession>(
             r#"SELECT * FROM cas_slo_sessions WHERE user_id = $1 AND logout_sent_ts IS NULL"#,
         )

@@ -4,10 +4,7 @@ use serde_json::{json, Value};
 pub struct ResponseFilter;
 
 impl ResponseFilter {
-    pub fn filter_fields<T: Serialize>(
-        data: &T,
-        fields: Option<&[String]>,
-    ) -> Result<Value, serde_json::Error> {
+    pub fn filter_fields<T: Serialize>(data: &T, fields: Option<&[String]>) -> Result<Value, serde_json::Error> {
         let full_value = serde_json::to_value(data)?;
 
         match fields {
@@ -29,17 +26,11 @@ impl ResponseFilter {
     }
 
     pub fn extract_fields_from_query(query: &Value) -> Option<Vec<String>> {
-        query
-            .get("filter")
-            .and_then(|f| f.as_str())
-            .and_then(|s| serde_json::from_str(s).ok())
-            .and_then(|v: Value| {
-                v.get("fields").and_then(|f| f.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-            })
+        query.get("filter").and_then(|f| f.as_str()).and_then(|s| serde_json::from_str(s).ok()).and_then(|v: Value| {
+            v.get("fields")
+                .and_then(|f| f.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        })
     }
 }
 
