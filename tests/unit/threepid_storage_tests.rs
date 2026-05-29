@@ -18,9 +18,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping threepid storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping threepid storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -112,15 +110,13 @@ fn create_storage(pool: &Arc<Pool<Postgres>>) -> ThreepidStorage {
 
 async fn insert_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
     let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
-        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-    )
-    .bind(user_id)
-    .bind(username)
-    .bind(now)
-    .execute(pool)
-    .await
-    .expect("Failed to insert test user");
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to insert test user");
 }
 
 #[test]
@@ -218,10 +214,7 @@ fn test_threepid_validation_session_struct() {
     assert_eq!(session.client_secret, "secret_abc");
     assert_eq!(session.token, "verify_token");
     assert_eq!(session.send_attempt, 0);
-    assert_eq!(
-        session.next_link,
-        Some("https://example.com/next".to_string())
-    );
+    assert_eq!(session.next_link, Some("https://example.com/next".to_string()));
     assert!(!session.is_validated);
     assert!(session.validated_at.is_none());
     assert_eq!(session.created_ts, 1234567800000);
@@ -352,10 +345,7 @@ fn test_get_threepid_found() {
 
         storage.add_threepid(request).await.unwrap();
 
-        let result = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let result = storage.get_threepid(&user_id, "email", &address).await.unwrap();
         assert!(result.is_some());
         let threepid = result.unwrap();
         assert_eq!(threepid.user_id, user_id);
@@ -376,11 +366,7 @@ fn test_get_threepid_not_found() {
         let suffix = unique_id();
 
         let result = storage
-            .get_threepid(
-                &format!("@ghost_{suffix}:localhost"),
-                "email",
-                "nonexistent@example.com",
-            )
+            .get_threepid(&format!("@ghost_{suffix}:localhost"), "email", "nonexistent@example.com")
             .await
             .unwrap();
         assert!(result.is_none());
@@ -437,10 +423,7 @@ fn test_get_threepids_by_user_empty() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let threepids = storage
-            .get_threepids_by_user(&format!("@empty_{suffix}:localhost"))
-            .await
-            .unwrap();
+        let threepids = storage.get_threepids_by_user(&format!("@empty_{suffix}:localhost")).await.unwrap();
         assert!(threepids.is_empty());
     });
 }
@@ -470,10 +453,7 @@ fn test_get_threepid_by_address_found() {
 
         storage.add_threepid(request).await.unwrap();
 
-        let result = storage
-            .get_threepid_by_address("email", &address)
-            .await
-            .unwrap();
+        let result = storage.get_threepid_by_address("email", &address).await.unwrap();
         assert!(result.is_some());
         let threepid = result.unwrap();
         assert_eq!(threepid.user_id, user_id);
@@ -492,10 +472,7 @@ fn test_get_threepid_by_address_not_found() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let result = storage
-            .get_threepid_by_address("email", &format!("noaddr_{suffix}@example.com"))
-            .await
-            .unwrap();
+        let result = storage.get_threepid_by_address("email", &format!("noaddr_{suffix}@example.com")).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -524,15 +501,9 @@ fn test_get_verified_threepid_by_address_found() {
         };
 
         storage.add_threepid(request).await.unwrap();
-        storage
-            .verify_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        storage.verify_threepid(&user_id, "email", &address).await.unwrap();
 
-        let result = storage
-            .get_verified_threepid_by_address("email", &address)
-            .await
-            .unwrap();
+        let result = storage.get_verified_threepid_by_address("email", &address).await.unwrap();
         assert!(result.is_some());
         let threepid = result.unwrap();
         assert!(threepid.is_verified);
@@ -565,10 +536,7 @@ fn test_get_verified_threepid_by_address_unverified() {
 
         storage.add_threepid(request).await.unwrap();
 
-        let result = storage
-            .get_verified_threepid_by_address("email", &address)
-            .await
-            .unwrap();
+        let result = storage.get_verified_threepid_by_address("email", &address).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -598,17 +566,10 @@ fn test_verify_threepid_success() {
 
         storage.add_threepid(request).await.unwrap();
 
-        let verified = storage
-            .verify_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let verified = storage.verify_threepid(&user_id, "email", &address).await.unwrap();
         assert!(verified);
 
-        let threepid = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .unwrap()
-            .unwrap();
+        let threepid = storage.get_threepid(&user_id, "email", &address).await.unwrap().unwrap();
         assert!(threepid.is_verified);
         assert!(threepid.validated_at.is_some());
         assert!(threepid.verification_token.is_none());
@@ -628,11 +589,7 @@ fn test_verify_threepid_nonexistent() {
         let suffix = unique_id();
 
         let verified = storage
-            .verify_threepid(
-                &format!("@noverify_{suffix}:localhost"),
-                "email",
-                "nonexistent@example.com",
-            )
+            .verify_threepid(&format!("@noverify_{suffix}:localhost"), "email", "nonexistent@example.com")
             .await
             .unwrap();
         assert!(!verified);
@@ -716,10 +673,7 @@ fn test_verify_threepid_by_token_invalid() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .verify_threepid_by_token("nonexistent_token")
-            .await
-            .unwrap();
+        let result = storage.verify_threepid_by_token("nonexistent_token").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -749,16 +703,10 @@ fn test_remove_threepid_success() {
 
         storage.add_threepid(request).await.unwrap();
 
-        let removed = storage
-            .remove_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let removed = storage.remove_threepid(&user_id, "email", &address).await.unwrap();
         assert!(removed);
 
-        let result = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let result = storage.get_threepid(&user_id, "email", &address).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -775,11 +723,7 @@ fn test_remove_threepid_nonexistent() {
         let suffix = unique_id();
 
         let removed = storage
-            .remove_threepid(
-                &format!("@ghost_{suffix}:localhost"),
-                "email",
-                "nonexistent@example.com",
-            )
+            .remove_threepid(&format!("@ghost_{suffix}:localhost"), "email", "nonexistent@example.com")
             .await
             .unwrap();
         assert!(!removed);
@@ -837,10 +781,7 @@ fn test_remove_threepids_by_user_no_threepids() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let count = storage
-            .remove_threepids_by_user(&format!("@nothreepid_{suffix}:localhost"))
-            .await
-            .unwrap();
+        let count = storage.remove_threepids_by_user(&format!("@nothreepid_{suffix}:localhost")).await.unwrap();
         assert_eq!(count, 0);
     });
 }
@@ -1035,10 +976,7 @@ fn test_get_validation_session() {
             .await
             .unwrap();
 
-        let result = storage
-            .get_validation_session(&session_id, &client_secret, &token)
-            .await
-            .unwrap();
+        let result = storage.get_validation_session(&session_id, &client_secret, &token).await.unwrap();
         assert!(result.is_some());
         let session = result.unwrap();
         assert_eq!(session.session_id, session_id);
@@ -1058,10 +996,7 @@ fn test_get_validation_session_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .get_validation_session("nonexistent", "secret", "token")
-            .await
-            .unwrap();
+        let result = storage.get_validation_session("nonexistent", "secret", "token").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1097,10 +1032,7 @@ fn test_get_validation_session_already_validated() {
 
         storage.mark_validation_validated(id).await.unwrap();
 
-        let result = storage
-            .get_validation_session(&session_id, &client_secret, &token)
-            .await
-            .unwrap();
+        let result = storage.get_validation_session(&session_id, &client_secret, &token).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1134,10 +1066,7 @@ fn test_get_validation_session_expired() {
             .await
             .unwrap();
 
-        let result = storage
-            .get_validation_session(&session_id, &client_secret, &token)
-            .await
-            .unwrap();
+        let result = storage.get_validation_session(&session_id, &client_secret, &token).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1169,10 +1098,7 @@ fn test_get_validation_session_by_token() {
             .await
             .unwrap();
 
-        let result = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap();
+        let result = storage.get_validation_session_by_token(&token).await.unwrap();
         assert!(result.is_some());
         let session = result.unwrap();
         assert_eq!(session.token, token);
@@ -1189,10 +1115,7 @@ fn test_get_validation_session_by_token_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .get_validation_session_by_token("nonexistent_token")
-            .await
-            .unwrap();
+        let result = storage.get_validation_session_by_token("nonexistent_token").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1226,11 +1149,7 @@ fn test_mark_validation_validated() {
 
         storage.mark_validation_validated(id).await.unwrap();
 
-        let session = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap()
-            .unwrap();
+        let session = storage.get_validation_session_by_token(&token).await.unwrap().unwrap();
         assert!(session.is_validated);
         assert!(session.validated_at.is_some());
     });
@@ -1263,35 +1182,17 @@ fn test_increment_validation_send_attempt() {
             .await
             .unwrap();
 
-        let session_before = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap()
-            .unwrap();
+        let session_before = storage.get_validation_session_by_token(&token).await.unwrap().unwrap();
         assert_eq!(session_before.send_attempt, 0);
 
-        storage
-            .increment_validation_send_attempt(id)
-            .await
-            .unwrap();
+        storage.increment_validation_send_attempt(id).await.unwrap();
 
-        let session_after = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap()
-            .unwrap();
+        let session_after = storage.get_validation_session_by_token(&token).await.unwrap().unwrap();
         assert_eq!(session_after.send_attempt, 1);
 
-        storage
-            .increment_validation_send_attempt(id)
-            .await
-            .unwrap();
+        storage.increment_validation_send_attempt(id).await.unwrap();
 
-        let session_final = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap()
-            .unwrap();
+        let session_final = storage.get_validation_session_by_token(&token).await.unwrap().unwrap();
         assert_eq!(session_final.send_attempt, 2);
     });
 }
@@ -1336,22 +1237,13 @@ fn test_cleanup_expired_validation_sessions() {
             .await
             .unwrap();
 
-        let cleaned = storage
-            .cleanup_expired_validation_sessions()
-            .await
-            .unwrap();
+        let cleaned = storage.cleanup_expired_validation_sessions().await.unwrap();
         assert_eq!(cleaned, 1);
 
-        let valid_session = storage
-            .get_validation_session_by_token("token_cleanup_valid")
-            .await
-            .unwrap();
+        let valid_session = storage.get_validation_session_by_token("token_cleanup_valid").await.unwrap();
         assert!(valid_session.is_some());
 
-        let expired_session = storage
-            .get_validation_session_by_token("token_cleanup_expired")
-            .await
-            .unwrap();
+        let expired_session = storage.get_validation_session_by_token("token_cleanup_expired").await.unwrap();
         assert!(expired_session.is_none());
     });
 }
@@ -1383,36 +1275,19 @@ fn test_full_threepid_lifecycle() {
         let threepid = storage.add_threepid(request).await.unwrap();
         assert!(!threepid.is_verified);
 
-        let fetched = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .unwrap()
-            .unwrap();
+        let fetched = storage.get_threepid(&user_id, "email", &address).await.unwrap().unwrap();
         assert!(!fetched.is_verified);
 
-        let verified = storage
-            .verify_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let verified = storage.verify_threepid(&user_id, "email", &address).await.unwrap();
         assert!(verified);
 
-        let verified_threepid = storage
-            .get_verified_threepid_by_address("email", &address)
-            .await
-            .unwrap()
-            .unwrap();
+        let verified_threepid = storage.get_verified_threepid_by_address("email", &address).await.unwrap().unwrap();
         assert!(verified_threepid.is_verified);
 
-        let removed = storage
-            .remove_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let removed = storage.remove_threepid(&user_id, "email", &address).await.unwrap();
         assert!(removed);
 
-        let gone = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .unwrap();
+        let gone = storage.get_threepid(&user_id, "email", &address).await.unwrap();
         assert!(gone.is_none());
     });
 }
@@ -1446,34 +1321,20 @@ fn test_full_validation_session_lifecycle() {
             .await
             .unwrap();
 
-        let session = storage
-            .get_validation_session(&session_id, &client_secret, &token)
-            .await
-            .unwrap()
-            .unwrap();
+        let session = storage.get_validation_session(&session_id, &client_secret, &token).await.unwrap().unwrap();
         assert!(!session.is_validated);
         assert_eq!(session.send_attempt, 0);
 
-        storage
-            .increment_validation_send_attempt(id)
-            .await
-            .unwrap();
+        storage.increment_validation_send_attempt(id).await.unwrap();
 
         storage.mark_validation_validated(id).await.unwrap();
 
-        let validated_session = storage
-            .get_validation_session_by_token(&token)
-            .await
-            .unwrap()
-            .unwrap();
+        let validated_session = storage.get_validation_session_by_token(&token).await.unwrap().unwrap();
         assert!(validated_session.is_validated);
         assert!(validated_session.validated_at.is_some());
         assert_eq!(validated_session.send_attempt, 1);
 
-        let not_found = storage
-            .get_validation_session(&session_id, &client_secret, &token)
-            .await
-            .unwrap();
+        let not_found = storage.get_validation_session(&session_id, &client_secret, &token).await.unwrap();
         assert!(not_found.is_none());
     });
 }

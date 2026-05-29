@@ -148,6 +148,8 @@ cargo run --release
 
 ## 文档
 
+- Matrix/Synapse 对标审查与优化方案：`docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`
+- Matrix 协议声明支持面：`docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`
 - 当前正式能力状态基线（单一事实源）：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
 - 项目优化执行路线图：`docs/synapse-rust/PROJECT_OPTIMIZATION_EXECUTION_PLAN_2026-04-05.md`
 - 文档治理与单一事实源规则：`docs/synapse-rust/DOCUMENT_GOVERNANCE_AND_SINGLE_SOURCE_OF_TRUTH_2026-04-05.md`

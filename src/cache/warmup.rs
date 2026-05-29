@@ -29,10 +29,10 @@ impl Default for WarmupConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            startup_delay_secs: 10,    // 10 seconds (was 5s) - allow more time for startup
-            interval_secs: 900,        // 15 minutes (was 5 min) - reduce frequency
-            max_users: 500,            // 500 users (was 100) - warm more popular users
-            max_rooms: 200,            // 200 rooms (was 50) - warm more popular rooms
+            startup_delay_secs: 10, // 10 seconds (was 5s) - allow more time for startup
+            interval_secs: 900,     // 15 minutes (was 5 min) - reduce frequency
+            max_users: 500,         // 500 users (was 100) - warm more popular users
+            max_rooms: 200,         // 200 rooms (was 50) - warm more popular rooms
         }
     }
 }
@@ -76,13 +76,7 @@ pub struct WarmupStatus {
 
 impl Default for WarmupStatus {
     fn default() -> Self {
-        Self {
-            last_run: None,
-            next_run: None,
-            tasks_completed: 0,
-            tasks_failed: 0,
-            items_warmed: 0,
-        }
+        Self { last_run: None, next_run: None, tasks_completed: 0, tasks_failed: 0, items_warmed: 0 }
     }
 }
 
@@ -130,9 +124,9 @@ impl CacheWarmer {
         // 启动延迟后执行预热
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(config.startup_delay_secs)).await;
-            
+
             tracing::info!("Starting cache warmup...");
-            
+
             // 执行启动预热
             Self::run_warmup(&config, &cache, &db_pool, &status).await;
 
@@ -140,7 +134,7 @@ impl CacheWarmer {
             let mut interval = interval(Duration::from_secs(config.interval_secs));
             loop {
                 interval.tick().await;
-                
+
                 let is_running = running.read().await;
                 if !*is_running {
                     break;
@@ -150,7 +144,7 @@ impl CacheWarmer {
                 tracing::debug!("Running scheduled cache warmup...");
                 Self::run_warmup(&config, &cache, &db_pool, &status).await;
             }
-            
+
             tracing::info!("Cache warmer stopped");
         });
     }
@@ -164,12 +158,7 @@ impl CacheWarmer {
     /// 手动触发预热
     pub async fn trigger_warmup(&self) {
         tracing::info!("Manual cache warmup triggered");
-        Self::run_warmup(
-            &self.config,
-            &self.cache,
-            &self.db_pool,
-            &self.status,
-        ).await;
+        Self::run_warmup(&self.config, &self.cache, &self.db_pool, &self.status).await;
     }
 
     /// 获取预热状态
@@ -186,12 +175,8 @@ impl CacheWarmer {
     ) {
         let mut status_guard = status.write().await;
         status_guard.last_run = Some(chrono::Utc::now().timestamp_millis());
-        
-        let tasks = [
-            WarmupTask::PopularUsers,
-            WarmupTask::PopularRooms,
-            WarmupTask::UserSettings,
-        ];
+
+        let tasks = [WarmupTask::PopularUsers, WarmupTask::PopularRooms, WarmupTask::UserSettings];
 
         for task in tasks {
             match Self::execute_task(task, config, cache, db_pool).await {
@@ -216,30 +201,20 @@ impl CacheWarmer {
         db_pool: &Pool,
     ) -> Result<usize, String> {
         match task {
-            WarmupTask::PopularUsers => {
-                Self::warmup_popular_users(cache, db_pool, config.max_users).await
-            }
-            WarmupTask::PopularRooms => {
-                Self::warmup_popular_rooms(cache, db_pool, config.max_rooms).await
-            }
-            WarmupTask::UserSettings => {
-                Self::warmup_user_settings(cache, db_pool, config.max_users).await
-            }
+            WarmupTask::PopularUsers => Self::warmup_popular_users(cache, db_pool, config.max_users).await,
+            WarmupTask::PopularRooms => Self::warmup_popular_rooms(cache, db_pool, config.max_rooms).await,
+            WarmupTask::UserSettings => Self::warmup_user_settings(cache, db_pool, config.max_users).await,
             _ => Ok(0), // 其他任务暂未实现
         }
     }
 
     /// 预热热门用户
-    async fn warmup_popular_users(
-        cache: &CacheManager,
-        db_pool: &Pool,
-        limit: usize,
-    ) -> Result<usize, String> {
+    async fn warmup_popular_users(cache: &CacheManager, db_pool: &Pool, limit: usize) -> Result<usize, String> {
         let rows = sqlx::query!(
             r#"
-            SELECT user_id, username, displayname, avatar_url 
-            FROM users 
-            ORDER BY created_ts DESC 
+            SELECT user_id, username, displayname, avatar_url
+            FROM users
+            ORDER BY created_ts DESC
             LIMIT $1
             "#,
             limit as i64
@@ -255,7 +230,9 @@ impl CacheWarmer {
                 "username": row.username,
                 "displayname": row.displayname,
                 "avatar_url": row.avatar_url,
-            }).to_string() {
+            })
+            .to_string()
+            {
                 cache.set_raw(&key, &value);
             }
         }
@@ -264,16 +241,12 @@ impl CacheWarmer {
     }
 
     /// 预热热门房间
-    async fn warmup_popular_rooms(
-        cache: &CacheManager,
-        db_pool: &Pool,
-        limit: usize,
-    ) -> Result<usize, String> {
+    async fn warmup_popular_rooms(cache: &CacheManager, db_pool: &Pool, limit: usize) -> Result<usize, String> {
         let rows = sqlx::query!(
             r#"
             SELECT room_id, name, topic, avatar_url, member_count
-            FROM rooms 
-            ORDER BY created_ts DESC 
+            FROM rooms
+            ORDER BY created_ts DESC
             LIMIT $1
             "#,
             limit as i64
@@ -290,7 +263,9 @@ impl CacheWarmer {
                 "topic": row.topic,
                 "avatar_url": row.avatar_url,
                 "member_count": row.member_count,
-            }).to_string() {
+            })
+            .to_string()
+            {
                 cache.set_raw(&key, &value);
             }
         }
@@ -299,15 +274,11 @@ impl CacheWarmer {
     }
 
     /// 预热用户设置
-    async fn warmup_user_settings(
-        cache: &CacheManager,
-        db_pool: &Pool,
-        limit: usize,
-    ) -> Result<usize, String> {
+    async fn warmup_user_settings(cache: &CacheManager, db_pool: &Pool, limit: usize) -> Result<usize, String> {
         let rows = sqlx::query!(
             r#"
             SELECT user_id, theme, language, time_zone
-            FROM user_settings 
+            FROM user_settings
             LIMIT $1
             "#,
             limit as i64
@@ -323,7 +294,9 @@ impl CacheWarmer {
                 "theme": row.theme,
                 "language": row.language,
                 "time_zone": row.time_zone,
-            }).to_string() {
+            })
+            .to_string()
+            {
                 cache.set_raw(&key, &value);
             }
         }
@@ -367,13 +340,8 @@ mod tests {
 
     #[test]
     fn test_warmup_config_disabled() {
-        let config = WarmupConfig {
-            enabled: false,
-            startup_delay_secs: 5,
-            interval_secs: 300,
-            max_users: 100,
-            max_rooms: 50,
-        };
+        let config =
+            WarmupConfig { enabled: false, startup_delay_secs: 5, interval_secs: 300, max_users: 100, max_rooms: 50 };
         assert!(!config.enabled);
     }
 
@@ -401,7 +369,7 @@ mod tests {
             WarmupTask::RoomState,
             WarmupTask::UserSettings,
         ];
-        
+
         for task in tasks {
             assert!(!task.name().is_empty());
         }
@@ -410,13 +378,13 @@ mod tests {
     #[test]
     fn test_warmup_status_update() {
         let mut status = WarmupStatus::default();
-        
+
         status.last_run = Some(1234567890);
         status.next_run = Some(1234567890 + 3600);
         status.tasks_completed = 5;
         status.tasks_failed = 1;
         status.items_warmed = 100;
-        
+
         assert_eq!(status.last_run, Some(1234567890));
         assert_eq!(status.next_run, Some(1234567890 + 3600));
         assert_eq!(status.tasks_completed, 5);

@@ -40,18 +40,12 @@ pub struct BurnAfterReadService {
 }
 
 impl BurnAfterReadService {
-    pub fn new(
-        storage: BurnAfterReadStorage,
-        event_storage: EventStorage,
-        server_name: String,
-    ) -> Self {
+    pub fn new(storage: BurnAfterReadStorage, event_storage: EventStorage, server_name: String) -> Self {
         Self {
             storage: Arc::new(storage),
             event_storage: Arc::new(event_storage),
             server_name,
-            processor_state: Arc::new(RwLock::new(BurnProcessorState {
-                is_running: false,
-            })),
+            processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })),
         }
     }
 
@@ -70,28 +64,17 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    pub async fn get_burn_settings(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> ApiResult<Option<BurnSettings>> {
+    pub async fn get_burn_settings(&self, user_id: &str, room_id: &str) -> ApiResult<Option<BurnSettings>> {
         let row = self
             .storage
             .get_settings(user_id, room_id)
             .await
             .map_err(|e| crate::common::ApiError::internal_with_log("Failed to get burn settings", &e))?;
 
-        Ok(row.map(|r| BurnSettings {
-            is_enabled: r.is_enabled,
-            burn_after_ms: r.burn_after_ms,
-        }))
+        Ok(row.map(|r| BurnSettings { is_enabled: r.is_enabled, burn_after_ms: r.burn_after_ms }))
     }
 
-    pub async fn get_pending_burns(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> ApiResult<Vec<BurnEvent>> {
+    pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> ApiResult<Vec<BurnEvent>> {
         let rows = self
             .storage
             .get_pending_burns(user_id, room_id)
@@ -111,12 +94,7 @@ impl BurnAfterReadService {
             .collect())
     }
 
-    pub async fn cancel_burn(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         self.storage
             .cancel_burn(user_id, room_id, event_id)
             .await
@@ -125,23 +103,11 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    pub async fn delete_burned_message(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = Utc::now().timestamp_millis();
 
-        if let Err(e) = self
-            .event_storage
-            .redact_event_content(event_id)
-            .await
-        {
-            ::tracing::warn!(
-                "Failed to redact event content for burn {}: {}",
-                event_id, e
-            );
+        if let Err(e) = self.event_storage.redact_event_content(event_id).await {
+            ::tracing::warn!("Failed to redact event content for burn {}: {}", event_id, e);
         }
 
         if let Err(e) = self
@@ -160,10 +126,7 @@ impl BurnAfterReadService {
             )
             .await
         {
-            ::tracing::warn!(
-                "Failed to create redaction event for burn {}: {}",
-                event_id, e
-            );
+            ::tracing::warn!("Failed to create redaction event for burn {}: {}", event_id, e);
         }
 
         self.storage
@@ -174,11 +137,7 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    pub async fn set_user_default(
-        &self,
-        user_id: &str,
-        default_burn_ms: i64,
-    ) -> ApiResult<()> {
+    pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> ApiResult<()> {
         self.storage
             .set_user_default(user_id, default_burn_ms)
             .await
@@ -231,15 +190,8 @@ impl BurnAfterReadService {
         let mut expired = Vec::new();
 
         for row in &expired_rows {
-            if let Err(e) = self
-                .event_storage
-                .redact_event_content(&row.event_id)
-                .await
-            {
-                ::tracing::warn!(
-                    "Failed to redact event content for burn {}: {}",
-                    row.event_id, e
-                );
+            if let Err(e) = self.event_storage.redact_event_content(&row.event_id).await {
+                ::tracing::warn!("Failed to redact event content for burn {}: {}", row.event_id, e);
             }
 
             if let Err(e) = self
@@ -258,21 +210,14 @@ impl BurnAfterReadService {
                 )
                 .await
             {
-                ::tracing::warn!(
-                    "Failed to create redaction event for burn {}: {}",
-                    row.event_id, e
-                );
+                ::tracing::warn!("Failed to create redaction event for burn {}: {}", row.event_id, e);
             }
 
             if let Err(e) = self.storage.mark_burn_processed(row.id).await {
                 ::tracing::warn!("Failed to mark burn processed {}: {}", row.id, e);
             }
 
-            if let Err(e) = self
-                .storage
-                .log_burned_event(&row.user_id, &row.room_id, &row.event_id, now)
-                .await
-            {
+            if let Err(e) = self.storage.log_burned_event(&row.user_id, &row.room_id, &row.event_id, now).await {
                 ::tracing::warn!("Failed to log burned event {}: {}", row.event_id, e);
             }
 
@@ -297,10 +242,7 @@ impl BurnAfterReadService {
                 if expired.is_empty() {
                     ::tracing::info!("No expired burn events to recover");
                 } else {
-                    ::tracing::info!(
-                        "Recovered and processed {} expired burn events",
-                        expired.len()
-                    );
+                    ::tracing::info!("Recovered and processed {} expired burn events", expired.len());
                 }
             }
             Err(e) => {
@@ -340,10 +282,7 @@ mod tests {
 
     #[test]
     fn test_burn_settings_struct() {
-        let settings = BurnSettings {
-            is_enabled: true,
-            burn_after_ms: 60_000,
-        };
+        let settings = BurnSettings { is_enabled: true, burn_after_ms: 60_000 };
         assert!(settings.is_enabled);
         assert_eq!(settings.burn_after_ms, 60_000);
     }
@@ -372,11 +311,7 @@ mod tests {
 
     #[test]
     fn test_burn_stats_custom() {
-        let stats = BurnStats {
-            total_burned: 10,
-            total_pending: 3,
-            rooms_enabled: 2,
-        };
+        let stats = BurnStats { total_burned: 10, total_pending: 3, rooms_enabled: 2 };
         assert_eq!(stats.total_burned, 10);
         assert_eq!(stats.total_pending, 3);
         assert_eq!(stats.rooms_enabled, 2);

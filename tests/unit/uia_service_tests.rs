@@ -58,9 +58,7 @@ fn test_is_session_complete_single_stage_completed() {
         user_id: "@user:localhost".to_string(),
         completed: vec!["m.login.password".to_string()],
         created_ts: 1000,
-        flows: vec![UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        }],
+        flows: vec![UiaFlow { stages: vec!["m.login.password".to_string()] }],
     };
     assert!(service.is_session_complete(&session));
 }
@@ -73,9 +71,7 @@ fn test_is_session_complete_single_stage_not_completed() {
         user_id: "@user:localhost".to_string(),
         completed: vec![],
         created_ts: 1000,
-        flows: vec![UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        }],
+        flows: vec![UiaFlow { stages: vec!["m.login.password".to_string()] }],
     };
     assert!(!service.is_session_complete(&session));
 }
@@ -88,12 +84,7 @@ fn test_is_session_complete_multi_stage_partial() {
         user_id: "@user:localhost".to_string(),
         completed: vec!["m.login.password".to_string()],
         created_ts: 1000,
-        flows: vec![UiaFlow {
-            stages: vec![
-                "m.login.password".to_string(),
-                "m.login.email.identity".to_string(),
-            ],
-        }],
+        flows: vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }],
     };
     assert!(!service.is_session_complete(&session));
 }
@@ -104,17 +95,9 @@ fn test_is_session_complete_multi_stage_all_completed() {
     let session = UiaSession {
         session_id: "test-session".to_string(),
         user_id: "@user:localhost".to_string(),
-        completed: vec![
-            "m.login.password".to_string(),
-            "m.login.email.identity".to_string(),
-        ],
+        completed: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()],
         created_ts: 1000,
-        flows: vec![UiaFlow {
-            stages: vec![
-                "m.login.password".to_string(),
-                "m.login.email.identity".to_string(),
-            ],
-        }],
+        flows: vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }],
     };
     assert!(service.is_session_complete(&session));
 }
@@ -128,12 +111,8 @@ fn test_is_session_complete_multiple_flows_one_complete() {
         completed: vec!["m.login.token".to_string()],
         created_ts: 1000,
         flows: vec![
-            UiaFlow {
-                stages: vec!["m.login.password".to_string()],
-            },
-            UiaFlow {
-                stages: vec!["m.login.token".to_string()],
-            },
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.token".to_string()] },
         ],
     };
     assert!(service.is_session_complete(&session));
@@ -148,15 +127,8 @@ fn test_is_session_complete_multiple_flows_none_complete() {
         completed: vec!["m.login.password".to_string()],
         created_ts: 1000,
         flows: vec![
-            UiaFlow {
-                stages: vec!["m.login.token".to_string()],
-            },
-            UiaFlow {
-                stages: vec![
-                    "m.login.password".to_string(),
-                    "m.login.email.identity".to_string(),
-                ],
-            },
+            UiaFlow { stages: vec!["m.login.token".to_string()] },
+            UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] },
         ],
     };
     assert!(!service.is_session_complete(&session));
@@ -184,12 +156,8 @@ fn test_build_uia_response_structure() {
         completed: vec!["m.login.password".to_string()],
         created_ts: 1000,
         flows: vec![
-            UiaFlow {
-                stages: vec!["m.login.password".to_string()],
-            },
-            UiaFlow {
-                stages: vec!["m.login.token".to_string()],
-            },
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.token".to_string()] },
         ],
     };
     let response = service.build_uia_response(&session, "M_UIA_REQUIRED", "Authentication required");
@@ -317,9 +285,7 @@ async fn test_complete_stage() {
     let service = create_service();
     let flows = UiaService::get_default_flows();
     let created = service.create_session("@user:localhost", flows.clone()).await;
-    let updated = service
-        .complete_stage(&created.session_id, "m.login.password")
-        .await;
+    let updated = service.complete_stage(&created.session_id, "m.login.password").await;
     assert!(updated.is_some());
     let updated = updated.unwrap();
     assert!(updated.completed.contains(&"m.login.password".to_string()));
@@ -330,47 +296,26 @@ async fn test_complete_stage_idempotent() {
     let service = create_service();
     let flows = UiaService::get_default_flows();
     let created = service.create_session("@user:localhost", flows.clone()).await;
-    service
-        .complete_stage(&created.session_id, "m.login.password")
-        .await;
-    let updated = service
-        .complete_stage(&created.session_id, "m.login.password")
-        .await
-        .unwrap();
-    let count = updated
-        .completed
-        .iter()
-        .filter(|s| *s == "m.login.password")
-        .count();
+    service.complete_stage(&created.session_id, "m.login.password").await;
+    let updated = service.complete_stage(&created.session_id, "m.login.password").await.unwrap();
+    let count = updated.completed.iter().filter(|s| *s == "m.login.password").count();
     assert_eq!(count, 1);
 }
 
 #[tokio::test]
 async fn test_complete_stage_nonexistent_session() {
     let service = create_service();
-    let result = service
-        .complete_stage("nonexistent-session", "m.login.password")
-        .await;
+    let result = service.complete_stage("nonexistent-session", "m.login.password").await;
     assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_complete_multiple_stages() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec![
-            "m.login.password".to_string(),
-            "m.login.email.identity".to_string(),
-        ],
-    }];
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }];
     let created = service.create_session("@user:localhost", flows).await;
-    service
-        .complete_stage(&created.session_id, "m.login.password")
-        .await;
-    let updated = service
-        .complete_stage(&created.session_id, "m.login.email.identity")
-        .await
-        .unwrap();
+    service.complete_stage(&created.session_id, "m.login.password").await;
+    let updated = service.complete_stage(&created.session_id, "m.login.email.identity").await.unwrap();
     assert_eq!(updated.completed.len(), 2);
     assert!(updated.completed.contains(&"m.login.password".to_string()));
     assert!(updated.completed.contains(&"m.login.email.identity".to_string()));
@@ -427,16 +372,12 @@ async fn test_validate_auth_unknown_session() {
 async fn test_validate_auth_wrong_user_session() {
     let service = create_service();
     let flows = UiaService::get_default_flows();
-    let session = service
-        .create_session("@user1:localhost", flows.clone())
-        .await;
+    let session = service.create_session("@user1:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.password",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user2:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user2:localhost", flows).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err["errcode"], "M_FORBIDDEN");
@@ -446,15 +387,11 @@ async fn test_validate_auth_wrong_user_session() {
 async fn test_validate_auth_no_type() {
     let service = create_service();
     let flows = UiaService::get_default_flows();
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err["errcode"], "M_UIA_REQUIRED");
@@ -464,16 +401,12 @@ async fn test_validate_auth_no_type() {
 async fn test_validate_auth_unsupported_type() {
     let service = create_service();
     let flows = UiaService::get_default_flows();
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.dummy",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err["errcode"], "M_INVALID_PARAM");
@@ -482,44 +415,30 @@ async fn test_validate_auth_unsupported_type() {
 #[tokio::test]
 async fn test_validate_auth_single_stage_success() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec!["m.login.password".to_string()],
-    }];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string()] }];
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.password",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_ok());
     let auth_result = result.unwrap();
     assert!(auth_result.session.is_none());
-    assert!(auth_result
-        .completed
-        .contains(&"m.login.password".to_string()));
+    assert!(auth_result.completed.contains(&"m.login.password".to_string()));
 }
 
 #[tokio::test]
 async fn test_validate_auth_single_stage_removes_session_on_complete() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec!["m.login.password".to_string()],
-    }];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string()] }];
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let session_id = session.session_id.clone();
     let auth = serde_json::json!({
         "type": "m.login.password",
         "session": session_id
     });
-    let _ = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let _ = service.validate_auth(&auth, "@user:localhost", flows).await;
     let retrieved = service.get_session(&session_id).await;
     assert!(retrieved.is_none());
 }
@@ -527,22 +446,13 @@ async fn test_validate_auth_single_stage_removes_session_on_complete() {
 #[tokio::test]
 async fn test_validate_auth_multi_stage_partial() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec![
-            "m.login.password".to_string(),
-            "m.login.email.identity".to_string(),
-        ],
-    }];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }];
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.password",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err["errcode"], "M_UIA_REQUIRED");
@@ -553,62 +463,36 @@ async fn test_validate_auth_multi_stage_partial() {
 #[tokio::test]
 async fn test_validate_auth_multi_stage_complete() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec![
-            "m.login.password".to_string(),
-            "m.login.email.identity".to_string(),
-        ],
-    }];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }];
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth1 = serde_json::json!({
         "type": "m.login.password",
         "session": session.session_id
     });
-    let _ = service
-        .validate_auth(&auth1, "@user:localhost", flows.clone())
-        .await;
+    let _ = service.validate_auth(&auth1, "@user:localhost", flows.clone()).await;
     let auth2 = serde_json::json!({
         "type": "m.login.email.identity",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth2, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth2, "@user:localhost", flows).await;
     assert!(result.is_ok());
     let auth_result = result.unwrap();
     assert!(auth_result.session.is_none());
-    assert!(auth_result
-        .completed
-        .contains(&"m.login.password".to_string()));
-    assert!(auth_result
-        .completed
-        .contains(&"m.login.email.identity".to_string()));
+    assert!(auth_result.completed.contains(&"m.login.password".to_string()));
+    assert!(auth_result.completed.contains(&"m.login.email.identity".to_string()));
 }
 
 #[tokio::test]
 async fn test_validate_auth_already_completed_stage() {
     let service = create_service();
-    let flows = vec![UiaFlow {
-        stages: vec![
-            "m.login.password".to_string(),
-            "m.login.email.identity".to_string(),
-        ],
-    }];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let flows = vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }];
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.password",
         "session": session.session_id
     });
-    let _ = service
-        .validate_auth(&auth, "@user:localhost", flows.clone())
-        .await;
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let _ = service.validate_auth(&auth, "@user:localhost", flows.clone()).await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err["errcode"], "M_UIA_REQUIRED");
@@ -618,28 +502,18 @@ async fn test_validate_auth_already_completed_stage() {
 async fn test_validate_auth_multiple_flows_alternate_path() {
     let service = create_service();
     let flows = vec![
-        UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        },
-        UiaFlow {
-            stages: vec!["m.login.token".to_string()],
-        },
+        UiaFlow { stages: vec!["m.login.password".to_string()] },
+        UiaFlow { stages: vec!["m.login.token".to_string()] },
     ];
-    let session = service
-        .create_session("@user:localhost", flows.clone())
-        .await;
+    let session = service.create_session("@user:localhost", flows.clone()).await;
     let auth = serde_json::json!({
         "type": "m.login.token",
         "session": session.session_id
     });
-    let result = service
-        .validate_auth(&auth, "@user:localhost", flows)
-        .await;
+    let result = service.validate_auth(&auth, "@user:localhost", flows).await;
     assert!(result.is_ok());
     let auth_result = result.unwrap();
-    assert!(auth_result
-        .completed
-        .contains(&"m.login.token".to_string()));
+    assert!(auth_result.completed.contains(&"m.login.token".to_string()));
 }
 
 #[tokio::test]
@@ -737,9 +611,7 @@ fn prepare_test_pool() -> Option<Arc<sqlx::PgPool>> {
         match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping UIA password stage test because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping UIA password stage test because test database is unavailable: {error}");
                 None
             }
         }

@@ -52,8 +52,8 @@ impl McpProxyService {
         // 只有 TrendRadar 的查询类工具才需要缓存 (比如获取热榜/新闻)
         // 使用 SHA-256 或字符串哈希对 args 建立唯一键
         let args_str = serde_json::to_string(&args).unwrap_or_default();
-        let is_cacheable = provider == "trendradar"
-            && (tool_name == "get_latest_news" || tool_name == "get_trending_topics");
+        let is_cacheable =
+            provider == "trendradar" && (tool_name == "get_latest_news" || tool_name == "get_trending_topics");
 
         let cache_key = if is_cacheable {
             // 对 args_str 简单 hash 避免 key 过长
@@ -108,9 +108,7 @@ impl McpProxyService {
     /// 底层发送 MCP 协议格式请求 (JSON-RPC)
     async fn send_mcp_request(&self, endpoint: &str, payload: Value) -> ApiResult<Value> {
         if !endpoint.starts_with("https://") && !endpoint.starts_with("http://") {
-            return Err(ApiError::bad_request(
-                "MCP endpoint must use HTTP(S) protocol".to_string(),
-            ));
+            return Err(ApiError::bad_request("MCP endpoint must use HTTP(S) protocol".to_string()));
         }
 
         let host = endpoint
@@ -123,14 +121,8 @@ impl McpProxyService {
             .next()
             .unwrap_or("");
 
-        if host == "localhost"
-            || host == "127.0.0.1"
-            || host == "::1"
-            || host == "0.0.0.0"
-        {
-            return Err(ApiError::bad_request(
-                "MCP endpoint cannot point to loopback address".to_string(),
-            ));
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+            return Err(ApiError::bad_request("MCP endpoint cannot point to loopback address".to_string()));
         }
 
         if let Ok(ip) = host.parse::<std::net::IpAddr>() {
@@ -150,9 +142,7 @@ impl McpProxyService {
                 }
                 std::net::IpAddr::V6(ip) => {
                     if ip.is_loopback() {
-                        return Err(ApiError::bad_request(
-                            "MCP endpoint cannot point to loopback address".to_string(),
-                        ));
+                        return Err(ApiError::bad_request("MCP endpoint cannot point to loopback address".to_string()));
                     }
                 }
             }
@@ -160,26 +150,19 @@ impl McpProxyService {
 
         info!("Sending MCP request to {}: {}", endpoint, payload);
 
-        let response = self
-            .client
-            .post(endpoint)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| {
-                error!("MCP request failed: {}", e);
-                ApiError::internal_with_log("Failed to connect to MCP server", &e)
-            })?;
+        let response =
+            self.client.post(endpoint).header("Content-Type", "application/json").json(&payload).send().await.map_err(
+                |e| {
+                    error!("MCP request failed: {}", e);
+                    ApiError::internal_with_log("Failed to connect to MCP server", &e)
+                },
+            )?;
 
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             warn!("MCP server returned error {}: {}", status, error_text);
-            return Err(ApiError::internal_with_log(
-                "MCP server error",
-                &error_text,
-            ));
+            return Err(ApiError::internal_with_log("MCP server error", &error_text));
         }
 
         let result: Value = response.json().await.map_err(|e| {
@@ -198,13 +181,7 @@ impl McpProxyService {
 
     /// 对代理服务进行简单的健康检查
     pub async fn check_health(&self, endpoint: &str) -> bool {
-        match self
-            .client
-            .get(endpoint)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await
-        {
+        match self.client.get(endpoint).timeout(Duration::from_secs(5)).send().await {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }

@@ -35,10 +35,7 @@ impl DehydratedDeviceStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn get_by_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<DehydratedDevice>, sqlx::Error> {
+    pub async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
         sqlx::query_as::<_, DehydratedDevice>(
             r"
             SELECT id, user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at
@@ -55,10 +52,7 @@ impl DehydratedDeviceStorage {
         .await
     }
 
-    pub async fn upsert_for_user(
-        &self,
-        params: UpsertDehydratedDeviceParams,
-    ) -> Result<DehydratedDevice, sqlx::Error> {
+    pub async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
@@ -276,22 +270,16 @@ impl DehydratedDeviceStorage {
         let prefix = format!("{algorithm}:");
 
         // 1) Try one-time keys first; consume on success.
-        if let Some(otk_obj) = device_data
-            .get_mut("one_time_keys")
-            .and_then(|v| v.as_object_mut())
-        {
+        if let Some(otk_obj) = device_data.get_mut("one_time_keys").and_then(|v| v.as_object_mut()) {
             if let Some(matched_id) = otk_obj.keys().find(|k| k.starts_with(&prefix)).cloned() {
                 if let Some(payload) = otk_obj.remove(&matched_id) {
-                    let remaining_with_prefix =
-                        otk_obj.keys().filter(|k| k.starts_with(&prefix)).count();
-                    sqlx::query(
-                        "UPDATE dehydrated_devices SET device_data = $1, updated_ts = $2 WHERE id = $3",
-                    )
-                    .bind(&device_data)
-                    .bind(chrono::Utc::now().timestamp_millis())
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                    let remaining_with_prefix = otk_obj.keys().filter(|k| k.starts_with(&prefix)).count();
+                    sqlx::query("UPDATE dehydrated_devices SET device_data = $1, updated_ts = $2 WHERE id = $3")
+                        .bind(&device_data)
+                        .bind(chrono::Utc::now().timestamp_millis())
+                        .bind(id)
+                        .execute(&mut *tx)
+                        .await?;
                     tx.commit().await?;
                     if remaining_with_prefix < 5 {
                         ::tracing::warn!(
@@ -309,10 +297,8 @@ impl DehydratedDeviceStorage {
 
         // 2) Fall back to fallback keys; do not consume.
         if let Some(fb_obj) = device_data.get("fallback_keys").and_then(|v| v.as_object()) {
-            if let Some((matched_id, payload)) = fb_obj
-                .iter()
-                .find(|(k, _)| k.starts_with(&prefix))
-                .map(|(k, v)| (k.clone(), v.clone()))
+            if let Some((matched_id, payload)) =
+                fb_obj.iter().find(|(k, _)| k.starts_with(&prefix)).map(|(k, v)| (k.clone(), v.clone()))
             {
                 tx.rollback().await?;
                 return Ok(Some((matched_id, payload)));

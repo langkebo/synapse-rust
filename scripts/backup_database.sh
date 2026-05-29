@@ -43,22 +43,22 @@ NC='\033[0m'
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
 }
 
 log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "[SUCCESS] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "[SUCCESS] $(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
 }
 
 log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "[WARNING] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "[WARNING] $(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
 }
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
 }
 
 cleanup() {
@@ -104,7 +104,7 @@ main() {
 
     if [ "$COMPRESS" = "true" ]; then
         # 使用压缩格式备份
-        if docker exec "$PG_CONTAINER" pg_dump -U synapse -d synapse -Fc -b 2>/dev/null | gzip > "$PG_BACKUP_COMPRESSED"; then
+        if docker exec "$PG_CONTAINER" pg_dump -U synapse -d synapse -Fc -b 2>/dev/null | gzip >"$PG_BACKUP_COMPRESSED"; then
             log_success "PostgreSQL backup completed: $PG_BACKUP_COMPRESSED"
             PG_BACKUP_FINAL="$PG_BACKUP_COMPRESSED"
         else
@@ -151,7 +151,7 @@ main() {
     # 复制 Redis dump 文件
     if docker cp "$REDIS_CONTAINER:/data/dump.rdb" "/tmp/synapse_redis_${DATE}.rdb" 2>/dev/null; then
         if [ "$COMPRESS" = "true" ]; then
-            gzip -c "/tmp/synapse_redis_${DATE}.rdb" > "$REDIS_BACKUP_COMPRESSED"
+            gzip -c "/tmp/synapse_redis_${DATE}.rdb" >"$REDIS_BACKUP_COMPRESSED"
             rm -f "/tmp/synapse_redis_${DATE}.rdb"
             log_success "Redis backup completed: $REDIS_BACKUP_COMPRESSED"
             REDIS_BACKUP_FINAL="$REDIS_BACKUP_COMPRESSED"
@@ -194,7 +194,7 @@ main() {
     # 生成备份清单
     # ----------------------------------------------------------------------------
     MANIFEST_FILE="$BACKUP_DIR/backup_manifest_${DATE}.txt"
-    cat > "$MANIFEST_FILE" << EOF
+    cat >"$MANIFEST_FILE" <<EOF
 # Database Backup Manifest
 # Date: $DATE
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')

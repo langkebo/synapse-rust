@@ -14,13 +14,8 @@ async fn ensure_typing_room_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to access typing status",
-    )
-    .await
+    ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to access typing status")
+        .await
 }
 
 async fn write_typing_ephemeral(
@@ -74,35 +69,19 @@ pub async fn set_typing(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot set typing for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot set typing for other users".to_string()));
     }
 
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let timeout = body
-        .get("timeout")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(30000) as u64;
+    let timeout = body.get("timeout").and_then(|v| v.as_i64()).unwrap_or(30000) as u64;
 
     let is_typing = body.get("typing").and_then(|v| v.as_bool()).unwrap_or(true);
 
     if is_typing {
-        state
-            .services
-            .typing_service
-            .set_typing(&room_id, &user_id, timeout)
-            .await?;
+        state.services.typing_service.set_typing(&room_id, &user_id, timeout).await?;
 
-        write_typing_ephemeral(
-            &state,
-            &room_id,
-            &user_id,
-            std::slice::from_ref(&user_id),
-            timeout as i64,
-        )
-        .await;
+        write_typing_ephemeral(&state, &room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64).await;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",
@@ -117,23 +96,13 @@ pub async fn set_typing(
             .broadcast_edu_to_room(
                 &room_id,
                 &edu,
-                state
-                    .services
-                    .config
-                    .server
-                    .server_name
-                    .as_deref()
-                    .unwrap_or("localhost"),
+                state.services.config.server.server_name.as_deref().unwrap_or("localhost"),
             )
             .await;
 
         Ok(Json(json!({})))
     } else {
-        state
-            .services
-            .typing_service
-            .clear_typing(&room_id, &user_id)
-            .await?;
+        state.services.typing_service.clear_typing(&room_id, &user_id).await?;
 
         clear_typing_ephemeral(&state, &room_id, &user_id).await;
 
@@ -150,13 +119,7 @@ pub async fn set_typing(
             .broadcast_edu_to_room(
                 &room_id,
                 &edu,
-                state
-                    .services
-                    .config
-                    .server
-                    .server_name
-                    .as_deref()
-                    .unwrap_or("localhost"),
+                state.services.config.server.server_name.as_deref().unwrap_or("localhost"),
             )
             .await;
 
@@ -173,11 +136,7 @@ pub async fn get_typing_users(
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let typing = state
-        .services
-        .typing_service
-        .get_typing_users(&room_id)
-        .await?;
+    let typing = state.services.typing_service.get_typing_users(&room_id).await?;
     let users: Vec<String> = typing.into_keys().collect();
     Ok(Json(json!({ "typing": users })))
 }
@@ -191,12 +150,7 @@ pub async fn get_user_typing(
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let is_typing = state
-        .services
-        .typing_service
-        .get_user_typing(&room_id, &user_id)
-        .await?
-        .is_some();
+    let is_typing = state.services.typing_service.get_user_typing(&room_id, &user_id).await?.is_some();
     Ok(Json(json!({ "typing": is_typing })))
 }
 
@@ -210,22 +164,14 @@ pub async fn bulk_get_typing(
     let room_ids = body
         .get("rooms")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect::<Vec<_>>()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
         .unwrap_or_default();
 
     let mut result = serde_json::Map::new();
     for room_id in room_ids {
         ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-        let typing = state
-            .services
-            .typing_service
-            .get_typing_users(&room_id)
-            .await?;
+        let typing = state.services.typing_service.get_typing_users(&room_id).await?;
         let users: Vec<String> = typing.into_keys().collect();
         result.insert(room_id, json!({ "typing": users }));
     }
@@ -243,14 +189,8 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
             put(set_typing).post(set_typing).get(get_user_typing),
         )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/typing",
-            get(get_typing_users),
-        )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/typing",
-            get(get_typing_users),
-        )
+        .route("/_matrix/client/v3/rooms/{room_id}/typing", get(get_typing_users))
+        .route("/_matrix/client/r0/rooms/{room_id}/typing", get(get_typing_users))
         .route("/_matrix/client/v3/rooms/typing", post(bulk_get_typing))
         .route("/_matrix/client/r0/rooms/typing", post(bulk_get_typing))
         .with_state(state)
@@ -261,18 +201,9 @@ pub fn typing_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
     use axum::http::Method;
 
     [
-        (
-            Method::PUT,
-            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-        ),
+        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}"),
+        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}"),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}"),
         (Method::GET, "/_matrix/client/v3/rooms/{room_id}/typing"),
         (Method::POST, "/_matrix/client/v3/rooms/typing"),
     ]

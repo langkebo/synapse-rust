@@ -42,8 +42,7 @@ fn main() {
         },
     };
 
-    let bytes =
-        canonical_federation_request_bytes(&method, &uri, &origin, &destination, content.as_ref());
+    let bytes = canonical_federation_request_bytes(&method, &uri, &origin, &destination, content.as_ref());
 
     let sig = signing_key.sign(&bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());

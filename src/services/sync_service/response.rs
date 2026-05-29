@@ -25,9 +25,7 @@ impl SyncService {
         } = request;
         let room_filter = response_filter.and_then(|filter| filter.room.as_ref());
         let event_fields = response_filter.and_then(|filter| filter.event_fields.as_deref());
-        let event_format = response_filter
-            .map(|filter| filter.event_format)
-            .unwrap_or_default();
+        let event_format = response_filter.map(|filter| filter.event_format).unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
         let since_ts = Self::event_since_ts(since_token);
         let since_stream_ordering = since_token
@@ -63,10 +61,7 @@ impl SyncService {
                 (HashMap::<String, HashSet<String>>::new(), state_ts_result)
             }
         } else {
-            (
-                HashMap::<String, HashSet<String>>::new(),
-                HashMap::<String, i64>::new(),
-            )
+            (HashMap::<String, HashSet<String>>::new(), HashMap::<String, i64>::new())
         };
         let rooms_to_include = Self::rooms_to_include(
             room_ids,
@@ -78,11 +73,7 @@ impl SyncService {
         let changed_members_by_room = if is_incremental && lazy_load_members {
             changed_members_by_room
                 .into_iter()
-                .filter(|(room_id, _)| {
-                    rooms_to_include
-                        .iter()
-                        .any(|candidate| candidate == room_id)
-                })
+                .filter(|(room_id, _)| rooms_to_include.iter().any(|candidate| candidate == room_id))
                 .collect::<HashMap<_, _>>()
         } else {
             HashMap::new()
@@ -90,11 +81,7 @@ impl SyncService {
         let state_change_ts_by_room = if is_incremental {
             state_change_ts_by_room
                 .into_iter()
-                .filter(|(room_id, _)| {
-                    rooms_to_include
-                        .iter()
-                        .any(|candidate| candidate == room_id)
-                })
+                .filter(|(room_id, _)| rooms_to_include.iter().any(|candidate| candidate == room_id))
                 .collect::<HashMap<_, _>>()
         } else {
             HashMap::new()
@@ -112,13 +99,7 @@ impl SyncService {
             self.get_state_events_for_sync_batch(
                 &rooms_to_include,
                 event_format,
-                StateEventsBatchParams {
-                    since_ts,
-                    since_stream_ordering,
-                    is_incremental,
-                    lazy_load_members,
-                    user_id,
-                },
+                StateEventsBatchParams { since_ts, since_stream_ordering, is_incremental, lazy_load_members, user_id },
             ),
             self.get_room_ephemeral_events_batch(&rooms_to_include),
             self.get_room_account_data_events_batch(user_id, &rooms_to_include),
@@ -133,16 +114,14 @@ impl SyncService {
             response_filter.and_then(|filter| filter.presence.as_ref()),
         );
         let presence_events = Self::apply_event_fields_to_values(presence_events, event_fields);
-        let account_data_events =
-            Self::apply_event_fields_to_values(account_data_events, event_fields);
+        let account_data_events = Self::apply_event_fields_to_values(account_data_events, event_fields);
         let to_device_events = Self::apply_event_fields_to_values(to_device_events, event_fields);
 
         let mut joined_rooms = Map::new();
         let mut left_rooms = Map::new();
         for room_id in &rooms_to_include {
             let events = room_events.get(room_id).cloned().unwrap_or_default();
-            let (timeline_events, timeline_limited) =
-                Self::apply_timeline_limit(&events, timeline_limit);
+            let (timeline_events, timeline_limited) = Self::apply_timeline_limit(&events, timeline_limit);
             let state_events = Self::apply_sync_filter_to_values(
                 state_by_room.get(room_id).cloned().unwrap_or_default(),
                 room_filter.and_then(|filter| filter.state.as_ref()),
@@ -165,41 +144,26 @@ impl SyncService {
                 ephemeral_by_room.get(room_id).cloned().unwrap_or_default(),
                 room_filter.and_then(|filter| filter.ephemeral.as_ref()),
             );
-            let ephemeral_events =
-                Self::apply_event_fields_to_values(ephemeral_events, event_fields);
+            let ephemeral_events = Self::apply_event_fields_to_values(ephemeral_events, event_fields);
             let account_data_events = Self::apply_sync_filter_to_values(
-                room_account_data_by_room
-                    .get(room_id)
-                    .cloned()
-                    .unwrap_or_default(),
+                room_account_data_by_room.get(room_id).cloned().unwrap_or_default(),
                 room_filter.and_then(|filter| filter.account_data.as_ref()),
             );
-            let account_data_events =
-                Self::apply_event_fields_to_values(account_data_events, event_fields);
-            let (highlight_count, notification_count) = unread_counts_by_room
-                .get(room_id)
-                .copied()
-                .unwrap_or((0, 0));
+            let account_data_events = Self::apply_event_fields_to_values(account_data_events, event_fields);
+            let (highlight_count, notification_count) = unread_counts_by_room.get(room_id).copied().unwrap_or((0, 0));
             let room_sync = Self::build_room_sync_value(BuildRoomSyncValueRequest {
                 events,
                 state_list: state_events,
                 ephemeral_events,
                 account_data_events,
                 timeline_limit,
-                counts: RoomSyncCounts {
-                    highlight_count,
-                    notification_count,
-                },
+                counts: RoomSyncCounts { highlight_count, notification_count },
                 event_fields,
                 event_format,
             });
 
             if room_sync.is_object() && !room_sync.as_object().is_some_and(|o| o.is_empty()) {
-                match room_sections
-                    .get(room_id)
-                    .copied()
-                    .unwrap_or(SyncRoomSection::Join)
-                {
+                match room_sections.get(room_id).copied().unwrap_or(SyncRoomSection::Join) {
                     SyncRoomSection::Join => {
                         joined_rooms.insert(room_id.clone(), room_sync);
                     }
@@ -210,17 +174,12 @@ impl SyncService {
             }
         }
 
-        let stream_id =
-            Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
-        let device_one_time_keys_count = self
-            .build_device_one_time_keys_count(user_id, device_id)
-            .await?;
+        let stream_id = Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
+        let device_one_time_keys_count = self.build_device_one_time_keys_count(user_id, device_id).await?;
 
         let key_rotation_needed = self.build_key_rotation_needed(user_id).await?;
 
-        let device_list_changes = self
-            .build_device_list_changes(user_id, &device_lists)
-            .await?;
+        let device_list_changes = self.build_device_list_changes(user_id, &device_lists).await?;
 
         Ok(json!({
             "next_batch": SyncToken {
@@ -245,11 +204,7 @@ impl SyncService {
         }))
     }
 
-    async fn build_device_one_time_keys_count(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> ApiResult<Value> {
+    async fn build_device_one_time_keys_count(&self, user_id: &str, device_id: Option<&str>) -> ApiResult<Value> {
         let Some(device_id) = device_id else {
             return Ok(json!({}));
         };
@@ -269,8 +224,7 @@ impl SyncService {
     }
 
     async fn build_key_rotation_needed(&self, user_id: &str) -> ApiResult<Value> {
-        let rotation_storage =
-            crate::e2ee::key_rotation::KeyRotationStorage::new(self.event_storage.pool.clone());
+        let rotation_storage = crate::e2ee::key_rotation::KeyRotationStorage::new(self.event_storage.pool.clone());
 
         let rooms = rotation_storage
             .get_rooms_needing_key_rotation(user_id)
@@ -282,29 +236,17 @@ impl SyncService {
         }))
     }
 
-    async fn build_device_list_changes(
-        &self,
-        _user_id: &str,
-        device_lists: &Value,
-    ) -> ApiResult<Value> {
+    async fn build_device_list_changes(&self, _user_id: &str, device_lists: &Value) -> ApiResult<Value> {
         let changed_users: Vec<String> = device_lists
             .get("changed")
             .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .unwrap_or_default();
 
         let left_users: Vec<String> = device_lists
             .get("left")
             .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .unwrap_or_default();
 
         let mut user_device_counts = serde_json::Map::new();
@@ -338,19 +280,9 @@ impl SyncService {
         }))
     }
 
-    pub(crate) async fn build_room_sync(
-        &self,
-        request: BuildRoomSyncRequest<'_>,
-    ) -> ApiResult<serde_json::Value> {
-        let BuildRoomSyncRequest {
-            room_id,
-            user_id,
-            device_id,
-            events,
-            since_token,
-            is_incremental,
-            room_filter,
-        } = request;
+    pub(crate) async fn build_room_sync(&self, request: BuildRoomSyncRequest<'_>) -> ApiResult<serde_json::Value> {
+        let BuildRoomSyncRequest { room_id, user_id, device_id, events, since_token, is_incremental, room_filter } =
+            request;
         let since_ts = Self::event_since_ts(&since_token.cloned());
         let (
             changed_member_ids,
@@ -393,13 +325,9 @@ impl SyncService {
             self.get_unread_counts(room_id, user_id),
         )?;
 
-        let (timeline_events, timeline_limited) =
-            Self::apply_timeline_limit(&events, self.sync_event_limit());
+        let (timeline_events, timeline_limited) = Self::apply_timeline_limit(&events, self.sync_event_limit());
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
-        let state_list = Self::apply_sync_filter_to_values(
-            state_list,
-            room_filter.and_then(|f| f.state.as_ref()),
-        );
+        let state_list = Self::apply_sync_filter_to_values(state_list, room_filter.and_then(|f| f.state.as_ref()));
         let state_list = self
             .apply_lazy_load_members(LazyLoadMembersRequest {
                 state_events: state_list,
@@ -413,19 +341,11 @@ impl SyncService {
                 enabled: lazy_load_members,
             })
             .await;
-        let state_list = if is_incremental {
-            Vec::new()
-        } else {
-            state_list
-        };
-        let ephemeral_events = Self::apply_sync_filter_to_values(
-            ephemeral_events,
-            room_filter.and_then(|f| f.ephemeral.as_ref()),
-        );
-        let account_data_events = Self::apply_sync_filter_to_values(
-            account_data_events,
-            room_filter.and_then(|f| f.account_data.as_ref()),
-        );
+        let state_list = if is_incremental { Vec::new() } else { state_list };
+        let ephemeral_events =
+            Self::apply_sync_filter_to_values(ephemeral_events, room_filter.and_then(|f| f.ephemeral.as_ref()));
+        let account_data_events =
+            Self::apply_sync_filter_to_values(account_data_events, room_filter.and_then(|f| f.account_data.as_ref()));
 
         Ok(Self::build_room_sync_value(BuildRoomSyncValueRequest {
             events,
@@ -433,10 +353,7 @@ impl SyncService {
             ephemeral_events,
             account_data_events,
             timeline_limit: self.sync_event_limit(),
-            counts: RoomSyncCounts {
-                highlight_count,
-                notification_count,
-            },
+            counts: RoomSyncCounts { highlight_count, notification_count },
             event_fields: None,
             event_format: SyncEventFormat::Client,
         }))
@@ -510,13 +427,12 @@ impl SyncService {
         let (events, limited) = Self::apply_timeline_limit(&events, timeline_limit);
         let event_list: Vec<Value> = events
             .iter()
-            .map(|event| {
-                Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields)
-            })
+            .map(|event| Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields))
             .collect();
-        let prev_batch = events
-            .first()
-            .map_or_else(|| format!("t{}", chrono::Utc::now().timestamp_millis()), |event| format!("t{}", event.origin_server_ts));
+        let prev_batch = events.first().map_or_else(
+            || format!("t{}", chrono::Utc::now().timestamp_millis()),
+            |event| format!("t{}", event.origin_server_ts),
+        );
 
         json!({
             "state": {

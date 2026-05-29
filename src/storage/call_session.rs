@@ -48,16 +48,13 @@ impl CallSessionStorage {
     }
 
     /// 创建呼叫会话
-    pub async fn create_session(
-        &self,
-        params: CreateCallSessionParams,
-    ) -> Result<CallSession, sqlx::Error> {
+    pub async fn create_session(&self, params: CreateCallSessionParams) -> Result<CallSession, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let lifetime = params.lifetime.unwrap_or(60_000); // Default 60 seconds
 
         let session = sqlx::query_as::<_, CallSession>(
             r#"
-            INSERT INTO call_sessions 
+            INSERT INTO call_sessions
                 (call_id, room_id, caller_id, callee_id, state, offer_sdp, lifetime, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, 'ringing', $5, $6, $7, $7)
             RETURNING *
@@ -77,14 +74,10 @@ impl CallSessionStorage {
     }
 
     /// 获取呼叫会话
-    pub async fn get_session(
-        &self,
-        call_id: &str,
-        room_id: &str,
-    ) -> Result<Option<CallSession>, sqlx::Error> {
+    pub async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, sqlx::Error> {
         let session = sqlx::query_as::<_, CallSession>(
             r#"
-            SELECT * FROM call_sessions 
+            SELECT * FROM call_sessions
             WHERE call_id = $1 AND room_id = $2
             "#,
         )
@@ -97,17 +90,12 @@ impl CallSessionStorage {
     }
 
     /// 更新会话状态
-    pub async fn update_state(
-        &self,
-        call_id: &str,
-        room_id: &str,
-        state: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             r#"
-            UPDATE call_sessions 
+            UPDATE call_sessions
             SET state = $3, updated_ts = $4, ended_ts = CASE WHEN $3 = 'ended' THEN $4 ELSE ended_ts END
             WHERE call_id = $1 AND room_id = $2
             "#,
@@ -123,17 +111,12 @@ impl CallSessionStorage {
     }
 
     /// 设置应答SDP
-    pub async fn set_answer(
-        &self,
-        call_id: &str,
-        room_id: &str,
-        answer_sdp: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             r#"
-            UPDATE call_sessions 
+            UPDATE call_sessions
             SET answer_sdp = $3, state = 'connected', updated_ts = $4
             WHERE call_id = $1 AND room_id = $2
             "#,
@@ -176,14 +159,10 @@ impl CallSessionStorage {
     }
 
     /// 获取会话的所有候选人
-    pub async fn get_candidates(
-        &self,
-        call_id: &str,
-        room_id: &str,
-    ) -> Result<Vec<CallCandidate>, sqlx::Error> {
+    pub async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<CallCandidate>, sqlx::Error> {
         let candidates = sqlx::query_as::<_, CallCandidate>(
             r#"
-            SELECT * FROM call_candidates 
+            SELECT * FROM call_candidates
             WHERE call_id = $1 AND room_id = $2
             ORDER BY created_ts ASC
             "#,
@@ -207,9 +186,9 @@ impl CallSessionStorage {
 
         let result = sqlx::query(
             r#"
-            UPDATE call_sessions 
+            UPDATE call_sessions
             SET state = 'ended', ended_ts = $1
-            WHERE state != 'ended' 
+            WHERE state != 'ended'
             AND created_ts + lifetime < $1
             "#,
         )

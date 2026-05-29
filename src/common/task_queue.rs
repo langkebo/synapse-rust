@@ -63,16 +63,10 @@ impl TaskQueue {
         let (sender, receiver) = mpsc::channel(1000);
         let handle = tokio::spawn(Self::worker(receiver, max_concurrent));
 
-        Self {
-            sender,
-            _handle: handle,
-        }
+        Self { sender, _handle: handle }
     }
 
-    async fn worker(
-        mut receiver: mpsc::Receiver<Box<dyn TaskHandler>>,
-        max_concurrent: usize,
-    ) {
+    async fn worker(mut receiver: mpsc::Receiver<Box<dyn TaskHandler>>, max_concurrent: usize) {
         let semaphore = Arc::new(Semaphore::new(max_concurrent));
 
         while let Some(task) = receiver.recv().await {
@@ -99,9 +93,7 @@ impl TaskQueue {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
-        self.sender
-            .try_send(Box::new(task))
-            .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
+        self.sender.try_send(Box::new(task)).map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
     pub fn submit_async<F, Fut>(&self, task: F) -> Result<(), TaskQueueError>
@@ -109,16 +101,10 @@ impl TaskQueue {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
-        self.sender
-            .try_send(Box::new(task))
-            .map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
+        self.sender.try_send(Box::new(task)).map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
-    pub fn submit_delayed<F, Fut>(
-        &self,
-        task: F,
-        delay: std::time::Duration,
-    ) -> Result<(), TaskQueueError>
+    pub fn submit_delayed<F, Fut>(&self, task: F, delay: std::time::Duration) -> Result<(), TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
@@ -142,10 +128,7 @@ pub struct BackgroundTaskManager {
 #[cfg(test)]
 impl BackgroundTaskManager {
     pub fn new(max_concurrent: usize) -> Self {
-        Self {
-            task_queue: TaskQueue::new(max_concurrent),
-            task_counter: std::sync::atomic::AtomicU64::new(0),
-        }
+        Self { task_queue: TaskQueue::new(max_concurrent), task_counter: std::sync::atomic::AtomicU64::new(0) }
     }
 
     pub fn submit_task<F, Fut>(&self, name: String, task: F) -> Result<TaskId, TaskQueueError>
@@ -153,9 +136,7 @@ impl BackgroundTaskManager {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
-        let task_id = self
-            .task_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let task_id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let name_clone = name;
 
         self.task_queue
@@ -177,9 +158,7 @@ impl BackgroundTaskManager {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: std::future::Future<Output = TaskResultValue> + Send + 'static,
     {
-        let task_id = self
-            .task_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let task_id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let name_clone = name;
 
         self.task_queue
@@ -209,9 +188,7 @@ impl BackgroundTaskManager {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = TaskResultValue> + Send + 'static,
     {
-        let task_id = self
-            .task_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let task_id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let name_clone = name;
 
         self.task_queue.submit_delayed(
@@ -242,9 +219,9 @@ impl RedisTaskQueue {
         let conn_str = config.connection_url();
         let cfg = Config::from_url(conn_str);
 
-        let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {e}"))
-        })?;
+        let pool = cfg
+            .create_pool(Some(Runtime::Tokio1))
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to create Redis pool: {e}")))?;
         Ok(Self { pool })
     }
 
@@ -253,13 +230,14 @@ impl RedisTaskQueue {
     }
 
     pub async fn submit(&self, job: BackgroundJob) -> Result<String, TaskQueueError> {
-        let payload = serde_json::to_string(&job).map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to serialize job: {e}"))
-        })?;
+        let payload = serde_json::to_string(&job)
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to serialize job: {e}")))?;
 
-        let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
-        })?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}")))?;
 
         // XADD mq:tasks:default * payload {json}
         let id: String = conn
@@ -267,11 +245,7 @@ impl RedisTaskQueue {
             .await
             .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to XADD job: {e}")))?;
 
-        tracing::info!(
-            "Submitted background job to Redis Stream: {} -> {}",
-            id,
-            payload
-        );
+        tracing::info!("Submitted background job to Redis Stream: {} -> {}", id, payload);
         Ok(id)
     }
 
@@ -286,51 +260,35 @@ impl RedisTaskQueue {
         Fut: Future<Output = Result<(), String>> + Send,
     {
         // Ensure consumer group exists
-        let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
-        })?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}")))?;
 
-        let _: Result<(), _> = conn
-            .xgroup_create_mkstream("mq:tasks:default", group_name, "$")
-            .await;
+        let _: Result<(), _> = conn.xgroup_create_mkstream("mq:tasks:default", group_name, "$").await;
 
         loop {
             // XREADGROUP GROUP group_name consumer_name COUNT 1 BLOCK 2000 STREAMS mq:tasks:default >
-            let opts = redis::streams::StreamReadOptions::default()
-                .group(group_name, consumer_name)
-                .count(1)
-                .block(2000);
+            let opts =
+                redis::streams::StreamReadOptions::default().group(group_name, consumer_name).count(1).block(2000);
 
-            let result: Result<redis::streams::StreamReadReply, _> = conn
-                .xread_options(&["mq:tasks:default"], &[">"], &opts)
-                .await;
+            let result: Result<redis::streams::StreamReadReply, _> =
+                conn.xread_options(&["mq:tasks:default"], &[">"], &opts).await;
 
             match result {
                 Ok(reply) => {
                     for stream_key in reply.keys {
                         for stream_id in stream_key.ids {
                             if let Some(payload_val) = stream_id.map.get("payload") {
-                                if let Ok(payload_str) =
-                                    redis::from_redis_value::<String>(payload_val)
-                                {
-                                    if let Ok(job) =
-                                        serde_json::from_str::<BackgroundJob>(&payload_str)
-                                    {
-                                        tracing::info!(
-                                            "Processing job {}: {:?}",
-                                            stream_id.id,
-                                            job
-                                        );
+                                if let Ok(payload_str) = redis::from_redis_value::<String>(payload_val) {
+                                    if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
+                                        tracing::info!("Processing job {}: {:?}", stream_id.id, job);
                                         match handler(job).await {
                                             Ok(_) => {
                                                 // XACK
-                                                let _: Result<(), _> = conn
-                                                    .xack(
-                                                        "mq:tasks:default",
-                                                        group_name,
-                                                        &[&stream_id.id],
-                                                    )
-                                                    .await;
+                                                let _: Result<(), _> =
+                                                    conn.xack("mq:tasks:default", group_name, &[&stream_id.id]).await;
                                             }
                                             Err(e) => {
                                                 tracing::error!("Job processing failed: {}", e);
@@ -338,10 +296,7 @@ impl RedisTaskQueue {
                                             }
                                         }
                                     } else {
-                                        tracing::error!(
-                                            "Failed to deserialize job payload: {}",
-                                            payload_str
-                                        );
+                                        tracing::error!("Failed to deserialize job payload: {}", payload_str);
                                     }
                                 }
                             }
@@ -361,14 +316,17 @@ impl RedisTaskQueue {
         }
     }
     pub async fn get_metrics(&self, group_name: &str) -> Result<QueueMetrics, TaskQueueError> {
-        let mut conn = self.pool.get().await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}"))
-        })?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to get Redis connection: {e}")))?;
 
         // 1. Get Stream Length (XLEN)
-        let queue_length: u64 = conn.xlen("mq:tasks:default").await.map_err(|e| {
-            TaskQueueError::SubmissionError(format!("Failed to get queue length: {e}"))
-        })?;
+        let queue_length: u64 = conn
+            .xlen("mq:tasks:default")
+            .await
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to get queue length: {e}")))?;
 
         // 2. Get Pending Info (XPENDING)
         // redis::streams::StreamPendingCountReply struct in `redis` crate 0.27 might have different fields or we are using it wrong.
@@ -387,21 +345,14 @@ impl RedisTaskQueue {
         let info_val: redis::Value = conn
             .xpending("mq:tasks:default", group_name)
             .await
-            .map_err(|e| {
-                TaskQueueError::SubmissionError(format!("Failed to get pending info: {e}"))
-            })?;
+            .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to get pending info: {e}")))?;
 
         // Parse the summary response: [count, min_id, max_id, [[consumer, count], ...]]
         let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) =
-            redis::from_redis_value(&info_val).map_err(|e| {
-                TaskQueueError::SubmissionError(format!("Failed to parse pending info: {e}"))
-            })?;
+            redis::from_redis_value(&info_val)
+                .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to parse pending info: {e}")))?;
 
-        Ok(QueueMetrics {
-            queue_length,
-            consumer_lag: count,
-            consumers: consumers_list,
-        })
+        Ok(QueueMetrics { queue_length, consumer_lag: count, consumers: consumers_list })
     }
 }
 
@@ -431,16 +382,8 @@ mod tests {
         let (tx, rx) = oneshot::channel();
 
         let submit_result = queue.submit(move || async move {
-            tx.send(())
-                .map_err(|_| {
-                    panic::panic_any(TestPanic("Failed to send through channel".to_string()))
-                })
-                .unwrap();
-            TaskResultValue {
-                task_id: 1,
-                success: true,
-                message: "Task completed".to_string(),
-            }
+            tx.send(()).map_err(|_| panic::panic_any(TestPanic("Failed to send through channel".to_string()))).unwrap();
+            TaskResultValue { task_id: 1, success: true, message: "Task completed".to_string() }
         });
 
         assert!(submit_result.is_ok(), "Task submission should succeed");
@@ -465,22 +408,14 @@ mod tests {
         let manager = BackgroundTaskManager::new(2);
 
         let task_id = manager.submit_task("test_task".to_string(), || async {
-            TaskResultValue {
-                task_id: 0,
-                success: true,
-                message: "Test task completed".to_string(),
-            }
+            TaskResultValue { task_id: 0, success: true, message: "Test task completed".to_string() }
         });
 
         assert!(task_id.is_ok(), "Task submission should succeed");
         assert_eq!(task_id.unwrap(), 0);
 
         let task_id = manager.submit_task("test_task_2".to_string(), || async {
-            TaskResultValue {
-                task_id: 0,
-                success: false,
-                message: "Test task failed".to_string(),
-            }
+            TaskResultValue { task_id: 0, success: false, message: "Test task failed".to_string() }
         });
 
         assert!(task_id.is_ok(), "Task submission should succeed");
@@ -495,11 +430,7 @@ mod tests {
         for i in 0..5 {
             let task_id = i;
             let result = manager.submit_task(format!("task_{i}"), move || async move {
-                TaskResultValue {
-                    task_id,
-                    success: true,
-                    message: format!("Task {i} completed"),
-                }
+                TaskResultValue { task_id, success: true, message: format!("Task {i} completed") }
             });
 
             assert!(result.is_ok(), "Task {i} submission should succeed");

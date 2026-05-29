@@ -1,10 +1,8 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
-use crate::web::routes::AppState;
 use crate::web::routes::validate_room_alias;
-use axum::{
-    extract::{Extension, Json, Path, Query, RawQuery, State},
-};
+use crate::web::routes::AppState;
+use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -142,10 +140,7 @@ pub(super) async fn get_event(
     match event {
         Some(e) => {
             super::validate_federation_origin_in_room(&state, &e.room_id, &auth.origin).await?;
-            Ok(Json(build_federation_event_response(
-                &state.services.server_name,
-                &e,
-            )))
+            Ok(Json(build_federation_event_response(&state.services.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
@@ -168,14 +163,9 @@ pub(super) async fn get_room_event(
     match event {
         Some(e) => {
             if e.room_id != room_id {
-                return Err(ApiError::bad_request(
-                    "Event does not belong to this room".to_string(),
-                ));
+                return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
             }
-            Ok(Json(build_federation_event_response(
-                &state.services.server_name,
-                &e,
-            )))
+            Ok(Json(build_federation_event_response(&state.services.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
@@ -189,10 +179,8 @@ pub(super) async fn get_state(
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
-    let mut events =
-        load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
-    let (pdus, auth_chain) =
-        build_federation_state_payload(&state.services.server_name, &mut events);
+    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
+    let (pdus, auth_chain) = build_federation_state_payload(&state.services.server_name, &mut events);
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -210,18 +198,14 @@ pub(super) async fn get_state_ids(
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
-    let mut events =
-        load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
+    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
     sort_state_events_stably(&mut events);
 
     let pdu_ids: Vec<String> = events.iter().map(|event| event.event_id.clone()).collect();
     let auth_chain_ids: Vec<String> = events
         .iter()
         .filter(|event| {
-            event
-                .event_type
-                .as_deref()
-                .is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
+            event.event_type.as_deref().is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
         })
         .map(|event| event.event_id.clone())
         .collect();
@@ -259,9 +243,7 @@ pub(super) async fn room_directory_query(
     }
 
     if room_id.starts_with("ps_") {
-        return Err(ApiError::not_found(
-            "Private session not supported".to_string(),
-        ));
+        return Err(ApiError::not_found("Private session not supported".to_string()));
     }
 
     Err(ApiError::not_found("Room not found".to_string()))
@@ -292,9 +274,7 @@ pub(super) async fn profile_query(
     Extension(auth): Extension<FederationRequestAuth>,
     Query(params): Query<FederationProfileQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = params
-        .user_id
-        .ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
+    let user_id = params.user_id.ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
 
     build_profile_query_response(&state, &auth.origin, &user_id, params.field.as_deref()).await
 }
@@ -322,16 +302,10 @@ async fn build_profile_query_response(
     }
 
     if !super::user_matches_origin(user_id, &state.services.server_name) {
-        return Err(ApiError::not_found(
-            "User is not hosted on this server".to_string(),
-        ));
+        return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
-    let profile = state
-        .services
-        .registration_service
-        .get_profile(user_id)
-        .await?;
+    let profile = state.services.registration_service.get_profile(user_id).await?;
 
     super::validate_federation_origin_shares_user_room(state, user_id, origin).await?;
 
@@ -359,11 +333,7 @@ pub(super) async fn get_public_rooms(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10)
-        .min(1000);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
     let _since = params.get("since").cloned();
 
     let rooms = state
@@ -397,11 +367,7 @@ pub(super) async fn post_public_rooms(
     Query(_params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body
-        .get("limit")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(20)
-        .min(1000);
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
     let rooms = state
         .services
         .room_storage
@@ -440,21 +406,13 @@ pub(super) async fn query_directory(
     validate_room_alias(room_alias)?;
 
     let Some((_, alias_server_name)) = room_alias[1..].rsplit_once(':') else {
-        return Err(ApiError::bad_request(
-            "Invalid room alias format".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid room alias format".to_string()));
     };
     if alias_server_name != state.services.server_name {
-        return Err(ApiError::not_found(
-            "Room alias is not hosted on this server".to_string(),
-        ));
+        return Err(ApiError::not_found("Room alias is not hosted on this server".to_string()));
     }
 
-    let room_id = state
-        .services
-        .room_service
-        .get_room_by_alias(room_alias)
-        .await?;
+    let room_id = state.services.room_service.get_room_by_alias(room_alias).await?;
     let room_id = room_id.ok_or_else(|| {
         ApiError::not_found(format!(
             "Room alias not found: {room_alias}. Create the alias before querying the federation directory."
@@ -504,8 +462,7 @@ pub(super) async fn timestamp_to_event(
             if let Some(ts) = v.as_i64() {
                 ts
             } else if let Some(s) = v.as_str() {
-                s.parse::<i64>()
-                    .map_err(|_| ApiError::bad_request("Invalid 'ts' parameter"))?
+                s.parse::<i64>().map_err(|_| ApiError::bad_request("Invalid 'ts' parameter"))?
             } else {
                 return Err(ApiError::bad_request("Invalid 'ts' parameter"));
             }
@@ -513,25 +470,16 @@ pub(super) async fn timestamp_to_event(
         None => return Err(ApiError::bad_request("Missing 'ts' parameter")),
     };
 
-    let _room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let _room =
+        state.services.room_storage.get_room(&room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
-    let event = state
-        .services
-        .event_storage
-        .find_event_by_timestamp(&room_id, timestamp)
-        .await?;
+    let event = state.services.event_storage.find_event_by_timestamp(&room_id, timestamp).await?;
 
     if let Some(evt) = event {
         if let Some(arr) = evt.as_array() {
-            if let (Some(event_id), Some(ts)) = (
-                arr.first().and_then(|v| v.as_str()),
-                arr.get(1).and_then(|v| v.as_i64()),
-            ) {
+            if let (Some(event_id), Some(ts)) =
+                (arr.first().and_then(|v| v.as_str()), arr.get(1).and_then(|v| v.as_i64()))
+            {
                 return Ok(Json(json!({
                     "event_id": event_id,
                     "origin_server_ts": ts
@@ -556,12 +504,8 @@ pub(super) async fn get_room_hierarchy(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    let room = state
-        .services
-        .room_storage
-        .get_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room =
+        state.services.room_storage.get_room(&room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !room.is_public {
         super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
@@ -587,9 +531,8 @@ pub(super) async fn get_room_hierarchy(
         )
         .await?;
 
-    let response = serde_json::to_value(hierarchy).map_err(|e| {
-        ApiError::internal_with_log("Failed to serialize hierarchy response", &e)
-    })?;
+    let response = serde_json::to_value(hierarchy)
+        .map_err(|e| ApiError::internal_with_log("Failed to serialize hierarchy response", &e))?;
 
     Ok(Json(response))
 }
@@ -604,12 +547,7 @@ pub(super) async fn backfill(
 
     let (v, limit) = parse_backfill_query(raw_query)?;
 
-    ::tracing::info!(
-        "Backfilling room {} from event(s) {:?} with limit {}",
-        room_id,
-        v,
-        limit
-    );
+    ::tracing::info!("Backfilling room {} from event(s) {:?} with limit {}", room_id, v, limit);
 
     let mut backfill_before_ts = i64::MAX;
     for event_id in &v {
@@ -618,11 +556,7 @@ pub(super) async fn backfill(
                 backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
             }
             Err(_) => {
-                ::tracing::warn!(
-                    "Backfill: event {} not found in room {}, skipping",
-                    event_id,
-                    room_id
-                );
+                ::tracing::warn!("Backfill: event {} not found in room {}, skipping", event_id, room_id);
             }
         }
     }
@@ -655,13 +589,10 @@ pub(super) async fn backfill(
         .get_state_events_at_or_before(&room_id, backfill_before_ts)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get auth chain", &e))?;
-    let (_, auth_chain) =
-        build_federation_state_payload(&state.services.server_name, &mut auth_events);
+    let (_, auth_chain) = build_federation_state_payload(&state.services.server_name, &mut auth_events);
 
-    let mut pdus: Vec<Value> = events
-        .into_iter()
-        .map(|event| serialize_room_event_minimal(&state.services.server_name, &event))
-        .collect();
+    let mut pdus: Vec<Value> =
+        events.into_iter().map(|event| serialize_room_event_minimal(&state.services.server_name, &event)).collect();
 
     topological_sort(&mut pdus);
 
@@ -675,10 +606,7 @@ pub(super) async fn backfill(
     })))
 }
 
-fn build_federation_event_response(
-    server_name: &str,
-    event: &crate::storage::event::RoomEvent,
-) -> Value {
+fn build_federation_event_response(server_name: &str, event: &crate::storage::event::RoomEvent) -> Value {
     let event_origin = match event.origin.trim() {
         "" | "self" | "undefined" => server_name.to_string(),
         value => value.to_string(),
@@ -707,10 +635,7 @@ fn normalized_event_origin(server_name: &str, origin: Option<&str>) -> String {
     }
 }
 
-fn serialize_state_event_minimal(
-    server_name: &str,
-    event: &crate::storage::event::StateEvent,
-) -> Value {
+fn serialize_state_event_minimal(server_name: &str, event: &crate::storage::event::StateEvent) -> Value {
     json!({
         "event_id": event.event_id,
         "type": event.event_type,
@@ -723,10 +648,7 @@ fn serialize_state_event_minimal(
     })
 }
 
-fn serialize_room_event_minimal(
-    server_name: &str,
-    event: &crate::storage::event::RoomEvent,
-) -> Value {
+fn serialize_room_event_minimal(server_name: &str, event: &crate::storage::event::RoomEvent) -> Value {
     json!({
         "event_id": event.event_id,
         "type": event.event_type,
@@ -741,10 +663,7 @@ fn serialize_room_event_minimal(
 
 fn sort_state_events_stably(events: &mut [crate::storage::event::StateEvent]) {
     events.sort_by(|left, right| {
-        right
-            .origin_server_ts
-            .cmp(&left.origin_server_ts)
-            .then_with(|| left.event_id.cmp(&right.event_id))
+        right.origin_server_ts.cmp(&left.origin_server_ts).then_with(|| left.event_id.cmp(&right.event_id))
     });
 }
 
@@ -764,17 +683,11 @@ fn build_federation_state_payload(
 ) -> (Vec<Value>, Vec<Value>) {
     sort_state_events_stably(events);
 
-    let pdus = events
-        .iter()
-        .map(|event| serialize_state_event_minimal(server_name, event))
-        .collect();
+    let pdus = events.iter().map(|event| serialize_state_event_minimal(server_name, event)).collect();
     let auth_chain = events
         .iter()
         .filter(|event| {
-            event
-                .event_type
-                .as_deref()
-                .is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
+            event.event_type.as_deref().is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
         })
         .map(|event| serialize_state_event_minimal(server_name, event))
         .collect();
@@ -801,9 +714,7 @@ async fn get_room_event_in_room(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::bad_request(
-            "Event does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
     Ok(event)
@@ -899,9 +810,9 @@ fn parse_backfill_query(raw_query: Option<String>) -> Result<(Vec<String>, i64),
             match key.as_ref() {
                 "v" if !value.is_empty() => event_ids.push(value.into_owned()),
                 "limit" => {
-                    limit = value.parse::<i64>().map_err(|_| {
-                        ApiError::bad_request("Invalid limit query parameter".to_string())
-                    })?;
+                    limit = value
+                        .parse::<i64>()
+                        .map_err(|_| ApiError::bad_request("Invalid limit query parameter".to_string()))?;
                 }
                 _ => {}
             }

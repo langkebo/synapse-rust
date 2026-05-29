@@ -29,14 +29,10 @@ async fn test_admin_room_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
 
@@ -56,14 +52,10 @@ async fn test_admin_room_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let room_id = json["room_id"].as_str().unwrap().to_string();
 
@@ -75,14 +67,10 @@ async fn test_admin_room_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_room_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_room_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["room_id"], room_id);
     assert_eq!(json["name"], room_name);
@@ -102,9 +90,7 @@ async fn test_admin_room_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_room_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_room_request).await.unwrap();
 
     // 删除应该返回 200 或 202（异步删除）
     assert!(
@@ -119,9 +105,7 @@ async fn test_admin_room_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deleted_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deleted_request).await.unwrap();
 
     // 应该返回 404 或显示房间已被删除
     assert!(
@@ -130,14 +114,11 @@ async fn test_admin_room_lifecycle_management() {
     );
 
     if response.status() == StatusCode::OK {
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         // 如果返回 200，应该显示房间已被删除或阻止
         assert!(
-            json["blocked"].as_bool().unwrap_or(false)
-                || json["deleted"].as_bool().unwrap_or(false),
+            json["blocked"].as_bool().unwrap_or(false) || json["deleted"].as_bool().unwrap_or(false),
             "Room should be marked as blocked or deleted"
         );
     }
@@ -149,9 +130,7 @@ async fn test_admin_room_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_access_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_access_request).await.unwrap();
 
     // 用户应该无法访问已删除的房间
     assert!(
@@ -184,14 +163,10 @@ async fn test_admin_room_history_purge() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
 
@@ -210,14 +185,10 @@ async fn test_admin_room_history_purge() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let room_id = json["room_id"].as_str().unwrap().to_string();
 
@@ -225,10 +196,7 @@ async fn test_admin_room_history_purge() {
     for i in 0..3 {
         let send_message_request = Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/send/m.room.message/txn_{}",
-                room_id, i
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/send/m.room.message/txn_{}", room_id, i))
             .header("Authorization", format!("Bearer {}", user_token))
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -240,9 +208,7 @@ async fn test_admin_room_history_purge() {
             ))
             .unwrap();
 
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_message_request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), send_message_request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -251,10 +217,7 @@ async fn test_admin_room_history_purge() {
     let encoded_room_id = room_id.replace('!', "%21").replace(':', "%3A");
     let purge_history_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/purge_history",
-            encoded_room_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/purge_history", encoded_room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -266,9 +229,7 @@ async fn test_admin_room_history_purge() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), purge_history_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), purge_history_request).await.unwrap();
 
     // 清理历史应该返回 200 或 202
     assert!(
@@ -292,10 +253,7 @@ async fn test_admin_purge_history_requires_existing_room() {
 
     let purge_history_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_synapse/admin/v1/rooms/{}/purge_history",
-            encoded_room_id
-        ))
+        .uri(format!("/_synapse/admin/v1/rooms/{}/purge_history", encoded_room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -307,9 +265,7 @@ async fn test_admin_purge_history_requires_existing_room() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
@@ -338,14 +294,10 @@ async fn test_admin_room_list_and_search() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
 
@@ -366,14 +318,10 @@ async fn test_admin_room_list_and_search() {
             ))
             .unwrap();
 
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_room_request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         room_ids.push(json["room_id"].as_str().unwrap().to_string());
     }
@@ -385,14 +333,10 @@ async fn test_admin_room_list_and_search() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_rooms_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_rooms_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let rooms = json["rooms"].as_array().unwrap();
@@ -405,21 +349,14 @@ async fn test_admin_room_list_and_search() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let results = json["results"].as_array().unwrap();
-    assert!(
-        results.len() >= 3,
-        "Search should find at least 3 rooms with 'Bulk' in name"
-    );
+    assert!(results.len() >= 3, "Search should find at least 3 rooms with 'Bulk' in name");
 
     // 5. 测试分页查询
     let paginated_request = Request::builder()
@@ -428,14 +365,10 @@ async fn test_admin_room_list_and_search() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), paginated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), paginated_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let rooms = json["rooms"].as_array().unwrap();

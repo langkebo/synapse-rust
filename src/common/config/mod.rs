@@ -106,12 +106,7 @@ pub struct LivekitConfig {
 
 impl Default for LivekitConfig {
     fn default() -> Self {
-        Self {
-            api_key: String::new(),
-            api_secret: String::new(),
-            host: String::new(),
-            ws_url: None,
-        }
+        Self { api_key: String::new(), api_secret: String::new(), host: String::new(), ws_url: None }
     }
 }
 

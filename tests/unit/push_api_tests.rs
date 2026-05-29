@@ -344,10 +344,7 @@ fn is_valid_scope(scope: &str) -> bool {
 }
 
 fn is_valid_rule_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "override" | "content" | "room" | "sender" | "underride"
-    )
+    matches!(kind, "override" | "content" | "room" | "sender" | "underride")
 }
 
 fn is_valid_priority(priority: &str) -> bool {

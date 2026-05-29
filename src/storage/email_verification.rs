@@ -55,11 +55,7 @@ impl EmailVerificationStorage {
         Ok(row.id)
     }
 
-    pub async fn verify_token(
-        &self,
-        email: &str,
-        token: &str,
-    ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
+    pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
@@ -128,10 +124,7 @@ impl EmailVerificationStorage {
     /// 仅返回 `email`、`user_id`、`session_data`，调用方据此完成业务校验
     /// （client_secret、purpose 等）。一旦此函数返回 `Some`，行就已物理
     /// 删除，无法被重放。
-    pub async fn claim_used_token(
-        &self,
-        token_id: i64,
-    ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
+    pub async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = Utc::now();
         let row = sqlx::query_as::<_, EmailVerificationToken>(
             r"
@@ -161,10 +154,7 @@ impl EmailVerificationStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn get_token_by_email(
-        &self,
-        email: &str,
-    ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
+    pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = Utc::now();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
@@ -309,10 +299,7 @@ mod tests {
             .expect("Failed to fetch verification token before delete");
         assert!(before_delete.is_some());
 
-        storage
-            .delete_token_by_id(token_id)
-            .await
-            .expect("Failed to delete verification token");
+        storage.delete_token_by_id(token_id).await.expect("Failed to delete verification token");
 
         let after_delete = storage
             .get_verification_token_by_id(token_id)

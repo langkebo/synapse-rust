@@ -207,10 +207,7 @@ impl Default for RoomFilter {
             not_rooms: None,
             include_leave: Some(false),
             state: Some(SyncFilter::default()),
-            timeline: Some(SyncFilter {
-                limit: Some(50),
-                ..Default::default()
-            }),
+            timeline: Some(SyncFilter { limit: Some(50), ..Default::default() }),
             ephemeral: Some(SyncFilter::default()),
             account_data: Some(SyncFilter::default()),
         }
@@ -285,11 +282,7 @@ pub(crate) struct LazyLoadedMembersCacheKey {
 
 impl LazyLoadedMembersCacheKey {
     pub(crate) fn new(user_id: &str, device_id: Option<&str>, room_id: &str) -> Self {
-        Self {
-            user_id: user_id.to_string(),
-            device_id: device_id.map(str::to_string),
-            room_id: room_id.to_string(),
-        }
+        Self { user_id: user_id.to_string(), device_id: device_id.map(str::to_string), room_id: room_id.to_string() }
     }
 }
 

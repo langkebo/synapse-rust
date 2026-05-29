@@ -35,20 +35,10 @@ fn offset_page_checksum(rows: &[SyntheticReportRow], offset: usize, limit: usize
         skipped_scan_cost ^= row.id;
     }
 
-    skipped_scan_cost
-        + rows
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .map(|row| row.id ^ row.received_ts)
-            .sum::<i64>()
+    skipped_scan_cost + rows.iter().skip(offset).take(limit).map(|row| row.id ^ row.received_ts).sum::<i64>()
 }
 
-fn keyset_page_checksum(
-    rows: &[SyntheticReportRow],
-    cursor: SyntheticReportRow,
-    limit: usize,
-) -> i64 {
+fn keyset_page_checksum(rows: &[SyntheticReportRow], cursor: SyntheticReportRow, limit: usize) -> i64 {
     let start = rows
         .binary_search_by(|probe| {
             probe
@@ -61,18 +51,11 @@ fn keyset_page_checksum(
         .map(|index| index + 1)
         .unwrap_or_else(|index| index);
 
-    rows[start..]
-        .iter()
-        .take(limit)
-        .map(|row| row.id ^ row.received_ts)
-        .sum()
+    rows[start..].iter().take(limit).map(|row| row.id ^ row.received_ts).sum()
 }
 
 fn create_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("Failed to create HTTP client")
+    reqwest::Client::builder().timeout(Duration::from_secs(30)).build().expect("Failed to create HTTP client")
 }
 
 fn bench_base_url() -> String {
@@ -80,9 +63,7 @@ fn bench_base_url() -> String {
 }
 
 fn bench_admin_token() -> Option<String> {
-    std::env::var("BENCH_ADMIN_TOKEN")
-        .ok()
-        .filter(|token| !token.trim().is_empty())
+    std::env::var("BENCH_ADMIN_TOKEN").ok().filter(|token| !token.trim().is_empty())
 }
 
 fn benchmark_user_directory_search(c: &mut Criterion) {
@@ -98,9 +79,7 @@ fn benchmark_user_directory_search(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .post(format!(
-                        "{base_url}/_matrix/client/r0/user_directory/search"
-                    ))
+                    .post(format!("{base_url}/_matrix/client/r0/user_directory/search"))
                     .header("Authorization", format!("Bearer {token}"))
                     .json(&serde_json::json!({
                         "search_term": "admin",
@@ -125,9 +104,7 @@ fn benchmark_user_directory_search(c: &mut Criterion) {
                         let token = token.to_string();
                         tokio::spawn(async move {
                             client
-                                .post(format!(
-                                    "{base_url}/_matrix/client/r0/user_directory/search"
-                                ))
+                                .post(format!("{base_url}/_matrix/client/r0/user_directory/search"))
                                 .header("Authorization", format!("Bearer {token}"))
                                 .json(&serde_json::json!({
                                     "search_term": "test",
@@ -159,9 +136,7 @@ fn benchmark_room_operations(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .get(format!(
-                        "{base_url}/_matrix/client/r0/rooms/!test:localhost/state"
-                    ))
+                    .get(format!("{base_url}/_matrix/client/r0/rooms/!test:localhost/state"))
                     .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;
@@ -176,9 +151,7 @@ fn benchmark_room_operations(c: &mut Criterion) {
                     return;
                 };
                 let _ = client
-                    .get(format!(
-                        "{base_url}/_matrix/client/r0/rooms/!test:localhost/members"
-                    ))
+                    .get(format!("{base_url}/_matrix/client/r0/rooms/!test:localhost/members"))
                     .header("Authorization", format!("Bearer {token}"))
                     .send()
                     .await;

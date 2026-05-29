@@ -9,10 +9,7 @@ use crate::common::error::ApiError;
 use crate::web::routes::{AppState, AuthenticatedUser};
 
 fn create_reactions_compat_router() -> Router<AppState> {
-    Router::new().route(
-        "/rooms/{room_id}/send/m.reaction/{txn_id}",
-        put(add_reaction),
-    )
+    Router::new().route("/rooms/{room_id}/send/m.reaction/{txn_id}", put(add_reaction))
 }
 
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
@@ -73,17 +70,11 @@ async fn add_reaction(
 
     // 验证 rel_type 是 annotation (reaction)
     if relates_to.rel_type != "m.annotation" {
-        return Err(ApiError::bad_request(
-            "rel_type must be m.annotation for reactions".to_string(),
-        ));
+        return Err(ApiError::bad_request("rel_type must be m.annotation for reactions".to_string()));
     }
 
     // 提取 reaction 内容 (emoji)
-    let annotation = body
-        .get("body")
-        .and_then(|v| v.as_str())
-        .unwrap_or("👍")
-        .to_string();
+    let annotation = body.get("body").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
     let relation = state
@@ -106,9 +97,7 @@ async fn add_reaction(
         room_id
     );
 
-    Ok(Json(ReactionResponse {
-        event_id: relation.event_id,
-    }))
+    Ok(Json(ReactionResponse { event_id: relation.event_id }))
 }
 
 #[cfg(test)]
@@ -121,8 +110,7 @@ mod tests {
             "event_id": "$test_event",
             "rel_type": "m.annotation"
         }"#;
-        let relates: RelatesTo =
-            serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
+        let relates: RelatesTo = serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
         assert_eq!(relates.event_id, "$test_event");
         assert_eq!(relates.rel_type, "m.annotation");
     }
@@ -134,9 +122,7 @@ mod tests {
             "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]
@@ -151,8 +137,6 @@ mod tests {
     fn test_reactions_router_keeps_read_endpoints_outside_compat_scope() {
         let compat_paths = ["/rooms/{room_id}/send/m.reaction/{txn_id}"];
 
-        assert!(compat_paths
-            .iter()
-            .all(|path| !path.contains("/relations/") && !path.contains("/annotations/")));
+        assert!(compat_paths.iter().all(|path| !path.contains("/relations/") && !path.contains("/annotations/")));
     }
 }

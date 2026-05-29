@@ -1,16 +1,15 @@
 use crate::services::{DatabaseInitMode, DatabaseInitService};
-use std::sync::LazyLock;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
-static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
+static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
@@ -35,9 +34,7 @@ pub struct EnvGuard {
 
 impl EnvGuard {
     pub fn new() -> Self {
-        Self {
-            original_values: Vec::new(),
-        }
+        Self { original_values: Vec::new() }
     }
 
     pub fn set<K, V>(&mut self, key: K, value: V)
@@ -61,16 +58,11 @@ impl EnvGuard {
     }
 
     fn capture_original_value(&mut self, key: &str) {
-        if self
-            .original_values
-            .iter()
-            .any(|(existing_key, _)| existing_key == key)
-        {
+        if self.original_values.iter().any(|(existing_key, _)| existing_key == key) {
             return;
         }
 
-        self.original_values
-            .push((key.to_string(), std::env::var(key).ok()));
+        self.original_values.push((key.to_string(), std::env::var(key).ok()));
     }
 }
 
@@ -92,60 +84,39 @@ impl Drop for EnvGuard {
 }
 
 pub fn env_lock() -> EnvLockGuard {
-    EnvLockGuard {
-        _guard: TEST_ENV_LOCK.blocking_lock(),
-    }
+    EnvLockGuard { _guard: TEST_ENV_LOCK.blocking_lock() }
 }
 
 pub async fn env_lock_async() -> EnvLockGuard {
-    EnvLockGuard {
-        _guard: TEST_ENV_LOCK.lock().await,
-    }
+    EnvLockGuard { _guard: TEST_ENV_LOCK.lock().await }
 }
 
 pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
-    PREPARED_TEST_POOLS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push_back(pool);
+    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).push_back(pool);
 }
 
 pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
-    PREPARED_TEST_POOLS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .pop_front()
+    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
 }
 
 fn env_u32(key: &str) -> Option<u32> {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.trim().parse::<u32>().ok())
+    std::env::var(key).ok().and_then(|value| value.trim().parse::<u32>().ok())
 }
 
 fn env_u64(key: &str) -> Option<u64> {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
+    std::env::var(key).ok().and_then(|value| value.trim().parse::<u64>().ok())
 }
 
 fn env_usize(key: &str) -> Option<usize> {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
+    std::env::var(key).ok().and_then(|value| value.trim().parse::<usize>().ok())
 }
 
 fn env_string(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    std::env::var(key).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
 }
 
 pub fn configured_test_pool_max_connections() -> u32 {
-    env_u32("TEST_DB_MAX_CONNECTIONS")
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_TEST_DB_MAX_CONNECTIONS)
+    env_u32("TEST_DB_MAX_CONNECTIONS").filter(|value| *value > 0).unwrap_or(DEFAULT_TEST_DB_MAX_CONNECTIONS)
 }
 
 pub fn configured_test_pool_min_connections() -> u32 {
@@ -154,33 +125,23 @@ pub fn configured_test_pool_min_connections() -> u32 {
 }
 
 pub fn configured_test_pool_connect_timeout() -> Duration {
-    Duration::from_secs(
-        env_u64("TEST_DB_CONNECT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS),
-    )
+    Duration::from_secs(env_u64("TEST_DB_CONNECT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS))
 }
 
 pub fn configured_test_pool_acquire_timeout() -> Duration {
-    Duration::from_secs(
-        env_u64("TEST_DB_ACQUIRE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS),
-    )
+    Duration::from_secs(env_u64("TEST_DB_ACQUIRE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS))
 }
 
 pub fn configured_test_pool_idle_timeout() -> Duration {
-    Duration::from_secs(
-        env_u64("TEST_DB_IDLE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS),
-    )
+    Duration::from_secs(env_u64("TEST_DB_IDLE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS))
 }
 
 pub fn configured_test_pool_max_lifetime() -> Duration {
-    Duration::from_secs(
-        env_u64("TEST_DB_MAX_LIFETIME_SECS").unwrap_or(DEFAULT_TEST_DB_MAX_LIFETIME_SECS),
-    )
+    Duration::from_secs(env_u64("TEST_DB_MAX_LIFETIME_SECS").unwrap_or(DEFAULT_TEST_DB_MAX_LIFETIME_SECS))
 }
 
 pub fn configured_test_db_init_timeout() -> Duration {
-    Duration::from_secs(
-        env_u64("TEST_DB_INIT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_INIT_TIMEOUT_SECS),
-    )
+    Duration::from_secs(env_u64("TEST_DB_INIT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_INIT_TIMEOUT_SECS))
 }
 
 pub fn configured_shared_clone_concurrency() -> usize {
@@ -200,10 +161,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&database_url),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -219,9 +177,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .is_err()
     {
-        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            .execute(&admin_pool)
-            .await;
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(&admin_pool).await;
     }
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
@@ -243,30 +199,19 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .connect(&database_url),
     )
     .await
-    .map_err(|_| {
-        format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}")
-    })?
-        .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
+    .map_err(|_| format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
 
     let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
         init_timeout,
-        DatabaseInitService::new(pool.clone())
-            .with_mode(DatabaseInitMode::Strict)
-            .initialize(),
+        DatabaseInitService::new(pool.clone()).with_mode(DatabaseInitMode::Strict).initialize(),
     )
     .await
-    .map_err(|_| {
-        format!(
-            "database initialization timed out after {:?} for {schema_name}",
-            init_timeout
-        )
-    })?
-    .map_err(|error| {
-        format!("strict migration initialization failed for {schema_name}: {error}")
-    })?;
+    .map_err(|_| format!("database initialization timed out after {:?} for {schema_name}", init_timeout))?
+    .map_err(|error| format!("strict migration initialization failed for {schema_name}: {error}"))?;
 
     if !report.is_success {
         return Err(format!(
@@ -292,17 +237,11 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
         ensure_template_schema_exists(&database_url, &schema_name).await?;
         schema_name
     } else {
-        TEMPLATE_SCHEMA_NAME
-            .get_or_try_init(|| async { init_template_schema(&database_url).await })
-            .await?
-            .clone()
+        TEMPLATE_SCHEMA_NAME.get_or_try_init(|| async { init_template_schema(&database_url).await }).await?.clone()
     };
 
     // Step 2: Clone template into a fresh per-test schema
-    let _permit = SHARED_CLONE_SEMAPHORE
-        .acquire()
-        .await
-        .map_err(|_| "shared clone semaphore closed".to_string())?;
+    let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
     let pool = clone_schema_from_template(&database_url, &template).await?;
     ensure_test_schema_contract(&pool).await?;
     Ok(pool)
@@ -314,19 +253,14 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(database_url),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
     .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
     // Drop if leftover from a previous crash
-    let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {template_name} CASCADE"))
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {template_name} CASCADE")).execute(&admin_pool).await;
 
     sqlx::query(&format!("CREATE SCHEMA {template_name}"))
         .execute(&admin_pool)
@@ -338,9 +272,7 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
         .await
         .is_err()
     {
-        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            .execute(&admin_pool)
-            .await;
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(&admin_pool).await;
     }
 
     let search_path_sql = format!("SET search_path TO {template_name}, public");
@@ -370,24 +302,14 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
     let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
         init_timeout,
-        DatabaseInitService::new(pool.clone())
-            .with_mode(DatabaseInitMode::Strict)
-            .initialize(),
+        DatabaseInitService::new(pool.clone()).with_mode(DatabaseInitMode::Strict).initialize(),
     )
     .await
-    .map_err(|_| {
-        format!(
-            "template schema initialization timed out after {:?}",
-            init_timeout
-        )
-    })?
+    .map_err(|_| format!("template schema initialization timed out after {:?}", init_timeout))?
     .map_err(|error| format!("template schema initialization failed: {error}"))?;
 
     if !report.is_success {
-        return Err(format!(
-            "template schema initialization errors: {}",
-            report.errors.join(" | ")
-        ));
+        return Err(format!("template schema initialization errors: {}", report.errors.join(" | ")));
     }
 
     // Close the template pool — we only need it for initialization
@@ -400,10 +322,7 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(database_url),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -424,27 +343,19 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     .map_err(|error| format!("failed to verify template schema {schema_name}: {error}"))?;
 
     if !exists {
-        return Err(format!(
-            "configured template schema does not exist: {schema_name}"
-        ));
+        return Err(format!("configured template schema does not exist: {schema_name}"));
     }
 
     Ok(())
 }
 
-async fn clone_schema_from_template(
-    database_url: &str,
-    template_name: &str,
-) -> Result<Arc<PgPool>, String> {
+async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<Arc<PgPool>, String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(database_url),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
     )
     .await
     .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
@@ -518,10 +429,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&database_url),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -537,9 +445,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .is_err()
     {
-        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            .execute(&admin_pool)
-            .await;
+        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(&admin_pool).await;
     }
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
@@ -561,10 +467,8 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .connect(&database_url),
     )
     .await
-    .map_err(|_| {
-        format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}")
-    })?
-        .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
+    .map_err(|_| format!("failed to connect isolated pool for {schema_name}: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
     ensure_test_schema_contract(&pool).await?;
@@ -576,15 +480,11 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
-        let connect_future = PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&database_url);
+        let connect_future =
+            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url);
 
         match tokio::time::timeout(connect_timeout, connect_future).await {
-            Err(_) => errors.push(format!(
-                "{database_url} -> connect timed out after {connect_timeout:?}"
-            )),
+            Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
             Ok(Ok(pool)) => {
                 drop(pool);
                 return Ok(database_url);
@@ -593,10 +493,7 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
         }
     }
 
-    Err(format!(
-        "failed to connect to any configured test database: {}",
-        errors.join(" | ")
-    ))
+    Err(format!("failed to connect to any configured test database: {}", errors.join(" | ")))
 }
 
 fn candidate_database_urls() -> Vec<String> {
@@ -630,12 +527,7 @@ fn next_test_schema_name() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_nanos();
-    format!(
-        "test_{}_{}_{}",
-        std::process::id(),
-        TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst),
-        timestamp_nanos,
-    )
+    format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
 }
 
 async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {

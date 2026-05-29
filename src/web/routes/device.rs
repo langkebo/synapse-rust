@@ -10,11 +10,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
-async fn require_password_uia(
-    state: &AppState,
-    auth_user: &AuthenticatedUser,
-    body: &Value,
-) -> Result<(), Response> {
+async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, body: &Value) -> Result<(), Response> {
     let auth = body.get("auth");
 
     match auth {
@@ -22,10 +18,7 @@ async fn require_password_uia(
             let session = state
                 .services
                 .uia_service
-                .create_session(
-                    &auth_user.user_id,
-                    crate::services::uia_service::UiaService::get_delete_device_flows(),
-                )
+                .create_session(&auth_user.user_id, crate::services::uia_service::UiaService::get_delete_device_flows())
                 .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
@@ -61,11 +54,7 @@ async fn require_password_uia(
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(
-                            auth_val,
-                            &auth_user.user_id,
-                            &state.services.auth_service,
-                        )
+                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
                         .await
                     {
                         let session = state
@@ -88,11 +77,7 @@ async fn require_password_uia(
                     }
                 }
                 "m.login.token" => {
-                    if let Err(e) = state
-                        .services
-                        .uia_service
-                        .verify_token_stage(auth_val, &auth_user.user_id)
-                    {
+                    if let Err(e) = state.services.uia_service.verify_token_stage(auth_val, &auth_user.user_id) {
                         let session = state
                             .services
                             .uia_service
@@ -146,15 +131,10 @@ fn parse_device_ids(body: &Value) -> Result<Vec<String>, ApiError> {
         .ok_or_else(|| ApiError::bad_request("Missing device_ids".to_string()))?;
 
     if raw_device_ids.iter().any(|value| !value.is_string()) {
-        return Err(ApiError::bad_request(
-            "device_ids must be an array of strings".to_string(),
-        ));
+        return Err(ApiError::bad_request("device_ids must be an array of strings".to_string()));
     }
 
-    Ok(raw_device_ids
-        .iter()
-        .filter_map(|value| value.as_str().map(String::from))
-        .collect())
+    Ok(raw_device_ids.iter().filter_map(|value| value.as_str().map(String::from)).collect())
 }
 
 fn parse_stream_id(value: &Value) -> Option<i64> {
@@ -167,13 +147,7 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
 }
 
 async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id: &str) {
-    let server_name = state
-        .services
-        .config
-        .server
-        .server_name
-        .as_deref()
-        .unwrap_or("localhost");
+    let server_name = state.services.config.server.server_name.as_deref().unwrap_or("localhost");
     let edu = serde_json::json!({
         "edu_type": "m.device_list_update",
         "content": {
@@ -187,27 +161,14 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = state
-                .services
-                .member_storage
-                .get_joined_rooms(user_id)
-                .await
-            {
-                let mut sent_servers: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+            if let Ok(shared_rooms) = state.services.member_storage.get_joined_rooms(user_id).await {
+                let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for room_id in &shared_rooms {
-                    if let Ok(members) = state
-                        .services
-                        .member_storage
-                        .get_joined_members(room_id)
-                        .await
-                    {
+                    if let Ok(members) = state.services.member_storage.get_joined_members(room_id).await {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {
                                 let member_server = &member.user_id[mpos + 1..];
-                                if member_server != server_name
-                                    && !sent_servers.contains(member_server)
-                                {
+                                if member_server != server_name && !sent_servers.contains(member_server) {
                                     sent_servers.insert(member_server.to_string());
                                     let _ = state
                                         .services
@@ -228,17 +189,11 @@ fn create_device_compat_router() -> Router<AppState> {
     Router::new()
         .route("/devices", get(get_devices))
         .route("/delete_devices", post(delete_devices))
-        .route(
-            "/devices/{device_id}",
-            get(get_device).put(update_device).delete(delete_device),
-        )
+        .route("/devices/{device_id}", get(get_device).put(update_device).delete(delete_device))
         .route("/keys/device_list_updates", post(get_device_list_updates))
 }
 
-pub async fn get_devices(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_devices(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     let devices = state
         .services
         .device_storage
@@ -340,11 +295,7 @@ pub async fn delete_device(
         return Ok(challenge);
     }
 
-    let rows = state
-        .services
-        .auth_service
-        .revoke_device(&auth_user.user_id, &device_id)
-        .await?;
+    let rows = state.services.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -366,11 +317,7 @@ pub async fn delete_devices(
 
     let device_ids = parse_device_ids(&body)?;
 
-    state
-        .services
-        .auth_service
-        .revoke_devices(&auth_user.user_id, &device_ids)
-        .await?;
+    state.services.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
 
     for device_id in &device_ids {
         broadcast_device_list_update(&state, &auth_user.user_id, device_id).await;
@@ -394,10 +341,7 @@ pub async fn get_device_list_updates(
 
     let users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
-    let since = body
-        .get("since")
-        .or_else(|| body.get("from"))
-        .and_then(parse_stream_id);
+    let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
 
     let mut changed: Vec<Value> = Vec::new();
     let mut left: Vec<String> = Vec::new();
@@ -536,9 +480,7 @@ pub async fn get_device_list_updates(
 pub fn create_device_router() -> Router<AppState> {
     let compat_router = create_device_compat_router();
 
-    Router::new()
-        .nest("/_matrix/client/r0", compat_router.clone())
-        .nest("/_matrix/client/v3", compat_router)
+    Router::new().nest("/_matrix/client/r0", compat_router.clone()).nest("/_matrix/client/v3", compat_router)
 }
 
 /// Nest prefixes `create_device_router` mounts its inner compat router under.
@@ -578,19 +520,12 @@ mod tests {
             "/_matrix/client/v3/keys/device_list_updates",
         ];
 
-        assert!(routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]
     fn test_device_compat_router_contains_shared_paths() {
-        let shared_paths = [
-            "/devices",
-            "/delete_devices",
-            "/devices/{device_id}",
-            "/keys/device_list_updates",
-        ];
+        let shared_paths = ["/devices", "/delete_devices", "/devices/{device_id}", "/keys/device_list_updates"];
 
         assert_eq!(shared_paths.len(), 4);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));

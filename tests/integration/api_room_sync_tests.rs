@@ -10,9 +10,7 @@ use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_fresh_test_app() -> Option<axum::Router> {
-    let pool = synapse_rust::test_utils::prepare_isolated_test_pool()
-        .await
-        .ok()?;
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     let state = AppState::new(container, cache);
@@ -34,14 +32,10 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -55,14 +49,10 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .body(Body::from(json!({ "name": name }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -92,9 +82,7 @@ async fn test_room_sync_requires_membership() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -117,28 +105,16 @@ async fn test_room_sync_returns_minimal_shape() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json.get("next_batch").and_then(|v| v.as_str()).is_some());
     assert!(json.get("timeline").and_then(|v| v.as_object()).is_some());
-    assert!(json
-        .get("timeline")
-        .and_then(|v| v.get("events"))
-        .and_then(|v| v.as_array())
-        .is_some());
-    assert!(json
-        .get("state")
-        .and_then(|v| v.get("events"))
-        .and_then(|v| v.as_array())
-        .is_some());
+    assert!(json.get("timeline").and_then(|v| v.get("events")).and_then(|v| v.as_array()).is_some());
+    assert!(json.get("state").and_then(|v| v.get("events")).and_then(|v| v.as_array()).is_some());
     assert!(json
         .get("unread_notifications")
         .and_then(|v| v.get("notification_count"))
@@ -165,35 +141,24 @@ async fn test_room_sync_incremental_omits_state() {
         .body(Body::empty())
         .unwrap();
 
-    let first_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), first_request)
-        .await
-        .unwrap();
+    let first_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), first_request).await.unwrap();
     assert_eq!(first_response.status(), StatusCode::OK);
 
-    let first_body = axum::body::to_bytes(first_response.into_body(), 64 * 1024)
-        .await
-        .unwrap();
+    let first_body = axum::body::to_bytes(first_response.into_body(), 64 * 1024).await.unwrap();
     let first_json: Value = serde_json::from_slice(&first_body).unwrap();
     let since = first_json["next_batch"].as_str().unwrap().to_string();
 
     let second_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/sync?since={}",
-            encoded_room_id, since
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/sync?since={}", encoded_room_id, since))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
 
-    let second_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), second_request)
-        .await
-        .unwrap();
+    let second_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), second_request).await.unwrap();
     assert_eq!(second_response.status(), StatusCode::OK);
 
-    let second_body = axum::body::to_bytes(second_response.into_body(), 64 * 1024)
-        .await
-        .unwrap();
+    let second_body = axum::body::to_bytes(second_response.into_body(), 64 * 1024).await.unwrap();
     let second_json: Value = serde_json::from_slice(&second_body).unwrap();
     let state_events = second_json["state"]["events"].as_array().unwrap();
     assert!(state_events.is_empty());

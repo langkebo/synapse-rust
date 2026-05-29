@@ -3,9 +3,7 @@
 use sqlx::{Pool, Postgres};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::beacon::{
-    BeaconStorage, CreateBeaconInfoParams, CreateBeaconLocationParams,
-};
+use synapse_rust::storage::beacon::{BeaconStorage, CreateBeaconInfoParams, CreateBeaconLocationParams};
 use tokio::runtime::Runtime;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -18,9 +16,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping beacon storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping beacon storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -254,10 +250,7 @@ fn test_get_beacon_info_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .get_beacon_info("!nonexistent:localhost", "$nonexistent")
-            .await
-            .unwrap();
+        let result = storage.get_beacon_info("!nonexistent:localhost", "$nonexistent").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -302,10 +295,7 @@ fn test_get_beacon_info_by_state_key() {
         storage.create_beacon_info(params1).await.unwrap();
         storage.create_beacon_info(params2).await.unwrap();
 
-        let results = storage
-            .get_beacon_info_by_state_key(&room_id, &state_key)
-            .await
-            .unwrap();
+        let results = storage.get_beacon_info_by_state_key(&room_id, &state_key).await.unwrap();
         assert_eq!(results.len(), 2);
         assert!(results[0].created_ts >= results[1].created_ts);
     });
@@ -321,10 +311,7 @@ fn test_get_beacon_info_by_state_key_empty() {
         };
         let storage = create_storage(&pool);
 
-        let results = storage
-            .get_beacon_info_by_state_key("!empty:localhost", "@nobody:localhost")
-            .await
-            .unwrap();
+        let results = storage.get_beacon_info_by_state_key("!empty:localhost", "@nobody:localhost").await.unwrap();
         assert!(results.is_empty());
     });
 }
@@ -384,10 +371,7 @@ fn test_get_active_beacons_empty_room() {
         };
         let storage = create_storage(&pool);
 
-        let active = storage
-            .get_active_beacons("!empty_active:localhost")
-            .await
-            .unwrap();
+        let active = storage.get_active_beacons("!empty_active:localhost").await.unwrap();
         assert!(active.is_empty());
     });
 }
@@ -432,10 +416,7 @@ fn test_deactivate_beacons_by_state_key() {
         storage.create_beacon_info(params1).await.unwrap();
         storage.create_beacon_info(params2).await.unwrap();
 
-        let deactivated = storage
-            .deactivate_beacons_by_state_key(&room_id, &state_key)
-            .await
-            .unwrap();
+        let deactivated = storage.deactivate_beacons_by_state_key(&room_id, &state_key).await.unwrap();
         assert_eq!(deactivated, 2);
 
         let active = storage.get_active_beacons(&room_id).await.unwrap();
@@ -453,10 +434,8 @@ fn test_deactivate_beacons_no_match() {
         };
         let storage = create_storage(&pool);
 
-        let deactivated = storage
-            .deactivate_beacons_by_state_key("!nomatch:localhost", "@nobody:localhost")
-            .await
-            .unwrap();
+        let deactivated =
+            storage.deactivate_beacons_by_state_key("!nomatch:localhost", "@nobody:localhost").await.unwrap();
         assert_eq!(deactivated, 0);
     });
 }
@@ -477,10 +456,7 @@ fn test_update_beacon_info_set_not_live() {
 
         storage.create_beacon_info(params).await.unwrap();
 
-        let updated = storage
-            .update_beacon_info(&room_id, &event_id, false, None)
-            .await
-            .unwrap();
+        let updated = storage.update_beacon_info(&room_id, &event_id, false, None).await.unwrap();
         assert!(updated.is_some());
         assert!(!updated.unwrap().is_live);
     });
@@ -502,10 +478,7 @@ fn test_update_beacon_info_with_timeout() {
 
         storage.create_beacon_info(params).await.unwrap();
 
-        let updated = storage
-            .update_beacon_info(&room_id, &event_id, true, Some(7_200_000))
-            .await
-            .unwrap();
+        let updated = storage.update_beacon_info(&room_id, &event_id, true, Some(7_200_000)).await.unwrap();
         assert!(updated.is_some());
         let beacon = updated.unwrap();
         assert!(beacon.is_live);
@@ -523,10 +496,7 @@ fn test_update_beacon_info_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .update_beacon_info("!nonexistent:localhost", "$nonexistent", false, None)
-            .await
-            .unwrap();
+        let result = storage.update_beacon_info("!nonexistent:localhost", "$nonexistent", false, None).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -565,10 +535,7 @@ fn test_delete_beacon_info_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let deleted = storage
-            .delete_beacon_info("!nonexistent:localhost", "$nonexistent")
-            .await
-            .unwrap();
+        let deleted = storage.delete_beacon_info("!nonexistent:localhost", "$nonexistent").await.unwrap();
         assert!(!deleted);
     });
 }
@@ -660,10 +627,7 @@ fn test_get_beacon_locations() {
             storage.create_beacon_location(loc_params).await.unwrap();
         }
 
-        let locations = storage
-            .get_beacon_locations(&beacon_info.event_id, None)
-            .await
-            .unwrap();
+        let locations = storage.get_beacon_locations(&beacon_info.event_id, None).await.unwrap();
         assert_eq!(locations.len(), 3);
         assert!(locations[0].timestamp >= locations[1].timestamp);
     });
@@ -699,10 +663,7 @@ fn test_get_beacon_locations_with_limit() {
             storage.create_beacon_location(loc_params).await.unwrap();
         }
 
-        let locations = storage
-            .get_beacon_locations(&beacon_info.event_id, Some(2))
-            .await
-            .unwrap();
+        let locations = storage.get_beacon_locations(&beacon_info.event_id, Some(2)).await.unwrap();
         assert_eq!(locations.len(), 2);
     });
 }
@@ -717,10 +678,7 @@ fn test_get_beacon_locations_empty() {
         };
         let storage = create_storage(&pool);
 
-        let locations = storage
-            .get_beacon_locations("$nonexistent", None)
-            .await
-            .unwrap();
+        let locations = storage.get_beacon_locations("$nonexistent", None).await.unwrap();
         assert!(locations.is_empty());
     });
 }
@@ -755,10 +713,7 @@ fn test_get_latest_location() {
             storage.create_beacon_location(loc_params).await.unwrap();
         }
 
-        let latest = storage
-            .get_latest_location(&beacon_info.event_id)
-            .await
-            .unwrap();
+        let latest = storage.get_latest_location(&beacon_info.event_id).await.unwrap();
         assert!(latest.is_some());
         assert_eq!(latest.unwrap().timestamp, now + 2000);
     });
@@ -820,16 +775,10 @@ fn test_count_locations_in_room_since() {
             storage.create_beacon_location(loc_params).await.unwrap();
         }
 
-        let count = storage
-            .count_locations_in_room_since(&room_id, now)
-            .await
-            .unwrap();
+        let count = storage.count_locations_in_room_since(&room_id, now).await.unwrap();
         assert_eq!(count, 3);
 
-        let count_after = storage
-            .count_locations_in_room_since(&room_id, now + 3000)
-            .await
-            .unwrap();
+        let count_after = storage.count_locations_in_room_since(&room_id, now + 3000).await.unwrap();
         assert_eq!(count_after, 0);
     });
 }
@@ -887,22 +836,13 @@ fn test_count_locations_in_room_by_sender_since() {
         storage.create_beacon_location(loc1).await.unwrap();
         storage.create_beacon_location(loc2).await.unwrap();
 
-        let count_sender = storage
-            .count_locations_in_room_by_sender_since(&room_id, &sender, now)
-            .await
-            .unwrap();
+        let count_sender = storage.count_locations_in_room_by_sender_since(&room_id, &sender, now).await.unwrap();
         assert_eq!(count_sender, 1);
 
-        let count_other = storage
-            .count_locations_in_room_by_sender_since(&room_id, &other_sender, now)
-            .await
-            .unwrap();
+        let count_other = storage.count_locations_in_room_by_sender_since(&room_id, &other_sender, now).await.unwrap();
         assert_eq!(count_other, 1);
 
-        let count_all = storage
-            .count_locations_in_room_since(&room_id, now)
-            .await
-            .unwrap();
+        let count_all = storage.count_locations_in_room_since(&room_id, now).await.unwrap();
         assert_eq!(count_all, 2);
     });
 }
@@ -965,10 +905,7 @@ fn test_get_joined_member_count_empty() {
         };
         let storage = create_storage(&pool);
 
-        let count = storage
-            .get_joined_member_count("!empty_member_room:localhost")
-            .await
-            .unwrap();
+        let count = storage.get_joined_member_count("!empty_member_room:localhost").await.unwrap();
         assert_eq!(count, 0);
     });
 }
@@ -1005,10 +942,7 @@ fn test_get_beacon_with_locations() {
             storage.create_beacon_location(loc_params).await.unwrap();
         }
 
-        let result = storage
-            .get_beacon_with_locations(&room_id, &event_id)
-            .await
-            .unwrap();
+        let result = storage.get_beacon_with_locations(&room_id, &event_id).await.unwrap();
         assert!(result.is_some());
         let with_locs = result.unwrap();
         assert_eq!(with_locs.beacon_info.event_id, event_id);
@@ -1026,10 +960,7 @@ fn test_get_beacon_with_locations_not_found() {
         };
         let storage = create_storage(&pool);
 
-        let result = storage
-            .get_beacon_with_locations("!nonexistent:localhost", "$nonexistent")
-            .await
-            .unwrap();
+        let result = storage.get_beacon_with_locations("!nonexistent:localhost", "$nonexistent").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1073,22 +1004,17 @@ fn test_cleanup_expired_beacons() {
         let expired_beacon = storage.create_beacon_info(expired_params).await.unwrap();
         storage.create_beacon_info(valid_params).await.unwrap();
 
-        sqlx::query(
-            "UPDATE beacon_info SET expires_at = $1 WHERE event_id = $2",
-        )
-        .bind(now - 5000)
-        .bind(&expired_beacon.event_id)
-        .execute(&*pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE beacon_info SET expires_at = $1 WHERE event_id = $2")
+            .bind(now - 5000)
+            .bind(&expired_beacon.event_id)
+            .execute(&*pool)
+            .await
+            .unwrap();
 
         let cleaned = storage.cleanup_expired_beacons().await.unwrap();
         assert_eq!(cleaned, 1);
 
-        let remaining = storage
-            .get_beacon_info(&room_id, &format!("$valid_info_{suffix}"))
-            .await
-            .unwrap();
+        let remaining = storage.get_beacon_info(&room_id, &format!("$valid_info_{suffix}")).await.unwrap();
         assert!(remaining.is_some());
     });
 }
@@ -1147,10 +1073,7 @@ fn test_get_room_beacons_include_expired() {
         storage.create_beacon_info(params1).await.unwrap();
         storage.create_beacon_info(params2).await.unwrap();
 
-        let beacons = storage
-            .get_room_beacons(&room_id, true)
-            .await
-            .unwrap();
+        let beacons = storage.get_room_beacons(&room_id, true).await.unwrap();
         assert_eq!(beacons.len(), 2);
     });
 }
@@ -1182,10 +1105,7 @@ fn test_get_room_beacons_exclude_expired() {
 
         storage.create_beacon_info(valid_params).await.unwrap();
 
-        let beacons = storage
-            .get_room_beacons(&room_id, false)
-            .await
-            .unwrap();
+        let beacons = storage.get_room_beacons(&room_id, false).await.unwrap();
         assert_eq!(beacons.len(), 1);
     });
 }
@@ -1200,10 +1120,7 @@ fn test_get_room_beacons_empty() {
         };
         let storage = create_storage(&pool);
 
-        let beacons = storage
-            .get_room_beacons("!empty_beacons:localhost", true)
-            .await
-            .unwrap();
+        let beacons = storage.get_room_beacons("!empty_beacons:localhost", true).await.unwrap();
         assert!(beacons.is_empty());
     });
 }
@@ -1226,8 +1143,7 @@ fn test_beacon_info_serialization() {
     };
 
     let json = serde_json::to_string(&beacon).unwrap();
-    let deserialized: synapse_rust::storage::beacon::BeaconInfo =
-        serde_json::from_str(&json).unwrap();
+    let deserialized: synapse_rust::storage::beacon::BeaconInfo = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.room_id, beacon.room_id);
     assert_eq!(deserialized.timeout, beacon.timeout);
     assert_eq!(deserialized.is_live, beacon.is_live);
@@ -1250,8 +1166,7 @@ fn test_beacon_location_serialization() {
     };
 
     let json = serde_json::to_string(&location).unwrap();
-    let deserialized: synapse_rust::storage::beacon::BeaconLocation =
-        serde_json::from_str(&json).unwrap();
+    let deserialized: synapse_rust::storage::beacon::BeaconLocation = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.uri, location.uri);
     assert_eq!(deserialized.accuracy, location.accuracy);
     assert_eq!(deserialized.beacon_info_id, location.beacon_info_id);
@@ -1313,20 +1228,18 @@ fn test_beacon_info_with_locations_structure() {
         updated_ts: Some(1234567890000),
         expires_at: None,
     };
-    let locations = vec![
-        synapse_rust::storage::beacon::BeaconLocation {
-            id: 1,
-            room_id: "!room:example.com".to_string(),
-            event_id: "$loc1".to_string(),
-            beacon_info_id: "$event1".to_string(),
-            sender: "@alice:example.com".to_string(),
-            uri: "geo:51.5,0.1".to_string(),
-            description: None,
-            timestamp: 1234567890000,
-            accuracy: None,
-            created_ts: 1234567890000,
-        },
-    ];
+    let locations = vec![synapse_rust::storage::beacon::BeaconLocation {
+        id: 1,
+        room_id: "!room:example.com".to_string(),
+        event_id: "$loc1".to_string(),
+        beacon_info_id: "$event1".to_string(),
+        sender: "@alice:example.com".to_string(),
+        uri: "geo:51.5,0.1".to_string(),
+        description: None,
+        timestamp: 1234567890000,
+        accuracy: None,
+        created_ts: 1234567890000,
+    }];
 
     let with_locs = synapse_rust::storage::beacon::BeaconInfoWithLocations {
         beacon_info: beacon_info.clone(),
@@ -1347,10 +1260,7 @@ fn test_beacon_storage_new() {
             None => return,
         };
         let storage = create_storage(&pool);
-        let result = storage
-            .get_beacon_info("!test:localhost", "$test")
-            .await
-            .unwrap();
+        let result = storage.get_beacon_info("!test:localhost", "$test").await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1385,11 +1295,7 @@ fn test_full_beacon_lifecycle() {
         let beacon = storage.create_beacon_info(params).await.unwrap();
         assert!(beacon.is_live);
 
-        let fetched = storage
-            .get_beacon_info(&room_id, &event_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let fetched = storage.get_beacon_info(&room_id, &event_id).await.unwrap().unwrap();
         assert_eq!(fetched.event_id, event_id);
 
         let active = storage.get_active_beacons(&room_id).await.unwrap();
@@ -1409,29 +1315,14 @@ fn test_full_beacon_lifecycle() {
         let location = storage.create_beacon_location(loc_params).await.unwrap();
         assert_eq!(location.beacon_info_id, event_id);
 
-        let latest = storage
-            .get_latest_location(&event_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let latest = storage.get_latest_location(&event_id).await.unwrap().unwrap();
         assert_eq!(latest.uri, "geo:51.5,0.1");
 
-        let with_locs = storage
-            .get_beacon_with_locations(&room_id, &event_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let with_locs = storage.get_beacon_with_locations(&room_id, &event_id).await.unwrap().unwrap();
         assert_eq!(with_locs.locations.len(), 1);
 
-        storage
-            .update_beacon_info(&room_id, &event_id, false, None)
-            .await
-            .unwrap();
-        let updated = storage
-            .get_beacon_info(&room_id, &event_id)
-            .await
-            .unwrap()
-            .unwrap();
+        storage.update_beacon_info(&room_id, &event_id, false, None).await.unwrap();
+        let updated = storage.get_beacon_info(&room_id, &event_id).await.unwrap().unwrap();
         assert!(!updated.is_live);
 
         let active_after = storage.get_active_beacons(&room_id).await.unwrap();
@@ -1440,10 +1331,7 @@ fn test_full_beacon_lifecycle() {
         let deleted = storage.delete_beacon_info(&room_id, &event_id).await.unwrap();
         assert!(deleted);
 
-        let gone = storage
-            .get_beacon_info(&room_id, &event_id)
-            .await
-            .unwrap();
+        let gone = storage.get_beacon_info(&room_id, &event_id).await.unwrap();
         assert!(gone.is_none());
     });
 }

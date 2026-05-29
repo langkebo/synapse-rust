@@ -11,15 +11,12 @@ mod db_schema_smoke_suite {
     };
     use synapse_rust::e2ee::verification::storage::VerificationStorage;
     use synapse_rust::storage::moderation::{
-        CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType,
-        ModerationStorage,
+        CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType, ModerationStorage,
     };
     use synapse_rust::storage::room_summary::RoomSummaryStorage;
     use synapse_rust::storage::space::SpaceStorage;
     use synapse_rust::worker::storage::{UpdateConnectionStatsRequest, WorkerStorage};
-    use synapse_rust::worker::types::{
-        AssignTaskRequest, RegisterWorkerRequest, WorkerLoadStatsUpdate, WorkerType,
-    };
+    use synapse_rust::worker::types::{AssignTaskRequest, RegisterWorkerRequest, WorkerLoadStatsUpdate, WorkerType};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -31,9 +28,7 @@ mod db_schema_smoke_suite {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping db schema smoke tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping db schema smoke tests because test database is unavailable: {error}");
                 None
             }
         }
@@ -267,10 +262,7 @@ mod db_schema_smoke_suite {
         .await
         .expect("Failed to seed space statistics");
 
-        let statistics = storage
-            .get_space_statistics()
-            .await
-            .expect("Failed to load space statistics");
+        let statistics = storage.get_space_statistics().await.expect("Failed to load space statistics");
         assert!(statistics.iter().any(|item| item["space_id"] == space_id));
 
         let event = storage
@@ -286,10 +278,8 @@ mod db_schema_smoke_suite {
             .expect("Failed to add space event");
         assert_eq!(event.space_id, space_id);
 
-        let events = storage
-            .get_space_events(&space_id, Some("m.space.child"), 10)
-            .await
-            .expect("Failed to get space events");
+        let events =
+            storage.get_space_events(&space_id, Some("m.space.child"), 10).await.expect("Failed to get space events");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, "$space_event_smoke");
 
@@ -375,12 +365,11 @@ mod db_schema_smoke_suite {
         .expect("Failed to count cleanup queue");
         assert_eq!(pending_count, 1);
 
-        let stats_row =
-            sqlx::query("SELECT events_expired FROM retention_stats WHERE room_id = $1")
-                .bind(&room_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("Failed to load retention stats");
+        let stats_row = sqlx::query("SELECT events_expired FROM retention_stats WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to load retention stats");
         assert_eq!(stats_row.get::<i64, _>("events_expired"), 10);
 
         let deleted_events_count: i64 =
@@ -392,13 +381,7 @@ mod db_schema_smoke_suite {
         assert_eq!(deleted_events_count, 1);
 
         let state = summary_storage
-            .set_state(
-                &room_id,
-                "m.room.name",
-                "",
-                Some("$state_event"),
-                json!({"name": "Schema Smoke"}),
-            )
+            .set_state(&room_id, "m.room.name", "", Some("$state_event"), json!({"name": "Schema Smoke"}))
             .await
             .expect("Failed to set room summary state");
         assert_eq!(state.room_id, room_id);
@@ -414,10 +397,8 @@ mod db_schema_smoke_suite {
             .await
             .expect("Failed to queue room summary update");
 
-        let pending_updates = summary_storage
-            .get_pending_updates(10)
-            .await
-            .expect("Failed to load room summary updates");
+        let pending_updates =
+            summary_storage.get_pending_updates(10).await.expect("Failed to load room summary updates");
         assert!(pending_updates.iter().any(|item| item.room_id == room_id));
 
         sqlx::query(
@@ -435,22 +416,16 @@ mod db_schema_smoke_suite {
         .await
         .expect("Failed to seed room_children");
 
-        let child_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_children WHERE parent_room_id = $1 AND child_room_id = $2",
-        )
-        .bind(&room_id)
-        .bind(&child_room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to count room_children");
+        let child_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM room_children WHERE parent_room_id = $1 AND child_room_id = $2")
+                .bind(&room_id)
+                .bind(&child_room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to count room_children");
         assert_eq!(child_count, 1);
 
-        cleanup_room(
-            &pool,
-            &child_room_id,
-            &format!("@schema_child_creator_{}:localhost", suffix + 10_000),
-        )
-        .await;
+        cleanup_room(&pool, &child_room_id, &format!("@schema_child_creator_{}:localhost", suffix + 10_000)).await;
         cleanup_room(&pool, &room_id, &creator).await;
     }
 
@@ -461,11 +436,7 @@ mod db_schema_smoke_suite {
             None => return,
         };
 
-        for table_name in [
-            "device_trust_status",
-            "cross_signing_trust",
-            "device_verification_request",
-        ] {
+        for table_name in ["device_trust_status", "cross_signing_trust", "device_verification_request"] {
             assert_table_exists(&pool, table_name).await;
         }
 
@@ -476,12 +447,7 @@ mod db_schema_smoke_suite {
         let other_user_id = format!("@device_trust_peer_{suffix}:localhost");
 
         storage
-            .set_device_trust(
-                &user_id,
-                &device_id,
-                DeviceTrustLevel::Verified,
-                Some("MASTER"),
-            )
+            .set_device_trust(&user_id, &device_id, DeviceTrustLevel::Verified, Some("MASTER"))
             .await
             .expect("Failed to set device trust");
         storage
@@ -555,10 +521,7 @@ mod db_schema_smoke_suite {
             updated_ts: Some(0),
         };
 
-        verification_storage
-            .create_request(&request)
-            .await
-            .expect("Failed to create verification request");
+        verification_storage.create_request(&request).await.expect("Failed to create verification request");
         verification_storage
             .store_sas_state(&SasState {
                 tx_id: tx_id.clone(),
@@ -607,15 +570,7 @@ mod db_schema_smoke_suite {
             .await
             .expect("Failed to create moderation rule");
         moderation_log_storage
-            .log_action(
-                &created_rule.rule_id,
-                "$moderation_event",
-                &room_id,
-                &creator,
-                "content-hash",
-                "flag",
-                0.9,
-            )
+            .log_action(&created_rule.rule_id, "$moderation_event", &room_id, &creator, "content-hash", "flag", 0.9)
             .await
             .expect("Failed to create moderation log");
 
@@ -632,20 +587,17 @@ mod db_schema_smoke_suite {
         .await
         .expect("Failed to create moderation action");
 
-        let room_logs = moderation_log_storage
-            .get_logs_for_room(&room_id, 10)
-            .await
-            .expect("Failed to fetch moderation logs");
+        let room_logs =
+            moderation_log_storage.get_logs_for_room(&room_id, 10).await.expect("Failed to fetch moderation logs");
         assert_eq!(room_logs.len(), 1);
 
-        let moderation_action_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM moderation_actions WHERE user_id = $1 AND action_type = $2",
-        )
-        .bind(&creator)
-        .bind("warn")
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to count moderation actions");
+        let moderation_action_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM moderation_actions WHERE user_id = $1 AND action_type = $2")
+                .bind(&creator)
+                .bind("warn")
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to count moderation actions");
         assert_eq!(moderation_action_count, 1);
 
         sqlx::query("DELETE FROM moderation_actions WHERE user_id = $1")
@@ -688,12 +640,9 @@ mod db_schema_smoke_suite {
             None => return,
         };
 
-        for table_name in [
-            "replication_positions",
-            "worker_load_stats",
-            "worker_task_assignments",
-            "worker_connections",
-        ] {
+        for table_name in
+            ["replication_positions", "worker_load_stats", "worker_task_assignments", "worker_connections"]
+        {
             assert_table_exists(&pool, table_name).await;
         }
         for view_name in ["active_workers", "worker_type_statistics"] {
@@ -732,10 +681,7 @@ mod db_schema_smoke_suite {
             .await
             .expect("Failed to register peer worker");
 
-        storage
-            .update_worker_status(&worker_id, "running")
-            .await
-            .expect("Failed to update worker status");
+        storage.update_worker_status(&worker_id, "running").await.expect("Failed to update worker status");
         storage
             .record_load_stats(
                 &worker_id,
@@ -762,9 +708,7 @@ mod db_schema_smoke_suite {
             })
             .await
             .expect("Failed to assign task");
-        storage
-            .record_connection(&worker_id, &peer_worker_id, "tcp")
-            .expect("Failed to record connection");
+        storage.record_connection(&worker_id, &peer_worker_id, "tcp").expect("Failed to record connection");
         storage
             .update_connection_stats(
                 &UpdateConnectionStatsRequest::new(&worker_id, &peer_worker_id, "tcp")
@@ -775,27 +719,15 @@ mod db_schema_smoke_suite {
             )
             .expect("Failed to update connection stats");
 
-        let active_workers = storage
-            .get_active_workers()
-            .await
-            .expect("Failed to load active workers");
-        assert!(active_workers
-            .iter()
-            .any(|worker| worker.worker_id == worker_id));
+        let active_workers = storage.get_active_workers().await.expect("Failed to load active workers");
+        assert!(active_workers.iter().any(|worker| worker.worker_id == worker_id));
 
-        let position = storage
-            .get_replication_position(&worker_id, "events")
-            .await
-            .expect("Failed to load replication position");
+        let position =
+            storage.get_replication_position(&worker_id, "events").await.expect("Failed to load replication position");
         assert_eq!(position, Some(42));
 
-        let type_statistics = storage
-            .get_type_statistics()
-            .await
-            .expect("Failed to load worker type statistics");
-        assert!(type_statistics
-            .iter()
-            .any(|item| item["worker_type"] == "frontend"));
+        let type_statistics = storage.get_type_statistics().await.expect("Failed to load worker type statistics");
+        assert!(type_statistics.iter().any(|item| item["worker_type"] == "frontend"));
 
         let connection_stats: (i64, i64) = sqlx::query_as(
             "SELECT bytes_sent, messages_received FROM worker_connections WHERE source_worker_id = $1 AND target_worker_id = $2 AND connection_type = $3",

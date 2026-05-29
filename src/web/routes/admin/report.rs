@@ -13,18 +13,9 @@ pub fn create_report_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/reports", get(get_all_reports))
         .route("/_synapse/admin/v1/reports/{report_id}", get(get_report))
-        .route(
-            "/_synapse/admin/v1/reports/{report_id}",
-            delete(delete_report),
-        )
-        .route(
-            "/_synapse/admin/v1/rooms/{room_id}/reports",
-            get(get_room_reports),
-        )
-        .route(
-            "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}",
-            get(get_room_report),
-        )
+        .route("/_synapse/admin/v1/reports/{report_id}", delete(delete_report))
+        .route("/_synapse/admin/v1/rooms/{room_id}/reports", get(get_room_reports))
+        .route("/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}", get(get_room_report))
 }
 
 pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -35,10 +26,7 @@ pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::GET, "/_synapse/admin/v1/reports/{report_id}"),
         (Method::DELETE, "/_synapse/admin/v1/reports/{report_id}"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}",
-        ),
+        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::report"))
@@ -56,9 +44,7 @@ pub async fn get_all_reports(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let since_score = params
-        .get("since_score")
-        .and_then(|v| v.parse::<i32>().ok());
+    let since_score = params.get("since_score").and_then(|v| v.parse::<i32>().ok());
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
@@ -100,9 +86,7 @@ pub async fn get_all_reports(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "reports": report_list, "total": report_list.len() }),
-    ))
+    Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
 
 #[axum::debug_handler]
@@ -220,9 +204,7 @@ pub async fn get_room_reports(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "reports": report_list, "total": report_list.len() }),
-    ))
+    Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
 
 #[axum::debug_handler]

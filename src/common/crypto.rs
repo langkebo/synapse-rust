@@ -23,35 +23,20 @@ pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Resul
     let params = config.to_argon2_params().map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
-    let password_hash = argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| e.to_string())?
-        .to_string();
+    let password_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?.to_string();
 
     Ok(password_hash)
 }
 
-pub fn hash_password_with_params(
-    password: &str,
-    m_cost: u32,
-    t_cost: u32,
-    p_cost: u32,
-) -> Result<String, String> {
-    let config = Argon2Config::new(m_cost, t_cost, p_cost)
-        .map_err(|e| format!("Invalid Argon2 parameters: {e}"))?;
+pub fn hash_password_with_params(password: &str, m_cost: u32, t_cost: u32, p_cost: u32) -> Result<String, String> {
+    let config = Argon2Config::new(m_cost, t_cost, p_cost).map_err(|e| format!("Invalid Argon2 parameters: {e}"))?;
     hash_password_with_config(password, &config)
 }
 
-pub fn verify_password(
-    password: &str,
-    password_hash: &str,
-    allow_legacy: bool,
-) -> Result<bool, String> {
+pub fn verify_password(password: &str, password_hash: &str, allow_legacy: bool) -> Result<bool, String> {
     if password_hash.starts_with("$argon2") {
         let parsed_hash = PasswordHash::new(password_hash).map_err(|e| e.to_string())?;
-        return Ok(Argon2::default()
-            .verify_password(password.as_bytes(), &parsed_hash)
-            .is_ok());
+        return Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok());
     }
 
     if !allow_legacy {
@@ -108,11 +93,7 @@ pub fn secure_compare(a: &str, b: &str) -> bool {
     let b_bytes = b.as_bytes();
     let max_len = a_bytes.len().max(b_bytes.len());
 
-    let mut result: u8 = if a_bytes.len() != b_bytes.len() {
-        0xFF
-    } else {
-        0
-    };
+    let mut result: u8 = if a_bytes.len() != b_bytes.len() { 0xFF } else { 0 };
 
     for i in 0..max_len {
         let a_byte = a_bytes.get(i).copied().unwrap_or(0);
@@ -130,19 +111,11 @@ pub fn is_legacy_hash(password_hash: &str) -> bool {
     !password_hash.starts_with("$argon2")
 }
 
-pub fn migrate_password_hash(
-    password: &str,
-    m_cost: u32,
-    t_cost: u32,
-    p_cost: u32,
-) -> Result<String, String> {
+pub fn migrate_password_hash(password: &str, m_cost: u32, t_cost: u32, p_cost: u32) -> Result<String, String> {
     hash_password_with_params(password, m_cost, t_cost, p_cost)
 }
 
-pub fn migrate_password_hash_with_config(
-    password: &str,
-    config: &Argon2Config,
-) -> Result<String, String> {
+pub fn migrate_password_hash_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
     hash_password_with_config(password, config)
 }
 
@@ -162,24 +135,13 @@ pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = chrono::Utc::now().timestamp_millis();
     let mut bytes = [0u8; 18];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!(
-        "${}${}:{}",
-        timestamp,
-        URL_SAFE_NO_PAD.encode(bytes),
-        server_name
-    )
+    format!("${}${}:{}", timestamp, URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
 pub fn generate_device_id() -> String {
     let mut bytes = [0u8; 10];
     rand::thread_rng().fill_bytes(&mut bytes);
-    format!(
-        "DEVICE{}",
-        URL_SAFE_NO_PAD
-            .encode(bytes)
-            .get(..10)
-            .unwrap_or("DEVICE0000")
-    )
+    format!("DEVICE{}", URL_SAFE_NO_PAD.encode(bytes).get(..10).unwrap_or("DEVICE0000"))
 }
 
 pub fn generate_salt() -> String {
@@ -195,8 +157,8 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
 }
 
 pub fn hash_token(token: &str) -> String {
-    let server_secret = std::env::var("TOKEN_HASH_SECRET")
-        .unwrap_or_else(|_| "synapse-rust-default-token-hash-secret".to_string());
+    let server_secret =
+        std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| "synapse-rust-default-token-hash-secret".to_string());
     encode_base64(hmac_sha256(server_secret, token))
 }
 
@@ -316,10 +278,7 @@ mod tests {
     #[test]
     fn test_verify_password_legacy_invalid() {
         assert!(!verify_password_legacy("password", "invalid"));
-        assert!(!verify_password_legacy(
-            "password",
-            "sha256$v=1$invalid$hash"
-        ));
+        assert!(!verify_password_legacy("password", "sha256$v=1$invalid$hash"));
     }
 
     #[test]

@@ -240,8 +240,5 @@ fn is_valid_join_rule(rule: &str) -> bool {
 }
 
 fn is_valid_history_visibility(visibility: &str) -> bool {
-    matches!(
-        visibility,
-        "shared" | "joined_only" | "invited_only" | "world_readable"
-    )
+    matches!(visibility, "shared" | "joined_only" | "invited_only" | "world_readable")
 }

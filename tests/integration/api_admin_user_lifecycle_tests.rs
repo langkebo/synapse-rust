@@ -17,9 +17,7 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
-    let pool = synapse_rust::test_utils::prepare_shared_test_pool()
-        .await
-        .ok()?;
+    let pool = synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     let state = AppState::new(container, cache.clone());
@@ -46,14 +44,9 @@ async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheM
         .await
         .expect("failed to register lifecycle admin user");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .expect("failed to read lifecycle admin response");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.expect("failed to read lifecycle admin response");
     let json: Value = serde_json::from_slice(&body).expect("invalid lifecycle admin json");
-    let token = json["access_token"]
-        .as_str()
-        .expect("missing lifecycle admin access token")
-        .to_string();
+    let token = json["access_token"].as_str().expect("missing lifecycle admin access token").to_string();
 
     sqlx::query("UPDATE users SET user_type = 'super_admin', is_admin = TRUE WHERE username = $1")
         .bind(&username)
@@ -78,13 +71,9 @@ async fn test_admin_user_stats_reflect_real_counts() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let baseline_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), baseline_request)
-        .await
-        .unwrap();
+    let baseline_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), baseline_request).await.unwrap();
     assert_eq!(baseline_response.status(), StatusCode::OK);
-    let baseline_body = axum::body::to_bytes(baseline_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let baseline_body = axum::body::to_bytes(baseline_response.into_body(), 2048).await.unwrap();
     let baseline_json: Value = serde_json::from_slice(&baseline_body).unwrap();
 
     let username = format!("stats_user_{}", rand::random::<u32>());
@@ -104,9 +93,7 @@ async fn test_admin_user_stats_reflect_real_counts() {
             .to_string(),
         ))
         .unwrap();
-    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
     assert_eq!(register_response.status(), StatusCode::OK);
 
     let deactivate_request = Request::builder()
@@ -116,9 +103,7 @@ async fn test_admin_user_stats_reflect_real_counts() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "deactivated": true }).to_string()))
         .unwrap();
-    let deactivate_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
-        .await
-        .unwrap();
+    let deactivate_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request).await.unwrap();
     assert_eq!(deactivate_response.status(), StatusCode::OK);
 
     let updated_request = Request::builder()
@@ -126,31 +111,18 @@ async fn test_admin_user_stats_reflect_real_counts() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let updated_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), updated_request)
-        .await
-        .unwrap();
+    let updated_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), updated_request).await.unwrap();
     assert_eq!(updated_response.status(), StatusCode::OK);
-    let updated_body = axum::body::to_bytes(updated_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let updated_body = axum::body::to_bytes(updated_response.into_body(), 2048).await.unwrap();
     let updated_json: Value = serde_json::from_slice(&updated_body).unwrap();
 
-    assert_eq!(
-        updated_json["total_users"].as_i64().unwrap(),
-        baseline_json["total_users"].as_i64().unwrap() + 1
-    );
+    assert_eq!(updated_json["total_users"].as_i64().unwrap(), baseline_json["total_users"].as_i64().unwrap() + 1);
     assert_eq!(
         updated_json["deactivated_users"].as_i64().unwrap(),
         baseline_json["deactivated_users"].as_i64().unwrap() + 1
     );
-    assert_eq!(
-        updated_json["active_users"].as_i64().unwrap(),
-        baseline_json["active_users"].as_i64().unwrap()
-    );
-    assert_eq!(
-        updated_json["admin_users"].as_i64().unwrap(),
-        baseline_json["admin_users"].as_i64().unwrap()
-    );
+    assert_eq!(updated_json["active_users"].as_i64().unwrap(), baseline_json["active_users"].as_i64().unwrap());
+    assert_eq!(updated_json["admin_users"].as_i64().unwrap(), baseline_json["admin_users"].as_i64().unwrap());
     assert_eq!(
         updated_json["user_registration_enabled"].as_bool(),
         baseline_json["user_registration_enabled"].as_bool()
@@ -184,14 +156,10 @@ async fn test_admin_user_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
     let user_refresh_token = json["refresh_token"].as_str().unwrap().to_string();
@@ -204,14 +172,10 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["name"], user_id);
     assert_eq!(json["deactivated"], false);
@@ -230,9 +194,7 @@ async fn test_admin_user_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), deactivate_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -243,14 +205,10 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deactivated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deactivated_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deactivated"], true);
 
@@ -267,14 +225,10 @@ async fn test_admin_user_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), refresh_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), refresh_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_USER_DEACTIVATED");
 
@@ -285,9 +239,7 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), test_banned_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), test_banned_request).await.unwrap();
 
     // 被封禁用户应该返回 403 或 401
     assert!(
@@ -309,9 +261,7 @@ async fn test_admin_user_lifecycle_management() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), reactivate_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), reactivate_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -322,14 +272,10 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_reactivated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_reactivated_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["deactivated"], false);
 
@@ -341,9 +287,7 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
 
     // 删除应该返回 200 或 204
     assert!(
@@ -358,9 +302,7 @@ async fn test_admin_user_lifecycle_management() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deleted_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), verify_deleted_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
@@ -392,9 +334,7 @@ async fn test_admin_user_list_pagination_and_limits() {
             ))
             .unwrap();
 
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         user_ids.push(format!("@{}:localhost", username));
@@ -407,14 +347,10 @@ async fn test_admin_user_list_pagination_and_limits() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     // 验证返回的用户列表包含我们创建的用户
@@ -428,14 +364,10 @@ async fn test_admin_user_list_pagination_and_limits() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), paginated_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), paginated_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let users = json["users"].as_array().unwrap();
@@ -443,10 +375,7 @@ async fn test_admin_user_list_pagination_and_limits() {
 
     // 验证有 next_token（如果有更多用户）
     if json["total"].as_u64().unwrap() > 2 {
-        assert!(
-            json["next_token"].is_string(),
-            "Should have next_token for pagination"
-        );
+        assert!(json["next_token"].is_string(), "Should have next_token for pagination");
     }
 
     // 4. 测试边界条件：limit = 0（应该返回错误或默认值）
@@ -456,9 +385,7 @@ async fn test_admin_user_list_pagination_and_limits() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), zero_limit_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), zero_limit_request).await.unwrap();
 
     // 应该返回 400 或使用默认 limit
     assert!(
@@ -473,14 +400,10 @@ async fn test_admin_user_list_pagination_and_limits() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), large_limit_request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), large_limit_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 102400)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 102400).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     let users = json["users"].as_array().unwrap();

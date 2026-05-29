@@ -111,12 +111,7 @@ impl OlmSessionData {
 }
 
 impl OlmAccountData {
-    pub fn new(
-        user_id: String,
-        device_id: String,
-        identity_key: String,
-        serialized_account: String,
-    ) -> Self {
+    pub fn new(user_id: String, device_id: String, identity_key: String, serialized_account: String) -> Self {
         Self {
             user_id,
             device_id,

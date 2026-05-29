@@ -51,8 +51,7 @@ mod federation_event_auth_error_tests {
         );
 
         let auth_chain = vec!["$event1".to_string()];
-        let result =
-            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("missing"));
@@ -77,8 +76,7 @@ mod federation_event_auth_error_tests {
         );
 
         let auth_chain = vec!["$event1".to_string()];
-        let result =
-            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -95,16 +93,8 @@ mod federation_event_auth_error_tests {
                     event_id: format!("$event_{}", i),
                     room_id: "!room:test".to_string(),
                     event_type: "m.room.message".to_string(),
-                    auth_events: if i > 0 {
-                        vec![format!("$event_{}", i - 1)]
-                    } else {
-                        vec![]
-                    },
-                    prev_events: if i > 0 {
-                        vec![format!("$event_{}", i - 1)]
-                    } else {
-                        vec![]
-                    },
+                    auth_events: if i > 0 { vec![format!("$event_{}", i - 1)] } else { vec![] },
+                    prev_events: if i > 0 { vec![format!("$event_{}", i - 1)] } else { vec![] },
                     state_key: Some(json!(format!("@user:{}", i % 5))),
                     content: Some(json!({"type": "m.text", "body": format!("test{}", i)})),
                 },
@@ -112,8 +102,7 @@ mod federation_event_auth_error_tests {
         }
 
         let auth_chain = vec!["$event_99".to_string()];
-        let result =
-            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain);
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$event_99", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -124,8 +113,7 @@ mod federation_event_auth_error_tests {
         let events: HashMap<String, EventData> = HashMap::new();
 
         let auth_chain = vec!["$event1".to_string()];
-        let result =
-            chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
+        let result = chain.verify_event_auth_chain_complete(&events, "!room:test", "$event1", &auth_chain);
 
         assert!(result.is_err());
     }
@@ -177,10 +165,7 @@ mod federation_event_auth_error_tests {
             }),
         ];
 
-        let power_levels = Some(&HashMap::from([
-            ("@user1:test".to_string(), 100),
-            ("@user2:test".to_string(), 50),
-        ]));
+        let power_levels = Some(&HashMap::from([("@user1:test".to_string(), 100), ("@user2:test".to_string(), 50)]));
 
         let conflicts = chain.detect_state_conflicts_advanced(&events, power_levels);
 
@@ -218,8 +203,7 @@ mod compression_error_tests {
     fn test_compress_unicode() {
         let original = "你好世界 🌍 Hello World";
         let compressed = synapse_rust::cache::compression::compress_string(original).unwrap();
-        let decompressed =
-            synapse_rust::cache::compression::decompress_to_string(&compressed).unwrap();
+        let decompressed = synapse_rust::cache::compression::decompress_to_string(&compressed).unwrap();
         assert_eq!(decompressed, original);
     }
 

@@ -169,10 +169,7 @@ impl HealthChecker {
     ///
     /// * `version` - 服务器版本号
     pub fn new(version: String) -> Self {
-        Self {
-            checks: Vec::new(),
-            version,
-        }
+        Self { checks: Vec::new(), version }
     }
 
     /// 添加健康检查组件。
@@ -238,19 +235,11 @@ mod tests {
         let mut checks = HashMap::new();
         checks.insert(
             "test".to_string(),
-            CheckResult {
-                status: "healthy".to_string(),
-                message: "Test check".to_string(),
-                duration_ms: 10,
-            },
+            CheckResult { status: "healthy".to_string(), message: "Test check".to_string(), duration_ms: 10 },
         );
 
-        let status = HealthStatus {
-            status: "healthy".to_string(),
-            version: "0.1.0".to_string(),
-            timestamp: 1234567890,
-            checks,
-        };
+        let status =
+            HealthStatus { status: "healthy".to_string(), version: "0.1.0".to_string(), timestamp: 1234567890, checks };
 
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("healthy"));

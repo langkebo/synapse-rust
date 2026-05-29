@@ -250,13 +250,7 @@ pub struct ApiResponse<T> {
 
 impl<T> ApiResponse<T> {
     pub fn success(data: T) -> Self {
-        Self {
-            status: "ok".to_string(),
-            data: Some(data),
-            error: None,
-            errcode: None,
-            retry_after_ms: None,
-        }
+        Self { status: "ok".to_string(), data: Some(data), error: None, errcode: None, retry_after_ms: None }
     }
 
     pub fn error(error: String, errcode: String) -> Self {
@@ -291,9 +285,7 @@ where
             match self.errcode.as_deref() {
                 Some("M_NOT_FOUND") => StatusCode::NOT_FOUND,
                 Some("M_FORBIDDEN") => StatusCode::FORBIDDEN,
-                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => {
-                    StatusCode::UNAUTHORIZED
-                }
+                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => StatusCode::UNAUTHORIZED,
                 Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
                 Some("M_UNRECOGNIZED") => StatusCode::NOT_FOUND,
                 Some("M_BAD_JSON")
@@ -303,9 +295,7 @@ where
                 | Some("M_INVALID_USERNAME")
                 | Some("M_BAD_STATE")
                 | Some("M_INVALID_ROOM_STATE") => StatusCode::BAD_REQUEST,
-                Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => {
-                    StatusCode::CONFLICT
-                }
+                Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => StatusCode::CONFLICT,
                 Some("M_TOO_LARGE") => StatusCode::PAYLOAD_TOO_LARGE,
                 Some("M_SERVER_NOT_TRUSTED") => StatusCode::BAD_GATEWAY,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -679,9 +669,7 @@ impl ApiError {
             Self::TooLarge(_) => MatrixErrorCode::TooLarge,
             Self::Exclusive(_) => MatrixErrorCode::Exclusive,
             Self::ResourceLimitExceeded(_) => MatrixErrorCode::ResourceLimitExceeded,
-            Self::CannotLeaveServerNoticeRoom(_) => {
-                MatrixErrorCode::CannotLeaveServerNoticeRoom
-            }
+            Self::CannotLeaveServerNoticeRoom(_) => MatrixErrorCode::CannotLeaveServerNoticeRoom,
             Self::Unknown(_) => MatrixErrorCode::Unknown,
             Self::Unrecognized(_) => MatrixErrorCode::Unrecognized,
             Self::RequestTimeout(_) => MatrixErrorCode::RequestTimeout,
@@ -760,9 +748,8 @@ impl IntoResponse for ApiError {
             return (
                 status_code,
                 Json(
-                    serde_json::from_str::<serde_json::Value>(&self.message()).unwrap_or_else(
-                        |_| json!({"errcode": "M_UNKNOWN", "error": self.message()}),
-                    ),
+                    serde_json::from_str::<serde_json::Value>(&self.message())
+                        .unwrap_or_else(|_| json!({"errcode": "M_UNKNOWN", "error": self.message()})),
                 ),
             )
                 .into_response();
@@ -814,22 +801,12 @@ pub trait ErrorContext {
 impl ErrorContext for ApiError {
     fn with_context(self, module: &str, operation: &str) -> Self {
         match self {
-            Self::Internal(msg) => {
-                Self::Internal(format!("[{module}::{operation}] {msg}"))
-            }
-            Self::Database(msg) => {
-                Self::Database(format!("[{module}::{operation}] {msg}"))
-            }
+            Self::Internal(msg) => Self::Internal(format!("[{module}::{operation}] {msg}")),
+            Self::Database(msg) => Self::Database(format!("[{module}::{operation}] {msg}")),
             Self::Cache(msg) => Self::Cache(format!("[{module}::{operation}] {msg}")),
-            Self::Authentication(msg) => {
-                Self::Authentication(format!("[{module}::{operation}] {msg}"))
-            }
-            Self::Validation(msg) => {
-                Self::Validation(format!("[{module}::{operation}] {msg}"))
-            }
-            Self::Crypto(msg) => {
-                Self::Crypto(format!("[{module}::{operation}] {msg}"))
-            }
+            Self::Authentication(msg) => Self::Authentication(format!("[{module}::{operation}] {msg}")),
+            Self::Validation(msg) => Self::Validation(format!("[{module}::{operation}] {msg}")),
+            Self::Crypto(msg) => Self::Crypto(format!("[{module}::{operation}] {msg}")),
             _ => self,
         }
     }
@@ -867,10 +844,7 @@ macro_rules! safe_unwrap_ctx {
     ($option:expr, $module:expr, $operation:expr) => {
         match $option {
             Some(v) => Ok(v),
-            None => Err(ApiError::Internal(format!(
-                "[{}::{}] Unexpected None value",
-                $module, $operation
-            ))),
+            None => Err(ApiError::Internal(format!("[{}::{}] Unexpected None value", $module, $operation))),
         }
     };
 }
@@ -1003,12 +977,8 @@ impl From<ed25519_dalek::ed25519::Error> for ApiError {
 impl From<crate::e2ee::crypto::CryptoError> for ApiError {
     fn from(err: crate::e2ee::crypto::CryptoError) -> Self {
         match err {
-            crate::e2ee::crypto::CryptoError::EncryptionError(msg) => {
-                Self::EncryptionError(msg)
-            }
-            crate::e2ee::crypto::CryptoError::DecryptionError(msg) => {
-                Self::DecryptionError(msg)
-            }
+            crate::e2ee::crypto::CryptoError::EncryptionError(msg) => Self::EncryptionError(msg),
+            crate::e2ee::crypto::CryptoError::DecryptionError(msg) => Self::DecryptionError(msg),
             _ => Self::Crypto(err.to_string()),
         }
     }
@@ -1033,111 +1003,42 @@ mod tests {
         assert_eq!(MatrixErrorCode::Unknown.as_str(), "M_UNKNOWN");
         assert_eq!(MatrixErrorCode::Unrecognized.as_str(), "M_UNRECOGNIZED");
         assert_eq!(MatrixErrorCode::Unauthorized.as_str(), "M_UNAUTHORIZED");
-        assert_eq!(
-            MatrixErrorCode::UserDeactivated.as_str(),
-            "M_USER_DEACTIVATED"
-        );
+        assert_eq!(MatrixErrorCode::UserDeactivated.as_str(), "M_USER_DEACTIVATED");
         assert_eq!(MatrixErrorCode::UserInUse.as_str(), "M_USER_IN_USE");
-        assert_eq!(
-            MatrixErrorCode::InvalidUsername.as_str(),
-            "M_INVALID_USERNAME"
-        );
+        assert_eq!(MatrixErrorCode::InvalidUsername.as_str(), "M_INVALID_USERNAME");
         assert_eq!(MatrixErrorCode::RoomInUse.as_str(), "M_ROOM_IN_USE");
-        assert_eq!(
-            MatrixErrorCode::InvalidRoomState.as_str(),
-            "M_INVALID_ROOM_STATE"
-        );
+        assert_eq!(MatrixErrorCode::InvalidRoomState.as_str(), "M_INVALID_ROOM_STATE");
         assert_eq!(MatrixErrorCode::ThreepidInUse.as_str(), "M_THREEPID_IN_USE");
-        assert_eq!(
-            MatrixErrorCode::ThreepidNotFound.as_str(),
-            "M_THREEPID_NOT_FOUND"
-        );
-        assert_eq!(
-            MatrixErrorCode::ThreepidAuthFailed.as_str(),
-            "M_THREEPID_AUTH_FAILED"
-        );
-        assert_eq!(
-            MatrixErrorCode::ThreepidDenied.as_str(),
-            "M_THREEPID_DENIED"
-        );
-        assert_eq!(
-            MatrixErrorCode::ServerNotTrusted.as_str(),
-            "M_SERVER_NOT_TRUSTED"
-        );
-        assert_eq!(
-            MatrixErrorCode::UnsupportedRoomVersion.as_str(),
-            "M_UNSUPPORTED_ROOM_VERSION"
-        );
-        assert_eq!(
-            MatrixErrorCode::IncompatibleRoomVersion.as_str(),
-            "M_INCOMPATIBLE_ROOM_VERSION"
-        );
+        assert_eq!(MatrixErrorCode::ThreepidNotFound.as_str(), "M_THREEPID_NOT_FOUND");
+        assert_eq!(MatrixErrorCode::ThreepidAuthFailed.as_str(), "M_THREEPID_AUTH_FAILED");
+        assert_eq!(MatrixErrorCode::ThreepidDenied.as_str(), "M_THREEPID_DENIED");
+        assert_eq!(MatrixErrorCode::ServerNotTrusted.as_str(), "M_SERVER_NOT_TRUSTED");
+        assert_eq!(MatrixErrorCode::UnsupportedRoomVersion.as_str(), "M_UNSUPPORTED_ROOM_VERSION");
+        assert_eq!(MatrixErrorCode::IncompatibleRoomVersion.as_str(), "M_INCOMPATIBLE_ROOM_VERSION");
         assert_eq!(MatrixErrorCode::BadState.as_str(), "M_BAD_STATE");
-        assert_eq!(
-            MatrixErrorCode::GuestAccessForbidden.as_str(),
-            "M_GUEST_ACCESS_FORBIDDEN"
-        );
+        assert_eq!(MatrixErrorCode::GuestAccessForbidden.as_str(), "M_GUEST_ACCESS_FORBIDDEN");
         assert_eq!(MatrixErrorCode::CaptchaNeeded.as_str(), "M_CAPTCHA_NEEDED");
-        assert_eq!(
-            MatrixErrorCode::CaptchaInvalid.as_str(),
-            "M_CAPTCHA_INVALID"
-        );
+        assert_eq!(MatrixErrorCode::CaptchaInvalid.as_str(), "M_CAPTCHA_INVALID");
         assert_eq!(MatrixErrorCode::MissingParam.as_str(), "M_MISSING_PARAM");
         assert_eq!(MatrixErrorCode::InvalidParam.as_str(), "M_INVALID_PARAM");
         assert_eq!(MatrixErrorCode::TooLarge.as_str(), "M_TOO_LARGE");
         assert_eq!(MatrixErrorCode::Exclusive.as_str(), "M_EXCLUSIVE");
-        assert_eq!(
-            MatrixErrorCode::ResourceLimitExceeded.as_str(),
-            "M_RESOURCE_LIMIT_EXCEEDED"
-        );
-        assert_eq!(
-            MatrixErrorCode::CannotLeaveServerNoticeRoom.as_str(),
-            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM"
-        );
+        assert_eq!(MatrixErrorCode::ResourceLimitExceeded.as_str(), "M_RESOURCE_LIMIT_EXCEEDED");
+        assert_eq!(MatrixErrorCode::CannotLeaveServerNoticeRoom.as_str(), "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM");
     }
 
     #[test]
     fn test_matrix_error_code_http_status() {
-        assert_eq!(
-            MatrixErrorCode::Forbidden.http_status(),
-            StatusCode::FORBIDDEN
-        );
-        assert_eq!(
-            MatrixErrorCode::UnknownToken.http_status(),
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            MatrixErrorCode::MissingToken.http_status(),
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            MatrixErrorCode::BadJson.http_status(),
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            MatrixErrorCode::NotJson.http_status(),
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            MatrixErrorCode::NotFound.http_status(),
-            StatusCode::NOT_FOUND
-        );
-        assert_eq!(
-            MatrixErrorCode::LimitExceeded.http_status(),
-            StatusCode::TOO_MANY_REQUESTS
-        );
-        assert_eq!(
-            MatrixErrorCode::UserInUse.http_status(),
-            StatusCode::CONFLICT
-        );
-        assert_eq!(
-            MatrixErrorCode::TooLarge.http_status(),
-            StatusCode::PAYLOAD_TOO_LARGE
-        );
-        assert_eq!(
-            MatrixErrorCode::ServerNotTrusted.http_status(),
-            StatusCode::BAD_GATEWAY
-        );
+        assert_eq!(MatrixErrorCode::Forbidden.http_status(), StatusCode::FORBIDDEN);
+        assert_eq!(MatrixErrorCode::UnknownToken.http_status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(MatrixErrorCode::MissingToken.http_status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(MatrixErrorCode::BadJson.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(MatrixErrorCode::NotJson.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(MatrixErrorCode::NotFound.http_status(), StatusCode::NOT_FOUND);
+        assert_eq!(MatrixErrorCode::LimitExceeded.http_status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(MatrixErrorCode::UserInUse.http_status(), StatusCode::CONFLICT);
+        assert_eq!(MatrixErrorCode::TooLarge.http_status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(MatrixErrorCode::ServerNotTrusted.http_status(), StatusCode::BAD_GATEWAY);
     }
 
     #[test]
@@ -1165,126 +1066,39 @@ mod tests {
 
     #[test]
     fn test_api_error_matrix_code_mapping() {
-        assert_eq!(
-            ApiError::bad_request("test").matrix_code(),
-            MatrixErrorCode::BadJson
-        );
-        assert_eq!(
-            ApiError::unauthorized("test").matrix_code(),
-            MatrixErrorCode::Unauthorized
-        );
-        assert_eq!(
-            ApiError::forbidden("test").matrix_code(),
-            MatrixErrorCode::Forbidden
-        );
-        assert_eq!(
-            ApiError::not_found("test").matrix_code(),
-            MatrixErrorCode::NotFound
-        );
-        assert_eq!(
-            ApiError::conflict("test").matrix_code(),
-            MatrixErrorCode::UserInUse
-        );
-        assert_eq!(
-            ApiError::RateLimited.matrix_code(),
-            MatrixErrorCode::LimitExceeded
-        );
-        assert_eq!(
-            ApiError::missing_token().matrix_code(),
-            MatrixErrorCode::MissingToken
-        );
-        assert_eq!(
-            ApiError::not_json("test").matrix_code(),
-            MatrixErrorCode::NotJson
-        );
-        assert_eq!(
-            ApiError::user_deactivated("test").matrix_code(),
-            MatrixErrorCode::UserDeactivated
-        );
-        assert_eq!(
-            ApiError::invalid_username("test").matrix_code(),
-            MatrixErrorCode::InvalidUsername
-        );
-        assert_eq!(
-            ApiError::room_in_use("test").matrix_code(),
-            MatrixErrorCode::RoomInUse
-        );
-        assert_eq!(
-            ApiError::invalid_room_state("test").matrix_code(),
-            MatrixErrorCode::InvalidRoomState
-        );
-        assert_eq!(
-            ApiError::threepid_in_use("test").matrix_code(),
-            MatrixErrorCode::ThreepidInUse
-        );
-        assert_eq!(
-            ApiError::threepid_not_found("test").matrix_code(),
-            MatrixErrorCode::ThreepidNotFound
-        );
-        assert_eq!(
-            ApiError::threepid_auth_failed("test").matrix_code(),
-            MatrixErrorCode::ThreepidAuthFailed
-        );
-        assert_eq!(
-            ApiError::threepid_denied("test").matrix_code(),
-            MatrixErrorCode::ThreepidDenied
-        );
-        assert_eq!(
-            ApiError::server_not_trusted("test").matrix_code(),
-            MatrixErrorCode::ServerNotTrusted
-        );
-        assert_eq!(
-            ApiError::unsupported_room_version("test").matrix_code(),
-            MatrixErrorCode::UnsupportedRoomVersion
-        );
-        assert_eq!(
-            ApiError::incompatible_room_version("test").matrix_code(),
-            MatrixErrorCode::IncompatibleRoomVersion
-        );
-        assert_eq!(
-            ApiError::bad_state("test").matrix_code(),
-            MatrixErrorCode::BadState
-        );
-        assert_eq!(
-            ApiError::guest_access_forbidden("test").matrix_code(),
-            MatrixErrorCode::GuestAccessForbidden
-        );
-        assert_eq!(
-            ApiError::captcha_needed("test").matrix_code(),
-            MatrixErrorCode::CaptchaNeeded
-        );
-        assert_eq!(
-            ApiError::captcha_invalid("test").matrix_code(),
-            MatrixErrorCode::CaptchaInvalid
-        );
-        assert_eq!(
-            ApiError::missing_param("test").matrix_code(),
-            MatrixErrorCode::MissingParam
-        );
-        assert_eq!(
-            ApiError::too_large("test").matrix_code(),
-            MatrixErrorCode::TooLarge
-        );
-        assert_eq!(
-            ApiError::exclusive("test").matrix_code(),
-            MatrixErrorCode::Exclusive
-        );
-        assert_eq!(
-            ApiError::resource_limit_exceeded("test").matrix_code(),
-            MatrixErrorCode::ResourceLimitExceeded
-        );
+        assert_eq!(ApiError::bad_request("test").matrix_code(), MatrixErrorCode::BadJson);
+        assert_eq!(ApiError::unauthorized("test").matrix_code(), MatrixErrorCode::Unauthorized);
+        assert_eq!(ApiError::forbidden("test").matrix_code(), MatrixErrorCode::Forbidden);
+        assert_eq!(ApiError::not_found("test").matrix_code(), MatrixErrorCode::NotFound);
+        assert_eq!(ApiError::conflict("test").matrix_code(), MatrixErrorCode::UserInUse);
+        assert_eq!(ApiError::RateLimited.matrix_code(), MatrixErrorCode::LimitExceeded);
+        assert_eq!(ApiError::missing_token().matrix_code(), MatrixErrorCode::MissingToken);
+        assert_eq!(ApiError::not_json("test").matrix_code(), MatrixErrorCode::NotJson);
+        assert_eq!(ApiError::user_deactivated("test").matrix_code(), MatrixErrorCode::UserDeactivated);
+        assert_eq!(ApiError::invalid_username("test").matrix_code(), MatrixErrorCode::InvalidUsername);
+        assert_eq!(ApiError::room_in_use("test").matrix_code(), MatrixErrorCode::RoomInUse);
+        assert_eq!(ApiError::invalid_room_state("test").matrix_code(), MatrixErrorCode::InvalidRoomState);
+        assert_eq!(ApiError::threepid_in_use("test").matrix_code(), MatrixErrorCode::ThreepidInUse);
+        assert_eq!(ApiError::threepid_not_found("test").matrix_code(), MatrixErrorCode::ThreepidNotFound);
+        assert_eq!(ApiError::threepid_auth_failed("test").matrix_code(), MatrixErrorCode::ThreepidAuthFailed);
+        assert_eq!(ApiError::threepid_denied("test").matrix_code(), MatrixErrorCode::ThreepidDenied);
+        assert_eq!(ApiError::server_not_trusted("test").matrix_code(), MatrixErrorCode::ServerNotTrusted);
+        assert_eq!(ApiError::unsupported_room_version("test").matrix_code(), MatrixErrorCode::UnsupportedRoomVersion);
+        assert_eq!(ApiError::incompatible_room_version("test").matrix_code(), MatrixErrorCode::IncompatibleRoomVersion);
+        assert_eq!(ApiError::bad_state("test").matrix_code(), MatrixErrorCode::BadState);
+        assert_eq!(ApiError::guest_access_forbidden("test").matrix_code(), MatrixErrorCode::GuestAccessForbidden);
+        assert_eq!(ApiError::captcha_needed("test").matrix_code(), MatrixErrorCode::CaptchaNeeded);
+        assert_eq!(ApiError::captcha_invalid("test").matrix_code(), MatrixErrorCode::CaptchaInvalid);
+        assert_eq!(ApiError::missing_param("test").matrix_code(), MatrixErrorCode::MissingParam);
+        assert_eq!(ApiError::too_large("test").matrix_code(), MatrixErrorCode::TooLarge);
+        assert_eq!(ApiError::exclusive("test").matrix_code(), MatrixErrorCode::Exclusive);
+        assert_eq!(ApiError::resource_limit_exceeded("test").matrix_code(), MatrixErrorCode::ResourceLimitExceeded);
         assert_eq!(
             ApiError::cannot_leave_server_notice_room("test").matrix_code(),
             MatrixErrorCode::CannotLeaveServerNoticeRoom
         );
-        assert_eq!(
-            ApiError::unknown("test").matrix_code(),
-            MatrixErrorCode::Unknown
-        );
-        assert_eq!(
-            ApiError::unrecognized("test").matrix_code(),
-            MatrixErrorCode::Unrecognized
-        );
+        assert_eq!(ApiError::unknown("test").matrix_code(), MatrixErrorCode::Unknown);
+        assert_eq!(ApiError::unrecognized("test").matrix_code(), MatrixErrorCode::Unrecognized);
     }
 
     #[test]
@@ -1342,121 +1156,43 @@ mod tests {
 
     #[test]
     fn test_api_error_factory_methods() {
-        assert!(matches!(
-            ApiError::bad_request("test"),
-            ApiError::BadRequest(_)
-        ));
-        assert!(matches!(
-            ApiError::unauthorized("unauthorized"),
-            ApiError::Unauthorized(_)
-        ));
-        assert!(matches!(
-            ApiError::forbidden("test"),
-            ApiError::Forbidden(_)
-        ));
+        assert!(matches!(ApiError::bad_request("test"), ApiError::BadRequest(_)));
+        assert!(matches!(ApiError::unauthorized("unauthorized"), ApiError::Unauthorized(_)));
+        assert!(matches!(ApiError::forbidden("test"), ApiError::Forbidden(_)));
         assert!(matches!(ApiError::not_found("test"), ApiError::NotFound(_)));
         assert!(matches!(ApiError::conflict("test"), ApiError::Conflict(_)));
         assert!(matches!(ApiError::internal("test"), ApiError::Internal(_)));
         assert!(matches!(ApiError::database("test"), ApiError::Database(_)));
         assert!(matches!(ApiError::cache("test"), ApiError::Cache(_)));
-        assert!(matches!(
-            ApiError::authentication("test"),
-            ApiError::Authentication(_)
-        ));
-        assert!(matches!(
-            ApiError::validation("test"),
-            ApiError::Validation(_)
-        ));
-        assert!(matches!(
-            ApiError::invalid_input("test"),
-            ApiError::InvalidInput(_)
-        ));
+        assert!(matches!(ApiError::authentication("test"), ApiError::Authentication(_)));
+        assert!(matches!(ApiError::validation("test"), ApiError::Validation(_)));
+        assert!(matches!(ApiError::invalid_input("test"), ApiError::InvalidInput(_)));
         assert!(matches!(ApiError::crypto("test"), ApiError::Crypto(_)));
-        assert!(matches!(
-            ApiError::rate_limited_with_retry(1000),
-            ApiError::RateLimitedWithRetry(1000)
-        ));
+        assert!(matches!(ApiError::rate_limited_with_retry(1000), ApiError::RateLimitedWithRetry(1000)));
         assert!(matches!(ApiError::missing_token(), ApiError::MissingToken));
         assert!(matches!(ApiError::not_json("test"), ApiError::NotJson(_)));
-        assert!(matches!(
-            ApiError::user_deactivated("test"),
-            ApiError::UserDeactivated(_)
-        ));
-        assert!(matches!(
-            ApiError::invalid_username("test"),
-            ApiError::InvalidUsername(_)
-        ));
-        assert!(matches!(
-            ApiError::room_in_use("test"),
-            ApiError::RoomInUse(_)
-        ));
-        assert!(matches!(
-            ApiError::invalid_room_state("test"),
-            ApiError::InvalidRoomState(_)
-        ));
-        assert!(matches!(
-            ApiError::threepid_in_use("test"),
-            ApiError::ThreepidInUse(_)
-        ));
-        assert!(matches!(
-            ApiError::threepid_not_found("test"),
-            ApiError::ThreepidNotFound(_)
-        ));
-        assert!(matches!(
-            ApiError::threepid_auth_failed("test"),
-            ApiError::ThreepidAuthFailed(_)
-        ));
-        assert!(matches!(
-            ApiError::threepid_denied("test"),
-            ApiError::ThreepidDenied(_)
-        ));
-        assert!(matches!(
-            ApiError::server_not_trusted("test"),
-            ApiError::ServerNotTrusted(_)
-        ));
-        assert!(matches!(
-            ApiError::unsupported_room_version("test"),
-            ApiError::UnsupportedRoomVersion(_)
-        ));
-        assert!(matches!(
-            ApiError::incompatible_room_version("test"),
-            ApiError::IncompatibleRoomVersion(_)
-        ));
+        assert!(matches!(ApiError::user_deactivated("test"), ApiError::UserDeactivated(_)));
+        assert!(matches!(ApiError::invalid_username("test"), ApiError::InvalidUsername(_)));
+        assert!(matches!(ApiError::room_in_use("test"), ApiError::RoomInUse(_)));
+        assert!(matches!(ApiError::invalid_room_state("test"), ApiError::InvalidRoomState(_)));
+        assert!(matches!(ApiError::threepid_in_use("test"), ApiError::ThreepidInUse(_)));
+        assert!(matches!(ApiError::threepid_not_found("test"), ApiError::ThreepidNotFound(_)));
+        assert!(matches!(ApiError::threepid_auth_failed("test"), ApiError::ThreepidAuthFailed(_)));
+        assert!(matches!(ApiError::threepid_denied("test"), ApiError::ThreepidDenied(_)));
+        assert!(matches!(ApiError::server_not_trusted("test"), ApiError::ServerNotTrusted(_)));
+        assert!(matches!(ApiError::unsupported_room_version("test"), ApiError::UnsupportedRoomVersion(_)));
+        assert!(matches!(ApiError::incompatible_room_version("test"), ApiError::IncompatibleRoomVersion(_)));
         assert!(matches!(ApiError::bad_state("test"), ApiError::BadState(_)));
-        assert!(matches!(
-            ApiError::guest_access_forbidden("test"),
-            ApiError::GuestAccessForbidden(_)
-        ));
-        assert!(matches!(
-            ApiError::captcha_needed("test"),
-            ApiError::CaptchaNeeded(_)
-        ));
-        assert!(matches!(
-            ApiError::captcha_invalid("test"),
-            ApiError::CaptchaInvalid(_)
-        ));
-        assert!(matches!(
-            ApiError::missing_param("test"),
-            ApiError::MissingParam(_)
-        ));
+        assert!(matches!(ApiError::guest_access_forbidden("test"), ApiError::GuestAccessForbidden(_)));
+        assert!(matches!(ApiError::captcha_needed("test"), ApiError::CaptchaNeeded(_)));
+        assert!(matches!(ApiError::captcha_invalid("test"), ApiError::CaptchaInvalid(_)));
+        assert!(matches!(ApiError::missing_param("test"), ApiError::MissingParam(_)));
         assert!(matches!(ApiError::too_large("test"), ApiError::TooLarge(_)));
-        assert!(matches!(
-            ApiError::exclusive("test"),
-            ApiError::Exclusive(_)
-        ));
-        assert!(matches!(
-            ApiError::resource_limit_exceeded("test"),
-            ApiError::ResourceLimitExceeded(_)
-        ));
-        assert!(matches!(
-            ApiError::cannot_leave_server_notice_room("test"),
-            ApiError::CannotLeaveServerNoticeRoom(_)
-        ));
+        assert!(matches!(ApiError::exclusive("test"), ApiError::Exclusive(_)));
+        assert!(matches!(ApiError::resource_limit_exceeded("test"), ApiError::ResourceLimitExceeded(_)));
+        assert!(matches!(ApiError::cannot_leave_server_notice_room("test"), ApiError::CannotLeaveServerNoticeRoom(_)));
         assert!(matches!(ApiError::unknown("test"), ApiError::Unknown(_)));
-        assert!(matches!(
-            ApiError::unrecognized("test"),
-            ApiError::Unrecognized(_)
-        ));
+        assert!(matches!(ApiError::unrecognized("test"), ApiError::Unrecognized(_)));
     }
 
     #[test]
@@ -1552,8 +1288,7 @@ mod tests {
 
     #[test]
     fn test_from_jsonwebtoken_error() {
-        let jwt_error =
-            jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken);
+        let jwt_error = jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken);
         let api_error: ApiError = jwt_error.into();
         assert!(matches!(api_error, ApiError::Authentication(_)));
     }
@@ -1665,9 +1400,7 @@ mod tests {
                 "M_TOO_LARGE" => MatrixErrorCode::TooLarge.as_str(),
                 "M_EXCLUSIVE" => MatrixErrorCode::Exclusive.as_str(),
                 "M_RESOURCE_LIMIT_EXCEEDED" => MatrixErrorCode::ResourceLimitExceeded.as_str(),
-                "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => {
-                    MatrixErrorCode::CannotLeaveServerNoticeRoom.as_str()
-                }
+                "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => MatrixErrorCode::CannotLeaveServerNoticeRoom.as_str(),
                 _ => panic!("Unexpected error code: {expected_code}"),
             };
             assert_eq!(found, expected_code);

@@ -4,9 +4,8 @@ use sqlx::{Pool, Postgres};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::storage::federation_blacklist::{
-    decode_federation_blacklist_cursor, encode_federation_blacklist_cursor,
-    AddBlacklistRequest, CreateLogRequest, CreateRuleRequest, FederationBlacklistCursor,
-    FederationBlacklistStorage, UpdateStatsRequest,
+    decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
+    CreateRuleRequest, FederationBlacklistCursor, FederationBlacklistStorage, UpdateStatsRequest,
 };
 use tokio::runtime::Runtime;
 
@@ -20,9 +19,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping federation blacklist storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping federation blacklist storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -155,10 +152,8 @@ async fn insert_blacklist_entry(
 
 #[test]
 fn test_encode_cursor_round_trip() {
-    let cursor = FederationBlacklistCursor {
-        created_ts: 1_746_700_000_000,
-        server_name: "evil.example.com".to_string(),
-    };
+    let cursor =
+        FederationBlacklistCursor { created_ts: 1_746_700_000_000, server_name: "evil.example.com".to_string() };
     let encoded = encode_federation_blacklist_cursor(&cursor);
     let decoded = decode_federation_blacklist_cursor(Some(&encoded));
     assert_eq!(decoded, Some(cursor));
@@ -166,10 +161,7 @@ fn test_encode_cursor_round_trip() {
 
 #[test]
 fn test_encode_cursor_different_values() {
-    let cursor = FederationBlacklistCursor {
-        created_ts: 0,
-        server_name: "a".to_string(),
-    };
+    let cursor = FederationBlacklistCursor { created_ts: 0, server_name: "a".to_string() };
     let encoded = encode_federation_blacklist_cursor(&cursor);
     let decoded = decode_federation_blacklist_cursor(Some(&encoded));
     assert_eq!(decoded, Some(cursor));
@@ -192,10 +184,7 @@ fn test_decode_cursor_empty_server_name() {
 
 #[test]
 fn test_decode_cursor_non_numeric_ts() {
-    assert_eq!(
-        decode_federation_blacklist_cursor(Some("abc|server.com")),
-        None
-    );
+    assert_eq!(decode_federation_blacklist_cursor(Some("abc|server.com")), None);
 }
 
 #[test]
@@ -313,29 +302,15 @@ fn test_remove_from_blacklist() {
         let suffix = unique_id();
         let server_name = format!("remove-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "blacklist",
-            Some("Spam"),
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Spam"), "@admin:example.com", true, None).await;
 
-        storage
-            .remove_from_blacklist(&server_name, "@admin:example.com")
+        storage.remove_from_blacklist(&server_name, "@admin:example.com").await.unwrap();
+
+        let row = sqlx::query_scalar::<_, bool>("SELECT is_enabled FROM federation_blacklist WHERE server_name = $1")
+            .bind(&server_name)
+            .fetch_one(&*pool)
             .await
             .unwrap();
-
-        let row = sqlx::query_scalar::<_, bool>(
-            "SELECT is_enabled FROM federation_blacklist WHERE server_name = $1",
-        )
-        .bind(&server_name)
-        .fetch_one(&*pool)
-        .await
-        .unwrap();
         assert!(!row);
     });
 }
@@ -352,21 +327,9 @@ fn test_remove_from_blacklist_creates_log() {
         let suffix = unique_id();
         let server_name = format!("removelog-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "blacklist",
-            Some("Test"),
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Test"), "@admin:example.com", true, None).await;
 
-        storage
-            .remove_from_blacklist(&server_name, "@admin:example.com")
-            .await
-            .unwrap();
+        storage.remove_from_blacklist(&server_name, "@admin:example.com").await.unwrap();
 
         let log_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM federation_blacklist_log WHERE server_name = $1 AND action = 'remove'",
@@ -391,16 +354,8 @@ fn test_get_blacklist_entry_found() {
         let suffix = unique_id();
         let server_name = format!("getfound-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "blacklist",
-            Some("Bad actor"),
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Bad actor"), "@admin:example.com", true, None)
+            .await;
 
         let result = storage.get_blacklist_entry(&server_name).await.unwrap();
         assert!(result.is_some());
@@ -420,10 +375,7 @@ fn test_get_blacklist_entry_not_found() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let result = storage
-            .get_blacklist_entry(&format!("nonexistent-{suffix}.example.com"))
-            .await
-            .unwrap();
+        let result = storage.get_blacklist_entry(&format!("nonexistent-{suffix}.example.com")).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -440,16 +392,7 @@ fn test_is_server_blocked_true() {
         let suffix = unique_id();
         let server_name = format!("blocked-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "blacklist",
-            Some("Spam"),
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Spam"), "@admin:example.com", true, None).await;
 
         let result = storage.is_server_blocked(&server_name).await.unwrap();
         assert!(result);
@@ -467,10 +410,7 @@ fn test_is_server_blocked_false_not_in_list() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let result = storage
-            .is_server_blocked(&format!("clean-{suffix}.example.com"))
-            .await
-            .unwrap();
+        let result = storage.is_server_blocked(&format!("clean-{suffix}.example.com")).await.unwrap();
         assert!(!result);
     });
 }
@@ -487,16 +427,7 @@ fn test_is_server_blocked_false_whitelist_type() {
         let suffix = unique_id();
         let server_name = format!("whitelisted-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "whitelist",
-            None,
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "whitelist", None, "@admin:example.com", true, None).await;
 
         let result = storage.is_server_blocked(&server_name).await.unwrap();
         assert!(!result);
@@ -545,16 +476,7 @@ fn test_is_server_whitelisted_true() {
         let suffix = unique_id();
         let server_name = format!("wl-true-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "whitelist",
-            None,
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "whitelist", None, "@admin:example.com", true, None).await;
 
         let result = storage.is_server_whitelisted(&server_name).await.unwrap();
         assert!(result);
@@ -572,10 +494,7 @@ fn test_is_server_whitelisted_false_not_in_list() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let result = storage
-            .is_server_whitelisted(&format!("notwl-{suffix}.example.com"))
-            .await
-            .unwrap();
+        let result = storage.is_server_whitelisted(&format!("notwl-{suffix}.example.com")).await.unwrap();
         assert!(!result);
     });
 }
@@ -592,16 +511,8 @@ fn test_is_server_whitelisted_false_blacklist_type() {
         let suffix = unique_id();
         let server_name = format!("wl-bl-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "blacklist",
-            Some("Blocked"),
-            "@admin:example.com",
-            true,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Blocked"), "@admin:example.com", true, None)
+            .await;
 
         let result = storage.is_server_whitelisted(&server_name).await.unwrap();
         assert!(!result);
@@ -620,16 +531,7 @@ fn test_is_server_whitelisted_false_disabled() {
         let suffix = unique_id();
         let server_name = format!("wl-disabled-{suffix}.example.com");
 
-        insert_blacklist_entry(
-            &pool,
-            &server_name,
-            "whitelist",
-            None,
-            "@admin:example.com",
-            false,
-            None,
-        )
-        .await;
+        insert_blacklist_entry(&pool, &server_name, "whitelist", None, "@admin:example.com", false, None).await;
 
         let result = storage.is_server_whitelisted(&server_name).await.unwrap();
         assert!(!result);
@@ -665,16 +567,8 @@ fn test_get_all_blacklist_with_entries() {
 
         for i in 0..3 {
             let server_name = format!("list-{suffix}-{i}.example.com");
-            insert_blacklist_entry(
-                &pool,
-                &server_name,
-                "blacklist",
-                Some("Test"),
-                "@admin:example.com",
-                true,
-                None,
-            )
-            .await;
+            insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Test"), "@admin:example.com", true, None)
+                .await;
         }
 
         let (entries, next_batch) = storage.get_all_blacklist(10, None).await.unwrap();
@@ -696,16 +590,8 @@ fn test_get_all_blacklist_pagination() {
 
         for i in 0..5 {
             let server_name = format!("page-{suffix}-{i}.example.com");
-            insert_blacklist_entry(
-                &pool,
-                &server_name,
-                "blacklist",
-                Some("Test"),
-                "@admin:example.com",
-                true,
-                None,
-            )
-            .await;
+            insert_blacklist_entry(&pool, &server_name, "blacklist", Some("Test"), "@admin:example.com", true, None)
+                .await;
         }
 
         let (page1, next_batch) = storage.get_all_blacklist(2, None).await.unwrap();
@@ -713,18 +599,12 @@ fn test_get_all_blacklist_pagination() {
         assert!(next_batch.is_some());
 
         let cursor = decode_federation_blacklist_cursor(next_batch.as_deref()).unwrap();
-        let (page2, next_batch2) = storage
-            .get_all_blacklist(2, Some(cursor))
-            .await
-            .unwrap();
+        let (page2, next_batch2) = storage.get_all_blacklist(2, Some(cursor)).await.unwrap();
         assert_eq!(page2.len(), 2);
         assert!(next_batch2.is_some());
 
         let cursor2 = decode_federation_blacklist_cursor(next_batch2.as_deref()).unwrap();
-        let (page3, next_batch3) = storage
-            .get_all_blacklist(2, Some(cursor2))
-            .await
-            .unwrap();
+        let (page3, next_batch3) = storage.get_all_blacklist(2, Some(cursor2)).await.unwrap();
         assert_eq!(page3.len(), 1);
         assert!(next_batch3.is_none());
     });
@@ -809,11 +689,8 @@ fn test_update_access_stats_first_success() {
         let suffix = unique_id();
         let server_name = format!("stats-ok-{suffix}.example.com");
 
-        let request = UpdateStatsRequest {
-            server_name: server_name.clone(),
-            is_success: true,
-            response_time_ms: Some(50.0),
-        };
+        let request =
+            UpdateStatsRequest { server_name: server_name.clone(), is_success: true, response_time_ms: Some(50.0) };
 
         let result = storage.update_access_stats(request).await.unwrap();
         assert_eq!(result.server_name, server_name);
@@ -837,11 +714,8 @@ fn test_update_access_stats_first_failure() {
         let suffix = unique_id();
         let server_name = format!("stats-fail-{suffix}.example.com");
 
-        let request = UpdateStatsRequest {
-            server_name: server_name.clone(),
-            is_success: false,
-            response_time_ms: None,
-        };
+        let request =
+            UpdateStatsRequest { server_name: server_name.clone(), is_success: false, response_time_ms: None };
 
         let result = storage.update_access_stats(request).await.unwrap();
         assert_eq!(result.total_requests, 1);
@@ -911,10 +785,7 @@ fn test_get_access_stats_not_found() {
         let storage = create_storage(&pool);
         let suffix = unique_id();
 
-        let result = storage
-            .get_access_stats(&format!("nostats-{suffix}.example.com"))
-            .await
-            .unwrap();
+        let result = storage.get_access_stats(&format!("nostats-{suffix}.example.com")).await.unwrap();
         assert!(result.is_none());
     });
 }
@@ -1031,13 +902,11 @@ fn test_get_all_rules_returns_enabled_only() {
             .await
             .unwrap();
 
-        sqlx::query(
-            "UPDATE federation_blacklist_rule SET is_enabled = false WHERE rule_name = $1",
-        )
-        .bind(format!("another-rule-{suffix}"))
-        .execute(&*pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE federation_blacklist_rule SET is_enabled = false WHERE rule_name = $1")
+            .bind(format!("another-rule-{suffix}"))
+            .execute(&*pool)
+            .await
+            .unwrap();
 
         let rules = storage.get_all_rules().await.unwrap();
         assert_eq!(rules.len(), 1);
@@ -1127,12 +996,11 @@ fn test_cleanup_expired_entries() {
         let cleaned = storage.cleanup_expired_entries().await.unwrap();
         assert_eq!(cleaned, 1);
 
-        let active_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM federation_blacklist WHERE is_enabled = true",
-        )
-        .fetch_one(&*pool)
-        .await
-        .unwrap();
+        let active_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_blacklist WHERE is_enabled = true")
+                .fetch_one(&*pool)
+                .await
+                .unwrap();
         assert_eq!(active_count, 1);
     });
 }

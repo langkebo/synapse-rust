@@ -50,15 +50,10 @@ pub struct ThreepidStorage {
 
 impl ThreepidStorage {
     pub fn new(pool: impl AsRef<PgPool>) -> Self {
-        Self {
-            pool: Arc::new(pool.as_ref().clone()),
-        }
+        Self { pool: Arc::new(pool.as_ref().clone()) }
     }
 
-    pub async fn add_threepid(
-        &self,
-        request: CreateThreepidRequest,
-    ) -> Result<UserThreepid, ApiError> {
+    pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
@@ -122,10 +117,7 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
-    pub async fn get_threepids_by_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<UserThreepid>, ApiError> {
+    pub async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
             r"
             SELECT
@@ -151,11 +143,7 @@ impl ThreepidStorage {
         Ok(threepids)
     }
 
-    pub async fn get_threepid_by_address(
-        &self,
-        medium: &str,
-        address: &str,
-    ) -> Result<Option<UserThreepid>, ApiError> {
+    pub async fn get_threepid_by_address(&self, medium: &str, address: &str) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r"
             SELECT
@@ -206,19 +194,12 @@ impl ThreepidStorage {
         .bind(address)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to get verified threepid by address", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get verified threepid by address", &e))?;
 
         Ok(threepid)
     }
 
-    pub async fn verify_threepid(
-        &self,
-        user_id: &str,
-        medium: &str,
-        address: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let result = sqlx::query(
@@ -239,10 +220,7 @@ impl ThreepidStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn verify_threepid_by_token(
-        &self,
-        token: &str,
-    ) -> Result<Option<UserThreepid>, ApiError> {
+    pub async fn verify_threepid_by_token(&self, token: &str) -> Result<Option<UserThreepid>, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
@@ -271,12 +249,7 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
-    pub async fn remove_threepid(
-        &self,
-        user_id: &str,
-        medium: &str,
-        address: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
             DELETE FROM user_threepids
@@ -425,9 +398,7 @@ impl ThreepidStorage {
         .bind(token)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to get validation session by token", &e)
-        })
+        .map_err(|e| ApiError::internal_with_log("Failed to get validation session by token", &e))
     }
 
     pub async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
@@ -448,13 +419,11 @@ impl ThreepidStorage {
     }
 
     pub async fn increment_validation_send_attempt(&self, id: i64) -> Result<(), ApiError> {
-        sqlx::query(
-            "UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to increment send attempt", &e))?;
+        sqlx::query("UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1")
+            .bind(id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to increment send attempt", &e))?;
 
         Ok(())
     }

@@ -9,12 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::application_service::{
-    ApplicationService, ApplicationServiceState, ApplicationServiceUser,
-    RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+    ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
+    UpdateApplicationServiceRequest,
 };
-use crate::web::routes::response_helpers::{
-    created_json_from, empty_json, json_from, json_vec_from, require_found,
-};
+use crate::web::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
@@ -212,10 +210,7 @@ pub async fn get_app_service(
 ) -> Result<impl IntoResponse, ApiError> {
     let service = state.services.app_service_manager.get(&as_id).await?;
 
-    Ok(json_from::<_, AppServiceResponse>(require_found(
-        service,
-        "Application service not found",
-    )?))
+    Ok(json_from::<_, AppServiceResponse>(require_found(service, "Application service not found")?))
 }
 
 pub async fn list_app_services(
@@ -235,11 +230,7 @@ pub async fn update_app_service(
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request();
 
-    let service = state
-        .services
-        .app_service_manager
-        .update(&as_id, request)
-        .await?;
+    let service = state.services.app_service_manager.update(&as_id, request).await?;
 
     Ok(json_from::<_, AppServiceResponse>(service))
 }
@@ -249,11 +240,7 @@ pub async fn delete_app_service(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .app_service_manager
-        .unregister(&as_id)
-        .await?;
+    state.services.app_service_manager.unregister(&as_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -277,11 +264,7 @@ pub async fn set_app_service_state(
     _admin: AdminUser,
     Json(body): Json<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state_entry = state
-        .services
-        .app_service_manager
-        .set_state(&as_id, &body.state_key, &body.state_value)
-        .await?;
+    let state_entry = state.services.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
 
     Ok(app_service_state_json(&state_entry))
 }
@@ -291,16 +274,9 @@ pub async fn get_app_service_state(
     Path((as_id, state_key)): Path<(String, String)>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state_entry = state
-        .services
-        .app_service_manager
-        .get_state(&as_id, &state_key)
-        .await?;
+    let state_entry = state.services.app_service_manager.get_state(&as_id, &state_key).await?;
 
-    Ok(app_service_state_json(&require_found(
-        state_entry,
-        "State not found",
-    )?))
+    Ok(app_service_state_json(&require_found(state_entry, "State not found")?))
 }
 
 pub async fn get_app_service_states(
@@ -308,11 +284,7 @@ pub async fn get_app_service_states(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let states = state
-        .services
-        .app_service_manager
-        .get_all_states(&as_id)
-        .await?;
+    let states = state.services.app_service_manager.get_all_states(&as_id).await?;
 
     Ok(Json(states))
 }
@@ -326,12 +298,7 @@ pub async fn register_virtual_user(
     let user = state
         .services
         .app_service_manager
-        .register_virtual_user(
-            &as_id,
-            &body.user_id,
-            body.displayname.as_deref(),
-            body.avatar_url.as_deref(),
-        )
+        .register_virtual_user(&as_id, &body.user_id, body.displayname.as_deref(), body.avatar_url.as_deref())
         .await?;
 
     Ok(created_json_from::<_, VirtualUserResponse>(user))
@@ -342,11 +309,7 @@ pub async fn get_virtual_users(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let users = state
-        .services
-        .app_service_manager
-        .get_virtual_users(&as_id)
-        .await?;
+    let users = state.services.app_service_manager.get_virtual_users(&as_id).await?;
 
     Ok(json_vec_from::<_, VirtualUserResponse>(users))
 }
@@ -356,11 +319,7 @@ pub async fn get_namespaces(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let namespaces = state
-        .services
-        .app_service_manager
-        .get_namespaces(&as_id)
-        .await?;
+    let namespaces = state.services.app_service_manager.get_namespaces(&as_id).await?;
 
     Ok(Json(namespaces))
 }
@@ -372,11 +331,7 @@ pub async fn get_pending_events(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let events = state
-        .services
-        .app_service_manager
-        .get_pending_events(&as_id, limit)
-        .await?;
+    let events = state.services.app_service_manager.get_pending_events(&as_id, limit).await?;
 
     Ok(Json(events))
 }
@@ -390,14 +345,7 @@ pub async fn push_event(
     let event = state
         .services
         .app_service_manager
-        .push_event(
-            &as_id,
-            &body.room_id,
-            &body.event_type,
-            &body.sender,
-            body.content,
-            body.state_key.as_deref(),
-        )
+        .push_event(&as_id, &body.room_id, &body.event_type, &body.sender, body.content, body.state_key.as_deref())
         .await?;
 
     Ok((
@@ -416,11 +364,7 @@ pub async fn query_user(
     _admin: AdminUser,
     Query(query): Query<QueryUser>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let as_id = state
-        .services
-        .app_service_manager
-        .query_user(&query.user_id)
-        .await?;
+    let as_id = state.services.app_service_manager.query_user(&query.user_id).await?;
 
     Ok(Json(serde_json::json!({
         "user_id": query.user_id,
@@ -434,11 +378,7 @@ pub async fn query_room_alias(
     _admin: AdminUser,
     Query(query): Query<QueryAlias>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let as_id = state
-        .services
-        .app_service_manager
-        .query_room_alias(&query.alias)
-        .await?;
+    let as_id = state.services.app_service_manager.query_room_alias(&query.alias).await?;
 
     Ok(Json(serde_json::json!({
         "alias": query.alias,
@@ -447,10 +387,7 @@ pub async fn query_room_alias(
     })))
 }
 
-pub async fn get_statistics(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_statistics(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let stats = state.services.app_service_manager.get_statistics().await?;
 
     Ok(Json(stats))
@@ -462,11 +399,7 @@ pub async fn app_service_ping(
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state
-        .services
-        .app_service_manager
-        .validate_token(&as_token)
-        .await?;
+    let service = state.services.app_service_manager.validate_token(&as_token).await?;
 
     Ok(Json(serde_json::json!({
         "as_id": service.as_id
@@ -481,27 +414,15 @@ pub async fn app_service_transactions(
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state
-        .services
-        .app_service_manager
-        .validate_token(&as_token)
-        .await?;
+    let service = state.services.app_service_manager.validate_token(&as_token).await?;
 
     if service.as_id != as_id {
         return Err(ApiError::forbidden("Application service ID mismatch"));
     }
 
-    let events = body
-        .get("events")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let events = body.get("events").and_then(|e| e.as_array()).cloned().unwrap_or_default();
 
-    state
-        .services
-        .app_service_manager
-        .send_transaction(&as_id, events)
-        .await?;
+    state.services.app_service_manager.send_transaction(&as_id, events).await?;
 
     Ok(empty_json())
 }
@@ -513,22 +434,12 @@ pub async fn app_service_user_query(
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state
-        .services
-        .app_service_manager
-        .validate_token(&as_token)
-        .await?;
+    let service = state.services.app_service_manager.validate_token(&as_token).await?;
 
-    let namespace_as_id = state
-        .services
-        .app_service_manager
-        .query_user(&user_id)
-        .await?;
+    let namespace_as_id = state.services.app_service_manager.query_user(&user_id).await?;
 
     if namespace_as_id.as_ref() != Some(&service.as_id) {
-        return Err(ApiError::forbidden(
-            "User not in application service namespace",
-        ));
+        return Err(ApiError::forbidden("User not in application service namespace"));
     }
 
     Ok(empty_json())
@@ -541,22 +452,12 @@ pub async fn app_service_room_alias_query(
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state
-        .services
-        .app_service_manager
-        .validate_token(&as_token)
-        .await?;
+    let service = state.services.app_service_manager.validate_token(&as_token).await?;
 
-    let namespace_as_id = state
-        .services
-        .app_service_manager
-        .query_room_alias(&alias)
-        .await?;
+    let namespace_as_id = state.services.app_service_manager.query_room_alias(&alias).await?;
 
     if namespace_as_id.as_ref() != Some(&service.as_id) {
-        return Err(ApiError::forbidden(
-            "Room alias not in application service namespace",
-        ));
+        return Err(ApiError::forbidden("Room alias not in application service namespace"));
     }
 
     Ok(empty_json())
@@ -582,23 +483,11 @@ pub async fn app_service_query(
 
 pub fn create_app_service_router(state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
-        .route(
-            "/_matrix/client/v1/user/{user_id}/appservice",
-            get(get_user_appservice),
-        )
+        .route("/_matrix/client/v1/user/{user_id}/appservice", get(get_user_appservice))
         .route("/_matrix/app/v1/ping", post(app_service_ping))
-        .route(
-            "/_matrix/app/v1/transactions/{as_id}/{txn_id}",
-            put(app_service_transactions),
-        )
-        .route(
-            "/_matrix/app/v1/users/{user_id}",
-            get(app_service_user_query),
-        )
-        .route(
-            "/_matrix/app/v1/rooms/{alias}",
-            get(app_service_room_alias_query),
-        )
+        .route("/_matrix/app/v1/transactions/{as_id}/{txn_id}", put(app_service_transactions))
+        .route("/_matrix/app/v1/users/{user_id}", get(app_service_user_query))
+        .route("/_matrix/app/v1/rooms/{alias}", get(app_service_room_alias_query))
         .route("/_matrix/app/v1/{as_id}", get(app_service_query))
         .route("/_matrix/client/v3/appservice/user", get(query_user))
         .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
@@ -606,67 +495,22 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
     let admin_routes = Router::new()
         .route("/_synapse/admin/v1/appservices", get(list_app_services))
         .route("/_synapse/admin/v1/appservices", post(register_app_service))
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}",
-            get(get_app_service),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}",
-            put(update_app_service),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}",
-            delete(delete_app_service),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/ping",
-            post(ping_app_service),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/state",
-            post(set_app_service_state),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/state",
-            get(get_app_service_states),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}",
-            get(get_app_service_state),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/users",
-            post(register_virtual_user),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/users",
-            get(get_virtual_users),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/namespaces",
-            get(get_namespaces),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/events",
-            get(get_pending_events),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/{as_id}/events",
-            post(push_event),
-        )
+        .route("/_synapse/admin/v1/appservices/{as_id}", get(get_app_service))
+        .route("/_synapse/admin/v1/appservices/{as_id}", put(update_app_service))
+        .route("/_synapse/admin/v1/appservices/{as_id}", delete(delete_app_service))
+        .route("/_synapse/admin/v1/appservices/{as_id}/ping", post(ping_app_service))
+        .route("/_synapse/admin/v1/appservices/{as_id}/state", post(set_app_service_state))
+        .route("/_synapse/admin/v1/appservices/{as_id}/state", get(get_app_service_states))
+        .route("/_synapse/admin/v1/appservices/{as_id}/state/{state_key}", get(get_app_service_state))
+        .route("/_synapse/admin/v1/appservices/{as_id}/users", post(register_virtual_user))
+        .route("/_synapse/admin/v1/appservices/{as_id}/users", get(get_virtual_users))
+        .route("/_synapse/admin/v1/appservices/{as_id}/namespaces", get(get_namespaces))
+        .route("/_synapse/admin/v1/appservices/{as_id}/events", get(get_pending_events))
+        .route("/_synapse/admin/v1/appservices/{as_id}/events", post(push_event))
         .route("/_synapse/admin/v1/appservices/query/user", get(query_user))
-        .route(
-            "/_synapse/admin/v1/appservices/query/alias",
-            get(query_room_alias),
-        )
-        .route(
-            "/_synapse/admin/v1/appservices/statistics",
-            get(get_statistics),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state,
-            crate::web::middleware::admin_auth_middleware,
-        ));
+        .route("/_synapse/admin/v1/appservices/query/alias", get(query_room_alias))
+        .route("/_synapse/admin/v1/appservices/statistics", get(get_statistics))
+        .route_layer(axum::middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware));
 
     public_routes.merge(admin_routes)
 }
@@ -693,21 +537,12 @@ pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
         (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/ping"),
         (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/state"),
         (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/state"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}",
-        ),
+        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}"),
         (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/users"),
         (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/users"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/appservices/{as_id}/namespaces",
-        ),
+        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/namespaces"),
         (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/events"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/appservices/{as_id}/events",
-        ),
+        (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/events"),
         (Method::GET, "/_synapse/admin/v1/appservices/query/user"),
         (Method::GET, "/_synapse/admin/v1/appservices/query/alias"),
         (Method::GET, "/_synapse/admin/v1/appservices/statistics"),
@@ -799,10 +634,7 @@ mod tests {
         assert_eq!(request.url.as_deref(), Some("https://updated.example.com"));
         assert_eq!(request.description.as_deref(), Some("updated"));
         assert_eq!(request.rate_limited, Some(false));
-        assert_eq!(
-            request.protocols,
-            Some(vec!["slack".to_string(), "irc".to_string()])
-        );
+        assert_eq!(request.protocols, Some(vec!["slack".to_string(), "irc".to_string()]));
         assert_eq!(request.is_enabled, Some(true));
     }
 }

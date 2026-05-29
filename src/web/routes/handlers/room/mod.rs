@@ -16,9 +16,7 @@ use crate::common::{parse_stream_token, ApiError};
 use crate::map_internal;
 use crate::storage::event::EventStorage;
 use crate::storage::event::RoomEvent;
-use crate::web::routes::{
-    ensure_room_member, ensure_room_member_strict, AppState, AuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member, ensure_room_member_strict, AppState, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 
 fn parse_room_messages_from_token(params: &serde_json::Value) -> i64 {
@@ -34,13 +32,7 @@ pub(crate) async fn ensure_room_view_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to view events",
-    )
-    .await?;
+    ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to view events").await?;
 
     Ok(())
 }
@@ -63,19 +55,9 @@ pub(crate) async fn ensure_room_state_write_access(
     room_id: &str,
     event_type: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to send state events",
-    )
-    .await?;
+    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to send state events").await?;
 
-    state
-        .services
-        .auth_service
-        .verify_state_event_write(room_id, &auth_user.user_id, event_type)
-        .await?;
+    state.services.auth_service.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
 
     Ok(())
 }
@@ -92,9 +74,7 @@ pub(crate) async fn get_room_event(
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
     if event.room_id != room_id {
-        return Err(ApiError::not_found(
-            "Event not found in this room".to_string(),
-        ));
+        return Err(ApiError::not_found("Event not found in this room".to_string()));
     }
 
     Ok(event)

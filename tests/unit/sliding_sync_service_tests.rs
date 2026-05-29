@@ -24,9 +24,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping sliding sync service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping sliding sync service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -324,14 +322,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
     let member_storage = RoomMemberStorage::new(pool, "localhost");
 
-    SlidingSyncService::new(
-        storage,
-        cache,
-        event_storage,
-        typing_service,
-        presence_storage,
-        member_storage,
-    )
+    SlidingSyncService::new(storage, cache, event_storage, typing_service, presence_storage, member_storage)
 }
 
 #[test]
@@ -550,11 +541,7 @@ fn test_update_room_state() {
             .unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
 
         assert_eq!(room.bump_stamp, 1000);
         assert_eq!(room.highlight_count, 2);
@@ -579,45 +566,19 @@ fn test_bump_room() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
-        service
-            .bump_room(&user_id, "DEV1", &room_id, None, 3000)
-            .await
-            .unwrap();
+        service.bump_room(&user_id, "DEV1", &room_id, None, 3000).await.unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.bump_stamp, 3000);
 
-        service
-            .bump_room(&user_id, "DEV1", &room_id, None, 2000)
-            .await
-            .unwrap();
+        service.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.bump_stamp, 3000);
     });
 }
@@ -636,33 +597,14 @@ fn test_update_notification_counts() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
-        service
-            .update_notification_counts(&user_id, "DEV1", &room_id, None, 7, 15)
-            .await
-            .unwrap();
+        service.update_notification_counts(&user_id, "DEV1", &room_id, None, 7, 15).await.unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.highlight_count, 7);
         assert_eq!(room.notification_count, 15);
     });
@@ -682,32 +624,14 @@ fn test_remove_room() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
-        service
-            .remove_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        service.remove_room(&user_id, "DEV1", &room_id, None).await.unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
         assert!(room.is_none());
     });
 }
@@ -725,10 +649,7 @@ fn test_cleanup_expired_tokens() {
         let user_id = format!("@cleanup_{suffix}:localhost");
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let token = storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
         sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
@@ -757,25 +678,10 @@ fn test_get_room_token_sync() {
         let room_id = format!("!room_{suffix}:localhost");
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        storage
-            .create_or_update_token(&user_id, "DEV1", None)
-            .await
-            .unwrap();
+        storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                1,
-                3,
-                false,
-                false,
-                Some("Sync Room"),
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 1, 3, false, false, Some("Sync Room"), None)
             .await
             .unwrap();
 
@@ -800,19 +706,7 @@ fn test_sync_with_room_subscriptions() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                Some("Sub Room"),
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("Sub Room"), None)
             .await
             .unwrap();
 
@@ -865,19 +759,7 @@ fn test_sync_with_unsubscribe_rooms() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
@@ -910,10 +792,7 @@ fn test_sync_with_unsubscribe_rooms() {
         assert!(!response.pos.is_empty());
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
         assert!(room.is_none());
     });
 }
@@ -969,10 +848,7 @@ fn test_sync_with_filters() {
             SlidingSyncListData {
                 ranges: vec![vec![0, 20]],
                 sort: vec!["by_recency".to_string()],
-                filters: Some(SlidingSyncFilters {
-                    is_dm: Some(true),
-                    ..Default::default()
-                }),
+                filters: Some(SlidingSyncFilters { is_dm: Some(true), ..Default::default() }),
                 timeline_limit: None,
                 required_state: None,
                 slow_by: None,
@@ -1045,10 +921,7 @@ fn test_sync_multiple_lists() {
             SlidingSyncListData {
                 ranges: vec![vec![0, 10]],
                 sort: vec!["by_recency".to_string()],
-                filters: Some(SlidingSyncFilters {
-                    is_invite: Some(true),
-                    ..Default::default()
-                }),
+                filters: Some(SlidingSyncFilters { is_invite: Some(true), ..Default::default() }),
                 timeline_limit: None,
                 required_state: None,
                 slow_by: None,
@@ -1116,19 +989,7 @@ fn test_update_room_state_with_conn_id_isolation() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                1,
-                2,
-                false,
-                false,
-                Some("No Conn"),
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 1, 2, false, false, Some("No Conn"), None)
             .await
             .unwrap();
         service
@@ -1149,16 +1010,8 @@ fn test_update_room_state_with_conn_id_isolation() {
             .unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room_none = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
-        let room_conn = storage
-            .get_room(&user_id, "DEV1", &room_id, Some("conn1"))
-            .await
-            .unwrap()
-            .unwrap();
+        let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
+        let room_conn = storage.get_room(&user_id, "DEV1", &room_id, Some("conn1")).await.unwrap().unwrap();
 
         assert_ne!(room_none.id, room_conn.id);
         assert_eq!(room_none.name, Some("No Conn".to_string()));
@@ -1180,54 +1033,21 @@ fn test_remove_room_different_conn_id_no_cross_delete() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                Some("conn1"),
-                1000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, Some("conn1"), 1000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
-        service
-            .remove_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        service.remove_room(&user_id, "DEV1", &room_id, None).await.unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room_none = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap();
+        let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
         assert!(room_none.is_none());
 
-        let room_conn = storage
-            .get_room(&user_id, "DEV1", &room_id, Some("conn1"))
-            .await
-            .unwrap();
+        let room_conn = storage.get_room(&user_id, "DEV1", &room_id, Some("conn1")).await.unwrap();
         assert!(room_conn.is_some());
     });
 }
@@ -1275,10 +1095,7 @@ fn test_sync_pos_advances_on_each_request() {
             positions.push(response.pos);
         }
 
-        let pos_values: Vec<i64> = positions
-            .iter()
-            .map(|p| p.parse::<i64>().unwrap())
-            .collect();
+        let pos_values: Vec<i64> = positions.iter().map(|p| p.parse::<i64>().unwrap()).collect();
         assert!(pos_values.windows(2).all(|w| w[1] > w[0]));
     });
 }
@@ -1385,45 +1202,17 @@ fn test_update_room_state_preserves_higher_bump_stamp() {
         let room_id = format!("!room_{suffix}:localhost");
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                5000,
-                0,
-                0,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 5000, 0, 0, false, false, None, None)
             .await
             .unwrap();
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                3000,
-                1,
-                1,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 3000, 1, 1, false, false, None, None)
             .await
             .unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.bump_stamp, 5000);
     });
 }
@@ -1459,28 +1248,12 @@ fn test_update_room_state_preserves_name_when_null() {
             .unwrap();
 
         service
-            .update_room_state(
-                &user_id,
-                "DEV1",
-                &room_id,
-                None,
-                2000,
-                1,
-                1,
-                false,
-                false,
-                None,
-                None,
-            )
+            .update_room_state(&user_id, "DEV1", &room_id, None, 2000, 1, 1, false, false, None, None)
             .await
             .unwrap();
 
         let storage = SlidingSyncStorage::new(pool.clone());
-        let room = storage
-            .get_room(&user_id, "DEV1", &room_id, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
         assert_eq!(room.name, Some("Original Name".to_string()));
         assert_eq!(room.avatar, Some("mxc://orig".to_string()));
     });

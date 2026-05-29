@@ -15,18 +15,17 @@ pub mod to_device;
 
 // Explicit exports for backup module
 pub use backup::models::{
-    BackupKeyInfo, BackupKeyUpload, BackupKeyUploadRequest, BackupUploadRequest,
-    BackupUploadResponse, BackupVerificationRequest, BackupVerificationResponse, BackupVersion,
-    BatchRecoveryRequest, BatchRecoveryResponse, KeyBackup, RecoveryProgress, RecoveryRequest,
-    RecoveryResponse, RecoverySession,
+    BackupKeyInfo, BackupKeyUpload, BackupKeyUploadRequest, BackupUploadRequest, BackupUploadResponse,
+    BackupVerificationRequest, BackupVerificationResponse, BackupVersion, BatchRecoveryRequest, BatchRecoveryResponse,
+    KeyBackup, RecoveryProgress, RecoveryRequest, RecoveryResponse, RecoverySession,
 };
 pub use backup::service::KeyBackupService;
 
 // Explicit exports for secure_backup (Phase 3)
 pub use secure_backup::models::{
-    BackupVersion as SecureBackupVersion, CreateSecureBackupRequest, KeyDerivationParams,
-    RestoreResponse, RestoreSecureBackupRequest, SecureBackupAuthData, SecureBackupInfo,
-    SecureBackupResponse, SessionKeyData, VerifyPassphraseRequest, VerifyPassphraseResponse,
+    BackupVersion as SecureBackupVersion, CreateSecureBackupRequest, KeyDerivationParams, RestoreResponse,
+    RestoreSecureBackupRequest, SecureBackupAuthData, SecureBackupInfo, SecureBackupResponse, SessionKeyData,
+    VerifyPassphraseRequest, VerifyPassphraseResponse,
 };
 pub use secure_backup::service::SecureBackupService;
 // Explicit exports to avoid ambiguous glob re-exports
@@ -45,8 +44,8 @@ pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
 // Explicit exports for device_trust
 pub use device_trust::models::{
-    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, E2eeSecurityEvent,
-    KeyRotationLog, SecuritySummary, VerificationMethod, VerificationRequestStatus,
+    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, E2eeSecurityEvent, KeyRotationLog, SecuritySummary,
+    VerificationMethod, VerificationRequestStatus,
 };
 pub use device_trust::service::DeviceTrustService;
 pub use device_trust::storage::DeviceTrustStorage;
@@ -60,8 +59,8 @@ pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;
 pub use verification::{
-    QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState,
-    VerificationMethod as VerifMethod, VerificationState,
+    QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState, VerificationMethod as VerifMethod,
+    VerificationState,
 };
 
 pub mod verification;

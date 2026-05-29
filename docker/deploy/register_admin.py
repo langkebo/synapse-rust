@@ -25,7 +25,9 @@ if not PASSWORD:
     print("ERROR: ADMIN_PASSWORD environment variable must be set", file=sys.stderr)
     sys.exit(1)
 if not SHARED_SECRET:
-    print("ERROR: ADMIN_SHARED_SECRET environment variable must be set", file=sys.stderr)
+    print(
+        "ERROR: ADMIN_SHARED_SECRET environment variable must be set", file=sys.stderr
+    )
     sys.exit(1)
 
 
@@ -35,7 +37,9 @@ def get_nonce():
         return json.loads(resp.read())["nonce"]
 
 
-def calculate_mac(secret: str, nonce: str, username: str, password: str, admin: bool) -> str:
+def calculate_mac(
+    secret: str, nonce: str, username: str, password: str, admin: bool
+) -> str:
     """
     计算 HMAC-SHA256
 
@@ -45,22 +49,22 @@ def calculate_mac(secret: str, nonce: str, username: str, password: str, admin: 
     message = bytearray()
 
     # nonce
-    message.extend(nonce.encode('utf-8'))
-    message.extend(b'\x00')
+    message.extend(nonce.encode("utf-8"))
+    message.extend(b"\x00")
 
     # username
-    message.extend(username.encode('utf-8'))
-    message.extend(b'\x00')
+    message.extend(username.encode("utf-8"))
+    message.extend(b"\x00")
 
     # password
-    message.extend(password.encode('utf-8'))
-    message.extend(b'\x00')
+    message.extend(password.encode("utf-8"))
+    message.extend(b"\x00")
 
     # admin or notadmin
-    message.extend(b'admin\x00\x00\x00' if admin else b'notadmin')
+    message.extend(b"admin\x00\x00\x00" if admin else b"notadmin")
 
     # 计算 HMAC
-    key = secret.encode('utf-8')
+    key = secret.encode("utf-8")
     mac = hmac.new(key, bytes(message), hashlib.sha256)
     return mac.hexdigest()
 
@@ -86,13 +90,13 @@ def register_admin():
             "password": PASSWORD,
             "admin": True,
             "displayname": DISPLAYNAME,
-            "mac": mac
+            "mac": mac,
         }
 
         req = urllib.request.Request(
             f"{SERVER}/_synapse/admin/v1/register",
-            data=json.dumps(data).encode('utf-8'),
-            headers={"Content-Type": "application/json"}
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
         )
 
         with urllib.request.urlopen(req) as resp:
@@ -105,7 +109,7 @@ def register_admin():
 
             # 保存到文件
             with open("/tmp/admin_token.txt", "w") as f:
-                f.write(result.get('access_token', ''))
+                f.write(result.get("access_token", ""))
             print(f"\n   Token 已保存到 /tmp/admin_token.txt")
 
             return result
@@ -127,13 +131,13 @@ def test_admin_login():
             "type": "m.login.password",
             "user": USERNAME,
             "password": PASSWORD,
-            "initial_device_display_name": "AdminTest"
+            "initial_device_display_name": "AdminTest",
         }
 
         req = urllib.request.Request(
             f"{SERVER}/_matrix/client/v3/login",
-            data=json.dumps(data).encode('utf-8'),
-            headers={"Content-Type": "application/json"}
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
         )
 
         with urllib.request.urlopen(req) as resp:

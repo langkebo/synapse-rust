@@ -30,12 +30,7 @@ impl From<Argon2Config> for Argon2Params {
 }
 
 impl Argon2Params {
-    pub fn new(
-        m_cost: u32,
-        t_cost: u32,
-        p_cost: u32,
-        output_len: usize,
-    ) -> Result<Self, super::CryptoError> {
+    pub fn new(m_cost: u32, t_cost: u32, p_cost: u32, output_len: usize) -> Result<Self, super::CryptoError> {
         let config = Argon2Config::new_with_output_len(m_cost, t_cost, p_cost, Some(output_len))
             .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
         Ok(Self::from(config))
@@ -51,12 +46,7 @@ impl Argon2Params {
     }
 
     pub fn validate(&self) -> Result<(), Argon2ConfigError> {
-        let config = Argon2Config::new_with_output_len(
-            self.m_cost,
-            self.t_cost,
-            self.p_cost,
-            Some(self.output_len),
-        )?;
+        let config = Argon2Config::new_with_output_len(self.m_cost, self.t_cost, self.p_cost, Some(self.output_len))?;
         config.validate_owasp()
     }
 }
@@ -68,40 +58,21 @@ pub struct Argon2Kdf {
 
 impl Argon2Kdf {
     pub fn new(params: Argon2Params) -> Result<Self, super::CryptoError> {
-        let config = Argon2Config::new_with_output_len(
-            params.m_cost,
-            params.t_cost,
-            params.p_cost,
-            Some(params.output_len),
-        )
-        .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        let config =
+            Argon2Config::new_with_output_len(params.m_cost, params.t_cost, params.p_cost, Some(params.output_len))
+                .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
 
-        let params_obj = config
-            .to_argon2_params()
-            .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        let params_obj = config.to_argon2_params().map_err(|e| super::CryptoError::HashError(e.to_string()))?;
 
-        let algorithm = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            params_obj,
-        );
+        let algorithm = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params_obj);
         Ok(Self { algorithm, params })
     }
 
     pub fn from_config(config: &Argon2Config) -> Result<Self, super::CryptoError> {
-        let params_obj = config
-            .to_argon2_params()
-            .map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        let params_obj = config.to_argon2_params().map_err(|e| super::CryptoError::HashError(e.to_string()))?;
 
-        let algorithm = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            params_obj,
-        );
-        Ok(Self {
-            algorithm,
-            params: Argon2Params::from_config(config),
-        })
+        let algorithm = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params_obj);
+        Ok(Self { algorithm, params: Argon2Params::from_config(config) })
     }
 
     pub fn with_global_config() -> Result<Self, super::CryptoError> {
@@ -119,12 +90,8 @@ impl Argon2Kdf {
     }
 
     pub fn verify_password(&self, password: &str, hash: &str) -> Result<bool, super::CryptoError> {
-        let parsed_hash =
-            PasswordHash::new(hash).map_err(|e| super::CryptoError::HashError(e.to_string()))?;
-        Ok(self
-            .algorithm
-            .verify_password(password.as_bytes(), &parsed_hash)
-            .is_ok())
+        let parsed_hash = PasswordHash::new(hash).map_err(|e| super::CryptoError::HashError(e.to_string()))?;
+        Ok(self.algorithm.verify_password(password.as_bytes(), &parsed_hash).is_ok())
     }
 
     pub fn derive_key(&self, password: &str, salt: &[u8]) -> Result<Vec<u8>, super::CryptoError> {
@@ -315,12 +282,7 @@ mod tests {
 
     #[test]
     fn test_argon2_params_from_config() {
-        let config = Argon2Config {
-            m_cost: 131072,
-            t_cost: 4,
-            p_cost: 2,
-            output_len: Some(64),
-        };
+        let config = Argon2Config { m_cost: 131072, t_cost: 4, p_cost: 2, output_len: Some(64) };
 
         let params = Argon2Params::from(config);
         assert_eq!(params.m_cost, 131072);
@@ -331,12 +293,7 @@ mod tests {
 
     #[test]
     fn test_argon2_params_validate() {
-        let params = Argon2Params {
-            m_cost: 4096,
-            t_cost: 3,
-            p_cost: 1,
-            output_len: 32,
-        };
+        let params = Argon2Params { m_cost: 4096, t_cost: 3, p_cost: 1, output_len: 32 };
 
         assert!(params.validate().is_err());
 

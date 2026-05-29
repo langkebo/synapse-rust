@@ -27,10 +27,7 @@ mod cursor_tests {
     #[test]
     fn test_module_cursor_round_trip() {
         let cursor = encode_module_cursor("spam_checker", 10, "basic-module");
-        assert_eq!(
-            decode_module_cursor(&cursor),
-            Some(("spam_checker", 10, "basic-module"))
-        );
+        assert_eq!(decode_module_cursor(&cursor), Some(("spam_checker", 10, "basic-module")));
     }
 
     #[test]
@@ -297,10 +294,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn register_module(
-        &self,
-        request: CreateModuleRequest,
-    ) -> Result<Module, sqlx::Error> {
+    pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, Module>(
@@ -323,10 +317,7 @@ impl ModuleStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        info!(
-            "Registered module: {} ({})",
-            request.module_name, request.module_type
-        );
+        info!("Registered module: {} ({})", request.module_name, request.module_type);
         Ok(row)
     }
 
@@ -379,8 +370,7 @@ impl ModuleStorage {
         .await?;
 
         let next_from = if rows.len() as i64 == limit {
-            rows.last()
-                .map(|row| encode_module_cursor(&row.module_type, row.priority, &row.module_name))
+            rows.last().map(|row| encode_module_cursor(&row.module_type, row.priority, &row.module_name))
         } else {
             None
         };
@@ -410,11 +400,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn enable_module(
-        &self,
-        module_name: &str,
-        is_enabled: bool,
-    ) -> Result<Module, sqlx::Error> {
+    pub async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
             r"
             UPDATE modules SET is_enabled = $2
@@ -432,10 +418,7 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM modules WHERE module_name = $1")
-            .bind(module_name)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM modules WHERE module_name = $1").bind(module_name).execute(&*self.pool).await?;
 
         info!("Deleted module: {}", module_name);
         Ok(())
@@ -500,10 +483,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_result(
-        &self,
-        _event_id: &str,
-    ) -> Result<Option<SpamCheckResult>, sqlx::Error> {
+    pub async fn get_spam_check_result(&self, _event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
         Ok(None)
     }
 
@@ -634,10 +614,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_account_validity(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<AccountValidity>, sqlx::Error> {
+    pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
             r"
             SELECT
@@ -704,10 +681,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_expired_accounts(
-        &self,
-        before_ts: i64,
-    ) -> Result<Vec<AccountValidity>, sqlx::Error> {
+    pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountValidity>(
             r"
             SELECT
@@ -738,9 +712,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_password_auth_providers(
-        &self,
-    ) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
+    pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
         Ok(vec![])
     }
 
@@ -789,10 +761,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_media_callbacks(
-        &self,
-        callback_type: Option<&str>,
-    ) -> Result<Vec<MediaCallback>, sqlx::Error> {
+    pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
         let rows = if let Some(cb_type) = callback_type {
             sqlx::query_as::<_, MediaCallback>(
                 "SELECT id, callback_type, media_id, user_id, status, result, created_ts, completed_ts, is_enabled FROM media_callbacks WHERE is_enabled = true AND callback_type = $1",
@@ -851,9 +820,7 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_account_data_callbacks(
-        &self,
-    ) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
+    pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountDataCallback>(
             "SELECT id, callback_type, user_id, data_type, result, created_ts, is_enabled FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
         )

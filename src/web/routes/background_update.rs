@@ -156,11 +156,7 @@ pub async fn create_update(
         metadata: body.metadata,
     };
 
-    let update = state
-        .services
-        .background_update_service
-        .create_update(request)
-        .await?;
+    let update = state.services.background_update_service.create_update(request).await?;
 
     Ok((StatusCode::CREATED, Json(UpdateResponse::from(update))))
 }
@@ -187,11 +183,7 @@ pub async fn get_all_updates(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (updates, next_batch) = state
-        .services
-        .background_update_service
-        .get_all_updates(limit, query.from)
-        .await?;
+    let (updates, next_batch) = state.services.background_update_service.get_all_updates(limit, query.from).await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -205,11 +197,7 @@ pub async fn get_pending_updates(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let updates = state
-        .services
-        .background_update_service
-        .get_pending_updates()
-        .await?;
+    let updates = state.services.background_update_service.get_pending_updates().await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -220,11 +208,7 @@ pub async fn get_running_updates(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let updates = state
-        .services
-        .background_update_service
-        .get_running_updates()
-        .await?;
+    let updates = state.services.background_update_service.get_running_updates().await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -236,11 +220,7 @@ pub async fn start_update(
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .background_update_service
-        .start_update(&job_name)
-        .await?;
+    let update = state.services.background_update_service.start_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
@@ -265,11 +245,7 @@ pub async fn complete_update(
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .background_update_service
-        .complete_update(&job_name)
-        .await?;
+    let update = state.services.background_update_service.complete_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
@@ -280,11 +256,7 @@ pub async fn fail_update(
     Path(job_name): Path<String>,
     Json(body): Json<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .background_update_service
-        .fail_update(&job_name, &body.error_message)
-        .await?;
+    let update = state.services.background_update_service.fail_update(&job_name, &body.error_message).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
@@ -294,11 +266,7 @@ pub async fn cancel_update(
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .background_update_service
-        .cancel_update(&job_name)
-        .await?;
+    let update = state.services.background_update_service.cancel_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
@@ -308,11 +276,7 @@ pub async fn delete_update(
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .background_update_service
-        .delete_update(&job_name)
-        .await?;
+    state.services.background_update_service.delete_update(&job_name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -325,26 +289,15 @@ pub async fn get_history(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let history = state
-        .services
-        .background_update_service
-        .get_history(&job_name, limit)
-        .await?;
+    let history = state.services.background_update_service.get_history(&job_name, limit).await?;
 
     let response: Vec<HistoryResponse> = history.into_iter().map(HistoryResponse::from).collect();
 
     Ok(Json(response))
 }
 
-pub async fn retry_failed(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let count = state
-        .services
-        .background_update_service
-        .retry_failed()
-        .await?;
+pub async fn retry_failed(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let count = state.services.background_update_service.retry_failed().await?;
 
     Ok(Json(serde_json::json!({
         "retried_count": count,
@@ -355,11 +308,7 @@ pub async fn cleanup_locks(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state
-        .services
-        .background_update_service
-        .cleanup_expired_locks()
-        .await?;
+    let count = state.services.background_update_service.cleanup_expired_locks().await?;
 
     Ok(Json(serde_json::json!({
         "cleaned_count": count,
@@ -371,11 +320,7 @@ pub async fn count_by_status(
     _auth_user: AdminUser,
     Path(status): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state
-        .services
-        .background_update_service
-        .count_by_status(&status)
-        .await?;
+    let count = state.services.background_update_service.count_by_status(&status).await?;
 
     Ok(Json(serde_json::json!({
         "status": status,
@@ -383,10 +328,7 @@ pub async fn count_by_status(
     })))
 }
 
-pub async fn count_all(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn count_all(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let count = state.services.background_update_service.count_all().await?;
 
     Ok(Json(serde_json::json!({
@@ -401,11 +343,7 @@ pub async fn get_stats(
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
 
-    let stats = state
-        .services
-        .background_update_service
-        .get_stats(days)
-        .await?;
+    let stats = state.services.background_update_service.get_stats(days).await?;
 
     let response: Vec<StatsResponse> = stats.into_iter().map(StatsResponse::from).collect();
 
@@ -416,11 +354,7 @@ pub async fn get_next_pending(
     State(state): State<AppState>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .background_update_service
-        .get_next_pending_update()
-        .await?;
+    let update = state.services.background_update_service.get_next_pending_update().await?;
 
     match update {
         Some(u) => Ok(Json(Some(UpdateResponse::from(u)))),
@@ -438,37 +372,14 @@ pub struct BackgroundUpdateStatus {
     pub current_update: Option<UpdateResponse>,
 }
 
-pub async fn get_status(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let pending = state
-        .services
-        .background_update_service
-        .count_by_status("pending")
-        .await?;
-    let running = state
-        .services
-        .background_update_service
-        .count_by_status("running")
-        .await?;
-    let completed = state
-        .services
-        .background_update_service
-        .count_by_status("completed")
-        .await?;
-    let failed = state
-        .services
-        .background_update_service
-        .count_by_status("failed")
-        .await?;
+pub async fn get_status(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let pending = state.services.background_update_service.count_by_status("pending").await?;
+    let running = state.services.background_update_service.count_by_status("running").await?;
+    let completed = state.services.background_update_service.count_by_status("completed").await?;
+    let failed = state.services.background_update_service.count_by_status("failed").await?;
     let total = state.services.background_update_service.count_all().await?;
 
-    let current = state
-        .services
-        .background_update_service
-        .get_next_pending_update()
-        .await?;
+    let current = state.services.background_update_service.get_next_pending_update().await?;
 
     Ok(Json(BackgroundUpdateStatus {
         pending_count: pending,
@@ -483,82 +394,25 @@ pub async fn get_status(
 pub fn create_background_update_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/background_updates", post(create_update))
-        .route(
-            "/_synapse/admin/v1/background_updates",
-            get(get_all_updates),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/count",
-            get(count_all),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/pending",
-            get(get_pending_updates),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/running",
-            get(get_running_updates),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/next",
-            get(get_next_pending),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/status",
-            get(get_status),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/retry_failed",
-            post(retry_failed),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/cleanup_locks",
-            post(cleanup_locks),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/status/{status}/count",
-            get(count_by_status),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}",
-            get(get_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}",
-            delete(delete_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/start",
-            post(start_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/progress",
-            post(update_progress),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/complete",
-            post(complete_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/fail",
-            post(fail_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/cancel",
-            post(cancel_update),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/{job_name}/history",
-            get(get_history),
-        )
-        .route(
-            "/_synapse/admin/v1/background_updates/stats",
-            get(get_stats),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route("/_synapse/admin/v1/background_updates", get(get_all_updates))
+        .route("/_synapse/admin/v1/background_updates/count", get(count_all))
+        .route("/_synapse/admin/v1/background_updates/pending", get(get_pending_updates))
+        .route("/_synapse/admin/v1/background_updates/running", get(get_running_updates))
+        .route("/_synapse/admin/v1/background_updates/next", get(get_next_pending))
+        .route("/_synapse/admin/v1/background_updates/status", get(get_status))
+        .route("/_synapse/admin/v1/background_updates/retry_failed", post(retry_failed))
+        .route("/_synapse/admin/v1/background_updates/cleanup_locks", post(cleanup_locks))
+        .route("/_synapse/admin/v1/background_updates/status/{status}/count", get(count_by_status))
+        .route("/_synapse/admin/v1/background_updates/{job_name}", get(get_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}", delete(delete_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/start", post(start_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/progress", post(update_progress))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/complete", post(complete_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/fail", post(fail_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/cancel", post(cancel_update))
+        .route("/_synapse/admin/v1/background_updates/{job_name}/history", get(get_history))
+        .route("/_synapse/admin/v1/background_updates/stats", get(get_stats))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 
@@ -573,50 +427,17 @@ pub fn background_update_route_manifest() -> Vec<crate::web::routes::route_ledge
         (Method::GET, "/_synapse/admin/v1/background_updates/running"),
         (Method::GET, "/_synapse/admin/v1/background_updates/next"),
         (Method::GET, "/_synapse/admin/v1/background_updates/status"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/retry_failed",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/cleanup_locks",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/background_updates/status/{status}/count",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/background_updates/{job_name}",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/background_updates/{job_name}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/{job_name}/start",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/{job_name}/progress",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/{job_name}/complete",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/{job_name}/fail",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/background_updates/{job_name}/cancel",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/background_updates/{job_name}/history",
-        ),
+        (Method::POST, "/_synapse/admin/v1/background_updates/retry_failed"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/cleanup_locks"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/status/{status}/count"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/{job_name}"),
+        (Method::DELETE, "/_synapse/admin/v1/background_updates/{job_name}"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/{job_name}/start"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/{job_name}/progress"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/{job_name}/complete"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/{job_name}/fail"),
+        (Method::POST, "/_synapse/admin/v1/background_updates/{job_name}/cancel"),
+        (Method::GET, "/_synapse/admin/v1/background_updates/{job_name}/history"),
         (Method::GET, "/_synapse/admin/v1/background_updates/stats"),
     ]
     .into_iter()

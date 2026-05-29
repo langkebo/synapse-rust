@@ -95,11 +95,8 @@ pub struct ComparisonResult {
 
 impl ComparisonResult {
     pub fn new(operation: &str, baseline_ms: f64, optimized_ms: f64) -> Self {
-        let improvement_percent = if baseline_ms > 0.0 {
-            ((baseline_ms - optimized_ms) / baseline_ms) * 100.0
-        } else {
-            0.0
-        };
+        let improvement_percent =
+            if baseline_ms > 0.0 { ((baseline_ms - optimized_ms) / baseline_ms) * 100.0 } else { 0.0 };
 
         let status = if improvement_percent >= 80.0 {
             ComparisonStatus::Excellent
@@ -133,11 +130,7 @@ impl ComparisonResult {
 
         format!(
             "| {} {} | {:.2} ms | {:.2} ms | {:.1}% |",
-            status_icon,
-            self.operation,
-            self.baseline_time_ms,
-            self.optimized_time_ms,
-            self.improvement_percent
+            status_icon, self.operation, self.baseline_time_ms, self.optimized_time_ms, self.improvement_percent
         )
     }
 }
@@ -162,13 +155,10 @@ pub fn benchmark_id(name: &str, size: usize) -> BenchmarkId {
 pub fn setup_benchmark_pool() -> sqlx::PgPool {
     use std::env;
 
-    let database_url = env::var("BENCHMARK_DATABASE_URL").unwrap_or_else(|_| {
-        "postgresql://synapse:synapse@localhost:5432/synapse_bench".to_string()
-    });
+    let database_url = env::var("BENCHMARK_DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://synapse:synapse@localhost:5432/synapse_bench".to_string());
 
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(async { sqlx::PgPool::connect(&database_url).await.unwrap() })
+    tokio::runtime::Runtime::new().unwrap().block_on(async { sqlx::PgPool::connect(&database_url).await.unwrap() })
 }
 
 #[cfg(test)]

@@ -31,18 +31,13 @@ impl AuthService {
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(content) = power_levels_content {
-            if let Some(level) = content
-                .get("users")
-                .and_then(|users| users.get(user_id))
-                .and_then(|level| level.as_i64())
+            if let Some(level) =
+                content.get("users").and_then(|users| users.get(user_id)).and_then(|level| level.as_i64())
             {
                 return Ok(level);
             }
 
-            if let Some(level) = content
-                .get("users_default")
-                .and_then(|level| level.as_i64())
-            {
+            if let Some(level) = content.get("users_default").and_then(|level| level.as_i64()) {
                 return Ok(level);
             }
         }
@@ -75,10 +70,7 @@ impl AuthService {
         }
     }
 
-    pub(crate) async fn get_room_power_levels_content(
-        &self,
-        room_id: &str,
-    ) -> ApiResult<Option<serde_json::Value>> {
+    pub(crate) async fn get_room_power_levels_content(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         sqlx::query_scalar(
             r"
             SELECT content
@@ -96,25 +88,16 @@ impl AuthService {
         .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
-    pub async fn get_required_state_event_power_level(
-        &self,
-        room_id: &str,
-        event_type: &str,
-    ) -> ApiResult<i64> {
+    pub async fn get_required_state_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
         if let Some(content) = power_levels_content {
-            if let Some(level) = content
-                .get("events")
-                .and_then(|events| events.get(event_type))
-                .and_then(|level| level.as_i64())
+            if let Some(level) =
+                content.get("events").and_then(|events| events.get(event_type)).and_then(|level| level.as_i64())
             {
                 return Ok(level);
             }
 
-            if let Some(level) = content
-                .get("state_default")
-                .and_then(|level| level.as_i64())
-            {
+            if let Some(level) = content.get("state_default").and_then(|level| level.as_i64()) {
                 return Ok(level);
             }
         }
@@ -126,25 +109,16 @@ impl AuthService {
         Ok(DEFAULT_POWER_LEVEL)
     }
 
-    pub async fn get_required_message_event_power_level(
-        &self,
-        room_id: &str,
-        event_type: &str,
-    ) -> ApiResult<i64> {
+    pub async fn get_required_message_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
         if let Some(content) = power_levels_content {
-            if let Some(level) = content
-                .get("events")
-                .and_then(|events| events.get(event_type))
-                .and_then(|level| level.as_i64())
+            if let Some(level) =
+                content.get("events").and_then(|events| events.get(event_type)).and_then(|level| level.as_i64())
             {
                 return Ok(level);
             }
 
-            if let Some(level) = content
-                .get("events_default")
-                .and_then(|level| level.as_i64())
-            {
+            if let Some(level) = content.get("events_default").and_then(|level| level.as_i64()) {
                 return Ok(level);
             }
         }
@@ -152,16 +126,9 @@ impl AuthService {
         Ok(0)
     }
 
-    pub async fn verify_message_event_write(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-    ) -> ApiResult<()> {
+    pub async fn verify_message_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
-        let required = self
-            .get_required_message_event_power_level(room_id, event_type)
-            .await?;
+        let required = self.get_required_message_event_power_level(room_id, event_type).await?;
 
         if power_level < required {
             ::tracing::warn!(
@@ -174,24 +141,15 @@ impl AuthService {
                 required = required,
                 "User attempted to send message event without sufficient permission"
             );
-            return Err(ApiError::forbidden(
-                "Insufficient permission to send this event".to_string(),
-            ));
+            return Err(ApiError::forbidden("Insufficient permission to send this event".to_string()));
         }
 
         Ok(())
     }
 
-    pub async fn verify_state_event_write(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-    ) -> ApiResult<()> {
+    pub async fn verify_state_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
-        let required = self
-            .get_required_state_event_power_level(room_id, event_type)
-            .await?;
+        let required = self.get_required_state_event_power_level(room_id, event_type).await?;
 
         if power_level < required {
             ::tracing::warn!(
@@ -204,9 +162,7 @@ impl AuthService {
                 required = required,
                 "User attempted to send state event without sufficient permission"
             );
-            return Err(ApiError::forbidden(
-                "Insufficient permission to send this state event".to_string(),
-            ));
+            return Err(ApiError::forbidden("Insufficient permission to send this state event".to_string()));
         }
 
         Ok(())
@@ -223,22 +179,14 @@ impl AuthService {
         let new_power_levels_content = new_content;
 
         if let Some(current) = current_content {
-            if let Some(new_users) = new_power_levels_content
-                .get("users")
-                .and_then(|u| u.as_object())
-            {
+            if let Some(new_users) = new_power_levels_content.get("users").and_then(|u| u.as_object()) {
                 let current_users = current.get("users").and_then(|u| u.as_object());
                 for (target_user, new_level_val) in new_users {
                     let new_level = new_level_val.as_i64().unwrap_or(0);
                     let current_level = current_users
                         .and_then(|cu| cu.get(target_user))
                         .and_then(|v| v.as_i64())
-                        .unwrap_or_else(|| {
-                            current
-                                .get("users_default")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0)
-                        });
+                        .unwrap_or_else(|| current.get("users_default").and_then(|v| v.as_i64()).unwrap_or(0));
 
                     if new_level > current_level && actor_level < new_level {
                         ::tracing::warn!(
@@ -251,9 +199,7 @@ impl AuthService {
                             new_level = new_level,
                             "User attempted to set power level above their own"
                         );
-                        return Err(ApiError::forbidden(
-                            "Cannot set power level higher than your own".to_string(),
-                        ));
+                        return Err(ApiError::forbidden("Cannot set power level higher than your own".to_string()));
                     }
 
                     if current_level >= actor_level && new_level != current_level {
@@ -275,22 +221,14 @@ impl AuthService {
                 }
             }
 
-            if let Some(new_events) = new_power_levels_content
-                .get("events")
-                .and_then(|e| e.as_object())
-            {
+            if let Some(new_events) = new_power_levels_content.get("events").and_then(|e| e.as_object()) {
                 let current_events = current.get("events").and_then(|e| e.as_object());
                 for (event_type, new_level_val) in new_events {
                     let new_level = new_level_val.as_i64().unwrap_or(0);
                     let current_level = current_events
                         .and_then(|ce| ce.get(event_type))
                         .and_then(|v| v.as_i64())
-                        .unwrap_or_else(|| {
-                            current
-                                .get("events_default")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0)
-                        });
+                        .unwrap_or_else(|| current.get("events_default").and_then(|v| v.as_i64()).unwrap_or(0));
 
                     if new_level > actor_level {
                         ::tracing::warn!(
@@ -303,9 +241,7 @@ impl AuthService {
                             new_level = new_level,
                             "User attempted to set event power level above their own"
                         );
-                        return Err(ApiError::forbidden(
-                            "Cannot set event power level above your own".to_string(),
-                        ));
+                        return Err(ApiError::forbidden("Cannot set event power level above your own".to_string()));
                     }
 
                     if current_level > actor_level && new_level != current_level {
@@ -320,60 +256,19 @@ impl AuthService {
                             new_level = new_level,
                             "User attempted to change event power level above their own"
                         );
-                        return Err(ApiError::forbidden(
-                            "Cannot change event power level above your own".to_string(),
-                        ));
+                        return Err(ApiError::forbidden("Cannot change event power level above your own".to_string()));
                     }
                 }
             }
 
             let scalar_checks = [
-                (
-                    "users_default",
-                    current
-                        .get("users_default")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0),
-                ),
-                (
-                    "events_default",
-                    current
-                        .get("events_default")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0),
-                ),
-                (
-                    "state_default",
-                    current
-                        .get("state_default")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(DEFAULT_POWER_LEVEL),
-                ),
-                (
-                    "ban",
-                    current
-                        .get("ban")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(DEFAULT_POWER_LEVEL),
-                ),
-                (
-                    "kick",
-                    current
-                        .get("kick")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(DEFAULT_POWER_LEVEL),
-                ),
-                (
-                    "redact",
-                    current
-                        .get("redact")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(DEFAULT_POWER_LEVEL),
-                ),
-                (
-                    "invite",
-                    current.get("invite").and_then(|v| v.as_i64()).unwrap_or(0),
-                ),
+                ("users_default", current.get("users_default").and_then(|v| v.as_i64()).unwrap_or(0)),
+                ("events_default", current.get("events_default").and_then(|v| v.as_i64()).unwrap_or(0)),
+                ("state_default", current.get("state_default").and_then(|v| v.as_i64()).unwrap_or(DEFAULT_POWER_LEVEL)),
+                ("ban", current.get("ban").and_then(|v| v.as_i64()).unwrap_or(DEFAULT_POWER_LEVEL)),
+                ("kick", current.get("kick").and_then(|v| v.as_i64()).unwrap_or(DEFAULT_POWER_LEVEL)),
+                ("redact", current.get("redact").and_then(|v| v.as_i64()).unwrap_or(DEFAULT_POWER_LEVEL)),
+                ("invite", current.get("invite").and_then(|v| v.as_i64()).unwrap_or(0)),
                 (
                     "notifications",
                     current
@@ -385,8 +280,7 @@ impl AuthService {
             ];
 
             for (key, current_level) in &scalar_checks {
-                if let Some(new_level) = new_power_levels_content.get(key).and_then(|v| v.as_i64())
-                {
+                if let Some(new_level) = new_power_levels_content.get(key).and_then(|v| v.as_i64()) {
                     if new_level != *current_level {
                         if *current_level > actor_level {
                             return Err(ApiError::forbidden(format!(
@@ -412,11 +306,7 @@ impl AuthService {
         let required_level = self
             .get_room_power_levels_content(room_id)
             .await?
-            .and_then(|content| {
-                content
-                    .get("state_default")
-                    .and_then(|level| level.as_i64())
-            })
+            .and_then(|content| content.get("state_default").and_then(|level| level.as_i64()))
             .unwrap_or(DEFAULT_POWER_LEVEL);
 
         if power_level < required_level {
@@ -429,9 +319,7 @@ impl AuthService {
                 required_level = required_level,
                 "User attempted moderator action without sufficient permission"
             );
-            return Err(ApiError::forbidden(
-                "Room moderator permission required".to_string(),
-            ));
+            return Err(ApiError::forbidden("Room moderator permission required".to_string()));
         }
 
         Ok(())
@@ -443,23 +331,14 @@ impl AuthService {
         let required_level = 100;
 
         if power_level < required_level {
-            return Err(ApiError::forbidden(
-                "Room admin permission required".to_string(),
-            ));
+            return Err(ApiError::forbidden("Room admin permission required".to_string()));
         }
 
         Ok(())
     }
 
-    pub async fn can_kick_user(
-        &self,
-        room_id: &str,
-        actor_user_id: &str,
-        target_user_id: &str,
-    ) -> ApiResult<()> {
-        let actor_power = self
-            .get_joined_user_power_level(room_id, actor_user_id)
-            .await?;
+    pub async fn can_kick_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
         let required_power = self
@@ -478,9 +357,7 @@ impl AuthService {
                 actor_power = actor_power,
                 "User attempted to kick without moderator permission"
             );
-            return Err(ApiError::forbidden(
-                "Moderator permission required to kick users".to_string(),
-            ));
+            return Err(ApiError::forbidden("Moderator permission required to kick users".to_string()));
         }
 
         if actor_power <= target_power {
@@ -494,9 +371,7 @@ impl AuthService {
                 target_power = target_power,
                 "User attempted to kick user with equal or higher power level"
             );
-            return Err(ApiError::forbidden(
-                "Cannot kick users with equal or higher power level".to_string(),
-            ));
+            return Err(ApiError::forbidden("Cannot kick users with equal or higher power level".to_string()));
         }
 
         let room_creator: Option<String> = self
@@ -515,24 +390,15 @@ impl AuthService {
                     room_id = room_id,
                     "User attempted to kick room creator"
                 );
-                return Err(ApiError::forbidden(
-                    "Cannot kick the room creator".to_string(),
-                ));
+                return Err(ApiError::forbidden("Cannot kick the room creator".to_string()));
             }
         }
 
         Ok(())
     }
 
-    pub async fn can_ban_user(
-        &self,
-        room_id: &str,
-        actor_user_id: &str,
-        target_user_id: &str,
-    ) -> ApiResult<()> {
-        let actor_power = self
-            .get_joined_user_power_level(room_id, actor_user_id)
-            .await?;
+    pub async fn can_ban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
         let required_power = self
@@ -552,9 +418,7 @@ impl AuthService {
                 required_power = required_power,
                 "User attempted to ban without sufficient permission"
             );
-            return Err(ApiError::forbidden(
-                "Insufficient permission to ban users".to_string(),
-            ));
+            return Err(ApiError::forbidden("Insufficient permission to ban users".to_string()));
         }
 
         if actor_power <= target_power {
@@ -568,9 +432,7 @@ impl AuthService {
                 target_power = target_power,
                 "User attempted to ban user with equal or higher power level"
             );
-            return Err(ApiError::forbidden(
-                "Cannot ban users with equal or higher power level".to_string(),
-            ));
+            return Err(ApiError::forbidden("Cannot ban users with equal or higher power level".to_string()));
         }
 
         let room_creator: Option<String> = self
@@ -589,24 +451,15 @@ impl AuthService {
                     room_id = room_id,
                     "User attempted to ban room creator"
                 );
-                return Err(ApiError::forbidden(
-                    "Cannot ban the room creator".to_string(),
-                ));
+                return Err(ApiError::forbidden("Cannot ban the room creator".to_string()));
             }
         }
 
         Ok(())
     }
 
-    pub async fn can_unban_user(
-        &self,
-        room_id: &str,
-        actor_user_id: &str,
-        target_user_id: &str,
-    ) -> ApiResult<()> {
-        let actor_power = self
-            .get_joined_user_power_level(room_id, actor_user_id)
-            .await?;
+    pub async fn can_unban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
 
         let required_power = self
@@ -625,9 +478,7 @@ impl AuthService {
                 actor_power = actor_power,
                 "User attempted to unban without sufficient permission"
             );
-            return Err(ApiError::forbidden(
-                "Insufficient permission to unban users".to_string(),
-            ));
+            return Err(ApiError::forbidden("Insufficient permission to unban users".to_string()));
         }
 
         if actor_power <= target_power {
@@ -641,18 +492,14 @@ impl AuthService {
                 target_power = target_power,
                 "User attempted to unban user with equal or higher power level"
             );
-            return Err(ApiError::forbidden(
-                "Cannot unban users with equal or higher power level".to_string(),
-            ));
+            return Err(ApiError::forbidden("Cannot unban users with equal or higher power level".to_string()));
         }
 
         Ok(())
     }
 
     pub async fn can_invite_user(&self, room_id: &str, actor_user_id: &str) -> ApiResult<()> {
-        let actor_power = self
-            .get_joined_user_power_level(room_id, actor_user_id)
-            .await?;
+        let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
 
         let required_power = self
             .get_room_power_levels_content(room_id)
@@ -661,23 +508,14 @@ impl AuthService {
             .unwrap_or(0);
 
         if actor_power < required_power {
-            return Err(ApiError::forbidden(
-                "Insufficient permission to invite users".to_string(),
-            ));
+            return Err(ApiError::forbidden("Insufficient permission to invite users".to_string()));
         }
 
         Ok(())
     }
 
-    pub async fn can_redact_event(
-        &self,
-        room_id: &str,
-        actor_user_id: &str,
-        event_sender_id: &str,
-    ) -> ApiResult<()> {
-        let actor_power = self
-            .get_joined_user_power_level(room_id, actor_user_id)
-            .await?;
+    pub async fn can_redact_event(&self, room_id: &str, actor_user_id: &str, event_sender_id: &str) -> ApiResult<()> {
+        let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
 
         if actor_power < 0 {
             ::tracing::warn!(
@@ -687,9 +525,7 @@ impl AuthService {
                 room_id = room_id,
                 "Non-member attempted to redact a room event"
             );
-            return Err(ApiError::forbidden(
-                "You must be a member of this room to redact events".to_string(),
-            ));
+            return Err(ApiError::forbidden("You must be a member of this room to redact events".to_string()));
         }
 
         if actor_user_id == event_sender_id {

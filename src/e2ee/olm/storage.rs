@@ -100,16 +100,15 @@ impl OlmStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to save olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to save olm account: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn load_account(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<OlmAccountData>, ApiError> {
+    pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
         let row = sqlx::query(
             r"
             SELECT user_id, device_id, identity_key, serialized_account,
@@ -122,7 +121,10 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to load olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to load olm account: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(row.map(|r| OlmAccountData {
             user_id: r.get("user_id"),
@@ -145,7 +147,10 @@ impl OlmStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to delete olm account: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to delete olm account: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         self.delete_sessions_for_device(user_id, device_id).await?;
 
@@ -179,16 +184,15 @@ impl OlmStorage {
         .bind(session.expires_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to save olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to save olm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn load_sessions(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<OlmSessionData>, ApiError> {
+    pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT session_id, user_id, device_id, sender_key, receiver_key,
@@ -202,7 +206,10 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to load olm sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to load olm sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(rows
             .into_iter()
@@ -233,7 +240,10 @@ impl OlmStorage {
         .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to load olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to load olm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(row.map(|r| OlmSessionData {
             session_id: r.get("session_id"),
@@ -299,16 +309,15 @@ impl OlmStorage {
         .bind(session_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to delete olm session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to delete olm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn delete_sessions_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM olm_sessions
@@ -319,7 +328,10 @@ impl OlmStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to delete olm sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to delete olm sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -336,7 +348,10 @@ impl OlmStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to delete expired sessions: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to delete expired sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.rows_affected())
     }
@@ -355,7 +370,10 @@ impl OlmStorage {
         .bind(session_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to update session last used: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to update session last used: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -372,7 +390,10 @@ impl OlmStorage {
         .bind(device_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get session count: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get session count: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(row.get("count"))
     }

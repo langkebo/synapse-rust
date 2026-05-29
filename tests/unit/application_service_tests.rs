@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::application_service::{
-        RegisterApplicationServiceRequest, NamespaceRule, Namespaces,
-    };
-    use synapse_rust::services::ServiceContainer;
     use std::sync::Arc;
+    use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::application_service::{NamespaceRule, Namespaces, RegisterApplicationServiceRequest};
 
     fn create_test_request() -> RegisterApplicationServiceRequest {
         RegisterApplicationServiceRequest {
@@ -42,7 +40,7 @@ mod tests {
 
         let json = serde_json::to_string(&rule).unwrap();
         let deserialized: NamespaceRule = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(rule.exclusive, deserialized.exclusive);
         assert_eq!(rule.regex, deserialized.regex);
         assert_eq!(rule.group_id, deserialized.group_id);
@@ -51,22 +49,14 @@ mod tests {
     #[test]
     fn test_namespaces_serialization() {
         let namespaces = Namespaces {
-            users: vec![NamespaceRule {
-                exclusive: true,
-                regex: "@_.*:example.com".to_string(),
-                group_id: None,
-            }],
-            aliases: vec![NamespaceRule {
-                exclusive: false,
-                regex: "#_.*:example.com".to_string(),
-                group_id: None,
-            }],
+            users: vec![NamespaceRule { exclusive: true, regex: "@_.*:example.com".to_string(), group_id: None }],
+            aliases: vec![NamespaceRule { exclusive: false, regex: "#_.*:example.com".to_string(), group_id: None }],
             rooms: vec![],
         };
 
         let json = serde_json::to_string(&namespaces).unwrap();
         let deserialized: Namespaces = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(namespaces.users.len(), deserialized.users.len());
         assert_eq!(namespaces.aliases.len(), deserialized.aliases.len());
         assert_eq!(namespaces.rooms.len(), deserialized.rooms.len());
@@ -78,7 +68,7 @@ mod tests {
 
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: RegisterApplicationServiceRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(request.as_id, deserialized.as_id);
         assert_eq!(request.url, deserialized.url);
         assert_eq!(request.as_token, deserialized.as_token);
@@ -102,7 +92,7 @@ mod tests {
 
         let users = namespaces_json.get("users").and_then(|v| v.as_array()).unwrap();
         assert_eq!(users.len(), 1);
-        
+
         let first_user = &users[0];
         assert_eq!(first_user.get("exclusive").and_then(|e| e.as_bool()), Some(true));
         assert_eq!(first_user.get("regex").and_then(|r| r.as_str()), Some("@_irc_.*:test.com"));
@@ -112,10 +102,10 @@ mod tests {
     fn test_user_id_namespace_matching() {
         let regex = "@_irc_.*:test.com";
         let user_id = "@_irc_john:test.com";
-        
+
         let re = regex::Regex::new(regex).unwrap();
         assert!(re.is_match(user_id));
-        
+
         let non_matching_user = "@john:test.com";
         assert!(!re.is_match(non_matching_user));
     }
@@ -124,10 +114,10 @@ mod tests {
     fn test_room_alias_namespace_matching() {
         let regex = "#_irc_.*:test.com";
         let alias = "#_irc_general:test.com";
-        
+
         let re = regex::Regex::new(regex).unwrap();
         assert!(re.is_match(alias));
-        
+
         let non_matching_alias = "#general:test.com";
         assert!(!re.is_match(non_matching_alias));
     }
@@ -136,7 +126,7 @@ mod tests {
     fn test_application_service_manager_creation() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         assert!(Arc::strong_count(manager) >= 1);
     }
 
@@ -144,7 +134,7 @@ mod tests {
     async fn test_register_application_service() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let request = RegisterApplicationServiceRequest {
             as_id: format!("test-bridge-{}", uuid::Uuid::new_v4()),
             url: "http://localhost:9999".to_string(),
@@ -165,7 +155,7 @@ mod tests {
 
         let result = manager.register(request).await;
         assert!(result.is_ok());
-        
+
         let service = result.unwrap();
         assert!(!service.as_id.is_empty());
         assert!(service.is_enabled);
@@ -175,7 +165,7 @@ mod tests {
     async fn test_get_nonexistent_service() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let result = manager.get("nonexistent-service").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -185,7 +175,7 @@ mod tests {
     async fn test_get_by_token_nonexistent() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let result = manager.get_by_token("nonexistent_token").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -195,7 +185,7 @@ mod tests {
     async fn test_query_user_namespace() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let unique_id = uuid::Uuid::new_v4();
         let request = RegisterApplicationServiceRequest {
             as_id: format!("irc-bridge-{}", unique_id),
@@ -216,7 +206,7 @@ mod tests {
         };
 
         let _service = manager.register(request).await.unwrap();
-        
+
         let user_id = format!("@_irc{}_john:test.com", unique_id);
         let result = manager.query_user(&user_id).await;
         assert!(result.is_ok());
@@ -226,7 +216,7 @@ mod tests {
     async fn test_set_and_get_state() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let unique_id = uuid::Uuid::new_v4();
         let request = RegisterApplicationServiceRequest {
             as_id: format!("state-test-{}", unique_id),
@@ -243,10 +233,10 @@ mod tests {
         };
 
         let service = manager.register(request).await.unwrap();
-        
+
         let state = manager.set_state(&service.as_id, "last_sync", "2024-01-01T00:00:00Z").await;
         assert!(state.is_ok());
-        
+
         let retrieved = manager.get_state(&service.as_id, "last_sync").await;
         assert!(retrieved.is_ok());
         assert!(retrieved.unwrap().is_some());
@@ -256,7 +246,7 @@ mod tests {
     async fn test_get_all_states() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let unique_id = uuid::Uuid::new_v4();
         let request = RegisterApplicationServiceRequest {
             as_id: format!("states-test-{}", unique_id),
@@ -273,10 +263,10 @@ mod tests {
         };
 
         let service = manager.register(request).await.unwrap();
-        
+
         let _ = manager.set_state(&service.as_id, "key1", "value1").await;
         let _ = manager.set_state(&service.as_id, "key2", "value2").await;
-        
+
         let states = manager.get_all_states(&service.as_id).await;
         assert!(states.is_ok());
         let states = states.unwrap();
@@ -287,7 +277,7 @@ mod tests {
     async fn test_get_statistics() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let stats = manager.get_statistics().await;
         assert!(stats.is_ok());
     }
@@ -296,7 +286,7 @@ mod tests {
     async fn test_unregister_service() {
         let container = ServiceContainer::new_test();
         let manager = &container.app_service_manager;
-        
+
         let unique_id = uuid::Uuid::new_v4();
         let request = RegisterApplicationServiceRequest {
             as_id: format!("unregister-test-{}", unique_id),
@@ -313,10 +303,10 @@ mod tests {
         };
 
         let service = manager.register(request).await.unwrap();
-        
+
         let unregister_result = manager.unregister(&service.as_id).await;
         assert!(unregister_result.is_ok());
-        
+
         let get_result = manager.get(&service.as_id).await;
         assert!(get_result.is_ok());
         assert!(get_result.unwrap().is_none());

@@ -6,9 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::common::error::ApiError;
-use crate::web::routes::{
-    ensure_room_member, validate_event_id, validate_room_id, AppState, AuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member, validate_event_id, validate_room_id, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct PinRequest {
@@ -31,16 +29,10 @@ fn extract_pinned_from_content(raw: &str) -> Vec<String> {
         Err(_) => return Vec::new(),
     };
 
-    let array = value
-        .get("pinned")
-        .or_else(|| value.get("pinned_events"))
-        .and_then(|v| v.as_array());
+    let array = value.get("pinned").or_else(|| value.get("pinned_events")).and_then(|v| v.as_array());
 
     match array {
-        Some(arr) => arr
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect(),
+        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
         None => Vec::new(),
     }
 }
@@ -51,13 +43,7 @@ pub async fn get_pinned_events(
     Path(room_id): Path<String>,
 ) -> Result<Json<PinnedEventsResponse>, ApiError> {
     validate_room_id(&room_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to view pinned events",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view pinned events").await?;
 
     let pinned: Option<String> = sqlx::query_scalar(
         r"
@@ -72,14 +58,9 @@ pub async fn get_pinned_events(
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let pinned_list: Vec<String> = pinned
-        .as_deref()
-        .map(extract_pinned_from_content)
-        .unwrap_or_default();
+    let pinned_list: Vec<String> = pinned.as_deref().map(extract_pinned_from_content).unwrap_or_default();
 
-    Ok(Json(PinnedEventsResponse {
-        pinned_events: pinned_list,
-    }))
+    Ok(Json(PinnedEventsResponse { pinned_events: pinned_list }))
 }
 
 pub async fn pin_event(
@@ -90,18 +71,9 @@ pub async fn pin_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&body.event_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to modify pinned events",
-    )
-    .await?;
-    state
-        .services
-        .auth_service
-        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to modify pinned events")
         .await?;
+    state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
 
     let now = chrono::Utc::now().timestamp_millis();
     let event_id = format!("${}", uuid::Uuid::new_v4());
@@ -119,10 +91,7 @@ pub async fn pin_event(
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let mut pinned_list: Vec<String> = existing_pinned
-        .as_deref()
-        .map(extract_pinned_from_content)
-        .unwrap_or_default();
+    let mut pinned_list: Vec<String> = existing_pinned.as_deref().map(extract_pinned_from_content).unwrap_or_default();
 
     if !pinned_list.contains(&body.event_id) {
         pinned_list.push(body.event_id.clone());
@@ -157,18 +126,9 @@ pub async fn unpin_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to modify pinned events",
-    )
-    .await?;
-    state
-        .services
-        .auth_service
-        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to modify pinned events")
         .await?;
+    state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
 
     let now = chrono::Utc::now().timestamp_millis();
     let new_event_id = format!("${}", uuid::Uuid::new_v4());
@@ -186,10 +146,7 @@ pub async fn unpin_event(
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let mut pinned_list: Vec<String> = existing_pinned
-        .as_deref()
-        .map(extract_pinned_from_content)
-        .unwrap_or_default();
+    let mut pinned_list: Vec<String> = existing_pinned.as_deref().map(extract_pinned_from_content).unwrap_or_default();
 
     pinned_list.retain(|e| e != &event_id);
 

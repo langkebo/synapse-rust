@@ -54,10 +54,7 @@ fn decode_search_index_cursor(cursor: Option<&str>) -> Option<SearchIndexCursor>
     let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
     let decoded = String::from_utf8(decoded).ok()?;
     let (created_ts, id) = decoded.split_once('|')?;
-    Some(SearchIndexCursor {
-        created_ts: created_ts.parse().ok()?,
-        id: id.parse().ok()?,
-    })
+    Some(SearchIndexCursor { created_ts: created_ts.parse().ok()?, id: id.parse().ok()? })
 }
 
 /// 搜索索引存储模块
@@ -107,10 +104,7 @@ impl SearchIndexStorage {
     }
 
     /// 搜索事件（ILIKE + trigram 混合搜索，对齐 thread.rs 最佳实践）
-    pub async fn search_events(
-        &self,
-        query: &SearchQuery,
-    ) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error> {
+    pub async fn search_events(&self, query: &SearchQuery) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error> {
         let search_pattern = format!("%{}%", query.search_term.to_lowercase());
         let limit = query.limit.unwrap_or(20).min(100);
         let cursor = decode_search_index_cursor(query.from.as_deref());
@@ -147,17 +141,10 @@ impl SearchIndexStorage {
         };
 
         let has_more = rows.len() as i64 > limit;
-        let visible_rows = if has_more {
-            &rows[..limit as usize]
-        } else {
-            &rows[..]
-        };
+        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
         let next_batch = if has_more {
             visible_rows.last().map(|row| {
-                encode_search_index_cursor(&SearchIndexCursor {
-                    created_ts: row.get("created_ts"),
-                    id: row.get("id"),
-                })
+                encode_search_index_cursor(&SearchIndexCursor { created_ts: row.get("created_ts"), id: row.get("id") })
             })
         } else {
             None
@@ -180,19 +167,14 @@ impl SearchIndexStorage {
 
     /// 删除事件索引
     pub async fn delete_event(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM search_index WHERE event_id = $1")
-            .bind(event_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("DELETE FROM search_index WHERE event_id = $1").bind(event_id).execute(&self.pool).await?;
         Ok(())
     }
 
     /// 删除房间的所有索引
     pub async fn delete_room_index(&self, room_id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM search_index WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&self.pool)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM search_index WHERE room_id = $1").bind(room_id).execute(&self.pool).await?;
         Ok(result.rows_affected())
     }
 
@@ -204,9 +186,9 @@ impl SearchIndexStorage {
         // 从 events 表重新导入
         let rows = sqlx::query(
             r"
-            SELECT event_id, room_id, sender as user_id, event_type, 
+            SELECT event_id, room_id, sender as user_id, event_type,
                    event_type as type, content::text as content, origin_server_ts as created_ts
-            FROM events 
+            FROM events
             WHERE room_id = $1 AND event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')
             ",
         )
@@ -237,19 +219,14 @@ impl SearchIndexStorage {
 
     /// 获取索引统计
     pub async fn get_stats(&self) -> Result<SearchIndexStats, sqlx::Error> {
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM search_index")
-            .fetch_one(&self.pool)
-            .await?;
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM search_index").fetch_one(&self.pool).await?;
 
         let by_type: Vec<(String, i64)> =
             sqlx::query_as("SELECT event_type, COUNT(*) FROM search_index GROUP BY event_type")
                 .fetch_all(&self.pool)
                 .await?;
 
-        Ok(SearchIndexStats {
-            total_count: total.0,
-            by_event_type: by_type.into_iter().collect(),
-        })
+        Ok(SearchIndexStats { total_count: total.0, by_event_type: by_type.into_iter().collect() })
     }
 }
 
@@ -259,10 +236,7 @@ mod cursor_tests {
 
     #[test]
     fn search_index_cursor_round_trip() {
-        let cursor = SearchIndexCursor {
-            created_ts: 1_700_000_000_000,
-            id: 42,
-        };
+        let cursor = SearchIndexCursor { created_ts: 1_700_000_000_000, id: 42 };
         let encoded = encode_search_index_cursor(&cursor);
         assert_eq!(decode_search_index_cursor(Some(&encoded)), Some(cursor));
     }

@@ -50,9 +50,7 @@ fn parse_args(raw: &[String]) -> Result<CliArgs, String> {
                 Ok(v)
             } else {
                 *i += 1;
-                raw.get(*i)
-                    .cloned()
-                    .ok_or_else(|| format!("missing value for {key}"))
+                raw.get(*i).cloned().ok_or_else(|| format!("missing value for {key}"))
             }
         };
         match key {
@@ -66,13 +64,7 @@ fn parse_args(raw: &[String]) -> Result<CliArgs, String> {
         i += 1;
     }
 
-    Ok(CliArgs {
-        profile,
-        output,
-        commit,
-        timestamp,
-        help,
-    })
+    Ok(CliArgs { profile, output, commit, timestamp, help })
 }
 
 fn print_help() {
@@ -121,7 +113,8 @@ fn missing_feature_warnings(profile: &str) -> Vec<&'static str> {
         #[cfg(not(feature = "cas-sso"))]
         warnings.push("requested profile implies CAS coverage, but this binary was built without `cas-sso`");
         #[cfg(not(feature = "openclaw-routes"))]
-        warnings.push("requested profile implies OpenClaw coverage, but this binary was built without `openclaw-routes`");
+        warnings
+            .push("requested profile implies OpenClaw coverage, but this binary was built without `openclaw-routes`");
         #[cfg(not(feature = "external-services"))]
         warnings.push("requested profile implies external-service coverage, but this binary was built without `external-services`");
         #[cfg(not(feature = "voice-extended"))]
@@ -145,26 +138,20 @@ fn run(args: CliArgs) -> Result<(), String> {
     }
 
     let flags = profile_for_name(&args.profile).ok_or_else(|| {
-        format!(
-            "unknown profile '{}' (expected default / oidc / worker / saml / openclaw / all)",
-            args.profile
-        )
+        format!("unknown profile '{}' (expected default / oidc / worker / saml / openclaw / all)", args.profile)
     })?;
 
     for warning in missing_feature_warnings(&args.profile) {
         eprintln!("warning: {warning}");
     }
 
-    let generated_at = args
-        .timestamp
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    let generated_at = args.timestamp.unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
 
     let artifact = build_artifact(&args.profile, &flags, args.commit, generated_at);
     let rendered = render(&artifact);
 
     match args.output {
-        Some(path) => std::fs::write(&path, rendered.as_bytes())
-            .map_err(|e| format!("failed to write {path}: {e}"))?,
+        Some(path) => std::fs::write(&path, rendered.as_bytes()).map_err(|e| format!("failed to write {path}: {e}"))?,
         None => {
             let mut stdout = std::io::stdout().lock();
             if let Err(error) = stdout.write_all(rendered.as_bytes()) {
@@ -264,13 +251,7 @@ mod tests {
 
     #[test]
     fn help_flag_short_circuits() {
-        let args = CliArgs {
-            profile: "default".into(),
-            output: None,
-            commit: None,
-            timestamp: None,
-            help: true,
-        };
+        let args = CliArgs { profile: "default".into(), output: None, commit: None, timestamp: None, help: true };
         // Must not error and must not try to write to /tmp.
         assert!(run(args).is_ok());
     }

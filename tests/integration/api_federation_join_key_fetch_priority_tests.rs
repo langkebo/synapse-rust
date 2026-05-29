@@ -28,13 +28,7 @@ struct KeyFetchMetrics {
 
 impl KeyFetchMetrics {
     fn new(delay_ms: u64, key_id: String, key_b64: String) -> Self {
-        Self {
-            inflight: AtomicUsize::new(0),
-            max_inflight: AtomicUsize::new(0),
-            delay_ms,
-            key_id,
-            key_b64,
-        }
+        Self { inflight: AtomicUsize::new(0), max_inflight: AtomicUsize::new(0), delay_ms, key_id, key_b64 }
     }
 
     fn on_start(&self) {
@@ -44,11 +38,7 @@ impl KeyFetchMetrics {
             if now <= max {
                 break;
             }
-            if self
-                .max_inflight
-                .compare_exchange(max, now, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
+            if self.max_inflight.compare_exchange(max, now, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                 break;
             }
         }
@@ -59,9 +49,7 @@ impl KeyFetchMetrics {
     }
 }
 
-async fn handle_server_keys(
-    metrics: axum::extract::State<Arc<KeyFetchMetrics>>,
-) -> (StatusCode, Json<Value>) {
+async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyFetchMetrics>>) -> (StatusCode, Json<Value>) {
     metrics.on_start();
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
@@ -79,19 +67,9 @@ async fn handle_server_keys(
     )
 }
 
-async fn start_key_server(
-    delay_ms: u64,
-    key_id: &str,
-    key_b64: &str,
-) -> (String, Arc<KeyFetchMetrics>) {
-    let metrics = Arc::new(KeyFetchMetrics::new(
-        delay_ms,
-        key_id.to_string(),
-        key_b64.to_string(),
-    ));
-    let app = Router::new()
-        .route("/_matrix/key/v2/server", get(handle_server_keys))
-        .with_state(metrics.clone());
+async fn start_key_server(delay_ms: u64, key_id: &str, key_b64: &str) -> (String, Arc<KeyFetchMetrics>) {
+    let metrics = Arc::new(KeyFetchMetrics::new(delay_ms, key_id.to_string(), key_b64.to_string()));
+    let app = Router::new().route("/_matrix/key/v2/server", get(handle_server_keys)).with_state(metrics.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -102,10 +80,7 @@ async fn start_key_server(
     (format!("127.0.0.1:{}", addr.port()), metrics)
 }
 
-async fn setup_ingress_app(
-    server_name: &str,
-    key_fetch_max_concurrency: usize,
-) -> Option<axum::Router> {
+async fn setup_ingress_app(server_name: &str, key_fetch_max_concurrency: usize) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.config.server.name = server_name.to_string();
@@ -132,21 +107,14 @@ fn signed_request(
     signing_key: &ed25519_dalek::SigningKey,
     content: &Value,
 ) -> Request<Body> {
-    let signed_bytes =
-        canonical_federation_request_bytes(method, uri, origin, destination, Some(content));
+    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, destination, Some(content));
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
     Request::builder()
         .method(method)
         .uri(uri)
-        .header(
-            "Authorization",
-            format!(
-                "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
-                origin, key_id, sig_b64
-            ),
-        )
+        .header("Authorization", format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", origin, key_id, sig_b64))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap()
@@ -167,45 +135,16 @@ async fn test_join_related_requests_can_bypass_general_key_fetch_saturation() {
 
     let txn_uri = "/_matrix/federation/v1/send/txn1";
     let txn_body = json!({ "origin": origin, "pdus": [] });
-    let invite_uri = format!(
-        "/_matrix/federation/v1/invite/!roomid:{}/$event",
-        destination
-    );
+    let invite_uri = format!("/_matrix/federation/v1/invite/!roomid:{}/$event", destination);
     let invite_body = json!({ "origin": origin });
 
-    let txn_req = signed_request(
-        "PUT",
-        txn_uri,
-        &origin,
-        destination,
-        key_id,
-        &signing_key,
-        &txn_body,
-    );
-    let invite_req = signed_request(
-        "PUT",
-        &invite_uri,
-        &origin,
-        destination,
-        key_id,
-        &signing_key,
-        &invite_body,
-    );
+    let txn_req = signed_request("PUT", txn_uri, &origin, destination, key_id, &signing_key, &txn_body);
+    let invite_req = signed_request("PUT", &invite_uri, &origin, destination, key_id, &signing_key, &invite_body);
 
     let app_txn = app.clone();
     let app_invite = app.clone();
-    let t1 = tokio::spawn(async move {
-        app_txn
-            .oneshot(super::with_local_connect_info(txn_req))
-            .await
-            .unwrap()
-    });
-    let t2 = tokio::spawn(async move {
-        app_invite
-            .oneshot(super::with_local_connect_info(invite_req))
-            .await
-            .unwrap()
-    });
+    let t1 = tokio::spawn(async move { app_txn.oneshot(super::with_local_connect_info(txn_req)).await.unwrap() });
+    let t2 = tokio::spawn(async move { app_invite.oneshot(super::with_local_connect_info(invite_req)).await.unwrap() });
 
     let r1 = t1.await.unwrap();
     let r2 = t2.await.unwrap();

@@ -22,14 +22,10 @@ async fn get_admin_token(app: &axum::Router) -> (String, String) {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     (token, json["user_id"].as_str().unwrap().to_string())
 }
@@ -61,20 +57,13 @@ async fn create_test_user(app: &axum::Router) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 #[tokio::test]
@@ -83,12 +72,7 @@ async fn test_admin_audit_write_query_and_trace() {
         return;
     };
     let (admin_token, admin_user_id) = get_admin_token(&app).await;
-    let admin_username = admin_user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or(&admin_user_id)
-        .to_string();
+    let admin_username = admin_user_id.trim_start_matches('@').split(':').next().unwrap_or(&admin_user_id).to_string();
     promote_admin_role(&pool, &admin_username, "super_admin").await;
     let unique = rand::random::<u32>();
     let action = format!("admin.audit.manual_{}", unique);
@@ -113,14 +97,10 @@ async fn test_admin_audit_write_query_and_trace() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let created_event: Value = serde_json::from_slice(&body).unwrap();
     let event_id = created_event["event_id"].as_str().unwrap().to_string();
     assert_eq!(created_event["action"], action);
@@ -131,14 +111,10 @@ async fn test_admin_audit_write_query_and_trace() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let list_response: Value = serde_json::from_slice(&body).unwrap();
     let events = list_response["events"].as_array().unwrap();
     assert!(events.iter().any(|event| event["event_id"] == event_id));
@@ -149,14 +125,10 @@ async fn test_admin_audit_write_query_and_trace() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let detail_response: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(detail_response["request_id"], created_event["request_id"]);
     assert_eq!(detail_response["details"]["source"], "integration_test");
@@ -168,12 +140,7 @@ async fn test_shadow_ban_writes_audit_event() {
         return;
     };
     let (admin_token, admin_user_id) = get_admin_token(&app).await;
-    let admin_username = admin_user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or(&admin_user_id)
-        .to_string();
+    let admin_username = admin_user_id.trim_start_matches('@').split(':').next().unwrap_or(&admin_user_id).to_string();
     promote_admin_role(&pool, &admin_username, "super_admin").await;
     let (_, user_id) = create_test_user(&app).await;
     let request_id = format!("req-shadow-ban-{}", rand::random::<u32>());
@@ -186,9 +153,7 @@ async fn test_shadow_ban_writes_audit_event() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let request = Request::builder()
@@ -197,22 +162,16 @@ async fn test_shadow_ban_writes_audit_event() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let list_response: Value = serde_json::from_slice(&body).unwrap();
     let events = list_response["events"].as_array().unwrap();
     let audit_event = events
         .iter()
         .find(|event| {
-            event["request_id"] == request_id
-                && event["resource_id"] == user_id
-                && event["actor_id"] == admin_user_id
+            event["request_id"] == request_id && event["resource_id"] == user_id && event["actor_id"] == admin_user_id
         })
         .expect("shadow ban audit event should exist");
 
@@ -224,14 +183,10 @@ async fn test_shadow_ban_writes_audit_event() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 8192)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let detail_response: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(detail_response["details"]["is_shadow_banned"], true);
 }
@@ -249,8 +204,6 @@ async fn test_audit_query_requires_admin() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

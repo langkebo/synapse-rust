@@ -26,16 +26,19 @@ impl DeviceTrustStorage {
         device_id: &str,
     ) -> Result<Option<DeviceTrustStatus>, ApiError> {
         let result = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
-            "SELECT id, user_id, device_id, trust_level, verified_by_device_id, 
-             verified_at, created_ts, updated_ts 
-             FROM device_trust_status 
+            "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
+             verified_at, created_ts, updated_ts
+             FROM device_trust_status
              WHERE user_id = $1 AND device_id = $2",
         )
         .bind(user_id)
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.map(|r| r.into()))
     }
@@ -61,7 +64,10 @@ impl DeviceTrustStorage {
         .bind(status.updated_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -102,39 +108,39 @@ impl DeviceTrustStorage {
     }
 
     /// Get all devices for a user with trust status
-    pub async fn get_all_devices_with_trust(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<DeviceTrustStatus>, ApiError> {
+    pub async fn get_all_devices_with_trust(&self, user_id: &str) -> Result<Vec<DeviceTrustStatus>, ApiError> {
         let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_ts, updated_ts 
-             FROM device_trust_status 
+             verified_at, created_ts, updated_ts
+             FROM device_trust_status
              WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
 
     /// Get verified devices only
-    pub async fn get_verified_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<DeviceTrustStatus>, ApiError> {
+    pub async fn get_verified_devices(&self, user_id: &str) -> Result<Vec<DeviceTrustStatus>, ApiError> {
         let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
             "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_ts, updated_ts 
-             FROM device_trust_status 
+             verified_at, created_ts, updated_ts
+             FROM device_trust_status
              WHERE user_id = $1 AND trust_level = 'verified'",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
@@ -142,17 +148,20 @@ impl DeviceTrustStorage {
     /// Count devices by trust level
     pub async fn count_devices_by_trust(&self, user_id: &str) -> Result<(i64, i64, i64), ApiError> {
         let row = sqlx::query(
-            "SELECT 
+            "SELECT
              COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) as verified,
              COUNT(CASE WHEN trust_level = 'unverified' THEN 1 END) as unverified,
              COUNT(CASE WHEN trust_level = 'blocked' THEN 1 END) as blocked
-             FROM device_trust_status 
+             FROM device_trust_status
              WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let verified: i64 = row.get("verified");
         let unverified: i64 = row.get("unverified");
@@ -166,13 +175,10 @@ impl DeviceTrustStorage {
     // =====================================================
 
     /// Create a new verification request
-    pub async fn create_verification_request(
-        &self,
-        request: &DeviceVerificationRequest,
-    ) -> Result<(), ApiError> {
+    pub async fn create_verification_request(&self, request: &DeviceVerificationRequest) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO device_verification_request 
-             (user_id, new_device_id, requesting_device_id, verification_method, 
+            "INSERT INTO device_verification_request
+             (user_id, new_device_id, requesting_device_id, verification_method,
               status, request_token, commitment, pubkey, created_ts, expires_at, completed_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
@@ -189,26 +195,29 @@ impl DeviceTrustStorage {
         .bind(request.completed_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Get verification request by token
-    pub async fn get_request_by_token(
-        &self,
-        token: &str,
-    ) -> Result<Option<DeviceVerificationRequest>, ApiError> {
+    pub async fn get_request_by_token(&self, token: &str) -> Result<Option<DeviceVerificationRequest>, ApiError> {
         let result = sqlx::query_as::<_, SqlxVerificationRequest>(
             "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
              status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
-             FROM device_verification_request 
+             FROM device_verification_request
              WHERE request_token = $1",
         )
         .bind(token)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.map(|r| r.into()))
     }
@@ -222,28 +231,27 @@ impl DeviceTrustStorage {
         let result = sqlx::query_as::<_, SqlxVerificationRequest>(
             "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
              status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
-             FROM device_verification_request 
-             WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()"
+             FROM device_verification_request
+             WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()",
         )
         .bind(user_id)
         .bind(new_device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.map(|r| r.into()))
     }
 
     /// Update verification request status
-    pub async fn update_request_status(
-        &self,
-        token: &str,
-        status: VerificationRequestStatus,
-    ) -> Result<(), ApiError> {
+    pub async fn update_request_status(&self, token: &str, status: VerificationRequestStatus) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
 
         sqlx::query(
-            "UPDATE device_verification_request 
+            "UPDATE device_verification_request
              SET status = $1, completed_at = $2
              WHERE request_token = $3",
         )
@@ -252,20 +260,18 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Update verification request with verification data
-    pub async fn update_request_with_data(
-        &self,
-        token: &str,
-        commitment: &str,
-        pubkey: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn update_request_with_data(&self, token: &str, commitment: &str, pubkey: &str) -> Result<(), ApiError> {
         sqlx::query(
-            "UPDATE device_verification_request 
+            "UPDATE device_verification_request
              SET commitment = $1, pubkey = $2
              WHERE request_token = $3",
         )
@@ -274,7 +280,10 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -282,13 +291,16 @@ impl DeviceTrustStorage {
     /// Clean up expired verification requests
     pub async fn cleanup_expired_requests(&self) -> Result<i64, ApiError> {
         let result = sqlx::query(
-            "UPDATE device_verification_request 
+            "UPDATE device_verification_request
              SET status = 'expired', completed_at = NOW()
              WHERE status = 'pending' AND expires_at < NOW()",
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -300,9 +312,9 @@ impl DeviceTrustStorage {
     /// Log a key rotation event
     pub async fn log_key_rotation(&self, log: &KeyRotationLog) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO key_rotation_log 
+            "INSERT INTO key_rotation_log
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(&log.user_id)
         .bind(&log.device_id)
@@ -314,7 +326,10 @@ impl DeviceTrustStorage {
         .bind(log.rotated_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -326,7 +341,7 @@ impl DeviceTrustStorage {
     /// Log a security event
     pub async fn log_security_event(&self, event: &E2eeSecurityEvent) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO e2ee_security_events 
+            "INSERT INTO e2ee_security_events
              (user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
@@ -339,7 +354,10 @@ impl DeviceTrustStorage {
         .bind(event.created_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -352,16 +370,19 @@ impl DeviceTrustStorage {
     ) -> Result<Vec<E2eeSecurityEvent>, ApiError> {
         let results = sqlx::query_as::<_, SqlxSecurityEvent>(
             "SELECT id, user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts
-             FROM e2ee_security_events 
+             FROM e2ee_security_events
              WHERE user_id = $1
              ORDER BY created_ts DESC
-             LIMIT $2"
+             LIMIT $2",
         )
         .bind(user_id)
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
@@ -405,13 +426,16 @@ impl DeviceTrustStorage {
     /// Check if user has cross-signing master key
     pub async fn has_cross_signing_master_key(&self, user_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM cross_signing_keys 
+            "SELECT COUNT(*) FROM cross_signing_keys
              WHERE user_id = $1 AND key_type = 'master'",
         )
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result > 0)
     }

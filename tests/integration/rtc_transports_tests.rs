@@ -31,10 +31,7 @@ async fn test_get_rtc_transports_authenticated() {
     };
 
     // 1. Register and login to get token
-    let username = format!(
-        "alice_{}",
-        &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]
-    );
+    let username = format!("alice_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
     let password = "Password123!";
 
     let reg_req = Request::builder()
@@ -53,15 +50,9 @@ async fn test_get_rtc_transports_authenticated() {
 
     let reg_res = app.clone().oneshot(reg_req).await.unwrap();
     let status = reg_res.status();
-    let body = axum::body::to_bytes(reg_res.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(reg_res.into_body(), 10240).await.unwrap();
     if status != StatusCode::OK {
-        panic!(
-            "Registration failed with status {}: {}",
-            status,
-            String::from_utf8_lossy(&body)
-        );
+        panic!("Registration failed with status {}: {}", status, String::from_utf8_lossy(&body));
     }
     let reg_json: Value = serde_json::from_slice(&body).unwrap();
     let token = reg_json["access_token"].as_str().unwrap();
@@ -81,31 +72,22 @@ async fn test_get_rtc_transports_authenticated() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     // 3. Verify response
-    let transports = json["transports"]
-        .as_array()
-        .expect("transports should be an array");
+    let transports = json["transports"].as_array().expect("transports should be an array");
     assert!(!transports.is_empty());
 
     let transport = &transports[0];
     assert_eq!(transport["type"], "org.matrix.msc4403.ice-server-transport");
 
-    let ice_servers = transport["ice_servers"]
-        .as_array()
-        .expect("ice_servers should be an array");
+    let ice_servers = transport["ice_servers"].as_array().expect("ice_servers should be an array");
     assert_eq!(ice_servers.len(), 2); // 1 STUN, 1 TURN
 
     // Check STUN
-    let stun = ice_servers
-        .iter()
-        .find(|s| s["urls"].as_array().unwrap()[0] == "stun:stun.example.org")
-        .unwrap();
+    let stun = ice_servers.iter().find(|s| s["urls"].as_array().unwrap()[0] == "stun:stun.example.org").unwrap();
     assert!(stun["username"].is_null());
 
     // Check TURN
-    let turn = ice_servers
-        .iter()
-        .find(|s| s["urls"].as_array().unwrap()[0] == "turn:turn.example.org?transport=udp")
-        .unwrap();
+    let turn =
+        ice_servers.iter().find(|s| s["urls"].as_array().unwrap()[0] == "turn:turn.example.org?transport=udp").unwrap();
     assert!(turn["username"].is_string());
     assert!(turn["credential"].is_string());
 }

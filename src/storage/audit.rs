@@ -20,10 +20,7 @@ pub fn decode_audit_event_cursor(cursor: Option<&str>) -> Option<AuditEventCurso
     if event_id.is_empty() {
         return None;
     }
-    Some(AuditEventCursor {
-        created_ts,
-        event_id: event_id.to_string(),
-    })
+    Some(AuditEventCursor { created_ts, event_id: event_id.to_string() })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -103,8 +100,7 @@ impl AuditEventStorage {
         let resource_id = filters.resource_id.clone();
         let result = filters.result.clone();
 
-        let mut count_query =
-            QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM audit_events WHERE 1=1");
+        let mut count_query = QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM audit_events WHERE 1=1");
         if let Some(ref v) = actor_id {
             count_query.push(" AND actor_id = ");
             count_query.push_bind(v.clone());
@@ -125,10 +121,7 @@ impl AuditEventStorage {
             count_query.push(" AND result = ");
             count_query.push_bind(v.clone());
         }
-        let total = count_query
-            .build_query_scalar::<i64>()
-            .fetch_one(&*self.pool)
-            .await?;
+        let total = count_query.build_query_scalar::<i64>().fetch_one(&*self.pool).await?;
 
         let mut query = QueryBuilder::<Postgres>::new(
             "SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts FROM audit_events WHERE 1=1",
@@ -163,10 +156,7 @@ impl AuditEventStorage {
         query.push(" ORDER BY created_ts DESC, event_id DESC LIMIT ");
         query.push_bind(filters.limit + 1);
 
-        let events = query
-            .build_query_as::<AuditEvent>()
-            .fetch_all(&*self.pool)
-            .await?;
+        let events = query.build_query_as::<AuditEvent>().fetch_all(&*self.pool).await?;
 
         let next_batch = if events.len() > filters.limit as usize {
             events.get(filters.limit as usize).map(|event| {
@@ -244,10 +234,7 @@ mod cursor_tests {
 
     #[test]
     fn audit_event_cursor_round_trip() {
-        let cursor = AuditEventCursor {
-            created_ts: 1_746_700_000_000,
-            event_id: "evt-123".to_string(),
-        };
+        let cursor = AuditEventCursor { created_ts: 1_746_700_000_000, event_id: "evt-123".to_string() };
 
         let encoded = encode_audit_event_cursor(&cursor);
         assert_eq!(decode_audit_event_cursor(Some(&encoded)), Some(cursor));

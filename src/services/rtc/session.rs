@@ -2,8 +2,8 @@ use super::metrics::RtcMetrics;
 use crate::cache::CacheManager;
 use crate::common::error::ApiError;
 use crate::storage::matrixrtc::{
-    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership,
-    RTCSession, SessionWithMemberships,
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
+    SessionWithMemberships,
 };
 use std::sync::Arc;
 
@@ -27,14 +27,8 @@ impl RtcSessionService {
         creator: String,
         config: serde_json::Value,
     ) -> Result<RTCSession, ApiError> {
-        let params = CreateSessionParams {
-            room_id,
-            session_id,
-            application: application.clone(),
-            call_id,
-            creator,
-            config,
-        };
+        let params =
+            CreateSessionParams { room_id, session_id, application: application.clone(), call_id, creator, config };
 
         let session = self
             .storage
@@ -49,11 +43,7 @@ impl RtcSessionService {
         Ok(session)
     }
 
-    pub async fn get_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Option<RTCSession>, ApiError> {
+    pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:session:{}:{}", room_id, session_id);
 
         if let Ok(Some(session)) = self.cache.get::<RTCSession>(&cache_key).await {
@@ -73,10 +63,7 @@ impl RtcSessionService {
         Ok(session)
     }
 
-    pub async fn get_active_sessions_for_room(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<RTCSession>, ApiError> {
+    pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:sessions:{}", room_id);
 
         if let Ok(Some(sessions)) = self.cache.get::<Vec<RTCSession>>(&cache_key).await {
@@ -94,12 +81,7 @@ impl RtcSessionService {
         Ok(sessions)
     }
 
-    pub async fn end_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn end_session(&self, room_id: &str, session_id: &str, user_id: &str) -> Result<(), ApiError> {
         let session = self.get_session(room_id, session_id).await?;
 
         match session {
@@ -112,9 +94,7 @@ impl RtcSessionService {
                 self.invalidate_room_cache(room_id).await;
                 Ok(())
             }
-            Some(_) => Err(ApiError::forbidden(
-                "Only session creator can end the session",
-            )),
+            Some(_) => Err(ApiError::forbidden("Only session creator can end the session")),
             None => Err(ApiError::not_found("Session not found")),
         }
     }
@@ -159,8 +139,7 @@ impl RtcSessionService {
 
         RtcMetrics::increment_membership_created();
 
-        self.invalidate_session_cache(&membership.room_id, &membership.session_id)
-            .await;
+        self.invalidate_session_cache(&membership.room_id, &membership.session_id).await;
 
         Ok(membership)
     }
@@ -213,9 +192,7 @@ impl RtcSessionService {
             .storage
             .get_session_with_memberships(room_id, session_id)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to get session with memberships", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get session with memberships", &e))?;
 
         Ok(result)
     }
@@ -231,14 +208,7 @@ impl RtcSessionService {
     ) -> Result<RTCEncryptionKey, ApiError> {
         let encryption_key = self
             .storage
-            .store_encryption_key(
-                room_id,
-                session_id,
-                key_index,
-                key,
-                sender_user_id,
-                sender_device_id,
-            )
+            .store_encryption_key(room_id, session_id, key_index, key, sender_user_id, sender_device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store encryption key", &e))?;
 
@@ -274,36 +244,22 @@ impl RtcSessionService {
             .storage
             .cleanup_expired_memberships()
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to cleanup expired memberships", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired memberships", &e))?;
 
         Ok(count)
     }
 
     async fn invalidate_room_cache(&self, room_id: &str) {
-        let _ = self
-            .cache
-            .delete(&format!("matrixrtc:sessions:{}", room_id))
-            .await;
+        let _ = self.cache.delete(&format!("matrixrtc:sessions:{}", room_id)).await;
     }
 
     async fn invalidate_session_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self
-            .cache
-            .delete(&format!("matrixrtc:session:{}:{}", room_id, session_id))
-            .await;
-        let _ = self
-            .cache
-            .delete(&format!("matrixrtc:memberships:{}:{}", room_id, session_id))
-            .await;
+        let _ = self.cache.delete(&format!("matrixrtc:session:{}:{}", room_id, session_id)).await;
+        let _ = self.cache.delete(&format!("matrixrtc:memberships:{}:{}", room_id, session_id)).await;
     }
 
     async fn invalidate_key_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self
-            .cache
-            .delete(&format!("matrixrtc:keys:{}:{}", room_id, session_id))
-            .await;
+        let _ = self.cache.delete(&format!("matrixrtc:keys:{}:{}", room_id, session_id)).await;
     }
 }
 

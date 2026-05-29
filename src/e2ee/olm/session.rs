@@ -24,19 +24,11 @@ struct OlmSessionEntry {
 
 impl OlmSessionManager {
     pub fn new(storage: OlmStorage, user_id: String, device_id: String) -> Self {
-        Self {
-            storage,
-            sessions: RwLock::new(HashMap::new()),
-            user_id,
-            device_id,
-        }
+        Self { storage, sessions: RwLock::new(HashMap::new()), user_id, device_id }
     }
 
     pub async fn load_sessions(&self) -> Result<(), ApiError> {
-        let session_data = self
-            .storage
-            .load_sessions(&self.user_id, &self.device_id)
-            .await?;
+        let session_data = self.storage.load_sessions(&self.user_id, &self.device_id).await?;
 
         let mut sessions = self.sessions.write().await;
         for data in session_data {
@@ -44,10 +36,7 @@ impl OlmSessionManager {
                 continue;
             }
 
-            match vodozemac::olm::SessionPickle::from_encrypted(
-                &data.serialized_state,
-                get_pickle_key(),
-            ) {
+            match vodozemac::olm::SessionPickle::from_encrypted(&data.serialized_state, get_pickle_key()) {
                 Ok(pickle) => {
                     let session = Session::from_pickle(pickle);
                     let session_id = session.session_id();
@@ -105,8 +94,7 @@ impl OlmSessionManager {
     ) -> Result<OlmEncryptedMessage, ApiError> {
         let session_config = SessionConfig::version_2();
 
-        let mut session =
-            account.create_outbound_session(session_config, their_identity_key, their_one_time_key);
+        let mut session = account.create_outbound_session(session_config, their_identity_key, their_one_time_key);
 
         let session_id = session.session_id();
 
@@ -128,11 +116,7 @@ impl OlmSessionManager {
             sessions.insert(session_id.clone(), entry);
         }
 
-        Ok(OlmEncryptedMessage {
-            session_id,
-            message_type: OlmMessageType::PreKey,
-            ciphertext,
-        })
+        Ok(OlmEncryptedMessage { session_id, message_type: OlmMessageType::PreKey, ciphertext })
     }
 
     pub async fn create_inbound_session(
@@ -144,9 +128,10 @@ impl OlmSessionManager {
         let pre_key_message = vodozemac::olm::PreKeyMessage::from_base64(message)
             .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {e}")))?;
 
-        let result = account
-            .create_inbound_session(their_identity_key, &pre_key_message)
-            .map_err(|e| { tracing::error!("Failed to create inbound session: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let result = account.create_inbound_session(their_identity_key, &pre_key_message).map_err(|e| {
+            tracing::error!("Failed to create inbound session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let session_id = result.session.session_id();
 
@@ -164,17 +149,10 @@ impl OlmSessionManager {
 
         let plaintext = String::from_utf8_lossy(&result.plaintext).to_string();
 
-        Ok(OlmDecryptedMessage {
-            plaintext,
-            session_id,
-        })
+        Ok(OlmDecryptedMessage { plaintext, session_id })
     }
 
-    pub async fn encrypt(
-        &self,
-        session_id: &str,
-        plaintext: &str,
-    ) -> Result<OlmEncryptedMessage, ApiError> {
+    pub async fn encrypt(&self, session_id: &str, plaintext: &str) -> Result<OlmEncryptedMessage, ApiError> {
         let mut sessions = self.sessions.write().await;
 
         let entry = sessions
@@ -196,11 +174,7 @@ impl OlmSessionManager {
             vodozemac::olm::OlmMessage::Normal(m) => m.to_base64(),
         };
 
-        Ok(OlmEncryptedMessage {
-            session_id: session_id.to_string(),
-            message_type,
-            ciphertext,
-        })
+        Ok(OlmEncryptedMessage { session_id: session_id.to_string(), message_type, ciphertext })
     }
 
     pub async fn decrypt(
@@ -227,19 +201,16 @@ impl OlmSessionManager {
         let message = vodozemac::olm::OlmMessage::from_parts(msg_type, &raw_ciphertext)
             .map_err(|e| ApiError::bad_request(format!("Invalid message: {e}")))?;
 
-        let plaintext = entry
-            .session
-            .decrypt(&message)
-            .map_err(|e| { tracing::error!("Failed to decrypt: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        let plaintext = entry.session.decrypt(&message).map_err(|e| {
+            tracing::error!("Failed to decrypt: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         entry.dirty = true;
 
         let plaintext_str = String::from_utf8_lossy(&plaintext).to_string();
 
-        Ok(OlmDecryptedMessage {
-            plaintext: plaintext_str,
-            session_id: session_id.to_string(),
-        })
+        Ok(OlmDecryptedMessage { plaintext: plaintext_str, session_id: session_id.to_string() })
     }
 
     pub async fn get_session(&self, session_id: &str) -> Option<String> {

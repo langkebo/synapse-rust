@@ -15,10 +15,7 @@ impl IdentityStorage {
         let pool = pool.clone();
         let threepid_storage = ThreepidStorage::new(Arc::new(pool.clone()));
 
-        Self {
-            pool,
-            threepid_storage,
-        }
+        Self { pool, threepid_storage }
     }
 
     pub async fn get_user_three_pids(&self, user_id: &str) -> Result<Vec<ThirdPartyId>, ApiError> {
@@ -47,46 +44,21 @@ impl IdentityStorage {
         Ok(())
     }
 
-    pub async fn remove_three_pid(
-        &self,
-        address: &str,
-        medium: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        self.threepid_storage
-            .remove_threepid(user_id, medium, address)
-            .await?;
+    pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), ApiError> {
+        self.threepid_storage.remove_threepid(user_id, medium, address).await?;
         Ok(())
     }
 
-    pub async fn get_three_pid_user(
-        &self,
-        address: &str,
-        medium: &str,
-    ) -> Result<Option<String>, ApiError> {
-        Ok(self
-            .threepid_storage
-            .get_threepid_by_address(medium, address)
-            .await?
-            .map(|threepid| threepid.user_id))
+    pub async fn get_three_pid_user(&self, address: &str, medium: &str) -> Result<Option<String>, ApiError> {
+        Ok(self.threepid_storage.get_threepid_by_address(medium, address).await?.map(|threepid| threepid.user_id))
     }
 
-    pub async fn validate_three_pid(
-        &self,
-        address: &str,
-        medium: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        let _ = self
-            .threepid_storage
-            .verify_threepid(user_id, medium, address)
-            .await?;
+    pub async fn validate_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), ApiError> {
+        let _ = self.threepid_storage.verify_threepid(user_id, medium, address).await?;
         Ok(())
     }
 
-    pub async fn get_pending_three_pid_validations(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, ApiError> {
+    pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r"
             SELECT address, medium, user_id, validated_ts, added_ts
@@ -98,9 +70,7 @@ impl IdentityStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to get pending 3PID validations", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get pending 3PID validations", &e))?;
 
         Ok(rows
             .into_iter()

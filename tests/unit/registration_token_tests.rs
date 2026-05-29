@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::storage::registration_token::*;
     use synapse_rust::services::ServiceContainer;
+    use synapse_rust::storage::registration_token::*;
 
     #[test]
     fn test_create_registration_token_request() {
@@ -132,11 +132,7 @@ mod tests {
 
     #[test]
     fn test_token_validation_result() {
-        let valid_result = TokenValidationResult {
-            is_valid: true,
-            token_id: Some(1),
-            error_message: None,
-        };
+        let valid_result = TokenValidationResult { is_valid: true, token_id: Some(1), error_message: None };
 
         let invalid_result = TokenValidationResult {
             is_valid: false,

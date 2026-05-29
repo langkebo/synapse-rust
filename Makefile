@@ -3,7 +3,7 @@
 
 .PHONY: help migrate migrate-check migrate-undo migrate-status migrate-baseline migrate-audit
 .PHONY: test test-unit test-integration test-all test-coverage
-.PHONY: lint fmt check
+.PHONY: lint fmt format format-check format-install format-audit check
 .PHONY: build build-release
 
 # 默认目标
@@ -29,6 +29,10 @@ help:
 	@echo "Code Quality:"
 	@echo "  lint             - Run linter"
 	@echo "  fmt              - Format code"
+	@echo "  format           - Run repository-wide formatters"
+	@echo "  format-check     - Run repository-wide format compliance checks"
+	@echo "  format-install   - Install pre-commit hooks"
+	@echo "  format-audit     - Generate formatting drift audit report"
 	@echo "  check            - Run all checks"
 	@echo ""
 	@echo "Build:"
@@ -110,6 +114,22 @@ lint:
 fmt:
 	@echo "Formatting code..."
 	@cargo fmt --all
+
+format:
+	@echo "Running repository-wide formatters..."
+	@bash scripts/quality/format_write.sh
+
+format-check:
+	@echo "Running repository-wide format compliance checks..."
+	@bash scripts/quality/format_check.sh
+
+format-install:
+	@echo "Installing pre-commit hooks..."
+	@pre-commit install --hook-type pre-commit --hook-type pre-push
+
+format-audit:
+	@echo "Generating formatting drift audit report..."
+	@python3 scripts/quality/format_audit.py --output docs/quality/FORMAT_STANDARDIZATION_AUDIT_2026-05-29.md
 
 check: fmt lint
 	@echo "Running all checks..."

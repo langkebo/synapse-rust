@@ -25,17 +25,12 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
     {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping event storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping event storage tests because test database is unavailable: {error}");
             return None;
         }
     };
 
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-        .execute(&pool)
-        .await
-        .ok();
+    sqlx::query("DROP TABLE IF EXISTS events CASCADE").execute(&pool).await.ok();
 
     sqlx::query(
         r#"
@@ -68,10 +63,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
 }
 
 async fn teardown_test_database(pool: &Pool<Postgres>) {
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE")
-        .execute(pool)
-        .await
-        .ok();
+    sqlx::query("DROP TABLE IF EXISTS events CASCADE").execute(pool).await.ok();
 }
 
 #[test]
@@ -149,11 +141,8 @@ fn test_get_room_events_batch_multiple_rooms() {
             storage.create_event(params, None).await.unwrap();
         }
 
-        let room_ids = vec![
-            "!room1:localhost".to_string(),
-            "!room2:localhost".to_string(),
-            "!room3:localhost".to_string(),
-        ];
+        let room_ids =
+            vec!["!room1:localhost".to_string(), "!room2:localhost".to_string(), "!room3:localhost".to_string()];
         let result = storage.get_room_events_batch(&room_ids, 10).await;
         assert!(result.is_ok());
 
@@ -198,18 +187,13 @@ fn test_get_room_events_since_batch() {
 
         let room_ids = vec![room_id];
 
-        let result = storage
-            .get_room_events_since_batch(&room_ids, base_ts + 2500, 10)
-            .await;
+        let result = storage.get_room_events_since_batch(&room_ids, base_ts + 2500, 10).await;
         assert!(result.is_ok());
 
         let events_map = result.unwrap();
         let events = events_map.values().next().unwrap();
 
-        assert!(
-            events.len() >= 2,
-            "Should have events after the since timestamp"
-        );
+        assert!(events.len() >= 2, "Should have events after the since timestamp");
         teardown_test_database(&pool).await;
     });
 }
@@ -269,16 +253,8 @@ fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_values
             ("$origin_null:localhost", None, "self"),
             ("$origin_empty:localhost", Some(""), "self"),
             ("$origin_undefined:localhost", Some("undefined"), "self"),
-            (
-                "$origin_illegal_json:localhost",
-                Some("{invalid-json"),
-                "{invalid-json",
-            ),
-            (
-                "$origin_encrypted:localhost",
-                Some("encrypted:abcdef123456"),
-                "encrypted:abcdef123456",
-            ),
+            ("$origin_illegal_json:localhost", Some("{invalid-json"), "{invalid-json"),
+            ("$origin_encrypted:localhost", Some("encrypted:abcdef123456"), "encrypted:abcdef123456"),
         ];
 
         for (offset, (event_id, origin, _expected)) in cases.iter().enumerate() {
@@ -324,26 +300,11 @@ fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_values
             .map(|event| (event.event_id.as_str(), event.origin.as_str()))
             .collect::<std::collections::HashMap<_, _>>();
 
-        assert_eq!(
-            origin_by_event_id.get("$origin_null:localhost"),
-            Some(&"self")
-        );
-        assert_eq!(
-            origin_by_event_id.get("$origin_empty:localhost"),
-            Some(&"self")
-        );
-        assert_eq!(
-            origin_by_event_id.get("$origin_undefined:localhost"),
-            Some(&"self")
-        );
-        assert_eq!(
-            origin_by_event_id.get("$origin_illegal_json:localhost"),
-            Some(&"{invalid-json")
-        );
-        assert_eq!(
-            origin_by_event_id.get("$origin_encrypted:localhost"),
-            Some(&"encrypted:abcdef123456")
-        );
+        assert_eq!(origin_by_event_id.get("$origin_null:localhost"), Some(&"self"));
+        assert_eq!(origin_by_event_id.get("$origin_empty:localhost"), Some(&"self"));
+        assert_eq!(origin_by_event_id.get("$origin_undefined:localhost"), Some(&"self"));
+        assert_eq!(origin_by_event_id.get("$origin_illegal_json:localhost"), Some(&"{invalid-json"));
+        assert_eq!(origin_by_event_id.get("$origin_encrypted:localhost"), Some(&"encrypted:abcdef123456"));
 
         teardown_test_database(&pool).await;
     });

@@ -1,15 +1,13 @@
+use super::{ensure_room_view_access, get_room_event};
 use crate::common::ApiError;
 use crate::map_internal;
 use crate::storage::event::EventStorage;
 use crate::storage::room::{Receipt, RoomStorage};
 use crate::web::routes::{
-    validate_event_id, validate_receipt_type, validate_room_id, AppState, AuthenticatedUser,
-    is_joined_room_member_or_creator, ensure_room_member,
+    ensure_room_member, is_joined_room_member_or_creator, validate_event_id, validate_receipt_type, validate_room_id,
+    AppState, AuthenticatedUser,
 };
-use super::{ensure_room_view_access, get_room_event};
-use axum::{
-    extract::{Json, Path, State},
-};
+use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
 pub(crate) async fn send_receipt(
@@ -23,33 +21,16 @@ pub(crate) async fn send_receipt(
     let event_id = event_id.replace("%24", "$");
     validate_event_id(&event_id)?;
 
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to send receipts",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to send receipts").await?;
 
     get_room_event(&state.services.event_storage, &room_id, &event_id).await?;
 
-    let body: Value = if body.trim().is_empty() {
-        json!({})
-    } else {
-        serde_json::from_str(&body).unwrap_or(json!({}))
-    };
+    let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 
     state
         .services
         .room_storage
-        .add_receipt(
-            &auth_user.user_id,
-            &auth_user.user_id,
-            &room_id,
-            &event_id,
-            &receipt_type,
-            &body,
-        )
+        .add_receipt(&auth_user.user_id, &auth_user.user_id, &room_id, &event_id, &receipt_type, &body)
         .await
         .map_err(map_internal!("Failed to store receipt"))?;
 
@@ -90,13 +71,7 @@ pub(crate) async fn send_receipt(
         .broadcast_edu_to_room(
             &room_id,
             &receipt_edu,
-            state
-                .services
-                .config
-                .server
-                .server_name
-                .as_deref()
-                .unwrap_or("localhost"),
+            state.services.config.server.server_name.as_deref().unwrap_or("localhost"),
         )
         .await;
 
@@ -164,18 +139,11 @@ pub(crate) async fn set_read_markers(
         .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let is_member = is_joined_room_member_or_creator(
-        &state,
-        &auth_user.user_id,
-        &room_id,
-        room.creator_user_id.as_deref(),
-    )
-    .await?;
+    let is_member =
+        is_joined_room_member_or_creator(&state, &auth_user.user_id, &room_id, room.creator_user_id.as_deref()).await?;
 
     if !is_member {
-        return Err(ApiError::forbidden(
-            "You are not a member of this room".to_string(),
-        ));
+        return Err(ApiError::forbidden("You are not a member of this room".to_string()));
     }
 
     write_read_markers_from_body(
@@ -207,9 +175,7 @@ pub async fn write_read_markers_from_body(
             room_storage
                 .update_read_marker_with_type(room_id, user_id, event_id, "m.fully_read")
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to set fully_read marker", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to set fully_read marker", &e))?;
         }
     }
 
@@ -220,9 +186,7 @@ pub async fn write_read_markers_from_body(
             room_storage
                 .update_read_marker_with_type(room_id, user_id, event_id, "m.private_read")
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to set private_read marker", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to set private_read marker", &e))?;
         }
     }
 
@@ -234,16 +198,9 @@ pub async fn write_read_markers_from_body(
                         validate_event_id(event_id)?;
                         get_room_event(event_storage, room_id, event_id).await?;
                         room_storage
-                            .update_read_marker_with_type(
-                                room_id,
-                                user_id,
-                                event_id,
-                                "m.marked_unread",
-                            )
+                            .update_read_marker_with_type(room_id, user_id, event_id, "m.marked_unread")
                             .await
-                            .map_err(|e| {
-                                ApiError::internal_with_log("Failed to set marked_unread marker", &e)
-                            })?;
+                            .map_err(|e| ApiError::internal_with_log("Failed to set marked_unread marker", &e))?;
                     }
                 }
             }

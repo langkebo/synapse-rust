@@ -1,7 +1,7 @@
 use super::gateway::PushGateway;
 use super::providers::{
-    ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload,
-    PushProvider, PushResult, WebPushProvider,
+    ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushProvider, PushResult,
+    WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
 use crate::common::error::ApiError;
@@ -94,10 +94,7 @@ impl PushNotificationService {
     }
 
     pub async fn initialize_providers(&mut self) -> Result<(), ApiError> {
-        let fcm_enabled = self
-            .storage
-            .get_config_as_bool("fcm.enabled", false)
-            .await?;
+        let fcm_enabled = self.storage.get_config_as_bool("fcm.enabled", false).await?;
         if fcm_enabled {
             if let Some(api_key) = self.storage.get_config("fcm.api_key").await? {
                 self.fcm_provider = Some(Arc::new(FcmProvider::with_api_key(api_key)));
@@ -105,10 +102,7 @@ impl PushNotificationService {
             }
         }
 
-        let apns_enabled = self
-            .storage
-            .get_config_as_bool("apns.enabled", false)
-            .await?;
+        let apns_enabled = self.storage.get_config_as_bool("apns.enabled", false).await?;
         if apns_enabled {
             if let Some(topic) = self.storage.get_config("apns.topic").await? {
                 self.apns_provider = Some(Arc::new(ApnsProvider::with_topic(topic)));
@@ -116,10 +110,7 @@ impl PushNotificationService {
             }
         }
 
-        let webpush_enabled = self
-            .storage
-            .get_config_as_bool("webpush.enabled", false)
-            .await?;
+        let webpush_enabled = self.storage.get_config_as_bool("webpush.enabled", false).await?;
         if webpush_enabled {
             let public_key = self.storage.get_config("webpush.vapid_public_key").await?;
             let private_key = self.storage.get_config("webpush.vapid_private_key").await?;
@@ -137,14 +128,8 @@ impl PushNotificationService {
         Ok(())
     }
 
-    pub async fn register_device(
-        &self,
-        request: RegisterDeviceRequest,
-    ) -> Result<PushDevice, ApiError> {
-        if !matches!(
-            request.push_type.as_str(),
-            "fcm" | "apns" | "webpush" | "upstream"
-        ) {
+    pub async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
+        if !matches!(request.push_type.as_str(), "fcm" | "apns" | "webpush" | "upstream") {
             return Err(ApiError::bad_request("Invalid push type"));
         }
 
@@ -159,10 +144,7 @@ impl PushNotificationService {
         self.storage.get_user_devices(user_id).await
     }
 
-    pub async fn send_notification(
-        &self,
-        request: SendNotificationRequest,
-    ) -> Result<(), ApiError> {
+    pub async fn send_notification(&self, request: SendNotificationRequest) -> Result<(), ApiError> {
         let devices = if let Some(device_id) = &request.device_id {
             let device = self.storage.get_device(&request.user_id, device_id).await?;
             match device {
@@ -220,9 +202,7 @@ impl PushNotificationService {
                 }
                 Err(e) => {
                     let should_retry = notification.attempts < notification.max_attempts - 1;
-                    self.storage
-                        .mark_notification_failed(notification.id, &e.to_string(), should_retry)
-                        .await?;
+                    self.storage.mark_notification_failed(notification.id, &e.to_string(), should_retry).await?;
                 }
             }
         }
@@ -257,10 +237,10 @@ impl PushNotificationService {
             room_id: content.room_id.clone(),
             room_name: content.room_name.clone(),
             sender: content.sender.clone(),
-            counts: content.counts.as_ref().map(|c| NotificationCounts {
-                unread: c.unread,
-                missed_calls: c.missed_calls,
-            }),
+            counts: content
+                .counts
+                .as_ref()
+                .map(|c| NotificationCounts { unread: c.unread, missed_calls: c.missed_calls }),
         };
 
         let result = match push_type {
@@ -294,16 +274,12 @@ impl PushNotificationService {
         let error_message = result.error;
         let provider_response = result.provider_response;
 
-        let log_request = CreateNotificationLogRequest::new(
-            &notification.user_id,
-            &notification.device_id,
-            push_type,
-            success,
-        )
-        .event_id(notification.event_id.as_deref().unwrap_or(""))
-        .room_id(notification.room_id.as_deref().unwrap_or(""))
-        .notification_type(notification.notification_type.as_deref().unwrap_or(""))
-        .response_time_ms(response_time_ms);
+        let log_request =
+            CreateNotificationLogRequest::new(&notification.user_id, &notification.device_id, push_type, success)
+                .event_id(notification.event_id.as_deref().unwrap_or(""))
+                .room_id(notification.room_id.as_deref().unwrap_or(""))
+                .notification_type(notification.notification_type.as_deref().unwrap_or(""))
+                .response_time_ms(response_time_ms);
 
         let log_request = if !success {
             if let Some(error) = &error_message {
@@ -315,40 +291,24 @@ impl PushNotificationService {
             log_request
         };
 
-        let log_request = if let Some(resp) = &provider_response {
-            log_request.provider_response(resp)
-        } else {
-            log_request
-        };
+        let log_request =
+            if let Some(resp) = &provider_response { log_request.provider_response(resp) } else { log_request };
 
         self.storage.create_notification_log(&log_request).await?;
 
         if success {
-            self.storage
-                .update_device_last_used(&notification.user_id, &notification.device_id)
-                .await?;
+            self.storage.update_device_last_used(&notification.user_id, &notification.device_id).await?;
             Ok(())
         } else {
             if let Some(error) = &error_message {
-                self.storage
-                    .record_device_error(&notification.user_id, &notification.device_id, error)
-                    .await?;
+                self.storage.record_device_error(&notification.user_id, &notification.device_id, error).await?;
             }
-            Err(ApiError::internal(
-                error_message.unwrap_or_else(|| "Push failed".to_string()),
-            ))
+            Err(ApiError::internal(error_message.unwrap_or_else(|| "Push failed".to_string())))
         }
     }
 
-    async fn send_fcm_fallback(
-        &self,
-        token: &str,
-        _payload: &NotificationPayload,
-    ) -> Result<PushResult, ApiError> {
-        let enabled = self
-            .storage
-            .get_config_as_bool("fcm.enabled", false)
-            .await?;
+    async fn send_fcm_fallback(&self, token: &str, _payload: &NotificationPayload) -> Result<PushResult, ApiError> {
+        let enabled = self.storage.get_config_as_bool("fcm.enabled", false).await?;
 
         if !enabled {
             info!("FCM is disabled, skipping notification");
@@ -361,23 +321,13 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("FCM API key not configured"))?;
 
-        info!(
-            "Sending FCM notification to token: {}...",
-            &token[..20.min(token.len())]
-        );
+        info!("Sending FCM notification to token: {}...", &token[..20.min(token.len())]);
 
         Ok(PushResult::success_with_response("FCM accepted (fallback)"))
     }
 
-    async fn send_apns_fallback(
-        &self,
-        token: &str,
-        _payload: &NotificationPayload,
-    ) -> Result<PushResult, ApiError> {
-        let enabled = self
-            .storage
-            .get_config_as_bool("apns.enabled", false)
-            .await?;
+    async fn send_apns_fallback(&self, token: &str, _payload: &NotificationPayload) -> Result<PushResult, ApiError> {
+        let enabled = self.storage.get_config_as_bool("apns.enabled", false).await?;
 
         if !enabled {
             info!("APNS is disabled, skipping notification");
@@ -390,14 +340,9 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("APNS topic not configured"))?;
 
-        info!(
-            "Sending APNS notification to token: {}...",
-            &token[..20.min(token.len())]
-        );
+        info!("Sending APNS notification to token: {}...", &token[..20.min(token.len())]);
 
-        Ok(PushResult::success_with_response(
-            "APNS accepted (fallback)",
-        ))
+        Ok(PushResult::success_with_response("APNS accepted (fallback)"))
     }
 
     async fn send_webpush_fallback(
@@ -405,10 +350,7 @@ impl PushNotificationService {
         endpoint: &str,
         _payload: &NotificationPayload,
     ) -> Result<PushResult, ApiError> {
-        let enabled = self
-            .storage
-            .get_config_as_bool("webpush.enabled", false)
-            .await?;
+        let enabled = self.storage.get_config_as_bool("webpush.enabled", false).await?;
 
         if !enabled {
             info!("WebPush is disabled, skipping notification");
@@ -421,37 +363,22 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("WebPush VAPID public key not configured"))?;
 
-        info!(
-            "Sending WebPush notification to endpoint: {}...",
-            &endpoint[..50.min(endpoint.len())]
-        );
+        info!("Sending WebPush notification to endpoint: {}...", &endpoint[..50.min(endpoint.len())]);
 
-        Ok(PushResult::success_with_response(
-            "WebPush accepted (fallback)",
-        ))
+        Ok(PushResult::success_with_response("WebPush accepted (fallback)"))
     }
 
-    fn send_upstream(
-        &self,
-        _target: &str,
-        payload: &NotificationPayload,
-    ) -> Result<PushResult, ApiError> {
+    fn send_upstream(&self, _target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
         info!("Sending upstream notification: {:?}", payload.title);
         Ok(PushResult::success_with_response("Upstream accepted"))
     }
 
-    pub async fn create_push_rule(
-        &self,
-        request: CreatePushRuleRequest,
-    ) -> Result<PushRule, ApiError> {
+    pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
         if !matches!(request.scope.as_str(), "global" | "device") {
             return Err(ApiError::bad_request("Invalid scope"));
         }
 
-        if !matches!(
-            request.kind.as_str(),
-            "override" | "content" | "room" | "sender" | "underride"
-        ) {
+        if !matches!(request.kind.as_str(), "override" | "content" | "room" | "sender" | "underride") {
             return Err(ApiError::bad_request("Invalid kind"));
         }
 
@@ -469,16 +396,10 @@ impl PushNotificationService {
         kind: &str,
         rule_id: &str,
     ) -> Result<(), ApiError> {
-        self.storage
-            .delete_push_rule(user_id, scope, kind, rule_id)
-            .await
+        self.storage.delete_push_rule(user_id, scope, kind, rule_id).await
     }
 
-    pub async fn evaluate_push_rules(
-        &self,
-        user_id: &str,
-        event: &JsonValue,
-    ) -> Result<PushRuleResult, ApiError> {
+    pub async fn evaluate_push_rules(&self, user_id: &str, event: &JsonValue) -> Result<PushRuleResult, ApiError> {
         let rules = self.storage.get_user_push_rules(user_id).await?;
 
         let mut tweaks = serde_json::json!({});
@@ -495,10 +416,7 @@ impl PushNotificationService {
                         match action_str {
                             "notify" => notify = true,
                             "dont_notify" => {
-                                return Ok(PushRuleResult {
-                                    notify: false,
-                                    tweaks: serde_json::json!({}),
-                                });
+                                return Ok(PushRuleResult { notify: false, tweaks: serde_json::json!({}) });
                             }
                             _ => {}
                         }
@@ -517,10 +435,7 @@ impl PushNotificationService {
             }
         }
 
-        Ok(PushRuleResult {
-            notify: false,
-            tweaks: serde_json::json!({}),
-        })
+        Ok(PushRuleResult { notify: false, tweaks: serde_json::json!({}) })
     }
 
     fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
@@ -562,15 +477,9 @@ impl PushNotificationService {
         Ok(true)
     }
 
-    fn matches_event_match(
-        condition: &JsonValue,
-        event: &JsonValue,
-    ) -> bool {
+    fn matches_event_match(condition: &JsonValue, event: &JsonValue) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
-        let pattern = condition
-            .get("pattern")
-            .and_then(|p| p.as_str())
-            .unwrap_or("");
+        let pattern = condition.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
 
         let value = Self::get_event_value(event, key);
         value.is_some_and(|v| v.contains(pattern))
@@ -580,17 +489,11 @@ impl PushNotificationService {
         false
     }
 
-    fn matches_room_member_count(
-        _condition: &JsonValue,
-        _event: &JsonValue,
-    ) -> bool {
+    fn matches_room_member_count(_condition: &JsonValue, _event: &JsonValue) -> bool {
         true
     }
 
-    fn matches_sender_notification_permission(
-        _condition: &JsonValue,
-        _event: &JsonValue,
-    ) -> bool {
+    fn matches_sender_notification_permission(_condition: &JsonValue, _event: &JsonValue) -> bool {
         true
     }
 

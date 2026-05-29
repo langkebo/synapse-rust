@@ -1,8 +1,8 @@
 use crate::common::ApiError;
 use crate::storage::event::StateEvent;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict,
-    validate_room_id, AppState, AuthenticatedUser,
+    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
+    AuthenticatedUser,
 };
 use axum::{
     extract::{Json, Path, Query, State},
@@ -33,20 +33,14 @@ fn create_search_compat_router() -> Router<AppState> {
 }
 
 fn create_room_context_router() -> Router<AppState> {
-    Router::new().route(
-        "/rooms/{room_id}/context/{event_id}",
-        get(get_event_context),
-    )
+    Router::new().route("/rooms/{room_id}/context/{event_id}", get(get_event_context))
 }
 
 pub fn create_search_router(state: AppState) -> Router<AppState> {
     let v1_router = Router::new()
         .merge(create_room_context_router())
         .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy))
-        .route(
-            "/rooms/{room_id}/timestamp_to_event",
-            get(timestamp_to_event),
-        );
+        .route("/rooms/{room_id}/timestamp_to_event", get(timestamp_to_event));
 
     let v3_router = Router::new()
         .merge(create_search_compat_router())
@@ -54,10 +48,7 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
         .route("/rooms/{room_id}/hierarchy", get(get_room_hierarchy_v3));
 
     Router::new()
-        .nest(
-            "/_matrix/client/r0",
-            create_search_compat_router().merge(create_room_context_router()),
-        )
+        .nest("/_matrix/client/r0", create_search_compat_router().merge(create_room_context_router()))
         .nest("/_matrix/client/v1", v1_router)
         .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
@@ -67,46 +58,19 @@ pub fn search_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;
 
-    let search_compat: &[(Method, &'static str)] = &[
-        (Method::POST, "/search"),
-        (Method::POST, "/search_recipients"),
-        (Method::POST, "/search_rooms"),
-    ];
-    let room_context: &[(Method, &'static str)] =
-        &[(Method::GET, "/rooms/{room_id}/context/{event_id}")];
-    let v1_extras: &[(Method, &'static str)] = &[
-        (Method::GET, "/rooms/{room_id}/hierarchy"),
-        (Method::GET, "/rooms/{room_id}/timestamp_to_event"),
-    ];
+    let search_compat: &[(Method, &'static str)] =
+        &[(Method::POST, "/search"), (Method::POST, "/search_recipients"), (Method::POST, "/search_rooms")];
+    let room_context: &[(Method, &'static str)] = &[(Method::GET, "/rooms/{room_id}/context/{event_id}")];
+    let v1_extras: &[(Method, &'static str)] =
+        &[(Method::GET, "/rooms/{room_id}/hierarchy"), (Method::GET, "/rooms/{room_id}/timestamp_to_event")];
     let v3_extras: &[(Method, &'static str)] = &[(Method::GET, "/rooms/{room_id}/hierarchy")];
 
-    let mut entries: Vec<RouteEntry> =
-        expand_under_prefixes("search", &["/_matrix/client/r0"], search_compat);
-    entries.extend(expand_under_prefixes(
-        "search",
-        &["/_matrix/client/v1"],
-        room_context,
-    ));
-    entries.extend(expand_under_prefixes(
-        "search",
-        &["/_matrix/client/v1"],
-        v1_extras,
-    ));
-    entries.extend(expand_under_prefixes(
-        "search",
-        &["/_matrix/client/v3"],
-        search_compat,
-    ));
-    entries.extend(expand_under_prefixes(
-        "search",
-        &["/_matrix/client/v3"],
-        room_context,
-    ));
-    entries.extend(expand_under_prefixes(
-        "search",
-        &["/_matrix/client/v3"],
-        v3_extras,
-    ));
+    let mut entries: Vec<RouteEntry> = expand_under_prefixes("search", &["/_matrix/client/r0"], search_compat);
+    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v1"], room_context));
+    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v1"], v1_extras));
+    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], search_compat));
+    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], room_context));
+    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], v3_extras));
     entries
 }
 
@@ -125,25 +89,19 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
         if let Some(filter) = &room_events.filter {
             if let Some(limit) = filter.limit {
                 if limit > MAX_SEARCH_LIMIT {
-                    return Err(ApiError::bad_request(format!(
-                        "Limit too high (max {MAX_SEARCH_LIMIT})"
-                    )));
+                    return Err(ApiError::bad_request(format!("Limit too high (max {MAX_SEARCH_LIMIT})")));
                 }
             }
 
             if let Some(rooms) = &filter.rooms {
                 if rooms.len() > MAX_FILTER_ROOMS {
-                    return Err(ApiError::bad_request(format!(
-                        "Too many rooms in filter (max {MAX_FILTER_ROOMS})"
-                    )));
+                    return Err(ApiError::bad_request(format!("Too many rooms in filter (max {MAX_FILTER_ROOMS})")));
                 }
             }
 
             if let Some(types) = &filter.types {
                 if types.len() > MAX_FILTER_TYPES {
-                    return Err(ApiError::bad_request(format!(
-                        "Too many types in filter (max {MAX_FILTER_TYPES})"
-                    )));
+                    return Err(ApiError::bad_request(format!("Too many types in filter (max {MAX_FILTER_TYPES})")));
                 }
             }
 
@@ -166,9 +124,7 @@ fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
 
         if let Some(limit) = users_search.limit {
             if limit > MAX_SEARCH_LIMIT {
-                return Err(ApiError::bad_request(format!(
-                    "Limit too high (max {MAX_SEARCH_LIMIT})"
-                )));
+                return Err(ApiError::bad_request(format!("Limit too high (max {MAX_SEARCH_LIMIT})")));
             }
         }
     }
@@ -265,10 +221,7 @@ fn decode_room_events_cursor(cursor: Option<&str>) -> Option<RoomEventsCursor> {
         return None;
     }
 
-    Some(RoomEventsCursor {
-        origin_server_ts,
-        event_id,
-    })
+    Some(RoomEventsCursor { origin_server_ts, event_id })
 }
 
 async fn search(
@@ -284,16 +237,9 @@ async fn search(
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
-        let room_events_next_batch = room_events
-            .next_batch
-            .as_deref()
-            .or_else(|| params.get("next_batch").map(String::as_str));
-        let search_future = search_room_events(
-            &state,
-            &auth_user.user_id,
-            room_events,
-            room_events_next_batch,
-        );
+        let room_events_next_batch =
+            room_events.next_batch.as_deref().or_else(|| params.get("next_batch").map(String::as_str));
+        let search_future = search_room_events(&state, &auth_user.user_id, room_events, room_events_next_batch);
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
@@ -370,11 +316,7 @@ async fn search_room_events(
         query_builder.push(" AND 1=0");
     }
 
-    let has_explicit_types = search
-        .filter
-        .as_ref()
-        .and_then(|f| f.types.as_ref())
-        .is_some_and(|t| !t.is_empty());
+    let has_explicit_types = search.filter.as_ref().and_then(|f| f.types.as_ref()).is_some_and(|t| !t.is_empty());
 
     if !has_explicit_types {
         query_builder.push(" AND event_type = 'm.room.message'");
@@ -454,9 +396,7 @@ async fn search_room_events(
     let next_batch = if rows.len() > limit as usize {
         rows.get(limit as usize).map(|row| {
             encode_room_events_cursor(&RoomEventsCursor {
-                origin_server_ts: row
-                    .get::<Option<i64>, _>("origin_server_ts")
-                    .unwrap_or_default(),
+                origin_server_ts: row.get::<Option<i64>, _>("origin_server_ts").unwrap_or_default(),
                 event_id: row.get::<Option<String>, _>("event_id").unwrap_or_default(),
             })
         })
@@ -503,28 +443,16 @@ async fn search_room_events(
     Ok(result)
 }
 
-async fn search_users(
-    state: &AppState,
-    user_id: &str,
-    search: &UsersSearch,
-) -> Result<Value, ApiError> {
+async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> Result<Value, ApiError> {
     let limit = search.limit.unwrap_or(DEFAULT_SEARCH_LIMIT) as i64;
 
-    let cache_key = format!(
-        "search:users:{}:{}:{}",
-        user_id,
-        search.search_term.to_lowercase(),
-        limit
-    );
+    let cache_key = format!("search:users:{}:{}:{}", user_id, search.search_term.to_lowercase(), limit);
     if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
 
     let rate_limit_key = format!("ratelimit:search-users:{user_id}");
-    let decision = state
-        .cache
-        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
-        .await?;
+    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many user search requests"));
     }
@@ -585,12 +513,7 @@ async fn build_room_hierarchy_response(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
-    if let Some(space) = state
-        .services
-        .space_service
-        .get_space_by_room(room_id)
-        .await?
-    {
+    if let Some(space) = state.services.space_service.get_space_by_room(room_id).await? {
         let response = state
             .services
             .space_service
@@ -608,17 +531,11 @@ async fn build_room_hierarchy_response(
             .map_err(|e| ApiError::internal_with_log("Failed to serialize hierarchy", &e))?;
 
         if let Some(obj) = response_value.as_object_mut() {
-            let rooms = obj
-                .get("rooms")
-                .and_then(|r| r.as_array())
-                .map_or(0, |a| a.len());
+            let rooms = obj.get("rooms").and_then(|r| r.as_array()).map_or(0, |a| a.len());
             let has_space_self = obj
                 .get("rooms")
                 .and_then(|r| r.as_array())
-                .is_some_and(|a| {
-                    a.iter()
-                        .any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id))
-                });
+                .is_some_and(|a| a.iter().any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id)));
 
             if !has_space_self || rooms <= 1 {
                 let state_events = state
@@ -637,11 +554,7 @@ async fn build_room_hierarchy_response(
                             .content
                             .get("via")
                             .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect::<Vec<_>>()
-                            })
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
                             .unwrap_or_default();
                         if !via.is_empty() {
                             children_state.push(json!({
@@ -672,12 +585,8 @@ async fn build_room_hierarchy_response(
                         map.insert(room.room_id.clone(), room);
                     }
 
-                    let state_batch = state
-                        .services
-                        .event_storage
-                        .get_state_events_batch(&child_room_ids)
-                        .await
-                        .unwrap_or_default();
+                    let state_batch =
+                        state.services.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
 
                     let mut child_rooms = Vec::new();
                     for rid in &child_room_ids {
@@ -738,16 +647,12 @@ async fn build_room_hierarchy_response(
                             }
                         } else if let Some(first) = rooms_arr.first_mut() {
                             if let Some(first_obj) = first.as_object_mut() {
-                                first_obj
-                                    .insert("children_state".to_string(), json!(children_state));
+                                first_obj.insert("children_state".to_string(), json!(children_state));
                                 first_obj.insert(
                                     "children".to_string(),
                                     json!(child_rooms_map
                                         .iter()
-                                        .filter_map(|r| r
-                                            .get("room_id")
-                                            .and_then(|v| v.as_str())
-                                            .map(String::from))
+                                        .filter_map(|r| r.get("room_id").and_then(|v| v.as_str()).map(String::from))
                                         .collect::<Vec<_>>()),
                                 );
                             }
@@ -788,11 +693,7 @@ async fn build_room_hierarchy_response(
                 .content
                 .get("via")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect::<Vec<_>>()
-                })
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
                 .unwrap_or_default();
             if !via.is_empty() {
                 children_state.push(json!({
@@ -823,12 +724,8 @@ async fn build_room_hierarchy_response(
             map.insert(room.room_id.clone(), room);
         }
 
-        let state_batch = state
-            .services
-            .event_storage
-            .get_state_events_batch(&child_room_ids)
-            .await
-            .unwrap_or_default();
+        let state_batch =
+            state.services.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
 
         let mut result = Vec::new();
         for rid in &child_room_ids {
@@ -893,26 +790,12 @@ async fn get_room_hierarchy(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(50);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
 
-    let max_depth = params
-        .get("max_depth")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3);
+    let max_depth = params.get("max_depth").and_then(|v| v.parse().ok()).unwrap_or(3);
 
-    let mut response = build_room_hierarchy_response(
-        &state,
-        &room_id,
-        &auth_user.user_id,
-        max_depth,
-        false,
-        limit,
-        None,
-    )
-    .await?;
+    let mut response =
+        build_room_hierarchy_response(&state, &room_id, &auth_user.user_id, max_depth, false, limit, None).await?;
 
     if let Some(object) = response.as_object_mut() {
         object.insert("max_depth".to_string(), json!(max_depth));
@@ -929,19 +812,11 @@ async fn get_room_hierarchy_v3(
     Path(room_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(50);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
 
-    let max_depth = params
-        .get("max_depth")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1);
+    let max_depth = params.get("max_depth").and_then(|v| v.parse().ok()).unwrap_or(1);
 
-    let suggested_only = params
-        .get("suggested_only")
-        .is_some_and(|v| v == "true");
+    let suggested_only = params.get("suggested_only").is_some_and(|v| v == "true");
 
     let mut response = build_room_hierarchy_response(
         &state,
@@ -1000,9 +875,7 @@ async fn timestamp_to_event(
             "event_id": row.get::<Option<String>, _>("event_id"),
             "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
         }))),
-        None => Err(ApiError::not_found(
-            "No event found at this timestamp".to_string(),
-        )),
+        None => Err(ApiError::not_found("No event found at this timestamp".to_string())),
     }
 }
 
@@ -1018,11 +891,7 @@ async fn get_event_context(
     crate::web::routes::validate_room_id(&room_id)?;
     crate::web::routes::validate_event_id(&event_id)?;
 
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10)
-        .clamp(1, 100);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).clamp(1, 100);
 
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
@@ -1170,10 +1039,8 @@ mod tests {
 
     #[test]
     fn test_room_events_cursor_round_trip() {
-        let cursor = RoomEventsCursor {
-            origin_server_ts: 1_746_700_000_000,
-            event_id: "$event:example.com".to_string(),
-        };
+        let cursor =
+            RoomEventsCursor { origin_server_ts: 1_746_700_000_000, event_id: "$event:example.com".to_string() };
 
         let encoded = encode_room_events_cursor(&cursor);
         assert_eq!(decode_room_events_cursor(Some(&encoded)), Some(cursor));
@@ -1194,9 +1061,7 @@ mod tests {
             "/_matrix/client/v3/rooms/{room_id}/context/{event_id}",
         ];
 
-        assert!(routes
-            .iter()
-            .all(|route| !route.contains("/user/{user_id}/rooms/{room_id}/threads")));
+        assert!(routes.iter().all(|route| !route.contains("/user/{user_id}/rooms/{room_id}/threads")));
     }
 
     #[test]
@@ -1245,10 +1110,7 @@ mod tests {
 
     #[test]
     fn test_users_search() {
-        let search = UsersSearch {
-            search_term: "alice".to_string(),
-            limit: Some(20),
-        };
+        let search = UsersSearch { search_term: "alice".to_string(), limit: Some(20) };
 
         assert_eq!(search.search_term, "alice");
         assert_eq!(search.limit, Some(20));
@@ -1258,10 +1120,7 @@ mod tests {
     fn test_filter_structure() {
         let filter = Filter {
             limit: Some(100),
-            rooms: Some(vec![
-                "!room1:example.com".to_string(),
-                "!room2:example.com".to_string(),
-            ]),
+            rooms: Some(vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()]),
             not_rooms: Some(vec!["!room3:example.com".to_string()]),
             types: Some(vec!["m.room.message".to_string()]),
             not_types: None,
@@ -1276,16 +1135,8 @@ mod tests {
 
     #[test]
     fn test_groupings_structure() {
-        let groupings = Groupings {
-            group_by: vec![
-                GroupBy {
-                    key: "room_id".to_string(),
-                },
-                GroupBy {
-                    key: "sender".to_string(),
-                },
-            ],
-        };
+        let groupings =
+            Groupings { group_by: vec![GroupBy { key: "room_id".to_string() }, GroupBy { key: "sender".to_string() }] };
 
         assert_eq!(groupings.group_by.len(), 2);
     }
@@ -1366,16 +1217,11 @@ async fn search_recipients(
     let search_term = body.search_term.trim();
 
     if search_term.is_empty() {
-        return Err(ApiError::bad_request(
-            "Search term cannot be empty".to_string(),
-        ));
+        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
     let rate_limit_key = format!("ratelimit:search-recipients:{}", auth_user.user_id);
-    let decision = state
-        .cache
-        .rate_limit_token_bucket_take(&rate_limit_key, 2, 20)
-        .await?;
+    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many recipient search requests"));
     }
@@ -1435,9 +1281,7 @@ async fn search_rooms(
     let search_term = body.search_term.trim();
 
     if search_term.is_empty() {
-        return Err(ApiError::bad_request(
-            "Search term cannot be empty".to_string(),
-        ));
+        return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());

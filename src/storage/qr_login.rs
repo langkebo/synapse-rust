@@ -30,7 +30,7 @@ impl QrLoginStorage {
             r"
             INSERT INTO qr_login_transactions (transaction_id, user_id, device_id, status, created_ts, expires_at)
             VALUES ($1, $2, $3, 'pending', $4, $5)
-            ON CONFLICT (transaction_id) DO UPDATE 
+            ON CONFLICT (transaction_id) DO UPDATE
             SET user_id = EXCLUDED.user_id, device_id = EXCLUDED.device_id, status = 'pending', expires_at = EXCLUDED.expires_at
             ",
         )
@@ -46,25 +46,11 @@ impl QrLoginStorage {
     }
 
     /// Get QR login transaction by ID
-    pub async fn get_qr_transaction(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Option<QrTransaction>, sqlx::Error> {
-        let result = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                Option<String>,
-                String,
-                i64,
-                Option<i64>,
-                i64,
-            ),
-        >(
+    pub async fn get_qr_transaction(&self, transaction_id: &str) -> Result<Option<QrTransaction>, sqlx::Error> {
+        let result = sqlx::query_as::<_, (String, String, Option<String>, String, i64, Option<i64>, i64)>(
             r"
-            SELECT transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at 
-            FROM qr_login_transactions 
+            SELECT transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at
+            FROM qr_login_transactions
             WHERE transaction_id = $1
             ",
         )
@@ -72,32 +58,18 @@ impl QrLoginStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(result.map(
-            |(transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at)| {
-                QrTransaction {
-                    transaction_id,
-                    user_id,
-                    device_id,
-                    status,
-                    created_ts,
-                    updated_ts,
-                    expires_at,
-                }
-            },
-        ))
+        Ok(result.map(|(transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at)| {
+            QrTransaction { transaction_id, user_id, device_id, status, created_ts, updated_ts, expires_at }
+        }))
     }
 
     /// Update QR login transaction status
-    pub async fn update_qr_status(
-        &self,
-        transaction_id: &str,
-        status: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_qr_status(&self, transaction_id: &str, status: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(
             r"
-            UPDATE qr_login_transactions 
+            UPDATE qr_login_transactions
             SET status = $2, updated_ts = $3
             WHERE transaction_id = $1
             ",
@@ -115,7 +87,7 @@ impl QrLoginStorage {
     pub async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
-            DELETE FROM qr_login_transactions 
+            DELETE FROM qr_login_transactions
             WHERE transaction_id = $1
             ",
         )
@@ -131,7 +103,7 @@ impl QrLoginStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
             r"
-            DELETE FROM qr_login_transactions 
+            DELETE FROM qr_login_transactions
             WHERE expires_at < $1
             ",
         )
@@ -146,7 +118,7 @@ impl QrLoginStorage {
 /// QR Login Transaction
 /// Following project field naming standards:
 /// - created_ts: NOT NULL, milliseconds timestamp
-/// - updated_ts: NULLABLE, milliseconds timestamp  
+/// - updated_ts: NULLABLE, milliseconds timestamp
 /// - expires_at: NOT NULL, milliseconds timestamp
 #[derive(Debug, Clone)]
 pub struct QrTransaction {

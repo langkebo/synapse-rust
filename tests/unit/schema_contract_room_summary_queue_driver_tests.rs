@@ -12,9 +12,7 @@ mod schema_contract_room_summary_queue_driver_suite {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping room summary queue driver tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping room summary queue driver tests because test database is unavailable: {error}");
                 None
             }
         }
@@ -73,11 +71,7 @@ mod schema_contract_room_summary_queue_driver_suite {
             .expect("Failed to create room summary fixture");
     }
 
-    async fn cleanup_room_summary_fixtures(
-        pool: &sqlx::PgPool,
-        room_id: &str,
-        user_ids: &[String],
-    ) {
+    async fn cleanup_room_summary_fixtures(pool: &sqlx::PgPool, room_id: &str, user_ids: &[String]) {
         sqlx::query("DELETE FROM room_children WHERE parent_room_id = $1 OR child_room_id = $1")
             .bind(room_id)
             .execute(pool)
@@ -239,51 +233,12 @@ mod schema_contract_room_summary_queue_driver_suite {
             .await
             .expect("Failed to create other event fixture");
 
-        insert_queue_item(
-            &pool,
-            &room_id,
-            &state_name_event_id,
-            "m.room.name",
-            Some(""),
-            10,
-            1,
-        )
-        .await;
-        insert_queue_item(
-            &pool,
-            &room_id,
-            &state_topic_event_id,
-            "m.room.topic",
-            Some(""),
-            10,
-            2,
-        )
-        .await;
-        insert_queue_item(
-            &pool,
-            &room_id,
-            &message_event_id,
-            "m.room.message",
-            None,
-            10,
-            3,
-        )
-        .await;
-        insert_queue_item(
-            &pool,
-            &room_id,
-            &other_event_id,
-            "org.example.signal",
-            None,
-            0,
-            4,
-        )
-        .await;
+        insert_queue_item(&pool, &room_id, &state_name_event_id, "m.room.name", Some(""), 10, 1).await;
+        insert_queue_item(&pool, &room_id, &state_topic_event_id, "m.room.topic", Some(""), 10, 2).await;
+        insert_queue_item(&pool, &room_id, &message_event_id, "m.room.message", None, 10, 3).await;
+        insert_queue_item(&pool, &room_id, &other_event_id, "org.example.signal", None, 0, 4).await;
 
-        let processed_first = service
-            .process_pending_updates(2)
-            .await
-            .expect("Failed to process first batch");
+        let processed_first = service.process_pending_updates(2).await.expect("Failed to process first batch");
         assert_eq!(processed_first, 2);
 
         let first_batch_rows = sqlx::query(
@@ -304,16 +259,10 @@ mod schema_contract_room_summary_queue_driver_suite {
         assert_eq!(first_batch_rows[2].get::<String, _>("status"), "pending");
         assert_eq!(first_batch_rows[3].get::<String, _>("status"), "pending");
 
-        let processed_second = service
-            .process_pending_updates(1)
-            .await
-            .expect("Failed to process second batch");
+        let processed_second = service.process_pending_updates(1).await.expect("Failed to process second batch");
         assert_eq!(processed_second, 1);
 
-        let processed_third = service
-            .process_pending_updates(10)
-            .await
-            .expect("Failed to process third batch");
+        let processed_third = service.process_pending_updates(10).await.expect("Failed to process third batch");
         assert_eq!(processed_third, 1);
 
         let final_rows = sqlx::query(
@@ -340,10 +289,7 @@ mod schema_contract_room_summary_queue_driver_suite {
             .expect("Expected summary to exist");
         assert_eq!(summary.name.as_deref(), Some("Driver Updated"));
         assert_eq!(summary.topic.as_deref(), Some("Driver Topic"));
-        assert_eq!(
-            summary.last_event_id.as_deref(),
-            Some(other_event_id.as_str())
-        );
+        assert_eq!(summary.last_event_id.as_deref(), Some(other_event_id.as_str()));
         assert_eq!(summary.last_event_ts, Some(300_i64));
         assert_eq!(summary.last_message_ts, Some(200_i64));
 
@@ -371,10 +317,8 @@ mod schema_contract_room_summary_queue_driver_suite {
             .await
             .expect("Failed to queue missing event update");
 
-        let processed_first = service
-            .process_pending_updates(10)
-            .await
-            .expect("Failed to process queue with missing event");
+        let processed_first =
+            service.process_pending_updates(10).await.expect("Failed to process queue with missing event");
         assert_eq!(processed_first, 0);
 
         let row = sqlx::query(
@@ -390,16 +334,11 @@ mod schema_contract_room_summary_queue_driver_suite {
         .await
         .expect("Failed to query missing event queue row");
         assert_eq!(row.get::<String, _>("status"), "failed");
-        assert_eq!(
-            row.get::<Option<String>, _>("error_message").as_deref(),
-            Some("Not found: Event not found")
-        );
+        assert_eq!(row.get::<Option<String>, _>("error_message").as_deref(), Some("Not found: Event not found"));
         assert_eq!(row.get::<i32, _>("retry_count"), 1);
 
-        let processed_second = service
-            .process_pending_updates(10)
-            .await
-            .expect("Failed to process queue a second time");
+        let processed_second =
+            service.process_pending_updates(10).await.expect("Failed to process queue a second time");
         assert_eq!(processed_second, 0);
 
         let row_after = sqlx::query(

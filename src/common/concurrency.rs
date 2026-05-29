@@ -8,23 +8,13 @@ pub struct ConcurrencyController {
 
 impl ConcurrencyController {
     pub fn new(max_concurrent: usize, name: String) -> Self {
-        Self {
-            semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            name,
-        }
+        Self { semaphore: Arc::new(Semaphore::new(max_concurrent)), name }
     }
 
     pub async fn acquire(&self) -> Result<ConcurrencyPermit, String> {
-        let permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| format!("Semaphore '{}' closed", self.name))?;
-        Ok(ConcurrencyPermit {
-            _permit: permit,
-            name: self.name.clone(),
-        })
+        let permit =
+            self.semaphore.clone().acquire_owned().await.map_err(|_| format!("Semaphore '{}' closed", self.name))?;
+        Ok(ConcurrencyPermit { _permit: permit, name: self.name.clone() })
     }
 
     pub fn try_acquire(&self) -> Option<ConcurrencyPermit> {
@@ -32,10 +22,7 @@ impl ConcurrencyController {
             .clone()
             .try_acquire_owned()
             .ok()
-            .map(|permit| ConcurrencyPermit {
-                _permit: permit,
-                name: self.name.clone(),
-            })
+            .map(|permit| ConcurrencyPermit { _permit: permit, name: self.name.clone() })
     }
 
     pub fn available_permits(&self) -> usize {
@@ -45,10 +32,7 @@ impl ConcurrencyController {
 
 impl Clone for ConcurrencyController {
     fn clone(&self) -> Self {
-        Self {
-            semaphore: Arc::clone(&self.semaphore),
-            name: self.name.clone(),
-        }
+        Self { semaphore: Arc::clone(&self.semaphore), name: self.name.clone() }
     }
 }
 
@@ -69,9 +53,7 @@ pub struct ConcurrencyLimiter {
 
 impl ConcurrencyLimiter {
     pub fn new() -> Self {
-        Self {
-            controllers: std::collections::HashMap::new(),
-        }
+        Self { controllers: std::collections::HashMap::new() }
     }
 
     pub fn add_controller(&mut self, name: String, max_concurrent: usize) {

@@ -88,15 +88,12 @@ impl MatrixRTCStorage {
         Self { pool }
     }
 
-    pub async fn create_session(
-        &self,
-        params: CreateSessionParams,
-    ) -> Result<RTCSession, sqlx::Error> {
+    pub async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, RTCSession>(
             r#"
-            INSERT INTO matrixrtc_sessions 
+            INSERT INTO matrixrtc_sessions
                 (room_id, session_id, application, call_id, creator, created_ts, updated_ts, is_active, config)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
             ON CONFLICT (room_id, session_id) DO UPDATE SET
@@ -118,14 +115,10 @@ impl MatrixRTCStorage {
         .await
     }
 
-    pub async fn get_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Option<RTCSession>, sqlx::Error> {
+    pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
-            SELECT * FROM matrixrtc_sessions 
+            SELECT * FROM matrixrtc_sessions
             WHERE room_id = $1 AND session_id = $2 AND is_active = true
             "#,
         )
@@ -135,13 +128,10 @@ impl MatrixRTCStorage {
         .await
     }
 
-    pub async fn get_active_sessions_for_room(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<RTCSession>, sqlx::Error> {
+    pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
-            SELECT * FROM matrixrtc_sessions 
+            SELECT * FROM matrixrtc_sessions
             WHERE room_id = $1 AND is_active = true
             ORDER BY created_ts DESC
             "#,
@@ -156,7 +146,7 @@ impl MatrixRTCStorage {
 
         sqlx::query(
             r#"
-            UPDATE matrixrtc_sessions 
+            UPDATE matrixrtc_sessions
             SET is_active = false, updated_ts = $3
             WHERE room_id = $1 AND session_id = $2
             "#,
@@ -170,16 +160,13 @@ impl MatrixRTCStorage {
         Ok(())
     }
 
-    pub async fn create_membership(
-        &self,
-        params: CreateMembershipParams,
-    ) -> Result<RTCMembership, sqlx::Error> {
+    pub async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + 3600 * 1000;
 
         sqlx::query_as::<_, RTCMembership>(
             r#"
-            INSERT INTO matrixrtc_memberships 
+            INSERT INTO matrixrtc_memberships
                 (room_id, session_id, user_id, device_id, membership_id, application, call_id,
                  created_ts, updated_ts, expires_at, foci_active, foci_preferred, application_data, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
@@ -220,8 +207,8 @@ impl MatrixRTCStorage {
 
         sqlx::query_as::<_, RTCMembership>(
             r#"
-            SELECT * FROM matrixrtc_memberships 
-            WHERE room_id = $1 AND session_id = $2 AND is_active = true 
+            SELECT * FROM matrixrtc_memberships
+            WHERE room_id = $1 AND session_id = $2 AND is_active = true
               AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY created_ts ASC
             "#,
@@ -242,7 +229,7 @@ impl MatrixRTCStorage {
     ) -> Result<Option<RTCMembership>, sqlx::Error> {
         sqlx::query_as::<_, RTCMembership>(
             r#"
-            SELECT * FROM matrixrtc_memberships 
+            SELECT * FROM matrixrtc_memberships
             WHERE room_id = $1 AND session_id = $2 AND user_id = $3 AND device_id = $4
             "#,
         )
@@ -265,7 +252,7 @@ impl MatrixRTCStorage {
 
         sqlx::query(
             r#"
-            UPDATE matrixrtc_memberships 
+            UPDATE matrixrtc_memberships
             SET is_active = false, updated_ts = $5
             WHERE room_id = $1 AND session_id = $2 AND user_id = $3 AND device_id = $4
             "#,
@@ -286,7 +273,7 @@ impl MatrixRTCStorage {
 
         let result = sqlx::query(
             r#"
-            UPDATE matrixrtc_memberships 
+            UPDATE matrixrtc_memberships
             SET is_active = false
             WHERE is_active = true AND expires_at IS NOT NULL AND expires_at < $1
             "#,
@@ -312,7 +299,7 @@ impl MatrixRTCStorage {
 
         sqlx::query_as::<_, RTCEncryptionKey>(
             r#"
-            INSERT INTO matrixrtc_encryption_keys 
+            INSERT INTO matrixrtc_encryption_keys
                 (room_id, session_id, key_index, key, created_ts, expires_at, sender_user_id, sender_device_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (room_id, session_id, key_index) DO UPDATE SET
@@ -345,8 +332,8 @@ impl MatrixRTCStorage {
 
         sqlx::query_as::<_, RTCEncryptionKey>(
             r#"
-            SELECT * FROM matrixrtc_encryption_keys 
-            WHERE room_id = $1 AND session_id = $2 
+            SELECT * FROM matrixrtc_encryption_keys
+            WHERE room_id = $1 AND session_id = $2
               AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY key_index ASC
             "#,
@@ -366,13 +353,8 @@ impl MatrixRTCStorage {
         let session = self.get_session(room_id, session_id).await?;
 
         if let Some(session) = session {
-            let memberships = self
-                .get_memberships_for_session(room_id, session_id)
-                .await?;
-            Ok(Some(SessionWithMemberships {
-                session,
-                memberships,
-            }))
+            let memberships = self.get_memberships_for_session(room_id, session_id).await?;
+            Ok(Some(SessionWithMemberships { session, memberships }))
         } else {
             Ok(None)
         }

@@ -41,7 +41,7 @@ echo "3. Generating server private key..."
 openssl genrsa -out "$SSL_DIR/server.key" 2048 2>/dev/null
 
 # Create SAN configuration file
-cat > "$SSL_DIR/san.cnf" << 'EOF'
+cat >"$SSL_DIR/san.cnf" <<'EOF'
 [req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
@@ -77,7 +77,7 @@ openssl req -new -key "$SSL_DIR/server.key" \
     -out "$SSL_DIR/server.csr" 2>/dev/null
 
 # Create extensions file for signing
-cat > "$SSL_DIR/extensions.cnf" << 'EOF'
+cat >"$SSL_DIR/extensions.cnf" <<'EOF'
 subjectAltName = DNS:cjystx.top, DNS:matrix.cjystx.top, DNS:localhost, DNS:*.cjystx.top, IP:127.0.0.1, IP:::1
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
@@ -98,7 +98,7 @@ openssl x509 -req -in "$SSL_DIR/server.csr" \
 
 # Create fullchain (server cert + CA cert)
 echo "6. Creating fullchain certificate..."
-cat "$SSL_DIR/server.crt" "$SSL_DIR/ca.crt" > "$SSL_DIR/fullchain.pem"
+cat "$SSL_DIR/server.crt" "$SSL_DIR/ca.crt" >"$SSL_DIR/fullchain.pem"
 
 # Copy private key to privkey.pem for compatibility
 cp "$SSL_DIR/server.key" "$SSL_DIR/privkey.pem"

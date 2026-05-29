@@ -6,8 +6,7 @@ mod schema_contract_p0_suite {
     use synapse_rust::services::room_summary_service::RoomSummaryService;
     use synapse_rust::storage::event::{CreateEventParams, EventStorage};
     use synapse_rust::storage::room_summary::{
-        CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage,
-        UpdateSummaryMemberRequest,
+        CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateSummaryMemberRequest,
     };
     use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest, SpaceStorage};
 
@@ -15,9 +14,7 @@ mod schema_contract_p0_suite {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping schema contract tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping schema contract tests because test database is unavailable: {error}");
                 None
             }
         }
@@ -27,10 +24,9 @@ mod schema_contract_p0_suite {
         let creator = format!("@schema-space-creator-{suffix}:localhost");
         let member = format!("@schema-space-member-{suffix}:localhost");
 
-        for (user_id, username) in [
-            (&creator, format!("schema_space_creator_{suffix}")),
-            (&member, format!("schema_space_member_{suffix}")),
-        ] {
+        for (user_id, username) in
+            [(&creator, format!("schema_space_creator_{suffix}")), (&member, format!("schema_space_member_{suffix}"))]
+        {
             sqlx::query(
                 "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
             )
@@ -130,31 +126,19 @@ mod schema_contract_p0_suite {
             row.unwrap_or_else(|| panic!("Missing column {table_name}.{column_name}"));
 
         assert!(
-            expected_data_types
-                .iter()
-                .any(|expected| data_type == *expected),
+            expected_data_types.iter().any(|expected| data_type == *expected),
             "Unexpected type for {table_name}.{column_name}: {data_type}"
         );
         let is_nullable_bool = is_nullable == "YES";
-        assert_eq!(
-            is_nullable_bool, expected_nullable,
-            "Unexpected nullability for {table_name}.{column_name}"
-        );
+        assert_eq!(is_nullable_bool, expected_nullable, "Unexpected nullability for {table_name}.{column_name}");
 
         if let Some(expected) = expected_default_substring {
             let default = column_default.unwrap_or_default();
-            assert!(
-                default.contains(expected),
-                "Unexpected default for {table_name}.{column_name}: {default}"
-            );
+            assert!(default.contains(expected), "Unexpected default for {table_name}.{column_name}: {default}");
         }
 
         if let Some(expected_len) = expected_char_max_len {
-            assert_eq!(
-                char_max_len,
-                Some(expected_len),
-                "Unexpected varchar length for {table_name}.{column_name}"
-            );
+            assert_eq!(char_max_len, Some(expected_len), "Unexpected varchar length for {table_name}.{column_name}");
         }
     }
 
@@ -197,11 +181,7 @@ mod schema_contract_p0_suite {
         columns
     }
 
-    async fn has_unique_constraint_on(
-        pool: &sqlx::PgPool,
-        table_name: &str,
-        columns: &[&str],
-    ) -> bool {
+    async fn has_unique_constraint_on(pool: &sqlx::PgPool, table_name: &str, columns: &[&str]) -> bool {
         let rows: Vec<(String, Vec<String>)> = sqlx::query_as(
             r#"
             SELECT tc.constraint_name,
@@ -222,11 +202,7 @@ mod schema_contract_p0_suite {
         .expect("Failed to query unique constraints");
 
         rows.into_iter().any(|(_, cols)| {
-            cols.len() == columns.len()
-                && cols
-                    .iter()
-                    .zip(columns.iter())
-                    .all(|(actual, expected)| actual == expected)
+            cols.len() == columns.len() && cols.iter().zip(columns.iter()).all(|(actual, expected)| actual == expected)
         })
     }
 
@@ -251,10 +227,9 @@ mod schema_contract_p0_suite {
         let hero = format!("@schema-summary-hero-{suffix}:localhost");
         let room_id = format!("!schema-summary-room-{suffix}:localhost");
 
-        for (user_id, username) in [
-            (&creator, format!("schema_summary_creator_{suffix}")),
-            (&hero, format!("schema_summary_hero_{suffix}")),
-        ] {
+        for (user_id, username) in
+            [(&creator, format!("schema_summary_creator_{suffix}")), (&hero, format!("schema_summary_hero_{suffix}"))]
+        {
             sqlx::query(
                 "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
             )
@@ -279,11 +254,7 @@ mod schema_contract_p0_suite {
         (creator, hero, room_id)
     }
 
-    async fn cleanup_room_summary_fixtures(
-        pool: &sqlx::PgPool,
-        room_id: &str,
-        user_ids: &[String],
-    ) {
+    async fn cleanup_room_summary_fixtures(pool: &sqlx::PgPool, room_id: &str, user_ids: &[String]) {
         sqlx::query("DELETE FROM room_children WHERE parent_room_id = $1 OR child_room_id = $1")
             .bind(room_id)
             .execute(pool)
@@ -363,62 +334,18 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "room_memberships",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_memberships",
-            "user_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_memberships",
-            "membership",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_memberships",
-            "updated_ts",
-            &["bigint"],
-            true,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_memberships", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_memberships", "user_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_memberships", "membership", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_memberships", "updated_ts", &["bigint"], true, None, None).await;
 
         let pk_cols = primary_key_columns(&pool, "room_memberships").await;
         let has_id = has_column(&pool, "room_memberships", "id").await;
         if has_id {
-            assert_column(
-                &pool,
-                "room_memberships",
-                "id",
-                &["bigint"],
-                false,
-                Some("nextval("),
-                None,
-            )
-            .await;
+            assert_column(&pool, "room_memberships", "id", &["bigint"], false, Some("nextval("), None).await;
             assert!(
-                pk_cols == vec!["id".to_string()] || has_unique_constraint_on(&pool, "room_memberships", &["room_id", "user_id"]).await,
+                pk_cols == vec!["id".to_string()]
+                    || has_unique_constraint_on(&pool, "room_memberships", &["room_id", "user_id"]).await,
                 "Expected room_memberships to have PK(id) and UNIQUE(room_id,user_id), got PK={pk_cols:?}"
             );
         } else {
@@ -436,69 +363,15 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "events",
-            "event_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "events",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "events",
-            "sender",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "events",
-            "event_type",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "events", "event_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "events", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "events", "sender", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "events", "event_type", &["text", "character varying"], false, None, None).await;
         assert_column(&pool, "events", "content", &["jsonb"], false, None, None).await;
-        assert_column(
-            &pool,
-            "events",
-            "origin_server_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "events", "origin_server_ts", &["bigint"], false, None, None).await;
 
         if has_column(&pool, "events", "is_redacted").await {
-            assert_column(
-                &pool,
-                "events",
-                "is_redacted",
-                &["boolean"],
-                true,
-                Some("false"),
-                None,
-            )
-            .await;
+            assert_column(&pool, "events", "is_redacted", &["boolean"], true, Some("false"), None).await;
         }
 
         if has_column(&pool, "events", "unsigned").await {
@@ -513,56 +386,11 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "account_data",
-            "user_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "account_data",
-            "data_type",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "account_data",
-            "content",
-            &["jsonb"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "account_data",
-            "created_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "account_data",
-            "updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "account_data", "user_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "account_data", "data_type", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "account_data", "content", &["jsonb"], false, None, None).await;
+        assert_column(&pool, "account_data", "created_ts", &["bigint"], false, None, None).await;
+        assert_column(&pool, "account_data", "updated_ts", &["bigint"], false, None, None).await;
         assert!(
             has_unique_constraint_on(&pool, "account_data", &["user_id", "data_type"]).await,
             "Expected account_data UNIQUE(user_id,data_type)"
@@ -572,53 +400,12 @@ mod schema_contract_p0_suite {
             "Expected account_data index idx_account_data_user"
         );
 
-        assert_column(
-            &pool,
-            "room_account_data",
-            "user_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_account_data",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_account_data",
-            "data_type",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_account_data",
-            "data",
-            &["jsonb"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_account_data", "user_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_account_data", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_account_data", "data_type", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_account_data", "data", &["jsonb"], false, None, None).await;
         assert!(
-            has_unique_constraint_on(
-                &pool,
-                "room_account_data",
-                &["user_id", "room_id", "data_type"]
-            )
-            .await,
+            has_unique_constraint_on(&pool, "room_account_data", &["user_id", "room_id", "data_type"]).await,
             "Expected room_account_data UNIQUE(user_id,room_id,data_type)"
         );
     }
@@ -668,10 +455,7 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to query inserted account_data");
 
-        assert_eq!(
-            inserted_row.get::<Option<serde_json::Value>, _>("content"),
-            Some(original_content.clone())
-        );
+        assert_eq!(inserted_row.get::<Option<serde_json::Value>, _>("content"), Some(original_content.clone()));
         assert_eq!(inserted_row.get::<i64, _>("created_ts"), created_ts);
         assert_eq!(inserted_row.get::<i64, _>("updated_ts"), created_ts);
 
@@ -701,10 +485,7 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to query updated account_data");
 
-        assert_eq!(
-            updated_row.get::<Option<serde_json::Value>, _>("content"),
-            Some(updated_content)
-        );
+        assert_eq!(updated_row.get::<Option<serde_json::Value>, _>("content"), Some(updated_content));
         assert_eq!(updated_row.get::<i64, _>("created_ts"), created_ts);
         assert_eq!(updated_row.get::<i64, _>("updated_ts"), updated_ts);
 
@@ -762,10 +543,7 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to query inserted room_account_data");
 
-        assert_eq!(
-            inserted_row.get::<Option<serde_json::Value>, _>("data"),
-            Some(original_data.clone())
-        );
+        assert_eq!(inserted_row.get::<Option<serde_json::Value>, _>("data"), Some(original_data.clone()));
         assert_eq!(inserted_row.get::<i64, _>("created_ts"), created_ts);
         assert_eq!(inserted_row.get::<i64, _>("updated_ts"), created_ts);
 
@@ -797,22 +575,17 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to query updated room_account_data");
 
-        assert_eq!(
-            updated_row.get::<Option<serde_json::Value>, _>("data"),
-            Some(updated_data)
-        );
+        assert_eq!(updated_row.get::<Option<serde_json::Value>, _>("data"), Some(updated_data));
         assert_eq!(updated_row.get::<i64, _>("created_ts"), created_ts);
         assert_eq!(updated_row.get::<i64, _>("updated_ts"), updated_ts);
 
-        sqlx::query(
-            "DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-        )
-        .bind(&user_id)
-        .bind(&room_id)
-        .bind(data_type)
-        .execute(&*pool)
-        .await
-        .expect("Failed to clean room_account_data fixture");
+        sqlx::query("DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
+            .bind(&user_id)
+            .bind(&room_id)
+            .bind(data_type)
+            .execute(&*pool)
+            .await
+            .expect("Failed to clean room_account_data fixture");
     }
 
     #[tokio::test]
@@ -822,121 +595,23 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "push_rules",
-            "user_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "scope",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "rule_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "kind",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "priority_class",
-            &["integer"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "priority",
-            &["integer"],
-            true,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "conditions",
-            &["jsonb"],
-            true,
-            Some("[]"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "push_rules",
-            "actions",
-            &["jsonb"],
-            true,
-            Some("[]"),
-            None,
-        )
-        .await;
+        assert_column(&pool, "push_rules", "user_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "push_rules", "scope", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "push_rules", "rule_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "push_rules", "kind", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "push_rules", "priority_class", &["integer"], false, None, None).await;
+        assert_column(&pool, "push_rules", "priority", &["integer"], true, Some("0"), None).await;
+        assert_column(&pool, "push_rules", "conditions", &["jsonb"], true, Some("[]"), None).await;
+        assert_column(&pool, "push_rules", "actions", &["jsonb"], true, Some("[]"), None).await;
         if has_column(&pool, "push_rules", "is_enabled").await {
-            assert_column(
-                &pool,
-                "push_rules",
-                "is_enabled",
-                &["boolean"],
-                true,
-                Some("true"),
-                None,
-            )
-            .await;
+            assert_column(&pool, "push_rules", "is_enabled", &["boolean"], true, Some("true"), None).await;
         }
-        assert_column(
-            &pool,
-            "push_rules",
-            "created_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "push_rules", "created_ts", &["bigint"], false, None, None).await;
         assert!(
-            has_unique_constraint_on(
-                &pool,
-                "push_rules",
-                &["user_id", "scope", "kind", "rule_id"]
-            )
-            .await,
+            has_unique_constraint_on(&pool, "push_rules", &["user_id", "scope", "kind", "rule_id"]).await,
             "Expected push_rules UNIQUE(user_id,scope,kind,rule_id)"
         );
-        assert!(
-            has_index_named(&pool, "idx_push_rules_user").await,
-            "Expected push_rules index idx_push_rules_user"
-        );
+        assert!(has_index_named(&pool, "idx_push_rules_user").await, "Expected push_rules index idx_push_rules_user");
         assert!(
             has_index_named(&pool, "idx_push_rules_user_priority").await,
             "Expected push_rules index idx_push_rules_user_priority because push queries sort by priority"
@@ -1006,22 +681,10 @@ mod schema_contract_p0_suite {
 
         assert_eq!(rows.len(), 1, "Expected one push rule row");
         let row = &rows[0];
-        assert_eq!(
-            row.get::<Option<String>, _>("rule_id").as_deref(),
-            Some(rule_id.as_str())
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("pattern").as_deref(),
-            pattern.as_deref()
-        );
-        assert_eq!(
-            row.get::<Option<serde_json::Value>, _>("conditions"),
-            Some(conditions.clone())
-        );
-        assert_eq!(
-            row.get::<Option<serde_json::Value>, _>("actions"),
-            Some(actions.clone())
-        );
+        assert_eq!(row.get::<Option<String>, _>("rule_id").as_deref(), Some(rule_id.as_str()));
+        assert_eq!(row.get::<Option<String>, _>("pattern").as_deref(), pattern.as_deref());
+        assert_eq!(row.get::<Option<serde_json::Value>, _>("conditions"), Some(conditions.clone()));
+        assert_eq!(row.get::<Option<serde_json::Value>, _>("actions"), Some(actions.clone()));
         assert_eq!(row.get::<Option<bool>, _>("is_enabled"), Some(true));
         assert_eq!(row.get::<Option<bool>, _>("is_default"), Some(false));
 
@@ -1054,14 +717,8 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to fetch updated push rule");
 
-        assert_eq!(
-            enabled_row.get::<Option<bool>, _>("is_enabled"),
-            Some(false)
-        );
-        assert_eq!(
-            enabled_row.get::<Option<serde_json::Value>, _>("actions"),
-            Some(toggled_actions)
-        );
+        assert_eq!(enabled_row.get::<Option<bool>, _>("is_enabled"), Some(false));
+        assert_eq!(enabled_row.get::<Option<serde_json::Value>, _>("actions"), Some(toggled_actions));
 
         sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
             .bind(&user_id)
@@ -1080,76 +737,16 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "min_lifetime",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "max_lifetime",
-            &["bigint"],
-            true,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "expire_on_clients",
-            &["boolean"],
-            false,
-            Some("false"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "is_server_default",
-            &["boolean"],
-            false,
-            Some("false"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "created_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_retention_policies",
-            "updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_retention_policies", "room_id", &["text", "character varying"], false, None, None)
+            .await;
+        assert_column(&pool, "room_retention_policies", "min_lifetime", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_retention_policies", "max_lifetime", &["bigint"], true, None, None).await;
+        assert_column(&pool, "room_retention_policies", "expire_on_clients", &["boolean"], false, Some("false"), None)
+            .await;
+        assert_column(&pool, "room_retention_policies", "is_server_default", &["boolean"], false, Some("false"), None)
+            .await;
+        assert_column(&pool, "room_retention_policies", "created_ts", &["bigint"], false, None, None).await;
+        assert_column(&pool, "room_retention_policies", "updated_ts", &["bigint"], false, None, None).await;
 
         assert!(
             has_unique_constraint_on(&pool, "room_retention_policies", &["room_id"]).await,
@@ -1265,46 +862,10 @@ mod schema_contract_p0_suite {
             "Expected room_summary_members UNIQUE(room_id,user_id)"
         );
 
-        assert_column(
-            &pool,
-            "room_summaries",
-            "hero_users",
-            &["jsonb"],
-            false,
-            Some("'[]'::jsonb"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summaries",
-            "updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_members",
-            "membership",
-            &["text"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_members",
-            "is_hero",
-            &["boolean"],
-            false,
-            Some("false"),
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summaries", "hero_users", &["jsonb"], false, Some("'[]'::jsonb"), None).await;
+        assert_column(&pool, "room_summaries", "updated_ts", &["bigint"], false, None, None).await;
+        assert_column(&pool, "room_summary_members", "membership", &["text"], false, None, None).await;
+        assert_column(&pool, "room_summary_members", "is_hero", &["boolean"], false, Some("false"), None).await;
 
         assert!(
             has_index_named(&pool, "idx_room_summaries_last_event_ts").await,
@@ -1425,17 +986,12 @@ mod schema_contract_p0_suite {
         assert_eq!(after_update.joined_member_count, 2);
         assert_eq!(after_update.invited_member_count, 0);
 
-        let visible_to_hero = storage
-            .get_summaries_for_user(&hero)
-            .await
-            .expect("Failed to query room summaries for hero");
+        let visible_to_hero =
+            storage.get_summaries_for_user(&hero).await.expect("Failed to query room summaries for hero");
         assert_eq!(visible_to_hero.len(), 1);
         assert_eq!(visible_to_hero[0].room_id, room_id);
 
-        let heroes = storage
-            .get_heroes(&room_id, 5)
-            .await
-            .expect("Failed to query room summary heroes");
+        let heroes = storage.get_heroes(&room_id, 5).await.expect("Failed to query room summary heroes");
         assert_eq!(heroes.len(), 2);
         assert_eq!(heroes[0].user_id, hero);
         assert_eq!(heroes[0].membership, "join");
@@ -1451,83 +1007,17 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "id",
-            &["bigint"],
-            false,
-            Some("nextval("),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "event_type",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "state_key",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "event_id",
-            &["text", "character varying"],
-            true,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "content",
-            &["jsonb"],
-            false,
-            Some("'{}'::jsonb"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_state",
-            "updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_state", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "room_summary_state", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_summary_state", "event_type", &["text", "character varying"], false, None, None)
+            .await;
+        assert_column(&pool, "room_summary_state", "state_key", &["text", "character varying"], false, None, None)
+            .await;
+        assert_column(&pool, "room_summary_state", "event_id", &["text", "character varying"], true, None, None).await;
+        assert_column(&pool, "room_summary_state", "content", &["jsonb"], false, Some("'{}'::jsonb"), None).await;
+        assert_column(&pool, "room_summary_state", "updated_ts", &["bigint"], false, None, None).await;
         assert!(
-            has_unique_constraint_on(
-                &pool,
-                "room_summary_state",
-                &["room_id", "event_type", "state_key"]
-            )
-            .await,
+            has_unique_constraint_on(&pool, "room_summary_state", &["room_id", "event_type", "state_key"]).await,
             "Expected room_summary_state UNIQUE(room_id,event_type,state_key)"
         );
         assert!(
@@ -1535,86 +1025,14 @@ mod schema_contract_p0_suite {
             "Expected room_summary_state index idx_room_summary_state_room"
         );
 
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "id",
-            &["bigint"],
-            false,
-            Some("nextval("),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "total_events",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "total_state_events",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "total_messages",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "total_media",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "storage_size",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_stats",
-            "last_updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_stats", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "room_summary_stats", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_summary_stats", "total_events", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_summary_stats", "total_state_events", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_summary_stats", "total_messages", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_summary_stats", "total_media", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_summary_stats", "storage_size", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_summary_stats", "last_updated_ts", &["bigint"], false, None, None).await;
         assert!(
             has_unique_constraint_on(&pool, "room_summary_stats", &["room_id"]).await,
             "Expected room_summary_stats UNIQUE(room_id)"
@@ -1656,14 +1074,8 @@ mod schema_contract_p0_suite {
             )
             .await
             .expect("Failed to upsert room summary state");
-        assert_eq!(
-            updated_state.event_id.as_deref(),
-            Some("$summary-state-updated")
-        );
-        assert_eq!(
-            updated_state.content,
-            serde_json::json!({ "name": "Schema Summary Updated" })
-        );
+        assert_eq!(updated_state.event_id.as_deref(), Some("$summary-state-updated"));
+        assert_eq!(updated_state.content, serde_json::json!({ "name": "Schema Summary Updated" }));
 
         let topic_state = storage
             .set_state(
@@ -1682,35 +1094,22 @@ mod schema_contract_p0_suite {
             .await
             .expect("Failed to fetch room summary state")
             .expect("Expected room summary state to exist");
-        assert_eq!(
-            fetched_state.event_id.as_deref(),
-            Some("$summary-state-updated")
-        );
-        assert_eq!(
-            fetched_state.content,
-            serde_json::json!({ "name": "Schema Summary Updated" })
-        );
+        assert_eq!(fetched_state.event_id.as_deref(), Some("$summary-state-updated"));
+        assert_eq!(fetched_state.content, serde_json::json!({ "name": "Schema Summary Updated" }));
 
-        let all_state = storage
-            .get_all_state(&room_id)
-            .await
-            .expect("Failed to fetch all room summary state");
+        let all_state = storage.get_all_state(&room_id).await.expect("Failed to fetch all room summary state");
         assert_eq!(all_state.len(), 2, "Expected two room summary state rows");
         assert!(all_state.iter().any(|row| row.event_type == "m.room.name"));
         assert!(all_state.iter().any(|row| row.event_type == "m.room.topic"));
 
-        let initial_stats = storage
-            .update_stats(&room_id, 10, 2, 8, 1, 1024)
-            .await
-            .expect("Failed to insert room summary stats");
+        let initial_stats =
+            storage.update_stats(&room_id, 10, 2, 8, 1, 1024).await.expect("Failed to insert room summary stats");
         assert_eq!(initial_stats.room_id, room_id);
         assert_eq!(initial_stats.total_events, 10);
         assert_eq!(initial_stats.total_messages, 8);
 
-        let updated_stats = storage
-            .update_stats(&room_id, 15, 4, 11, 2, 4096)
-            .await
-            .expect("Failed to update room summary stats");
+        let updated_stats =
+            storage.update_stats(&room_id, 15, 4, 11, 2, 4096).await.expect("Failed to update room summary stats");
         assert_eq!(updated_stats.total_events, 15);
         assert_eq!(updated_stats.total_state_events, 4);
         assert_eq!(updated_stats.total_messages, 11);
@@ -1738,26 +1137,9 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "id",
-            &["bigint"],
-            false,
-            Some("nextval("),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_update_queue", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "room_summary_update_queue", "room_id", &["text", "character varying"], false, None, None)
+            .await;
         assert_column(
             &pool,
             "room_summary_update_queue",
@@ -1788,16 +1170,7 @@ mod schema_contract_p0_suite {
             None,
         )
         .await;
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "priority",
-            &["integer"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_update_queue", "priority", &["integer"], false, Some("0"), None).await;
         assert_column(
             &pool,
             "room_summary_update_queue",
@@ -1808,26 +1181,8 @@ mod schema_contract_p0_suite {
             None,
         )
         .await;
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "created_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "processed_ts",
-            &["bigint"],
-            true,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_update_queue", "created_ts", &["bigint"], false, None, None).await;
+        assert_column(&pool, "room_summary_update_queue", "processed_ts", &["bigint"], true, None, None).await;
         assert_column(
             &pool,
             "room_summary_update_queue",
@@ -1838,108 +1193,23 @@ mod schema_contract_p0_suite {
             None,
         )
         .await;
-        assert_column(
-            &pool,
-            "room_summary_update_queue",
-            "retry_count",
-            &["integer"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_summary_update_queue", "retry_count", &["integer"], false, Some("0"), None).await;
         assert!(
-            has_index_named(
-                &pool,
-                "idx_room_summary_update_queue_status_priority_created"
-            )
-            .await,
+            has_index_named(&pool, "idx_room_summary_update_queue_status_priority_created").await,
             "Expected room_summary_update_queue index idx_room_summary_update_queue_status_priority_created"
         );
 
-        assert_column(
-            &pool,
-            "room_children",
-            "id",
-            &["bigint"],
-            false,
-            Some("nextval("),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "parent_room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "child_room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "state_key",
-            &["text", "character varying"],
-            true,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "content",
-            &["jsonb"],
-            false,
-            Some("'{}'::jsonb"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "suggested",
-            &["boolean"],
-            false,
-            Some("false"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "created_ts",
-            &["bigint"],
-            false,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "room_children",
-            "updated_ts",
-            &["bigint"],
-            true,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "room_children", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "room_children", "parent_room_id", &["text", "character varying"], false, None, None)
+            .await;
+        assert_column(&pool, "room_children", "child_room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "room_children", "state_key", &["text", "character varying"], true, None, None).await;
+        assert_column(&pool, "room_children", "content", &["jsonb"], false, Some("'{}'::jsonb"), None).await;
+        assert_column(&pool, "room_children", "suggested", &["boolean"], false, Some("false"), None).await;
+        assert_column(&pool, "room_children", "created_ts", &["bigint"], false, Some("0"), None).await;
+        assert_column(&pool, "room_children", "updated_ts", &["bigint"], true, None, None).await;
         assert!(
-            has_unique_constraint_on(&pool, "room_children", &["parent_room_id", "child_room_id"])
-                .await,
+            has_unique_constraint_on(&pool, "room_children", &["parent_room_id", "child_room_id"]).await,
             "Expected room_children UNIQUE(parent_room_id,child_room_id)"
         );
         assert!(
@@ -1963,8 +1233,7 @@ mod schema_contract_p0_suite {
         let parent_suffix = uuid::Uuid::new_v4().to_string();
         let child_suffix = format!("{parent_suffix}-child");
         let (creator, hero, room_id) = seed_users_and_room(&pool, &parent_suffix).await;
-        let (child_creator, child_hero, child_room_id) =
-            seed_users_and_room(&pool, &child_suffix).await;
+        let (child_creator, child_hero, child_room_id) = seed_users_and_room(&pool, &child_suffix).await;
 
         storage
             .queue_update(&room_id, "$summary-high", "m.room.message", None, 9)
@@ -1975,14 +1244,9 @@ mod schema_contract_p0_suite {
             .await
             .expect("Failed to queue low priority room summary update");
 
-        let pending_updates = storage
-            .get_pending_updates(10)
-            .await
-            .expect("Failed to query pending room summary updates");
-        assert!(
-            pending_updates.len() >= 2,
-            "Expected at least two pending room summary updates"
-        );
+        let pending_updates =
+            storage.get_pending_updates(10).await.expect("Failed to query pending room summary updates");
+        assert!(pending_updates.len() >= 2, "Expected at least two pending room summary updates");
         assert_eq!(pending_updates[0].event_id, "$summary-high");
         assert_eq!(pending_updates[0].priority, 9);
         assert_eq!(pending_updates[1].event_id, "$summary-low");
@@ -1997,44 +1261,31 @@ mod schema_contract_p0_suite {
             .await
             .expect("Failed to mark room summary update as failed");
 
-        let processed_row = sqlx::query(
-            "SELECT status, processed_ts, retry_count FROM room_summary_update_queue WHERE id = $1",
-        )
-        .bind(pending_updates[0].id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to fetch processed room summary update");
+        let processed_row =
+            sqlx::query("SELECT status, processed_ts, retry_count FROM room_summary_update_queue WHERE id = $1")
+                .bind(pending_updates[0].id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to fetch processed room summary update");
         assert_eq!(
             processed_row.get::<String, _>("status"),
             "processed",
             "Expected processed room summary update status"
         );
         assert!(
-            processed_row
-                .get::<Option<i64>, _>("processed_ts")
-                .is_some(),
+            processed_row.get::<Option<i64>, _>("processed_ts").is_some(),
             "Expected processed_ts to be set after mark_update_processed"
         );
         assert_eq!(processed_row.get::<i32, _>("retry_count"), 0);
 
-        let failed_row = sqlx::query(
-            "SELECT status, error_message, retry_count FROM room_summary_update_queue WHERE id = $1",
-        )
-        .bind(pending_updates[1].id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to fetch failed room summary update");
-        assert_eq!(
-            failed_row.get::<String, _>("status"),
-            "failed",
-            "Expected failed room summary update status"
-        );
-        assert_eq!(
-            failed_row
-                .get::<Option<String>, _>("error_message")
-                .as_deref(),
-            Some("schema-contract failure")
-        );
+        let failed_row =
+            sqlx::query("SELECT status, error_message, retry_count FROM room_summary_update_queue WHERE id = $1")
+                .bind(pending_updates[1].id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to fetch failed room summary update");
+        assert_eq!(failed_row.get::<String, _>("status"), "failed", "Expected failed room summary update status");
+        assert_eq!(failed_row.get::<Option<String>, _>("error_message").as_deref(), Some("schema-contract failure"));
         assert_eq!(failed_row.get::<i32, _>("retry_count"), 1);
 
         sqlx::query(
@@ -2091,10 +1342,7 @@ mod schema_contract_p0_suite {
         .fetch_one(&*pool)
         .await
         .expect("Failed to fetch room_children row");
-        assert_eq!(
-            child_row.get::<Option<String>, _>("state_key").as_deref(),
-            Some("child-state-updated")
-        );
+        assert_eq!(child_row.get::<Option<String>, _>("state_key").as_deref(), Some("child-state-updated"));
         assert_eq!(
             child_row.get::<serde_json::Value, _>("content"),
             serde_json::json!({ "via": ["localhost"], "order": "2" })
@@ -2103,18 +1351,14 @@ mod schema_contract_p0_suite {
         assert_eq!(child_row.get::<i64, _>("created_ts"), 100_i64);
         assert_eq!(child_row.get::<Option<i64>, _>("updated_ts"), Some(200_i64));
 
-        let child_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_children WHERE parent_room_id = $1 AND child_room_id = $2",
-        )
-        .bind(&room_id)
-        .bind(&child_room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to count room_children rows");
-        assert_eq!(
-            child_count, 1,
-            "Expected room_children upsert to keep one row"
-        );
+        let child_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM room_children WHERE parent_room_id = $1 AND child_room_id = $2")
+                .bind(&room_id)
+                .bind(&child_room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("Failed to count room_children rows");
+        assert_eq!(child_count, 1, "Expected room_children upsert to keep one row");
 
         cleanup_room_summary_fixtures(&pool, &room_id, &[creator, hero]).await;
         cleanup_room_summary_fixtures(&pool, &child_room_id, &[child_creator, child_hero]).await;
@@ -2127,66 +1371,12 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "search_index",
-            "event_id",
-            &["character varying"],
-            false,
-            None,
-            Some(255),
-        )
-        .await;
-        assert_column(
-            &pool,
-            "search_index",
-            "room_id",
-            &["character varying"],
-            false,
-            None,
-            Some(255),
-        )
-        .await;
-        assert_column(
-            &pool,
-            "search_index",
-            "user_id",
-            &["character varying"],
-            false,
-            None,
-            Some(255),
-        )
-        .await;
-        assert_column(
-            &pool,
-            "search_index",
-            "event_type",
-            &["character varying"],
-            false,
-            None,
-            Some(255),
-        )
-        .await;
-        assert_column(
-            &pool,
-            "search_index",
-            "content",
-            &["text"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "search_index",
-            "created_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "search_index", "event_id", &["character varying"], false, None, Some(255)).await;
+        assert_column(&pool, "search_index", "room_id", &["character varying"], false, None, Some(255)).await;
+        assert_column(&pool, "search_index", "user_id", &["character varying"], false, None, Some(255)).await;
+        assert_column(&pool, "search_index", "event_type", &["character varying"], false, None, Some(255)).await;
+        assert_column(&pool, "search_index", "content", &["text"], false, None, None).await;
+        assert_column(&pool, "search_index", "created_ts", &["bigint"], false, None, None).await;
 
         assert!(
             has_unique_constraint_on(&pool, "search_index", &["event_id"]).await,
@@ -2305,20 +1495,15 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to upsert search_index fixture");
 
-        let updated_row = sqlx::query(
-            "SELECT content, created_ts, updated_ts FROM search_index WHERE event_id = $1",
-        )
-        .bind(&event_id_old)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to fetch updated search_index row");
+        let updated_row = sqlx::query("SELECT content, created_ts, updated_ts FROM search_index WHERE event_id = $1")
+            .bind(&event_id_old)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to fetch updated search_index row");
 
         assert_eq!(updated_row.get::<String, _>("content"), updated_content);
         assert_eq!(updated_row.get::<i64, _>("created_ts"), created_ts_old);
-        assert_eq!(
-            updated_row.get::<Option<i64>, _>("updated_ts"),
-            Some(updated_ts)
-        );
+        assert_eq!(updated_row.get::<Option<i64>, _>("updated_ts"), Some(updated_ts));
 
         sqlx::query("DELETE FROM search_index WHERE event_id = $1 OR event_id = $2")
             .bind(&event_id_old)
@@ -2335,56 +1520,12 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "space_members",
-            "space_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_members",
-            "user_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_members",
-            "membership",
-            &["text", "character varying"],
-            false,
-            Some("join"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_members",
-            "joined_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_members",
-            "updated_ts",
-            &["bigint"],
-            true,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "space_members", "space_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_members", "user_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_members", "membership", &["text", "character varying"], false, Some("join"), None)
+            .await;
+        assert_column(&pool, "space_members", "joined_ts", &["bigint"], false, None, None).await;
+        assert_column(&pool, "space_members", "updated_ts", &["bigint"], true, None, None).await;
         assert!(
             has_unique_constraint_on(&pool, "space_members", &["space_id", "user_id"]).await,
             "Expected space_members UNIQUE(space_id,user_id)"
@@ -2402,56 +1543,11 @@ mod schema_contract_p0_suite {
             "Expected space_members index idx_space_members_membership"
         );
 
-        assert_column(
-            &pool,
-            "space_summaries",
-            "space_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_summaries",
-            "summary",
-            &["jsonb"],
-            true,
-            Some("'{}'::jsonb"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_summaries",
-            "children_count",
-            &["bigint"],
-            true,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_summaries",
-            "member_count",
-            &["bigint"],
-            true,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_summaries",
-            "updated_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "space_summaries", "space_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_summaries", "summary", &["jsonb"], true, Some("'{}'::jsonb"), None).await;
+        assert_column(&pool, "space_summaries", "children_count", &["bigint"], true, Some("0"), None).await;
+        assert_column(&pool, "space_summaries", "member_count", &["bigint"], true, Some("0"), None).await;
+        assert_column(&pool, "space_summaries", "updated_ts", &["bigint"], false, None, None).await;
         assert!(
             has_unique_constraint_on(&pool, "space_summaries", &["space_id"]).await,
             "Expected space_summaries UNIQUE(space_id)"
@@ -2466,56 +1562,11 @@ mod schema_contract_p0_suite {
             vec!["event_id".to_string()],
             "Expected space_events PRIMARY KEY(event_id)"
         );
-        assert_column(
-            &pool,
-            "space_events",
-            "space_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_events",
-            "event_type",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_events",
-            "sender",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_events",
-            "content",
-            &["jsonb"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_events",
-            "origin_server_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "space_events", "space_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_events", "event_type", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_events", "sender", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_events", "content", &["jsonb"], false, None, None).await;
+        assert_column(&pool, "space_events", "origin_server_ts", &["bigint"], false, None, None).await;
         assert!(
             has_index_named(&pool, "idx_space_events_space").await,
             "Expected space_events index idx_space_events_space"
@@ -2534,36 +1585,9 @@ mod schema_contract_p0_suite {
             vec!["space_id".to_string()],
             "Expected space_statistics PRIMARY KEY(space_id)"
         );
-        assert_column(
-            &pool,
-            "space_statistics",
-            "is_public",
-            &["boolean"],
-            false,
-            Some("false"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_statistics",
-            "child_room_count",
-            &["bigint"],
-            true,
-            Some("0"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_statistics",
-            "member_count",
-            &["bigint"],
-            true,
-            Some("0"),
-            None,
-        )
-        .await;
+        assert_column(&pool, "space_statistics", "is_public", &["boolean"], false, Some("false"), None).await;
+        assert_column(&pool, "space_statistics", "child_room_count", &["bigint"], true, Some("0"), None).await;
+        assert_column(&pool, "space_statistics", "member_count", &["bigint"], true, Some("0"), None).await;
         assert!(
             has_index_named(&pool, "idx_space_statistics_member_count").await,
             "Expected space_statistics index idx_space_statistics_member_count"
@@ -2611,10 +1635,7 @@ mod schema_contract_p0_suite {
             })
             .await
             .expect("Failed to add space child");
-        storage
-            .update_space_summary(&space.space_id)
-            .await
-            .expect("Failed to update space summary");
+        storage.update_space_summary(&space.space_id).await.expect("Failed to update space summary");
 
         let summary = storage
             .get_space_summary(&space.space_id)
@@ -2655,14 +1676,9 @@ mod schema_contract_p0_suite {
         .await
         .expect("Failed to upsert space_statistics fixture");
 
-        let statistics = storage
-            .get_space_statistics()
-            .await
-            .expect("Failed to query space statistics");
-        let statistics_row = statistics
-            .iter()
-            .find(|row| row["space_id"] == space.space_id)
-            .expect("Expected space statistics row");
+        let statistics = storage.get_space_statistics().await.expect("Failed to query space statistics");
+        let statistics_row =
+            statistics.iter().find(|row| row["space_id"] == space.space_id).expect("Expected space statistics row");
         assert_eq!(statistics_row["child_room_count"], 1);
         assert_eq!(statistics_row["member_count"], 2);
 
@@ -2699,18 +1715,9 @@ mod schema_contract_p0_suite {
         assert_eq!(events[0].space_id, space.space_id);
         assert_eq!(events[0].event_type, "m.space.child");
 
-        storage
-            .remove_space_member(&space.space_id, &member)
-            .await
-            .expect("Failed to remove joined space member");
-        storage
-            .remove_child(&space.space_id, &child_room_id)
-            .await
-            .expect("Failed to remove space child");
-        storage
-            .update_space_summary(&space.space_id)
-            .await
-            .expect("Failed to refresh space summary after removals");
+        storage.remove_space_member(&space.space_id, &member).await.expect("Failed to remove joined space member");
+        storage.remove_child(&space.space_id, &child_room_id).await.expect("Failed to remove space child");
+        storage.update_space_summary(&space.space_id).await.expect("Failed to refresh space summary after removals");
 
         let summary_after_update = storage
             .get_space_summary(&space.space_id)
@@ -2737,76 +1744,13 @@ mod schema_contract_p0_suite {
             None => return,
         };
 
-        assert_column(
-            &pool,
-            "space_children",
-            "id",
-            &["bigint"],
-            false,
-            Some("nextval("),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "space_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "room_id",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "sender",
-            &["text", "character varying"],
-            false,
-            None,
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "is_suggested",
-            &["boolean"],
-            true,
-            Some("false"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "via_servers",
-            &["jsonb"],
-            true,
-            Some("'[]'::jsonb"),
-            None,
-        )
-        .await;
-        assert_column(
-            &pool,
-            "space_children",
-            "added_ts",
-            &["bigint"],
-            false,
-            None,
-            None,
-        )
-        .await;
+        assert_column(&pool, "space_children", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "space_children", "space_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "sender", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "is_suggested", &["boolean"], true, Some("false"), None).await;
+        assert_column(&pool, "space_children", "via_servers", &["jsonb"], true, Some("'[]'::jsonb"), None).await;
+        assert_column(&pool, "space_children", "added_ts", &["bigint"], false, None, None).await;
         assert!(
             has_unique_constraint_on(&pool, "space_children", &["space_id", "room_id"]).await,
             "Expected space_children UNIQUE(space_id,room_id)"
@@ -2865,21 +1809,11 @@ mod schema_contract_p0_suite {
             .expect("Failed to create child space fixture");
 
         storage
-            .add_space_member(
-                &root_space.space_id,
-                &root_member,
-                "join",
-                Some(&root_creator),
-            )
+            .add_space_member(&root_space.space_id, &root_member, "join", Some(&root_creator))
             .await
             .expect("Failed to add root space member");
         storage
-            .add_space_member(
-                &child_space.space_id,
-                &child_member,
-                "join",
-                Some(&child_creator),
-            )
+            .add_space_member(&child_space.space_id, &child_member, "join", Some(&child_creator))
             .await
             .expect("Failed to add child space member");
 
@@ -2909,24 +1843,17 @@ mod schema_contract_p0_suite {
         assert_eq!(nested_leaf.room_id, leaf_room_id);
         assert!(!nested_leaf.is_suggested);
 
-        let root_children = storage
-            .get_space_children(&root_space.space_id)
-            .await
-            .expect("Failed to query root space children");
+        let root_children =
+            storage.get_space_children(&root_space.space_id).await.expect("Failed to query root space children");
         assert_eq!(root_children.len(), 1);
         assert_eq!(root_children[0].room_id, child_space.room_id);
         assert_eq!(root_children[0].via_servers, vec!["localhost".to_string()]);
 
-        let nested_children = storage
-            .get_child_spaces(&leaf_room_id)
-            .await
-            .expect("Failed to query nested child spaces");
+        let nested_children =
+            storage.get_child_spaces(&leaf_room_id).await.expect("Failed to query nested child spaces");
         assert_eq!(nested_children.len(), 1);
         assert_eq!(nested_children[0].room_id, leaf_room_id);
-        assert_eq!(
-            nested_children[0].via_servers,
-            vec!["localhost".to_string(), "example.com".to_string()]
-        );
+        assert_eq!(nested_children[0].via_servers, vec!["localhost".to_string(), "example.com".to_string()]);
 
         let recursive = storage
             .get_recursive_hierarchy(&root_space.space_id, 3, false)
@@ -2953,14 +1880,8 @@ mod schema_contract_p0_suite {
         assert_eq!(paginated.rooms[0].num_joined_members, 2);
         assert_eq!(paginated.next_batch.as_deref(), Some(leaf_room_id.as_str()));
         assert_eq!(paginated.rooms[0].children_state.len(), 1);
-        assert_eq!(
-            paginated.rooms[0].children_state[0]["state_key"],
-            serde_json::json!(leaf_room_id)
-        );
-        assert_eq!(
-            paginated.rooms[0].children_state[0]["content"]["suggested"],
-            serde_json::json!(false)
-        );
+        assert_eq!(paginated.rooms[0].children_state[0]["state_key"], serde_json::json!(leaf_room_id));
+        assert_eq!(paginated.rooms[0].children_state[0]["content"]["suggested"], serde_json::json!(false));
 
         cleanup_space_fixtures(&pool, &root_space.space_id, &[root_creator, root_member]).await;
         cleanup_space_fixtures(&pool, &child_space.space_id, &[child_creator, child_member]).await;
@@ -3060,21 +1981,13 @@ mod schema_contract_p0_suite {
         assert_eq!(queued_rows.len(), 3);
         assert_eq!(queued_rows[0].get::<String, _>("event_id"), state_event_id);
         assert_eq!(queued_rows[0].get::<i32, _>("priority"), 10);
-        assert_eq!(
-            queued_rows[1].get::<String, _>("event_id"),
-            missing_event_id
-        );
+        assert_eq!(queued_rows[1].get::<String, _>("event_id"), missing_event_id);
         assert_eq!(queued_rows[1].get::<i32, _>("priority"), 10);
-        assert_eq!(
-            queued_rows[2].get::<String, _>("event_id"),
-            message_event_id
-        );
+        assert_eq!(queued_rows[2].get::<String, _>("event_id"), message_event_id);
         assert_eq!(queued_rows[2].get::<i32, _>("priority"), 0);
 
-        let processed = service
-            .process_pending_updates(10)
-            .await
-            .expect("Failed to process room summary queue through service");
+        let processed =
+            service.process_pending_updates(10).await.expect("Failed to process room summary queue through service");
         assert_eq!(processed, 2, "Expected two successful queue updates");
 
         let processed_queue_rows = sqlx::query(
@@ -3089,39 +2002,23 @@ mod schema_contract_p0_suite {
         .fetch_all(&*pool)
         .await
         .expect("Failed to query processed room summary queue rows");
-        assert_eq!(
-            processed_queue_rows[0].get::<String, _>("status"),
-            "processed"
-        );
-        assert!(processed_queue_rows[0]
-            .get::<Option<i64>, _>("processed_ts")
-            .is_some());
+        assert_eq!(processed_queue_rows[0].get::<String, _>("status"), "processed");
+        assert!(processed_queue_rows[0].get::<Option<i64>, _>("processed_ts").is_some());
         assert_eq!(processed_queue_rows[1].get::<String, _>("status"), "failed");
         assert_eq!(
-            processed_queue_rows[1]
-                .get::<Option<String>, _>("error_message")
-                .as_deref(),
+            processed_queue_rows[1].get::<Option<String>, _>("error_message").as_deref(),
             Some("Not found: Event not found")
         );
         assert_eq!(processed_queue_rows[1].get::<i32, _>("retry_count"), 1);
-        assert_eq!(
-            processed_queue_rows[2].get::<String, _>("status"),
-            "processed"
-        );
+        assert_eq!(processed_queue_rows[2].get::<String, _>("status"), "processed");
 
         let updated_name_state = service
             .get_state(&room_id, "m.room.name", "")
             .await
             .expect("Failed to fetch processed room summary state")
             .expect("Expected processed room summary state");
-        assert_eq!(
-            updated_name_state.event_id.as_deref(),
-            Some(state_event_id.as_str())
-        );
-        assert_eq!(
-            updated_name_state.content,
-            serde_json::json!({ "name": "Processor Updated" })
-        );
+        assert_eq!(updated_name_state.event_id.as_deref(), Some(state_event_id.as_str()));
+        assert_eq!(updated_name_state.content, serde_json::json!({ "name": "Processor Updated" }));
 
         let updated_summary = storage
             .get_summary(&room_id)
@@ -3129,10 +2026,7 @@ mod schema_contract_p0_suite {
             .expect("Failed to fetch updated room summary")
             .expect("Expected updated room summary");
         assert_eq!(updated_summary.name.as_deref(), Some("Processor Updated"));
-        assert_eq!(
-            updated_summary.last_event_id.as_deref(),
-            Some(message_event_id.as_str())
-        );
+        assert_eq!(updated_summary.last_event_id.as_deref(), Some(message_event_id.as_str()));
         assert_eq!(updated_summary.last_event_ts, Some(200_i64));
         assert_eq!(updated_summary.last_message_ts, None);
 

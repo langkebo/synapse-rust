@@ -26,11 +26,7 @@ pub struct DeviceTrustConfig {
 
 impl Default for DeviceTrustConfig {
     fn default() -> Self {
-        Self {
-            verification_timeout_minutes: 5,
-            max_unverified_devices: 3,
-            require_verification_for_history: true,
-        }
+        Self { verification_timeout_minutes: 5, max_unverified_devices: 3, require_verification_for_history: true }
     }
 }
 
@@ -53,13 +49,7 @@ impl DeviceTrustService {
         cross_signing: Arc<CrossSigningService>,
         device_keys: Arc<DeviceKeyService>,
     ) -> Self {
-        Self {
-            storage,
-            verification,
-            cross_signing,
-            device_keys,
-            config: DeviceTrustConfig::default(),
-        }
+        Self { storage, verification, cross_signing, device_keys, config: DeviceTrustConfig::default() }
     }
 
     pub fn with_config(
@@ -69,13 +59,7 @@ impl DeviceTrustService {
         device_keys: Arc<DeviceKeyService>,
         config: DeviceTrustConfig,
     ) -> Self {
-        Self {
-            storage,
-            verification,
-            cross_signing,
-            device_keys,
-            config,
-        }
+        Self { storage, verification, cross_signing, device_keys, config }
     }
 
     // =====================================================
@@ -83,11 +67,7 @@ impl DeviceTrustService {
     // =====================================================
 
     /// Check if a device can access message history
-    pub async fn can_access_history(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn can_access_history(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
         // If verification is not required, allow access
         if !self.config.require_verification_for_history {
             return Ok(true);
@@ -103,10 +83,7 @@ impl DeviceTrustService {
             None => {
                 // New device - check if it's verified now
                 let devices = self.storage.get_all_devices_with_trust(user_id).await?;
-                let verified_count = devices
-                    .iter()
-                    .filter(|d| d.trust_level == DeviceTrustLevel::Verified)
-                    .count();
+                let verified_count = devices.iter().filter(|d| d.trust_level == DeviceTrustLevel::Verified).count();
 
                 // If user has other verified devices, require verification
                 // Otherwise, allow access (first device)
@@ -116,11 +93,7 @@ impl DeviceTrustService {
     }
 
     /// Check if a device can decrypt messages
-    pub async fn can_decrypt_messages(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn can_decrypt_messages(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
         let trust = self.storage.get_device_trust(user_id, device_id).await?;
 
         match trust {
@@ -155,10 +128,7 @@ impl DeviceTrustService {
     }
 
     /// Get all devices with trust status for a user
-    pub async fn get_all_devices_with_trust(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<DeviceTrustStatusResponse>, ApiError> {
+    pub async fn get_all_devices_with_trust(&self, user_id: &str) -> Result<Vec<DeviceTrustStatusResponse>, ApiError> {
         let devices = self.storage.get_all_devices_with_trust(user_id).await?;
 
         Ok(devices
@@ -180,9 +150,7 @@ impl DeviceTrustService {
         level: DeviceTrustLevel,
         verified_by: Option<&str>,
     ) -> Result<(), ApiError> {
-        self.storage
-            .set_device_trust(user_id, device_id, level, verified_by)
-            .await?;
+        self.storage.set_device_trust(user_id, device_id, level, verified_by).await?;
 
         // Log security event
         let event = E2eeSecurityEvent::new(
@@ -217,11 +185,7 @@ impl DeviceTrustService {
         requesting_device_id: Option<&str>,
     ) -> Result<VerificationRequestResponse, ApiError> {
         // Check if there's already a pending request
-        if let Some(existing) = self
-            .storage
-            .get_pending_request(user_id, new_device_id)
-            .await?
-        {
+        if let Some(existing) = self.storage.get_pending_request(user_id, new_device_id).await? {
             return Ok(VerificationRequestResponse {
                 request_token: existing.request_token,
                 status: existing.status.to_string(),
@@ -249,12 +213,11 @@ impl DeviceTrustService {
         // Calculate commitment
         let commitment = self
             .verification
-            .compute_mac(
-                std::slice::from_ref(&public_key),
-                &[0u8; 32],
-                "verification",
-            )
-            .map_err(|e| { tracing::error!("Failed to compute commitment: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+            .compute_mac(std::slice::from_ref(&public_key), &[0u8; 32], "verification")
+            .map_err(|e| {
+            tracing::error!("Failed to compute commitment: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         request.commitment = Some(commitment);
         request.pubkey = Some(public_key);
@@ -263,11 +226,11 @@ impl DeviceTrustService {
         self.storage.create_verification_request(&request).await?;
 
         // Log security event
-        let event = E2eeSecurityEvent::new(user_id, "verification_requested")
-            .with_device(new_device_id)
-            .with_data(serde_json::json!({
+        let event = E2eeSecurityEvent::new(user_id, "verification_requested").with_device(new_device_id).with_data(
+            serde_json::json!({
                 "method": method.to_string()
-            }));
+            }),
+        );
 
         let _ = self.storage.log_security_event(&event).await;
 
@@ -295,9 +258,7 @@ impl DeviceTrustService {
 
         // Verify it's for this user
         if request.user_id != user_id {
-            return Err(ApiError::forbidden(
-                "Verification request does not match user",
-            ));
+            return Err(ApiError::forbidden("Verification request does not match user"));
         }
 
         // Check if expired
@@ -307,16 +268,12 @@ impl DeviceTrustService {
 
         // Check if already processed
         if request.status != VerificationRequestStatus::Pending {
-            return Err(ApiError::bad_request(
-                "Verification request already processed",
-            ));
+            return Err(ApiError::bad_request("Verification request already processed"));
         }
 
         // Update request status
         if approved {
-            self.storage
-                .update_request_status(token, VerificationRequestStatus::Approved)
-                .await?;
+            self.storage.update_request_status(token, VerificationRequestStatus::Approved).await?;
 
             // Update device trust status
             self.storage
@@ -338,22 +295,12 @@ impl DeviceTrustService {
 
             let _ = self.storage.log_security_event(&event).await;
 
-            Ok(VerificationRespondResponse {
-                success: true,
-                trust_level: Some("verified".to_string()),
-            })
+            Ok(VerificationRespondResponse { success: true, trust_level: Some("verified".to_string()) })
         } else {
-            self.storage
-                .update_request_status(token, VerificationRequestStatus::Rejected)
-                .await?;
+            self.storage.update_request_status(token, VerificationRequestStatus::Rejected).await?;
 
             self.storage
-                .set_device_trust(
-                    &request.user_id,
-                    &request.new_device_id,
-                    DeviceTrustLevel::Unverified,
-                    None,
-                )
+                .set_device_trust(&request.user_id, &request.new_device_id, DeviceTrustLevel::Unverified, None)
                 .await?;
 
             // Log security event
@@ -365,10 +312,7 @@ impl DeviceTrustService {
 
             let _ = self.storage.log_security_event(&event).await;
 
-            Ok(VerificationRespondResponse {
-                success: true,
-                trust_level: Some("unverified".to_string()),
-            })
+            Ok(VerificationRespondResponse { success: true, trust_level: Some("unverified".to_string()) })
         }
     }
 
@@ -405,10 +349,7 @@ impl DeviceTrustService {
     // =====================================================
 
     /// Get security summary for a user
-    pub async fn get_security_summary(
-        &self,
-        user_id: &str,
-    ) -> Result<SecuritySummaryResponse, ApiError> {
+    pub async fn get_security_summary(&self, user_id: &str) -> Result<SecuritySummaryResponse, ApiError> {
         let (verified, unverified, blocked) = self.storage.count_devices_by_trust(user_id).await?;
         let has_master_key = self.storage.has_cross_signing_master_key(user_id).await?;
 
@@ -429,11 +370,7 @@ impl DeviceTrustService {
     // =====================================================
 
     /// Try to auto-verify a device via cross-signing
-    pub async fn try_auto_verify_via_cross_signing(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn try_auto_verify_via_cross_signing(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
         // Get user's cross-signing keys
         let cross_signing_keys = self.cross_signing.get_cross_signing_keys(user_id).await;
 
@@ -443,29 +380,21 @@ impl DeviceTrustService {
 
         // Verify device is signed by cross-signing
         // This will check if the device keys are signed by the user's cross-signing key
-        let verification_status = self
-            .cross_signing
-            .verify_device_signature(user_id, device_id)
-            .await?;
+        let verification_status = self.cross_signing.verify_device_signature(user_id, device_id).await?;
 
         if verification_status.is_verified {
             // Auto-verify the device
             self.storage
-                .set_device_trust(
-                    user_id,
-                    device_id,
-                    DeviceTrustLevel::Verified,
-                    Some("cross_signing"),
-                )
+                .set_device_trust(user_id, device_id, DeviceTrustLevel::Verified, Some("cross_signing"))
                 .await?;
 
             // Log security event
-            let event = E2eeSecurityEvent::new(user_id, "device_auto_verified")
-                .with_device(device_id)
-                .with_data(serde_json::json!({
+            let event = E2eeSecurityEvent::new(user_id, "device_auto_verified").with_device(device_id).with_data(
+                serde_json::json!({
                     "method": "cross_signing",
                     "automatic": true
-                }));
+                }),
+            );
 
             let _ = self.storage.log_security_event(&event).await;
 

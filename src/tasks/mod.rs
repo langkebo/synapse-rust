@@ -112,24 +112,16 @@ impl ScheduledTasks {
                         *last_metrics.write().await = Some(metrics.clone());
 
                         if metrics.slow_queries_count > 10 {
-                            warn!(
-                                "High slow query count: {} queries",
-                                metrics.slow_queries_count
-                            );
+                            warn!("High slow query count: {} queries", metrics.slow_queries_count);
                         }
 
                         if metrics.average_query_time_ms > 100.0 {
-                            warn!(
-                                "High average query time: {:.2}ms",
-                                metrics.average_query_time_ms
-                            );
+                            warn!("High average query time: {:.2}ms", metrics.average_query_time_ms);
                         }
 
                         info!(
                             "Performance metrics: avg_query={:.2}ms, slow_queries={}, tps={:.2}",
-                            metrics.average_query_time_ms,
-                            metrics.slow_queries_count,
-                            metrics.transactions_per_second
+                            metrics.average_query_time_ms, metrics.slow_queries_count, metrics.transactions_per_second
                         );
                     }
                     Err(e) => {
@@ -166,21 +158,14 @@ impl ScheduledTasks {
                                     + report.duplicate_entries.len()
                             );
                         } else if report.overall_integrity_score < 90.0 {
-                            warn!(
-                                "Data integrity score below optimal: {:.1}",
-                                report.overall_integrity_score
-                            );
+                            warn!("Data integrity score below optimal: {:.1}", report.overall_integrity_score);
                         }
 
                         info!(
                             "Data integrity check: score={:.1}, violations={}, orphaned={}",
                             report.overall_integrity_score,
                             report.foreign_key_violations.len() + report.orphaned_records.len(),
-                            report
-                                .orphaned_records
-                                .iter()
-                                .map(|o| o.orphan_count)
-                                .sum::<i64>()
+                            report.orphaned_records.iter().map(|o| o.orphan_count).sum::<i64>()
                         );
                     }
                     Err(e) => {
@@ -250,33 +235,21 @@ impl ScheduledTasks {
     }
 
     pub async fn trigger_health_check(&self) -> Result<DatabaseHealthStatus, String> {
-        self.database
-            .health_check()
-            .await
-            .map_err(|e| e.to_string())
+        self.database.health_check().await.map_err(|e| e.to_string())
     }
 
     pub async fn trigger_performance_check(&self) -> Result<PerformanceMetrics, String> {
-        self.database
-            .get_performance_metrics()
-            .await
-            .map_err(|e| e.to_string())
+        self.database.get_performance_metrics().await.map_err(|e| e.to_string())
     }
 
     pub async fn trigger_integrity_check(&self) -> Result<DataIntegrityReport, String> {
-        self.database
-            .verify_data_integrity()
-            .await
-            .map_err(|e| e.to_string())
+        self.database.verify_data_integrity().await.map_err(|e| e.to_string())
     }
 
     pub async fn trigger_maintenance(&self) -> Result<MaintenanceReport, String> {
         let pool = self.database.pool().clone();
         let maintenance = DatabaseMaintenance::new(pool);
-        maintenance
-            .perform_maintenance()
-            .await
-            .map_err(|e| e.to_string())
+        maintenance.perform_maintenance().await.map_err(|e| e.to_string())
     }
 }
 

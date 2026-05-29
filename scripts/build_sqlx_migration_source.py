@@ -13,7 +13,9 @@ TIMESTAMP_RE = re.compile(r"^(?P<ts>\d{14})_.*\.sql$")
 
 
 def is_extension(path: Path) -> bool:
-    return path.name.startswith("00000001_extensions") and not path.name.endswith(".undo.sql")
+    return path.name.startswith("00000001_extensions") and not path.name.endswith(
+        ".undo.sql"
+    )
 
 
 def is_baseline(path: Path) -> bool:
@@ -51,7 +53,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build the forward-only sqlx migration source for the consolidated v7 chain."
     )
-    parser.add_argument("output_dir", help="Directory where the sqlx migration source is written.")
+    parser.add_argument(
+        "output_dir", help="Directory where the sqlx migration source is written."
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent

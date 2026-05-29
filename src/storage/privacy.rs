@@ -69,8 +69,8 @@ impl PrivacyStorage {
                 room_membership_visibility TEXT NOT NULL DEFAULT 'contacts',
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT NOT NULL,
-                
-                CONSTRAINT user_privacy_settings_user_id_fkey 
+
+                CONSTRAINT user_privacy_settings_user_id_fkey
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             );
 
@@ -83,10 +83,7 @@ impl PrivacyStorage {
         Ok(())
     }
 
-    pub async fn get_settings(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
+    pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, UserPrivacySettings>(
             r#"
             SELECT * FROM user_privacy_settings WHERE user_id = $1
@@ -99,10 +96,7 @@ impl PrivacyStorage {
         Ok(row)
     }
 
-    pub async fn get_or_create_settings(
-        &self,
-        user_id: &str,
-    ) -> Result<UserPrivacySettings, sqlx::Error> {
+    pub async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error> {
         if let Some(settings) = self.get_settings(user_id).await? {
             return Ok(settings);
         }
@@ -158,31 +152,11 @@ impl PrivacyStorage {
             "#,
         )
         .bind(user_id)
-        .bind(
-            update
-                .profile_visibility
-                .unwrap_or(current.profile_visibility),
-        )
-        .bind(
-            update
-                .avatar_visibility
-                .unwrap_or(current.avatar_visibility),
-        )
-        .bind(
-            update
-                .displayname_visibility
-                .unwrap_or(current.displayname_visibility),
-        )
-        .bind(
-            update
-                .presence_visibility
-                .unwrap_or(current.presence_visibility),
-        )
-        .bind(
-            update
-                .room_membership_visibility
-                .unwrap_or(current.room_membership_visibility),
-        )
+        .bind(update.profile_visibility.unwrap_or(current.profile_visibility))
+        .bind(update.avatar_visibility.unwrap_or(current.avatar_visibility))
+        .bind(update.displayname_visibility.unwrap_or(current.displayname_visibility))
+        .bind(update.presence_visibility.unwrap_or(current.presence_visibility))
+        .bind(update.room_membership_visibility.unwrap_or(current.room_membership_visibility))
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
@@ -190,11 +164,7 @@ impl PrivacyStorage {
         Ok(row)
     }
 
-    pub async fn can_view_profile(
-        &self,
-        viewer_id: Option<&str>,
-        target_user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;
 
         let can_view = match settings.profile_visibility.as_str() {
@@ -213,11 +183,7 @@ impl PrivacyStorage {
         Ok(can_view)
     }
 
-    pub async fn can_view_presence(
-        &self,
-        viewer_id: Option<&str>,
-        target_user_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;
 
         let can_view = match settings.presence_visibility.as_str() {
@@ -242,7 +208,7 @@ impl PrivacyStorage {
             SELECT EXISTS (
                 SELECT 1 FROM room_memberships rm1
                 JOIN room_memberships rm2 ON rm1.room_id = rm2.room_id
-                WHERE rm1.user_id = $1 
+                WHERE rm1.user_id = $1
                   AND rm2.user_id = $2
                   AND rm1.membership = 'join'
                   AND rm2.membership = 'join'

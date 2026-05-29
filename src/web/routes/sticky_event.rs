@@ -21,10 +21,7 @@ pub fn sticky_event_compat_relative_routes() -> Vec<(axum::http::Method, &'stati
     vec![
         (Method::GET, "/rooms/{room_id}/sticky_events"),
         (Method::POST, "/rooms/{room_id}/sticky_events"),
-        (
-            Method::DELETE,
-            "/rooms/{room_id}/sticky_events/{event_type}",
-        ),
+        (Method::DELETE, "/rooms/{room_id}/sticky_events/{event_type}"),
     ]
 }
 
@@ -130,9 +127,7 @@ pub async fn set_sticky_events(
             .get_event(event_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load sticky event", &e))?;
-        let Some(stored_event) =
-            stored_event.filter(|stored_event| stored_event.room_id == room_id)
-        else {
+        let Some(stored_event) = stored_event.filter(|stored_event| stored_event.room_id == room_id) else {
             return Err(ApiError::not_found("Event not found".to_string()));
         };
 
@@ -140,13 +135,7 @@ pub async fn set_sticky_events(
         state
             .services
             .sticky_event_storage
-            .set_sticky_event(
-                &room_id,
-                &auth_user.user_id,
-                &stored_event.event_id,
-                event_type,
-                true,
-            )
+            .set_sticky_event(&room_id, &auth_user.user_id, &stored_event.event_id, event_type, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
     }

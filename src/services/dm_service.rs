@@ -24,14 +24,14 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     let service = DMService::new();
-//!     
+//!
 //!     // 标记房间为 DM
 //!     service.mark_room_as_dm(
 //!         "!dm:example.com",
 //!         "@alice:example.com",
 //!         &["@bob:example.com".to_string()]
 //!     ).await.unwrap();
-//!     
+//!
 //!     // 检查是否为 DM 房间
 //!     let is_dm = service.is_dm_room("!dm:example.com", "@alice:example.com").await.unwrap();
 //!     assert!(is_dm);
@@ -80,10 +80,7 @@ impl DMService {
     /// let service = DMService::new();
     /// ```
     pub fn new() -> Self {
-        Self {
-            dm_rooms: Arc::new(RwLock::new(HashMap::new())),
-            user_dms: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { dm_rooms: Arc::new(RwLock::new(HashMap::new())), user_dms: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     /// 创建 DM 查找键
@@ -141,11 +138,7 @@ impl DMService {
         let dms = self.dm_rooms.read().await;
         dms.len()
     }
-    pub async fn get_existing_dm(
-        &self,
-        user_id: &str,
-        recipient_id: &str,
-    ) -> ApiResult<Option<String>> {
+    pub async fn get_existing_dm(&self, user_id: &str, recipient_id: &str) -> ApiResult<Option<String>> {
         let dms = self.dm_rooms.read().await;
 
         for (room_id, dm) in dms.iter() {
@@ -165,20 +158,12 @@ impl DMService {
 
         let room_ids = user_dms.get(user_id).cloned().unwrap_or_default();
 
-        let result: Vec<DMRoom> = room_ids
-            .iter()
-            .filter_map(|rid| dms.get(rid).cloned())
-            .collect();
+        let result: Vec<DMRoom> = room_ids.iter().filter_map(|rid| dms.get(rid).cloned()).collect();
 
         Ok(result)
     }
 
-    pub async fn mark_room_as_dm(
-        &self,
-        room_id: &str,
-        creator_id: &str,
-        recipients: &[String],
-    ) -> ApiResult<()> {
+    pub async fn mark_room_as_dm(&self, room_id: &str, creator_id: &str, recipients: &[String]) -> ApiResult<()> {
         let recipient_id = recipients.first().map_or("", |s| s.as_str());
 
         let dm = DMRoom {
@@ -192,16 +177,10 @@ impl DMService {
         dms.insert(room_id.to_string(), dm);
 
         let mut user_dms = self.user_dms.write().await;
-        user_dms
-            .entry(creator_id.to_string())
-            .or_default()
-            .push(room_id.to_string());
+        user_dms.entry(creator_id.to_string()).or_default().push(room_id.to_string());
 
         for recipient in recipients {
-            user_dms
-                .entry(recipient.clone())
-                .or_default()
-                .push(room_id.to_string());
+            user_dms.entry(recipient.clone()).or_default().push(room_id.to_string());
         }
 
         Ok(())
@@ -236,12 +215,7 @@ impl DMService {
         Ok(None)
     }
 
-    pub async fn update_dm_users(
-        &self,
-        room_id: &str,
-        _user_id: &str,
-        users: &[String],
-    ) -> ApiResult<()> {
+    pub async fn update_dm_users(&self, room_id: &str, _user_id: &str, users: &[String]) -> ApiResult<()> {
         let mut dms = self.dm_rooms.write().await;
         if let Some(dm) = dms.get_mut(room_id) {
             if let Some(primary_recipient) = users.first() {
@@ -259,10 +233,7 @@ impl DMService {
             }
 
             for user in users {
-                user_dms
-                    .entry(user.clone())
-                    .or_default()
-                    .push(room_id.to_string());
+                user_dms.entry(user.clone()).or_default().push(room_id.to_string());
             }
 
             if !users.contains(&old_creator) {
@@ -306,18 +277,11 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
-        let is_dm = service
-            .is_dm_room("!dm:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let is_dm = service.is_dm_room("!dm:example.com", "@alice:example.com").await.unwrap();
         assert!(is_dm);
     }
 
@@ -325,10 +289,7 @@ mod tests {
     async fn test_is_not_dm_room() {
         let service = DMService::new();
 
-        let is_dm = service
-            .is_dm_room("!room:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let is_dm = service.is_dm_room("!room:example.com", "@alice:example.com").await.unwrap();
         assert!(!is_dm);
     }
 
@@ -337,24 +298,14 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
-        let partner = service
-            .get_dm_partner("!dm:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let partner = service.get_dm_partner("!dm:example.com", "@alice:example.com").await.unwrap();
         assert_eq!(partner, Some("@bob:example.com".to_string()));
 
-        let partner = service
-            .get_dm_partner("!dm:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let partner = service.get_dm_partner("!dm:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(partner, Some("@alice:example.com".to_string()));
     }
 
@@ -363,20 +314,12 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm1:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm1:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
         service
-            .mark_room_as_dm(
-                "!dm2:example.com",
-                "@alice:example.com",
-                &["@charlie:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm2:example.com", "@alice:example.com", &["@charlie:example.com".to_string()])
             .await
             .unwrap();
 
@@ -388,31 +331,18 @@ mod tests {
     async fn test_get_existing_dm() {
         let service = DMService::new();
 
-        let room_id = service
-            .get_existing_dm("@alice:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(room_id, None);
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
-        let room_id = service
-            .get_existing_dm("@alice:example.com", "@bob:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_existing_dm("@alice:example.com", "@bob:example.com").await.unwrap();
         assert_eq!(room_id, Some("!dm:example.com".to_string()));
 
-        let room_id = service
-            .get_existing_dm("@bob:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_existing_dm("@bob:example.com", "@alice:example.com").await.unwrap();
         assert_eq!(room_id, Some("!dm:example.com".to_string()));
     }
 
@@ -421,11 +351,7 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
@@ -435,10 +361,7 @@ mod tests {
 
         assert_eq!(service.get_dm_count().await, 0);
 
-        let is_dm = service
-            .is_dm_room("!dm:example.com", "@alice:example.com")
-            .await
-            .unwrap();
+        let is_dm = service.is_dm_room("!dm:example.com", "@alice:example.com").await.unwrap();
         assert!(!is_dm);
     }
 
@@ -447,11 +370,7 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
@@ -459,10 +378,7 @@ mod tests {
             .update_dm_users(
                 "!dm:example.com",
                 "@alice:example.com",
-                &[
-                    "@bob:example.com".to_string(),
-                    "@charlie:example.com".to_string(),
-                ],
+                &["@bob:example.com".to_string(), "@charlie:example.com".to_string()],
             )
             .await
             .unwrap();
@@ -473,18 +389,11 @@ mod tests {
         let service = DMService::new();
 
         service
-            .mark_room_as_dm(
-                "!dm:example.com",
-                "@alice:example.com",
-                &["@bob:example.com".to_string()],
-            )
+            .mark_room_as_dm("!dm:example.com", "@alice:example.com", &["@bob:example.com".to_string()])
             .await
             .unwrap();
 
-        let partner = service
-            .get_dm_partner("!dm:example.com", "@charlie:example.com")
-            .await
-            .unwrap();
+        let partner = service.get_dm_partner("!dm:example.com", "@charlie:example.com").await.unwrap();
         assert_eq!(partner, None);
     }
 }

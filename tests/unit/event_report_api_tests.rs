@@ -243,10 +243,7 @@ fn test_report_dismissal() {
 
 // Helper functions
 fn is_valid_report_status(status: &str) -> bool {
-    matches!(
-        status,
-        "open" | "pending" | "investigating" | "resolved" | "dismissed" | "escalated"
-    )
+    matches!(status, "open" | "pending" | "investigating" | "resolved" | "dismissed" | "escalated")
 }
 
 fn is_valid_event_id(event_id: &str) -> bool {

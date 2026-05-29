@@ -54,18 +54,10 @@ pub async fn cleanup_all(
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state
-        .services
-        .refresh_token_service
-        .cleanup_expired_tokens()
-        .await?;
+    let refresh_tokens = state.services.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
-    let reg_tokens = state
-        .services
-        .registration_token_service
-        .cleanup_expired_tokens()
-        .await?;
+    let reg_tokens = state.services.registration_token_service.cleanup_expired_tokens().await?;
     token_results.insert("registration_tokens_deleted".to_string(), json!(reg_tokens));
 
     let qr_txns = state
@@ -106,10 +98,7 @@ pub async fn cleanup_rooms(
 }
 
 #[axum::debug_handler]
-pub async fn cleanup_tokens(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn cleanup_tokens(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let mut token_results = serde_json::Map::new();
 
     let access_tokens = state
@@ -120,11 +109,7 @@ pub async fn cleanup_tokens(
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state
-        .services
-        .refresh_token_service
-        .cleanup_expired_tokens()
-        .await?;
+    let refresh_tokens = state.services.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
     Ok(Json(Value::Object(token_results)))

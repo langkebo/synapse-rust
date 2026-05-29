@@ -18,7 +18,7 @@ impl<'a> SignatureStorage<'a> {
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
             SET signature = EXCLUDED.signature
-            "
+            ",
         )
         .bind(signature.id)
         .bind(&signature.event_id)
@@ -65,10 +65,7 @@ impl<'a> SignatureStorage<'a> {
         }))
     }
 
-    pub async fn get_event_signatures(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<EventSignature>, ApiError> {
+    pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT id, event_id, user_id, device_id, signature, key_id, created_ts

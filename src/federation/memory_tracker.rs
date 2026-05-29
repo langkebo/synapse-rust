@@ -40,21 +40,13 @@ impl MemoryStats {
         let new_current = self.current_size.fetch_add(size, Ordering::SeqCst) + size;
         self.operation_count.fetch_add(1, Ordering::SeqCst);
 
-        let mut last_time = self
-            .last_operation_time
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut last_time = self.last_operation_time.write().unwrap_or_else(|e| e.into_inner());
         *last_time = Instant::now();
         drop(last_time);
 
         let mut peak = self.peak_size.load(Ordering::SeqCst);
         while new_current > peak {
-            match self.peak_size.compare_exchange(
-                peak,
-                new_current,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
+            match self.peak_size.compare_exchange(peak, new_current, Ordering::SeqCst, Ordering::SeqCst) {
                 Ok(_) => break,
                 Err(current) => peak = current,
             }
@@ -69,12 +61,7 @@ impl MemoryStats {
         loop {
             let current = self.current_size.load(Ordering::SeqCst);
             let new_size = current.saturating_sub(size);
-            match self.current_size.compare_exchange(
-                current,
-                new_size,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
+            match self.current_size.compare_exchange(current, new_size, Ordering::SeqCst, Ordering::SeqCst) {
                 Ok(_) => break,
                 Err(_) => continue,
             }
@@ -113,8 +100,7 @@ pub struct MemoryStatsSnapshot {
 
 impl MemoryStatsSnapshot {
     pub fn leak_count(&self) -> usize {
-        self.total_allocations
-            .saturating_sub(self.total_deallocations)
+        self.total_allocations.saturating_sub(self.total_deallocations)
     }
 
     pub fn leak_percentage(&self) -> f64 {

@@ -13,9 +13,6 @@ pub struct FcmProviderConfig {
     pub max_retries: u32,
 }
 
-#[deprecated(since = "0.1.0", note = "Use FcmProviderConfig instead to avoid confusion with config::FcmConfig")]
-pub type FcmConfig = FcmProviderConfig;
-
 impl Default for FcmProviderConfig {
     fn default() -> Self {
         Self {
@@ -90,18 +87,11 @@ impl FcmProvider {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        Self {
-            config,
-            client,
-            enabled,
-        }
+        Self { config, client, enabled }
     }
 
     pub fn with_api_key(api_key: String) -> Self {
-        let config = FcmProviderConfig {
-            api_key,
-            ..Default::default()
-        };
+        let config = FcmProviderConfig { api_key, ..Default::default() };
         Self::new(config)
     }
 
@@ -116,11 +106,7 @@ impl FcmProvider {
                 sound: payload.sound.clone(),
                 tag: payload.tag.clone(),
             },
-            data: if payload.data.is_null() {
-                None
-            } else {
-                Some(payload.data.clone())
-            },
+            data: if payload.data.is_null() { None } else { Some(payload.data.clone()) },
             priority: "high".to_string(),
             content_available: Some(true),
         }
@@ -138,18 +124,14 @@ impl FcmProvider {
             .map_err(|e| format!("HTTP request failed: {e}"))?;
 
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
 
         if !status.is_success() {
             error!("FCM request failed with status {}: {}", status, body);
             return Err(format!("FCM returned status {status}: {body}"));
         }
 
-        serde_json::from_str(&body)
-            .map_err(|e| format!("Failed to parse FCM response: {e} - Body: {body}"))
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse FCM response: {e} - Body: {body}"))
     }
 }
 
@@ -165,10 +147,7 @@ impl PushProvider for FcmProvider {
             return PushResult::success();
         }
 
-        info!(
-            "Sending FCM notification to token: {}...",
-            &token[..20.min(token.len())]
-        );
+        info!("Sending FCM notification to token: {}...", &token[..20.min(token.len())]);
 
         let message = Self::build_message(token, payload);
 
@@ -192,14 +171,8 @@ impl PushProvider for FcmProvider {
                     }
                 }
 
-                debug!(
-                    "FCM push successful: multicast_id={:?}",
-                    response.multicast_id
-                );
-                PushResult::success_with_response(&format!(
-                    "multicast_id:{:?}",
-                    response.multicast_id
-                ))
+                debug!("FCM push successful: multicast_id={:?}", response.multicast_id);
+                PushResult::success_with_response(&format!("multicast_id:{:?}", response.multicast_id))
             }
             Err(e) => {
                 error!("FCM push error: {}", e);

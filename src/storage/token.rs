@@ -130,11 +130,7 @@ impl AccessTokenStorage {
         Ok(())
     }
 
-    pub async fn delete_user_device_tokens(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_user_device_tokens(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE access_tokens SET is_revoked = TRUE
@@ -148,11 +144,7 @@ impl AccessTokenStorage {
         Ok(())
     }
 
-    pub async fn delete_user_tokens_except_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_user_tokens_except_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE access_tokens SET is_revoked = TRUE
@@ -196,18 +188,11 @@ impl AccessTokenStorage {
         Ok(result.is_some())
     }
 
-    pub async fn add_to_blacklist(
-        &self,
-        token: &str,
-        user_id: &str,
-        reason: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn add_to_blacklist(&self, token: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
-        self.add_hash_to_blacklist(&token_hash, user_id, reason)
-            .await?;
+        self.add_hash_to_blacklist(&token_hash, user_id, reason).await?;
         let legacy_hash = Self::hash_token_legacy(token);
-        self.add_hash_to_blacklist(&legacy_hash, user_id, reason)
-            .await
+        self.add_hash_to_blacklist(&legacy_hash, user_id, reason).await
     }
 
     pub async fn add_hash_to_blacklist(
@@ -255,10 +240,7 @@ impl AccessTokenStorage {
         }
     }
 
-    pub async fn cleanup_expired_blacklist_entries(
-        &self,
-        max_age_seconds: i64,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn cleanup_expired_blacklist_entries(&self, max_age_seconds: i64) -> Result<u64, sqlx::Error> {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query(
             r"

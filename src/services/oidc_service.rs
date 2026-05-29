@@ -113,12 +113,7 @@ impl OidcService {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self {
-            config,
-            http_client,
-            discovery: RwLock::new(None),
-            jwks: RwLock::new(None),
-        }
+        Self { config, http_client, discovery: RwLock::new(None), jwks: RwLock::new(None) }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -142,20 +137,14 @@ impl OidcService {
             .get(&discovery_url)
             .send()
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to fetch discovery document", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to fetch discovery document", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Discovery request failed",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Discovery request failed", &response.status()));
         }
 
-        let discovery: OidcDiscoveryDocument = response.json().await.map_err(|e| {
-            ApiError::internal_with_log("Failed to parse discovery document", &e)
-        })?;
+        let discovery: OidcDiscoveryDocument =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse discovery document", &e))?;
 
         {
             let mut write = self.discovery.write().await;
@@ -185,9 +174,8 @@ impl OidcService {
 
         let auth_url = auth_endpoint.unwrap_or(default_auth);
 
-        let mut url = url::Url::parse(&auth_url).map_err(|e| {
-            ApiError::internal_with_log("Invalid OIDC authorization endpoint", &e)
-        })?;
+        let mut url = url::Url::parse(&auth_url)
+            .map_err(|e| ApiError::internal_with_log("Invalid OIDC authorization endpoint", &e))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("client_id", &self.config.client_id);
@@ -199,10 +187,7 @@ impl OidcService {
             // PKCE support
             if let Some(challenge) = code_challenge {
                 query.append_pair("code_challenge", challenge);
-                query.append_pair(
-                    "code_challenge_method",
-                    code_challenge_method.unwrap_or("S256"),
-                );
+                query.append_pair("code_challenge_method", code_challenge_method.unwrap_or("S256"));
             }
         }
 
@@ -215,8 +200,7 @@ impl OidcService {
         let mut rng = rand::thread_rng();
 
         // PKCE charset as bytes for indexing
-        const PKCE_CHARSET: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        const PKCE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 
         // Generate code_verifier (43-128 characters)
         let verifier_len = rng.gen_range(43..=128);
@@ -282,23 +266,15 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
+        let response = request.send().await.map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal_with_log(
-                "Token exchange failed",
-                &body,
-            ));
+            return Err(ApiError::internal_with_log("Token exchange failed", &body));
         }
 
-        let token_response: OidcTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))?;
+        let token_response: OidcTokenResponse =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))?;
 
         if let Some(ref id_token) = token_response.id_token {
             if let Err(e) = self.validate_id_token(id_token).await {
@@ -323,32 +299,20 @@ impl OidcService {
             let read = self.discovery.read().await;
             match read.as_ref() {
                 Some(discovery) => discovery.jwks_uri.clone(),
-                None => {
-                    return Err(
-                        "No JWKS URI available: configure jwks_uri or run discovery first"
-                            .to_string(),
-                    )
-                }
+                None => return Err("No JWKS URI available: configure jwks_uri or run discovery first".to_string()),
             }
         };
 
         debug!("Fetching OIDC JWKS from {}", jwks_uri);
 
-        let response = self
-            .http_client
-            .get(&jwks_uri)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch JWKS: {e}"))?;
+        let response =
+            self.http_client.get(&jwks_uri).send().await.map_err(|e| format!("Failed to fetch JWKS: {e}"))?;
 
         if !response.status().is_success() {
             return Err(format!("JWKS request failed: {}", response.status()));
         }
 
-        let jwks: OidcJwks = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse JWKS: {e}"))?;
+        let jwks: OidcJwks = response.json().await.map_err(|e| format!("Failed to parse JWKS: {e}"))?;
 
         {
             let mut write = self.jwks.write().await;
@@ -362,14 +326,11 @@ impl OidcService {
             .decode(id_token.split('.').next().unwrap_or(""))
             .map_err(|e| format!("Invalid ID token header base64: {e}"))?;
 
-        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
-            .map_err(|e| format!("Invalid ID token header JSON: {e}"))?;
+        let header: serde_json::Value =
+            serde_json::from_slice(&header_bytes).map_err(|e| format!("Invalid ID token header JSON: {e}"))?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
-        let alg_str = header
-            .get("alg")
-            .and_then(|v| v.as_str())
-            .unwrap_or("RS256");
+        let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
 
         let algorithm = match alg_str {
             "RS256" => Algorithm::RS256,
@@ -397,20 +358,23 @@ impl OidcService {
                 if let Some(key) = matching_key {
                     let decoding_key = if key.kty == "RSA" {
                         match (&key.n, &key.e) {
-                            (Some(n), Some(e)) => DecodingKey::from_rsa_components(n, e)
-                                .map_err(|e| format!("Invalid RSA key: {e}"))?,
+                            (Some(n), Some(e)) => {
+                                DecodingKey::from_rsa_components(n, e).map_err(|e| format!("Invalid RSA key: {e}"))?
+                            }
                             _ => return Err("RSA key missing n/e components".to_string()),
                         }
                     } else if key.kty == "EC" {
                         match (&key.crv, &key.x, &key.y) {
-                            (Some(_), Some(x), Some(y)) => DecodingKey::from_ec_components(x, y)
-                                .map_err(|e| format!("Invalid EC key: {e}"))?,
+                            (Some(_), Some(x), Some(y)) => {
+                                DecodingKey::from_ec_components(x, y).map_err(|e| format!("Invalid EC key: {e}"))?
+                            }
                             _ => return Err("EC key missing crv/x/y components".to_string()),
                         }
                     } else if key.kty == "OKP" {
                         match (&key.crv, &key.x) {
-                            (Some(_), Some(x)) => DecodingKey::from_ed_components(x)
-                                .map_err(|e| format!("Invalid EdDSA key: {e}"))?,
+                            (Some(_), Some(x)) => {
+                                DecodingKey::from_ed_components(x).map_err(|e| format!("Invalid EdDSA key: {e}"))?
+                            }
                             _ => return Err("OKP key missing crv/x components".to_string()),
                         }
                     } else {
@@ -426,20 +390,17 @@ impl OidcService {
                     decode::<serde_json::Value>(id_token, &decoding_key, &validation)
                         .map_err(|e| format!("JWT signature verification failed: {e}"))?;
 
-                    debug!(
-                        "OIDC ID token JWT signature verified successfully (kid={:?})",
+                    debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
+                } else {
+                    tracing::warn!(
+                        "No matching JWKS key found for kid={:?}, falling back to claim-only validation",
                         kid
                     );
-                } else {
-                    tracing::warn!("No matching JWKS key found for kid={:?}, falling back to claim-only validation", kid);
                     self.validate_id_token_claims(id_token)?;
                 }
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to fetch JWKS: {}, falling back to claim-only validation",
-                    e
-                );
+                tracing::warn!("Failed to fetch JWKS: {}, falling back to claim-only validation", e);
                 self.validate_id_token_claims(id_token)?;
             }
         }
@@ -453,44 +414,31 @@ impl OidcService {
             return Err("Invalid ID token format: expected 3 parts".to_string());
         }
 
-        let payload_bytes = URL_SAFE_NO_PAD
-            .decode(parts[1])
-            .map_err(|e| format!("Invalid ID token payload base64: {e}"))?;
+        let payload_bytes =
+            URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| format!("Invalid ID token payload base64: {e}"))?;
 
-        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
-            .map_err(|e| format!("Invalid ID token payload JSON: {e}"))?;
+        let payload: serde_json::Value =
+            serde_json::from_slice(&payload_bytes).map_err(|e| format!("Invalid ID token payload JSON: {e}"))?;
 
-        let token_issuer = payload
-            .get("iss")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing 'iss' claim in ID token".to_string())?;
+        let token_issuer =
+            payload.get("iss").and_then(|v| v.as_str()).ok_or_else(|| "Missing 'iss' claim in ID token".to_string())?;
 
         if token_issuer != self.config.issuer {
-            return Err(format!(
-                "ID token issuer mismatch: expected {}, got {}",
-                self.config.issuer, token_issuer
-            ));
+            return Err(format!("ID token issuer mismatch: expected {}, got {}", self.config.issuer, token_issuer));
         }
 
-        let audiences = payload
-            .get("aud")
-            .ok_or_else(|| "Missing 'aud' claim in ID token".to_string())?;
+        let audiences = payload.get("aud").ok_or_else(|| "Missing 'aud' claim in ID token".to_string())?;
 
         let audience_matches = if let Some(aud_str) = audiences.as_str() {
             aud_str == self.config.client_id
         } else if let Some(aud_arr) = audiences.as_array() {
-            aud_arr
-                .iter()
-                .any(|v| v.as_str() == Some(&self.config.client_id))
+            aud_arr.iter().any(|v| v.as_str() == Some(&self.config.client_id))
         } else {
             false
         };
 
         if !audience_matches {
-            return Err(format!(
-                "ID token audience mismatch: expected {}",
-                self.config.client_id
-            ));
+            return Err(format!("ID token audience mismatch: expected {}", self.config.client_id));
         }
 
         let now = chrono::Utc::now().timestamp();
@@ -525,11 +473,8 @@ impl OidcService {
                 .unwrap_or(default_token)
         };
 
-        let params = [
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", &self.config.client_id),
-        ];
+        let params =
+            [("grant_type", "refresh_token"), ("refresh_token", refresh_token), ("client_id", &self.config.client_id)];
 
         let mut request = self.http_client.post(token_endpoint).form(&params);
 
@@ -537,23 +482,14 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Token refresh failed", &e))?;
+        let response = request.send().await.map_err(|e| ApiError::internal_with_log("Token refresh failed", &e))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal_with_log(
-                "Token refresh failed",
-                &body,
-            ));
+            return Err(ApiError::internal_with_log("Token refresh failed", &body));
         }
 
-        response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))
+        response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))
     }
 
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
@@ -577,45 +513,24 @@ impl OidcService {
             .map_err(|e| ApiError::internal_with_log("UserInfo request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "UserInfo request failed",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("UserInfo request failed", &response.status()));
         }
 
-        response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse UserInfo", &e))
+        response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse UserInfo", &e))
     }
 
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {
         let mapping = &self.config.attribute_mapping;
 
-        let localpart = mapping
-            .localpart
-            .as_ref()
-            .and_then(|attr| Self::get_attribute(user_info, attr))
-            .unwrap_or(&user_info.sub);
+        let localpart =
+            mapping.localpart.as_ref().and_then(|attr| Self::get_attribute(user_info, attr)).unwrap_or(&user_info.sub);
 
-        let displayname = mapping
-            .displayname
-            .as_ref()
-            .and_then(|attr| Self::get_attribute(user_info, attr))
-            .map(|s| s.to_string());
+        let displayname =
+            mapping.displayname.as_ref().and_then(|attr| Self::get_attribute(user_info, attr)).map(|s| s.to_string());
 
-        let email = mapping
-            .email
-            .as_ref()
-            .and_then(|attr| Self::get_attribute(user_info, attr))
-            .map(|s| s.to_string());
+        let email = mapping.email.as_ref().and_then(|attr| Self::get_attribute(user_info, attr)).map(|s| s.to_string());
 
-        OidcUser {
-            subject: user_info.sub.clone(),
-            localpart: localpart.to_string(),
-            displayname,
-            email,
-        }
+        OidcUser { subject: user_info.sub.clone(), localpart: localpart.to_string(), displayname, email }
     }
 
     fn get_attribute<'a>(user_info: &'a OidcUserInfo, attr: &str) -> Option<&'a str> {
@@ -635,9 +550,7 @@ impl OidcService {
     pub fn generate_state() -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        (0..32)
-            .map(|_| rng.sample(rand::distributions::Alphanumeric) as char)
-            .collect()
+        (0..32).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
     }
 
     pub fn get_config(&self) -> &OidcConfig {
@@ -658,19 +571,13 @@ mod tests {
             issuer: "https://accounts.example.com".to_string(),
             client_id: "test-client-id".to_string(),
             client_secret: Some("test-client-secret".to_string()),
-            scopes: vec![
-                "openid".to_string(),
-                "profile".to_string(),
-                "email".to_string(),
-            ],
+            scopes: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
             attribute_mapping: OidcAttributeMapping {
                 localpart: Some("preferred_username".to_string()),
                 displayname: Some("name".to_string()),
                 email: Some("email".to_string()),
             },
-            callback_url: Some(
-                "https://matrix.example.com/_matrix/client/r0/login/sso/redirect".to_string(),
-            ),
+            callback_url: Some("https://matrix.example.com/_matrix/client/r0/login/sso/redirect".to_string()),
             allow_existing_users: true,
             block_unknown_users: false,
             authorization_endpoint: None,
@@ -717,12 +624,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let service = create_test_service();
         let url = rt
-            .block_on(service.get_authorization_url(
-                "test-state",
-                "https://matrix.example.com/callback",
-                None,
-                None,
-            ))
+            .block_on(service.get_authorization_url("test-state", "https://matrix.example.com/callback", None, None))
             .unwrap();
 
         assert!(url.contains("client_id=test-client-id"));
@@ -797,11 +699,7 @@ mod tests {
         let service = OidcService::new(Arc::new(config));
 
         let response = service
-            .exchange_code(
-                "auth-code",
-                "https://matrix.example.com/callback",
-                Some("verifier-123"),
-            )
+            .exchange_code("auth-code", "https://matrix.example.com/callback", Some("verifier-123"))
             .await
             .unwrap();
 

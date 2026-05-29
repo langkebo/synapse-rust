@@ -47,11 +47,7 @@ fn test_no_placeholder_auth_user_ignores_in_handlers() {
         }
     }
 
-    assert!(
-        violations.is_empty(),
-        "Found placeholder-style auth ignores in handlers:\n{}",
-        violations.join("\n")
-    );
+    assert!(violations.is_empty(), "Found placeholder-style auth ignores in handlers:\n{}", violations.join("\n"));
 }
 
 #[test]

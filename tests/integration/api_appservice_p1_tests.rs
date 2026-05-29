@@ -58,15 +58,9 @@ async fn test_appservice_transaction_push() {
         .unwrap();
 
     let response = app.clone().oneshot(push_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "Event push should return 201 CREATED"
-    );
+    assert_eq!(response.status(), StatusCode::CREATED, "Event push should return 201 CREATED");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let event_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(event_json["event_id"].is_string());
     assert_eq!(event_json["as_id"], as_id);
@@ -75,24 +69,15 @@ async fn test_appservice_transaction_push() {
     // 3. Query pending events
     let query_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_synapse/admin/v1/appservices/{}/events?limit=10",
-            as_id
-        ))
+        .uri(format!("/_synapse/admin/v1/appservices/{}/events?limit=10", as_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
 
     let response = app.clone().oneshot(query_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "Pending events query should return 200 OK"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "Pending events query should return 200 OK");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let events_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let events = events_json.as_array().unwrap();
     assert!(!events.is_empty(), "Should have at least one pending event");
@@ -143,15 +128,9 @@ async fn test_appservice_as_token_authentication() {
         .unwrap();
 
     let response = app.clone().oneshot(ping_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "Valid as_token should be accepted"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "Valid as_token should be accepted");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let ping_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(ping_json["as_id"], as_id);
 
@@ -165,11 +144,7 @@ async fn test_appservice_as_token_authentication() {
         .unwrap();
 
     let response = app.clone().oneshot(invalid_ping_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::UNAUTHORIZED,
-        "Invalid as_token should be rejected with 401"
-    );
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "Invalid as_token should be rejected with 401");
 }
 
 /// P1-3: hs_token 认证验证
@@ -217,16 +192,11 @@ async fn test_appservice_hs_token_storage() {
     let response = app.clone().oneshot(query_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let service_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(service_json["as_id"], as_id);
     // hs_token should not be exposed in API responses for security
-    assert!(
-        service_json.get("hs_token").is_none(),
-        "hs_token should not be exposed in API response"
-    );
+    assert!(service_json.get("hs_token").is_none(), "hs_token should not be exposed in API response");
 }
 
 /// P1-4: Namespace 独占性验证
@@ -263,19 +233,12 @@ async fn test_appservice_namespace_exclusivity() {
         .unwrap();
 
     let response = app.clone().oneshot(register_request_1).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "First AppService with exclusive namespace should be created"
-    );
+    assert_eq!(response.status(), StatusCode::CREATED, "First AppService with exclusive namespace should be created");
 
     // 2. Query namespaces to verify exclusive flag
     let query_ns_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_synapse/admin/v1/appservices/{}/namespaces",
-            as_id_1
-        ))
+        .uri(format!("/_synapse/admin/v1/appservices/{}/namespaces", as_id_1))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -283,17 +246,12 @@ async fn test_appservice_namespace_exclusivity() {
     let response = app.clone().oneshot(query_ns_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let ns_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(ns_json["users"].is_array());
     let users_ns = ns_json["users"].as_array().unwrap();
     assert!(!users_ns.is_empty(), "Should have user namespace");
-    assert_eq!(
-        users_ns[0]["exclusive"], true,
-        "Namespace should be marked as exclusive"
-    );
+    assert_eq!(users_ns[0]["exclusive"], true, "Namespace should be marked as exclusive");
     assert_eq!(users_ns[0]["namespace_pattern"], namespace_pattern);
 
     // 3. Register virtual user within exclusive namespace
@@ -313,19 +271,12 @@ async fn test_appservice_namespace_exclusivity() {
         .unwrap();
 
     let response = app.clone().oneshot(register_user_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "Virtual user in exclusive namespace should be created"
-    );
+    assert_eq!(response.status(), StatusCode::CREATED, "Virtual user in exclusive namespace should be created");
 
     // 4. Query user namespace to verify it belongs to as_id_1
     let query_user_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_synapse/admin/v1/appservices/query/user?user_id={}",
-            urlencoding::encode(&virtual_user_id)
-        ))
+        .uri(format!("/_synapse/admin/v1/appservices/query/user?user_id={}", urlencoding::encode(&virtual_user_id)))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -333,17 +284,12 @@ async fn test_appservice_namespace_exclusivity() {
     let response = app.clone().oneshot(query_user_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let query_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(query_json["user_id"], virtual_user_id);
     // Verify the user is associated with the correct AppService
     if let Some(as_id_value) = query_json["application_service"].as_str() {
-        assert_eq!(
-            as_id_value, as_id_1,
-            "User should belong to the first AppService"
-        );
+        assert_eq!(as_id_value, as_id_1, "User should belong to the first AppService");
     }
 }
 
@@ -408,24 +354,15 @@ async fn test_appservice_namespace_query() {
     // 3. Query user namespace
     let query_user_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_synapse/admin/v1/appservices/query/user?user_id={}",
-            urlencoding::encode(&virtual_user_id)
-        ))
+        .uri(format!("/_synapse/admin/v1/appservices/query/user?user_id={}", urlencoding::encode(&virtual_user_id)))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
 
     let response = app.clone().oneshot(query_user_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "User namespace query should succeed"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "User namespace query should succeed");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let user_query_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(user_query_json["user_id"], virtual_user_id);
 
@@ -433,24 +370,15 @@ async fn test_appservice_namespace_query() {
     let test_alias = format!("#query_room_{}_test:localhost", rand::random::<u32>());
     let query_alias_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_synapse/admin/v1/appservices/query/alias?alias={}",
-            urlencoding::encode(&test_alias)
-        ))
+        .uri(format!("/_synapse/admin/v1/appservices/query/alias?alias={}", urlencoding::encode(&test_alias)))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
 
     let response = app.clone().oneshot(query_alias_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "Alias namespace query should succeed"
-    );
+    assert_eq!(response.status(), StatusCode::OK, "Alias namespace query should succeed");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let alias_query_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(alias_query_json["alias"], test_alias);
 }

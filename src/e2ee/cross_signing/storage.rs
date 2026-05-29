@@ -16,11 +16,7 @@ impl CrossSigningStorage {
 
     pub async fn create_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_json_str = key
-            .key_json
-            .as_ref()
-            .map(|v| v.to_string())
-            .unwrap_or_default();
+        let key_json_str = key.key_json.as_ref().map(|v| v.to_string()).unwrap_or_default();
 
         sqlx::query(
             r"
@@ -62,8 +58,7 @@ impl CrossSigningStorage {
 
         Ok(row.map(|row| {
             let key_data: String = row.get("key_data");
-            let signatures: serde_json::Value =
-                row.try_get("signatures").unwrap_or(serde_json::json!({}));
+            let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
             let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
 
             let public_key = key_json
@@ -79,11 +74,7 @@ impl CrossSigningStorage {
                 .as_ref()
                 .and_then(|j| j.get("usage"))
                 .and_then(|u| u.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                 .unwrap_or_default();
 
             CrossSigningKey {
@@ -94,18 +85,13 @@ impl CrossSigningStorage {
                 usage,
                 signatures,
                 key_json,
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                    .unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                    .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
+                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
             }
         }))
     }
 
-    pub async fn get_cross_signing_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<CrossSigningKey>, ApiError> {
+    pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT user_id, key_type, key_data, signatures, added_ts
@@ -121,8 +107,7 @@ impl CrossSigningStorage {
             .into_iter()
             .map(|row| {
                 let key_data: String = row.get("key_data");
-                let signatures: serde_json::Value =
-                    row.try_get("signatures").unwrap_or(serde_json::json!({}));
+                let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
                 let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
 
                 let public_key = key_json
@@ -138,11 +123,7 @@ impl CrossSigningStorage {
                     .as_ref()
                     .and_then(|j| j.get("usage"))
                     .and_then(|u| u.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                     .unwrap_or_default();
 
                 CrossSigningKey {
@@ -153,14 +134,10 @@ impl CrossSigningStorage {
                     usage,
                     signatures,
                     key_json,
-                    created_ts: chrono::DateTime::from_timestamp_millis(
-                        row.get::<i64, _>("added_ts"),
-                    )
-                    .unwrap_or_default(),
-                    updated_ts: chrono::DateTime::from_timestamp_millis(
-                        row.get::<i64, _>("added_ts"),
-                    )
-                    .unwrap_or_default(),
+                    created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                        .unwrap_or_default(),
+                    updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
+                        .unwrap_or_default(),
                 }
             })
             .collect())
@@ -189,8 +166,7 @@ impl CrossSigningStorage {
         for row in rows {
             let user_id: String = row.get("user_id");
             let key_data: String = row.get("key_data");
-            let signatures: serde_json::Value =
-                row.try_get("signatures").unwrap_or(serde_json::json!({}));
+            let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
             let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
 
             let public_key = key_json
@@ -206,11 +182,7 @@ impl CrossSigningStorage {
                 .as_ref()
                 .and_then(|j| j.get("usage"))
                 .and_then(|u| u.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                 .unwrap_or_default();
 
             let key = CrossSigningKey {
@@ -221,10 +193,8 @@ impl CrossSigningStorage {
                 usage,
                 signatures,
                 key_json,
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                    .unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                    .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
+                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
             };
 
             result.entry(user_id).or_default().push(key);
@@ -264,10 +234,8 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("created_ts"),
-                )
-                .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
+                    .unwrap_or_default(),
             };
             result.entry(user_id).or_default().push(sig);
         }
@@ -277,10 +245,7 @@ impl CrossSigningStorage {
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_json_str = key
-            .key_json
-            .as_ref()
-            .map_or_else(|| key.public_key.clone(), |v| v.to_string());
+        let key_json_str = key.key_json.as_ref().map_or_else(|| key.public_key.clone(), |v| v.to_string());
 
         sqlx::query(
             r"
@@ -301,11 +266,7 @@ impl CrossSigningStorage {
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_id = format!(
-            "{}:{}",
-            key.algorithm,
-            key.public_key.split(':').next().unwrap_or(&key.public_key)
-        );
+        let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
 
         sqlx::query(
             r"
@@ -336,13 +297,13 @@ impl CrossSigningStorage {
         let created_ts = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
-            INSERT INTO device_signatures 
+            INSERT INTO device_signatures
             (user_id, device_id, target_user_id, target_device_id, algorithm, signature, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (user_id, device_id, target_user_id, target_device_id, algorithm) DO UPDATE SET
                 signature = EXCLUDED.signature,
                 created_ts = EXCLUDED.created_ts
-            "
+            ",
         )
         .bind(&sig.user_id)
         .bind(&sig.device_id)
@@ -357,13 +318,10 @@ impl CrossSigningStorage {
         Ok(())
     }
 
-    pub async fn get_user_signatures(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<DeviceSignature>, ApiError> {
+    pub async fn get_user_signatures(&self, user_id: &str) -> Result<Vec<DeviceSignature>, ApiError> {
         let rows = sqlx::query(
             r"
-            SELECT user_id, device_id, target_user_id, target_device_id, 
+            SELECT user_id, device_id, target_user_id, target_device_id,
                    algorithm, signature, created_ts
             FROM device_signatures
             WHERE user_id = $1
@@ -383,10 +341,8 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("created_ts"),
-                )
-                .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
+                    .unwrap_or_default(),
             })
             .collect())
     }
@@ -398,7 +354,7 @@ impl CrossSigningStorage {
     ) -> Result<Vec<DeviceSignature>, ApiError> {
         let rows = sqlx::query(
             r"
-            SELECT user_id, device_id, target_user_id, target_device_id, 
+            SELECT user_id, device_id, target_user_id, target_device_id,
                    algorithm, signature, created_ts
             FROM device_signatures
             WHERE user_id = $1 AND target_device_id = $2
@@ -419,10 +375,8 @@ impl CrossSigningStorage {
                 target_device_id: row.get("target_device_id"),
                 target_key_id: row.get("algorithm"),
                 signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(
-                    row.get::<i64, _>("created_ts"),
-                )
-                .unwrap_or_default(),
+                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
+                    .unwrap_or_default(),
             })
             .collect())
     }
@@ -435,7 +389,7 @@ impl CrossSigningStorage {
     ) -> Result<Option<DeviceSignature>, ApiError> {
         let row = sqlx::query(
             r"
-            SELECT user_id, device_id, target_user_id, target_device_id, 
+            SELECT user_id, device_id, target_user_id, target_device_id,
                    algorithm, signature, created_ts
             FROM device_signatures
             WHERE user_id = $1 AND algorithm = $2 AND device_id = $3
@@ -455,8 +409,7 @@ impl CrossSigningStorage {
             target_device_id: row.get("target_device_id"),
             target_key_id: row.get("algorithm"),
             signature: row.get("signature"),
-            created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
-                .unwrap_or_default(),
+            created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts")).unwrap_or_default(),
         }))
     }
 
@@ -618,12 +571,7 @@ mod tests {
 
     #[test]
     fn test_cross_signing_key_usage_values() {
-        let usages = vec![
-            vec!["master"],
-            vec!["self_signing"],
-            vec!["user_signing"],
-            vec!["master", "self_signing"],
-        ];
+        let usages = vec![vec!["master"], vec!["self_signing"], vec!["user_signing"], vec!["master", "self_signing"]];
 
         for usage in usages {
             let key = CrossSigningKey {

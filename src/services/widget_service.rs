@@ -1,7 +1,5 @@
 use crate::common::error::ApiError;
-use crate::storage::widget::{
-    CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage,
-};
+use crate::storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage};
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
@@ -71,11 +69,7 @@ impl WidgetService {
         Self { storage }
     }
 
-    pub async fn create_widget(
-        &self,
-        user_id: &str,
-        request: CreateWidgetRequest,
-    ) -> Result<Widget, ApiError> {
+    pub async fn create_widget(&self, user_id: &str, request: CreateWidgetRequest) -> Result<Widget, ApiError> {
         let widget_id = format!("widget_{}", Uuid::new_v4());
 
         let params = CreateWidgetParams {
@@ -135,12 +129,7 @@ impl WidgetService {
     ) -> Result<Option<Widget>, ApiError> {
         let widget = self
             .storage
-            .update_widget(
-                widget_id,
-                request.url.as_deref(),
-                request.name.as_deref(),
-                request.data.as_ref(),
-            )
+            .update_widget(widget_id, request.url.as_deref(), request.name.as_deref(), request.data.as_ref())
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update widget", &e))?;
 
@@ -170,8 +159,7 @@ impl WidgetService {
         widget_id: &str,
         request: SetPermissionRequest,
     ) -> Result<WidgetPermission, ApiError> {
-        let permissions =
-            serde_json::to_value(&request.permissions).unwrap_or(serde_json::json!([]));
+        let permissions = serde_json::to_value(&request.permissions).unwrap_or(serde_json::json!([]));
 
         let permission = self
             .storage
@@ -179,17 +167,11 @@ impl WidgetService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set widget permission", &e))?;
 
-        info!(
-            "Set permissions for widget {} user {}",
-            widget_id, request.user_id
-        );
+        info!("Set permissions for widget {} user {}", widget_id, request.user_id);
         Ok(permission)
     }
 
-    pub async fn get_permissions(
-        &self,
-        widget_id: &str,
-    ) -> Result<Vec<WidgetPermission>, ApiError> {
+    pub async fn get_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, ApiError> {
         let permissions = self
             .storage
             .get_widget_permissions(widget_id)
@@ -208,31 +190,20 @@ impl WidgetService {
             .storage
             .get_user_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to get user widget permission", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get user widget permission", &e))?;
 
         Ok(permission)
     }
 
-    pub async fn delete_permission(
-        &self,
-        widget_id: &str,
-        user_id: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn delete_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, ApiError> {
         let deleted = self
             .storage
             .delete_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to delete widget permission", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to delete widget permission", &e))?;
 
         if deleted {
-            info!(
-                "Deleted permission for widget {} user {}",
-                widget_id, user_id
-            );
+            info!("Deleted permission for widget {} user {}", widget_id, user_id);
         }
 
         Ok(deleted)
@@ -257,10 +228,7 @@ impl WidgetService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create widget session", &e))?;
 
-        info!(
-            "Created session {} for widget {} user {}",
-            session_id, request.widget_id, user_id
-        );
+        info!("Created session {} for widget {} user {}", session_id, request.widget_id, user_id);
         Ok(session)
     }
 
@@ -298,10 +266,7 @@ impl WidgetService {
         Ok(terminated)
     }
 
-    pub async fn get_widget_sessions(
-        &self,
-        widget_id: &str,
-    ) -> Result<Vec<WidgetSession>, ApiError> {
+    pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, ApiError> {
         let sessions = self
             .storage
             .get_widget_sessions(widget_id)
@@ -312,9 +277,11 @@ impl WidgetService {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        let count = self.storage.cleanup_expired_sessions().await.map_err(|e| {
-            ApiError::internal_with_log("Failed to cleanup expired sessions", &e)
-        })?;
+        let count = self
+            .storage
+            .cleanup_expired_sessions()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
 
         if count > 0 {
             info!("Cleaned up {} expired widget sessions", count);
@@ -333,9 +300,8 @@ impl WidgetService {
 
         if let Some(perm) = permission {
             if let Some(perms) = perm.permissions.as_array() {
-                let has_permission = perms
-                    .iter()
-                    .any(|p| p.as_str() == Some(required_permission) || p.as_str() == Some("*"));
+                let has_permission =
+                    perms.iter().any(|p| p.as_str() == Some(required_permission) || p.as_str() == Some("*"));
                 return Ok(has_permission);
             }
         }
@@ -364,11 +330,8 @@ mod tests {
 
     #[test]
     fn test_update_widget_request() {
-        let request = UpdateWidgetRequest {
-            url: Some("https://example.com/new-widget".to_string()),
-            name: None,
-            data: None,
-        };
+        let request =
+            UpdateWidgetRequest { url: Some("https://example.com/new-widget".to_string()), name: None, data: None };
 
         assert!(request.url.is_some());
         assert!(request.name.is_none());

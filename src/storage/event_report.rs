@@ -113,10 +113,7 @@ impl EventReportStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_report(
-        &self,
-        request: CreateEventReportRequest,
-    ) -> Result<EventReport, sqlx::Error> {
+    pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, EventReport>(
@@ -153,10 +150,7 @@ impl EventReportStorage {
         Ok(row)
     }
 
-    pub async fn get_reports_by_event(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<EventReport>, sqlx::Error> {
+    pub async fn get_reports_by_event(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
         let rows = sqlx::query_as::<_, EventReport>(
             "SELECT * FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC, id DESC",
         )
@@ -186,7 +180,7 @@ impl EventReportStorage {
             .await?
         } else {
             sqlx::query_as::<_, EventReport>(
-                "SELECT * FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
+                "SELECT * FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2",
             )
             .bind(room_id)
             .bind(limit)
@@ -216,7 +210,7 @@ impl EventReportStorage {
             .await?
         } else {
             sqlx::query_as::<_, EventReport>(
-                "SELECT * FROM event_reports WHERE reporter_user_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
+                "SELECT * FROM event_reports WHERE reporter_user_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2",
             )
             .bind(reporter_user_id)
             .bind(limit)
@@ -238,12 +232,12 @@ impl EventReportStorage {
         let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
             sqlx::query_as::<_, EventReport>(
                 r"
-                SELECT * FROM event_reports 
+                SELECT * FROM event_reports
                 WHERE status = $1 AND (
-                    score < $3 OR 
-                    (score = $3 AND received_ts < $4) OR 
+                    score < $3 OR
+                    (score = $3 AND received_ts < $4) OR
                     (score = $3 AND received_ts = $4 AND id < $5)
-                ) 
+                )
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2
                 ",
             )
@@ -256,7 +250,7 @@ impl EventReportStorage {
             .await?
         } else {
             sqlx::query_as::<_, EventReport>(
-                "SELECT * FROM event_reports WHERE status = $1 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2"
+                "SELECT * FROM event_reports WHERE status = $1 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $2",
             )
             .bind(status)
             .bind(limit)
@@ -277,12 +271,12 @@ impl EventReportStorage {
         let rows = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
             sqlx::query_as::<_, EventReport>(
                 r"
-                SELECT * FROM event_reports 
+                SELECT * FROM event_reports
                 WHERE (
-                    score < $3 OR 
-                    (score = $3 AND received_ts < $4) OR 
+                    score < $3 OR
+                    (score = $3 AND received_ts < $4) OR
                     (score = $3 AND received_ts = $4 AND id < $5)
-                ) 
+                )
                 ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1
                 ",
             )
@@ -294,7 +288,7 @@ impl EventReportStorage {
             .await?
         } else {
             sqlx::query_as::<_, EventReport>(
-                "SELECT * FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
+                "SELECT * FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1",
             )
             .bind(limit)
             .fetch_all(&*self.pool)
@@ -304,20 +298,15 @@ impl EventReportStorage {
         Ok(rows)
     }
 
-    pub async fn update_report(
-        &self,
-        id: i64,
-        request: UpdateEventReportRequest,
-    ) -> Result<EventReport, sqlx::Error> {
+    pub async fn update_report(&self, id: i64, request: UpdateEventReportRequest) -> Result<EventReport, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let resolved_ts = if request.status.as_deref() == Some("resolved")
-            || request.status.as_deref() == Some("dismissed")
-        {
-            Some(now)
-        } else {
-            None
-        };
+        let resolved_ts =
+            if request.status.as_deref() == Some("resolved") || request.status.as_deref() == Some("dismissed") {
+                Some(now)
+            } else {
+                None
+            };
 
         let row = sqlx::query_as::<_, EventReport>(
             r"
@@ -344,10 +333,7 @@ impl EventReportStorage {
     }
 
     pub async fn delete_report(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM event_reports WHERE id = $1")
-            .bind(id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM event_reports WHERE id = $1").bind(id).execute(&*self.pool).await?;
 
         Ok(())
     }
@@ -387,23 +373,15 @@ impl EventReportStorage {
         })
     }
 
-    pub fn get_report_history(
-        &self,
-        _report_id: i64,
-    ) -> Result<Vec<EventReportHistory>, sqlx::Error> {
+    pub fn get_report_history(&self, _report_id: i64) -> Result<Vec<EventReportHistory>, sqlx::Error> {
         Ok(vec![])
     }
 
-    pub async fn check_rate_limit(
-        &self,
-        user_id: &str,
-    ) -> Result<ReportRateLimitCheck, sqlx::Error> {
-        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!(
-            "{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"
-        ))
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn check_rate_limit(&self, user_id: &str) -> Result<ReportRateLimitCheck, sqlx::Error> {
+        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"))
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         let max_reports_per_day = 50;
 
@@ -440,9 +418,7 @@ impl EventReportStorage {
                 }
 
                 let one_day_ago = Utc::now().timestamp_millis() - 86_400_000;
-                if l.last_report_at
-                    .is_some_and(|last_report_at| last_report_at > one_day_ago)
-                {
+                if l.last_report_at.is_some_and(|last_report_at| last_report_at > one_day_ago) {
                     if l.report_count >= max_reports_per_day {
                         return Ok(ReportRateLimitCheck {
                             is_allowed: false,
@@ -470,19 +446,14 @@ impl EventReportStorage {
         let now = Utc::now().timestamp_millis();
         let one_day_ago = now - 86_400_000;
 
-        let existing = sqlx::query_as::<_, ReportRateLimit>(&format!(
-            "{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"
-        ))
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let existing = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"))
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         match existing {
             Some(l) => {
-                let new_count = if l
-                    .last_report_at
-                    .is_none_or(|last_report_at| last_report_at < one_day_ago)
-                {
+                let new_count = if l.last_report_at.is_none_or(|last_report_at| last_report_at < one_day_ago) {
                     1
                 } else {
                     l.report_count + 1
@@ -511,12 +482,7 @@ impl EventReportStorage {
         Ok(())
     }
 
-    pub async fn block_user_reports(
-        &self,
-        user_id: &str,
-        blocked_until: i64,
-        reason: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn block_user_reports(&self, user_id: &str, blocked_until: i64, reason: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
@@ -567,9 +533,7 @@ impl EventReportStorage {
     }
 
     pub async fn count_all_reports(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_reports")
-            .fetch_one(&*self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_reports").fetch_one(&*self.pool).await?;
 
         Ok(count)
     }

@@ -29,10 +29,7 @@ mod cursor_tests {
     #[test]
     fn test_media_cursor_round_trip() {
         let cursor = encode_media_cursor(1_700_000_000_000, "abc123");
-        assert_eq!(
-            decode_media_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "abc123"))
-        );
+        assert_eq!(decode_media_cursor(Some(&cursor)), Some((1_700_000_000_000, "abc123")));
     }
 
     #[test]
@@ -43,10 +40,7 @@ mod cursor_tests {
 }
 
 fn quarantine_status_to_bool(value: Option<&str>) -> bool {
-    matches!(
-        value,
-        Some("quarantined") | Some("true") | Some("1") | Some("yes")
-    )
+    matches!(value, Some("quarantined") | Some("true") | Some("1") | Some("yes"))
 }
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -55,14 +49,8 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media/{media_id}", get(get_media_info))
         .route("/_synapse/admin/v1/media/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/media",
-            get(get_user_media),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/media",
-            delete(delete_user_media),
-        )
+        .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
+        .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
 }
 
 pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -87,11 +75,7 @@ pub async fn get_all_media(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100_i64)
-        .clamp(1, 500);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
     let cursor = decode_media_cursor(params.get("from").map(String::as_str));
 
     let media = sqlx::query(
@@ -130,9 +114,7 @@ pub async fn get_all_media(
         media.last().map(|row| {
             encode_media_cursor(
                 row.get::<Option<i64>, _>("created_ts").unwrap_or_default(),
-                row.get::<Option<String>, _>("media_id")
-                    .unwrap_or_default()
-                    .as_str(),
+                row.get::<Option<String>, _>("media_id").unwrap_or_default().as_str(),
             )
         })
     } else {
@@ -195,15 +177,11 @@ pub async fn delete_media(
 }
 
 #[axum::debug_handler]
-pub async fn get_media_quota(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
-    let total_size: i64 =
-        sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
-            .fetch_one(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+pub async fn get_media_quota(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let total_size: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_metadata")
         .fetch_one(&*state.services.user_storage.pool)
@@ -256,9 +234,7 @@ pub async fn get_user_media(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "media": media_list, "total": media_list.len() }),
-    ))
+    Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
 }
 
 #[axum::debug_handler]

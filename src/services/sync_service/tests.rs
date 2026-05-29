@@ -207,10 +207,7 @@ fn test_public_rooms_response_format() {
 #[test]
 fn test_count_events_by_room() {
     let room_events = HashMap::from([
-        (
-            "!a:example.com".to_string(),
-            vec![sample_room_event("1"), sample_room_event("2")],
-        ),
+        ("!a:example.com".to_string(), vec![sample_room_event("1"), sample_room_event("2")]),
         ("!b:example.com".to_string(), vec![sample_room_event("3")]),
     ]);
 
@@ -228,10 +225,7 @@ fn test_timeline_limit_from_room_filter() {
     });
     let room_filter = SyncService::room_filter_from_filter_json(&filter);
 
-    assert_eq!(
-        SyncService::timeline_limit_from_room_filter(Some(&room_filter), 50),
-        8
-    );
+    assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&room_filter), 50), 8);
 }
 
 #[test]
@@ -271,18 +265,9 @@ fn test_event_query_filter_from_sync_filter_preserves_matchers() {
         .expect("timeline matcher filter should be pushed to query layer");
 
     assert_eq!(query_filter.types, Some(vec!["m.room.message".to_string()]));
-    assert_eq!(
-        query_filter.not_types,
-        Some(vec!["m.room.redaction".to_string()])
-    );
-    assert_eq!(
-        query_filter.senders,
-        Some(vec!["@alice:localhost".to_string()])
-    );
-    assert_eq!(
-        query_filter.not_senders,
-        Some(vec!["@mallory:localhost".to_string()])
-    );
+    assert_eq!(query_filter.not_types, Some(vec!["m.room.redaction".to_string()]));
+    assert_eq!(query_filter.senders, Some(vec!["@alice:localhost".to_string()]));
+    assert_eq!(query_filter.not_senders, Some(vec!["@mallory:localhost".to_string()]));
 }
 
 #[test]
@@ -294,10 +279,7 @@ fn test_timeline_limit_from_room_filter_ignores_missing_limit() {
     });
     let room_filter = SyncService::room_filter_from_filter_json(&filter);
 
-    assert_eq!(
-        SyncService::timeline_limit_from_room_filter(Some(&room_filter), 50),
-        50
-    );
+    assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&room_filter), 50), 50);
 }
 
 #[test]
@@ -321,18 +303,12 @@ fn test_sync_filter_from_json_parses_matchers() {
     assert_eq!(parsed.types, Some(vec!["m.room.member".to_string()]));
     assert_eq!(parsed.not_types, Some(vec!["m.room.redaction".to_string()]));
     assert_eq!(parsed.rooms, Some(vec!["!room:localhost".to_string()]));
-    assert_eq!(
-        parsed.not_rooms,
-        Some(vec!["!blocked:localhost".to_string()])
-    );
+    assert_eq!(parsed.not_rooms, Some(vec!["!blocked:localhost".to_string()]));
     assert_eq!(parsed.contains_url, Some(true));
     assert_eq!(parsed.lazy_load_members, Some(true));
     assert_eq!(parsed.include_redundant_members, Some(true));
     assert_eq!(parsed.senders, Some(vec!["@alice:localhost".to_string()]));
-    assert_eq!(
-        parsed.not_senders,
-        Some(vec!["@mallory:localhost".to_string()])
-    );
+    assert_eq!(parsed.not_senders, Some(vec!["@mallory:localhost".to_string()]));
 }
 
 #[test]
@@ -360,26 +336,12 @@ fn test_room_filter_from_filter_json_parses_sections() {
     let parsed = SyncService::room_filter_from_filter_json(&filter);
 
     assert_eq!(parsed.rooms, Some(vec!["!allowed:localhost".to_string()]));
-    assert_eq!(
-        parsed.not_rooms,
-        Some(vec!["!blocked:localhost".to_string()])
-    );
+    assert_eq!(parsed.not_rooms, Some(vec!["!blocked:localhost".to_string()]));
     assert_eq!(parsed.include_leave, Some(true));
-    assert_eq!(
-        parsed.state.and_then(|state| state.types),
-        Some(vec!["m.room.name".to_string()])
-    );
+    assert_eq!(parsed.state.and_then(|state| state.types), Some(vec!["m.room.name".to_string()]));
     assert_eq!(parsed.timeline.and_then(|timeline| timeline.limit), Some(5));
-    assert_eq!(
-        parsed.ephemeral.and_then(|ephemeral| ephemeral.senders),
-        Some(vec!["@alice:localhost".to_string()])
-    );
-    assert_eq!(
-        parsed
-            .account_data
-            .and_then(|account_data| account_data.not_types),
-        Some(vec!["m.tag".to_string()])
-    );
+    assert_eq!(parsed.ephemeral.and_then(|ephemeral| ephemeral.senders), Some(vec!["@alice:localhost".to_string()]));
+    assert_eq!(parsed.account_data.and_then(|account_data| account_data.not_types), Some(vec!["m.tag".to_string()]));
 }
 
 #[test]
@@ -402,33 +364,19 @@ fn test_sync_response_filter_from_filter_json_parses_presence() {
 
     assert_eq!(
         parsed.event_fields,
-        Some(vec![
-            "type".to_string(),
-            "content.body".to_string(),
-            "unsigned.age".to_string()
-        ])
+        Some(vec!["type".to_string(), "content.body".to_string(), "unsigned.age".to_string()])
     );
     assert_eq!(parsed.event_format, SyncEventFormat::Federation);
     assert_eq!(
-        parsed
-            .presence
-            .as_ref()
-            .and_then(|presence| presence.types.as_ref()),
+        parsed.presence.as_ref().and_then(|presence| presence.types.as_ref()),
         Some(&vec!["m.presence".to_string()])
     );
     assert_eq!(
-        parsed
-            .presence
-            .as_ref()
-            .and_then(|presence| presence.not_senders.as_ref()),
+        parsed.presence.as_ref().and_then(|presence| presence.not_senders.as_ref()),
         Some(&vec!["@mallory:localhost".to_string()])
     );
     assert_eq!(
-        parsed
-            .room
-            .as_ref()
-            .and_then(|room| room.timeline.as_ref())
-            .and_then(|timeline| timeline.limit),
+        parsed.room.as_ref().and_then(|room| room.timeline.as_ref()).and_then(|timeline| timeline.limit),
         Some(7)
     );
 }
@@ -508,14 +456,8 @@ fn test_apply_sync_filter_to_values_filters_presence_events() {
 
 #[test]
 fn test_apply_timeline_limit_truncates_events() {
-    let (events, limited) = SyncService::apply_timeline_limit(
-        &[
-            sample_room_event("1"),
-            sample_room_event("2"),
-            sample_room_event("3"),
-        ],
-        2,
-    );
+    let (events, limited) =
+        SyncService::apply_timeline_limit(&[sample_room_event("1"), sample_room_event("2"), sample_room_event("3")], 2);
 
     assert!(limited);
     assert_eq!(events.len(), 2);
@@ -582,11 +524,7 @@ fn test_filter_event_fields_keeps_nested_fields() {
 
     let filtered = SyncService::filter_event_fields(
         event,
-        Some(&[
-            "type".to_string(),
-            "content.body".to_string(),
-            "unsigned.age".to_string(),
-        ]),
+        Some(&["type".to_string(), "content.body".to_string(), "unsigned.age".to_string()]),
     );
 
     assert_eq!(filtered["type"], "m.room.message");
@@ -682,16 +620,10 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
     );
 
     assert_eq!(filtered.len(), 3);
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@alice:localhost"));
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@bob:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@bob:localhost"));
     assert!(filtered.iter().any(|event| event["type"] == "m.room.name"));
-    assert!(!filtered
-        .iter()
-        .any(|event| event["state_key"] == "@carol:localhost"));
+    assert!(!filtered.iter().any(|event| event["state_key"] == "@carol:localhost"));
     assert!(known_now.contains("@bob:localhost"));
     assert!(known_now.contains("@alice:localhost"));
 }
@@ -743,12 +675,8 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
     );
 
     assert_eq!(filtered.len(), 2);
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@alice:localhost"));
-    assert!(!filtered
-        .iter()
-        .any(|event| event["state_key"] == "@bob:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
+    assert!(!filtered.iter().any(|event| event["state_key"] == "@bob:localhost"));
     assert!(filtered.iter().any(|event| event["type"] == "m.room.name"));
     assert!(known_now.contains("@bob:localhost"));
 }
@@ -795,12 +723,8 @@ fn test_apply_lazy_load_members_can_include_redundant_members() {
     );
 
     assert_eq!(filtered.len(), 2);
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@alice:localhost"));
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@bob:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@bob:localhost"));
 }
 
 #[test]
@@ -829,12 +753,8 @@ fn test_apply_lazy_load_members_includes_state_delta_members_on_incremental_sync
     );
 
     assert_eq!(filtered.len(), 2);
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@alice:localhost"));
-    assert!(filtered
-        .iter()
-        .any(|event| event["state_key"] == "@dave:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
+    assert!(filtered.iter().any(|event| event["state_key"] == "@dave:localhost"));
     assert!(known_now.contains("@dave:localhost"));
 }
 
@@ -863,11 +783,8 @@ fn test_apply_lazy_load_members_replays_cached_state_delta_members() {
 
 #[test]
 fn test_rooms_to_include_keeps_rooms_with_state_delta_membership() {
-    let room_ids = vec![
-        "!timeline:localhost".to_string(),
-        "!state:localhost".to_string(),
-        "!skip:localhost".to_string(),
-    ];
+    let room_ids =
+        vec!["!timeline:localhost".to_string(), "!state:localhost".to_string(), "!skip:localhost".to_string()];
     let room_events = HashMap::from([
         (
             "!timeline:localhost".to_string(),
@@ -892,17 +809,12 @@ fn test_rooms_to_include_keeps_rooms_with_state_delta_membership() {
         ("!skip:localhost".to_string(), Vec::new()),
     ]);
     let changed_members_by_room = HashMap::from([
-        (
-            "!state:localhost".to_string(),
-            HashSet::from([String::from("@dave:localhost")]),
-        ),
+        ("!state:localhost".to_string(), HashSet::from([String::from("@dave:localhost")])),
         ("!skip:localhost".to_string(), HashSet::new()),
     ]);
 
-    let non_member_state_change_ts_by_room = HashMap::from([
-        ("!state:localhost".to_string(), 2_i64),
-        ("!skip:localhost".to_string(), 0_i64),
-    ]);
+    let non_member_state_change_ts_by_room =
+        HashMap::from([("!state:localhost".to_string(), 2_i64), ("!skip:localhost".to_string(), 0_i64)]);
 
     let rooms = SyncService::rooms_to_include(
         &room_ids,
@@ -912,26 +824,14 @@ fn test_rooms_to_include_keeps_rooms_with_state_delta_membership() {
         true,
     );
 
-    assert_eq!(
-        rooms,
-        vec![
-            "!timeline:localhost".to_string(),
-            "!state:localhost".to_string()
-        ]
-    );
+    assert_eq!(rooms, vec!["!timeline:localhost".to_string(), "!state:localhost".to_string()]);
 }
 
 #[test]
 fn test_filter_sync_rooms_respects_room_lists() {
     let memberships = vec![
-        UserRoomMembership {
-            room_id: "!keep:localhost".to_string(),
-            membership: "join".to_string(),
-        },
-        UserRoomMembership {
-            room_id: "!drop:localhost".to_string(),
-            membership: "leave".to_string(),
-        },
+        UserRoomMembership { room_id: "!keep:localhost".to_string(), membership: "join".to_string() },
+        UserRoomMembership { room_id: "!drop:localhost".to_string(), membership: "leave".to_string() },
     ];
     let room_filter = RoomFilter {
         rooms: Some(vec!["!keep:localhost".to_string()]),

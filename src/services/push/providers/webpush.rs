@@ -14,9 +14,6 @@ pub struct WebPushProviderConfig {
     pub timeout_secs: u64,
 }
 
-#[deprecated(since = "0.1.0", note = "Use WebPushProviderConfig instead to avoid confusion with config::WebPushConfig")]
-pub type WebPushConfig = WebPushProviderConfig;
-
 impl Default for WebPushProviderConfig {
     fn default() -> Self {
         Self {
@@ -70,11 +67,7 @@ impl WebPushProvider {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        Self {
-            config,
-            client,
-            enabled,
-        }
+        Self { config, client, enabled }
     }
 
     pub fn with_vapid_keys(public_key: String, private_key: String) -> Self {
@@ -86,32 +79,20 @@ impl WebPushProvider {
         Self::new(config)
     }
 
-    fn encrypt_payload(
-        &self,
-        payload: &[u8],
-        _subscription: &WebPushSubscription,
-    ) -> EncryptedPayload {
+    fn encrypt_payload(&self, payload: &[u8], _subscription: &WebPushSubscription) -> EncryptedPayload {
         let salt: [u8; 16] = rand::random();
         let server_public_key = self.config.vapid_public_key.as_bytes().to_vec();
 
         let mut content = Vec::new();
         content.extend_from_slice(payload);
 
-        EncryptedPayload {
-            content,
-            server_public_key,
-            salt: salt.to_vec(),
-        }
+        EncryptedPayload { content, server_public_key, salt: salt.to_vec() }
     }
 
     fn generate_vapid_jwt(&self, endpoint: &str) -> Result<String, String> {
         let url = url::Url::parse(endpoint).map_err(|e| format!("Invalid endpoint URL: {e}"))?;
 
-        let origin = format!(
-            "{}://{}",
-            url.scheme(),
-            url.host_str().unwrap_or("localhost")
-        );
+        let origin = format!("{}://{}", url.scheme(), url.host_str().unwrap_or("localhost"));
 
         if !self.config.vapid_private_key.contains("BEGIN") {
             return Err("WebPush VAPID private key must be PEM encoded".to_string());
@@ -120,11 +101,7 @@ impl WebPushProvider {
         let now = chrono::Utc::now().timestamp();
         let exp = now + 12 * 60 * 60;
 
-        let claims = VapidClaims {
-            aud: origin,
-            exp,
-            sub: self.config.subject.clone(),
-        };
+        let claims = VapidClaims { aud: origin, exp, sub: self.config.subject.clone() };
 
         let mut header = Header::new(Algorithm::ES256);
         header.typ = Some("JWT".to_string());
@@ -132,8 +109,7 @@ impl WebPushProvider {
         let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes())
             .map_err(|e| format!("Invalid WebPush VAPID private key: {e}"))?;
 
-        encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("Failed to sign VAPID JWT: {e}"))
+        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign VAPID JWT: {e}"))
     }
 
     async fn send_to_endpoint(
@@ -155,10 +131,7 @@ impl WebPushProvider {
         let response = self
             .client
             .post(&subscription.endpoint)
-            .header(
-                "Authorization",
-                format!("vapid t={}, k={}", jwt, self.config.vapid_public_key),
-            )
+            .header("Authorization", format!("vapid t={}, k={}", jwt, self.config.vapid_public_key))
             .header("Content-Encoding", content_encoding)
             .header("Content-Type", "application/octet-stream")
             .header("TTL", "86400")
@@ -173,10 +146,7 @@ impl WebPushProvider {
             return Ok(());
         }
 
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
 
         Err(format!("WebPush error: {status} - {body}"))
     }
@@ -267,8 +237,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_webpush_provider_creation() {
-        let provider =
-            WebPushProvider::with_vapid_keys("public_key".to_string(), "private_key".to_string());
+        let provider = WebPushProvider::with_vapid_keys("public_key".to_string(), "private_key".to_string());
         assert!(provider.is_enabled());
         assert_eq!(provider.name(), "webpush");
     }
@@ -282,8 +251,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
 
     #[test]
     fn test_parse_subscription() {
-        let provider =
-            WebPushProvider::with_vapid_keys("public_key".to_string(), "private_key".to_string());
+        let provider = WebPushProvider::with_vapid_keys("public_key".to_string(), "private_key".to_string());
 
         let subscription_json = r#"{
             "endpoint": "https://push.example.com/abc123",
@@ -307,9 +275,7 @@ v8PGbBpPXRyuIyQoooKWcdokN62hRANCAASrFgTXKOydK6UzmGQ/iGevi9IZWynS\n\
             ..Default::default()
         });
 
-        let jwt = provider
-            .generate_vapid_jwt("https://push.example.com/abc123")
-            .expect("vapid jwt should be signed");
+        let jwt = provider.generate_vapid_jwt("https://push.example.com/abc123").expect("vapid jwt should be signed");
         let segments: Vec<&str> = jwt.split('.').collect();
 
         assert_eq!(segments.len(), 3);

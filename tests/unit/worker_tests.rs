@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::worker::types::*;
-    use synapse_rust::worker::protocol::{ReplicationCommand, ReplicationProtocol};
-    use synapse_rust::services::ServiceContainer;
     use std::str::FromStr;
+    use synapse_rust::services::ServiceContainer;
+    use synapse_rust::worker::protocol::{ReplicationCommand, ReplicationProtocol};
+    use synapse_rust::worker::types::*;
 
     #[test]
     fn test_worker_type_as_str() {
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn test_worker_config_default() {
-        let config = WorkerConfig::default();
+        let config = WorkerRuntimeConfig::default();
         assert!(!config.worker_id.is_empty());
         assert_eq!(config.worker_type, WorkerType::Frontend);
         assert_eq!(config.host, "localhost");
@@ -76,27 +76,19 @@ mod tests {
 
     #[test]
     fn test_replication_command_pong() {
-        let cmd = ReplicationCommand::Pong {
-            timestamp: 12345,
-            server_name: "example.com".to_string(),
-        };
+        let cmd = ReplicationCommand::Pong { timestamp: 12345, server_name: "example.com".to_string() };
         assert_eq!(cmd.to_string(), "PONG 12345 example.com");
     }
 
     #[test]
     fn test_replication_command_position() {
-        let cmd = ReplicationCommand::Position {
-            stream_name: "events".to_string(),
-            position: 100,
-        };
+        let cmd = ReplicationCommand::Position { stream_name: "events".to_string(), position: 100 };
         assert_eq!(cmd.to_string(), "POSITION events 100");
     }
 
     #[test]
     fn test_replication_command_error() {
-        let cmd = ReplicationCommand::Error {
-            message: "Something went wrong".to_string(),
-        };
+        let cmd = ReplicationCommand::Error { message: "Something went wrong".to_string() };
         assert_eq!(cmd.to_string(), "ERROR Something went wrong");
     }
 
@@ -109,36 +101,19 @@ mod tests {
     #[test]
     fn test_replication_command_parse_pong() {
         let cmd = ReplicationCommand::parse("PONG 12345 example.com").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Pong {
-                timestamp: 12345,
-                server_name: "example.com".to_string()
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Pong { timestamp: 12345, server_name: "example.com".to_string() });
     }
 
     #[test]
     fn test_replication_command_parse_position() {
         let cmd = ReplicationCommand::parse("POSITION events 100").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Position {
-                stream_name: "events".to_string(),
-                position: 100
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Position { stream_name: "events".to_string(), position: 100 });
     }
 
     #[test]
     fn test_replication_command_parse_error() {
         let cmd = ReplicationCommand::parse("ERROR Something went wrong").unwrap();
-        assert_eq!(
-            cmd,
-            ReplicationCommand::Error {
-                message: "Something went wrong".to_string()
-            }
-        );
+        assert_eq!(cmd, ReplicationCommand::Error { message: "Something went wrong".to_string() });
     }
 
     #[test]
@@ -158,16 +133,13 @@ mod tests {
     #[test]
     fn test_replication_protocol_encode_decode() {
         let protocol = ReplicationProtocol::new();
-        
+
         let cmd = ReplicationCommand::Ping { timestamp: 12345 };
         let encoded = protocol.encode_command(&cmd);
         let decoded = protocol.decode_command(&encoded).unwrap();
         assert_eq!(cmd, decoded);
 
-        let cmd = ReplicationCommand::Position {
-            stream_name: "events".to_string(),
-            position: 100,
-        };
+        let cmd = ReplicationCommand::Position { stream_name: "events".to_string(), position: 100 };
         let encoded = protocol.encode_command(&cmd);
         let decoded = protocol.decode_command(&encoded).unwrap();
         assert_eq!(cmd, decoded);
@@ -297,7 +269,7 @@ mod tests {
     async fn test_worker_manager_creation() {
         let container = ServiceContainer::new_test();
         let manager = &container.worker_manager;
-        
+
         assert!(manager.get_local_worker_id().is_none());
     }
 
@@ -322,7 +294,7 @@ mod tests {
             eprintln!("Skipping test_register_worker: database table not available");
             return;
         }
-        
+
         let worker = result.unwrap();
         assert_eq!(worker.status, "starting");
     }
@@ -398,20 +370,22 @@ mod tests {
             return;
         }
         let worker = worker.unwrap();
-        
-        let result = manager.heartbeat(
-            &worker.worker_id,
-            WorkerStatus::Running,
-            Some(WorkerLoadStatsUpdate {
-                cpu_usage: Some(50.0),
-                memory_usage: Some(1024),
-                active_connections: Some(10),
-                requests_per_second: Some(100.0),
-                average_latency_ms: Some(5.0),
-                queue_depth: Some(2),
-            }),
-        ).await;
-        
+
+        let result = manager
+            .heartbeat(
+                &worker.worker_id,
+                WorkerStatus::Running,
+                Some(WorkerLoadStatsUpdate {
+                    cpu_usage: Some(50.0),
+                    memory_usage: Some(1024),
+                    active_connections: Some(10),
+                    requests_per_second: Some(100.0),
+                    average_latency_ms: Some(5.0),
+                    queue_depth: Some(2),
+                }),
+            )
+            .await;
+
         if result.is_err() {
             eprintln!("Skipping test_heartbeat assertion: database operation failed");
             return;
@@ -435,7 +409,7 @@ mod tests {
             eprintln!("Skipping test_assign_task: database table not available");
             return;
         }
-        
+
         let task = result.unwrap();
         assert_eq!(task.status, "pending");
     }

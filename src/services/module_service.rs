@@ -87,10 +87,7 @@ pub struct ThirdPartyRuleOutput {
 pub trait ThirdPartyRule: Send + Sync {
     fn name(&self) -> &str;
 
-    async fn check(
-        &self,
-        context: &ThirdPartyRuleContext,
-    ) -> Result<ThirdPartyRuleOutput, ApiError>;
+    async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,11 +119,7 @@ pub struct ModuleRegistry {
 
 impl ModuleRegistry {
     pub fn new() -> Self {
-        Self {
-            spam_checkers: Vec::new(),
-            third_party_rules: Vec::new(),
-            password_providers: Vec::new(),
-        }
+        Self { spam_checkers: Vec::new(), third_party_rules: Vec::new(), password_providers: Vec::new() }
     }
 
     pub fn register_spam_checker(&mut self, checker: Arc<dyn SpamChecker>) {
@@ -170,18 +163,12 @@ pub struct ModuleService {
 
 impl ModuleService {
     pub fn new(storage: Arc<ModuleStorage>) -> Self {
-        Self {
-            storage,
-            registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())),
-        }
+        Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())) }
     }
 
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, ApiError> {
-        info!(
-            "Registering module: {} ({})",
-            request.module_name, request.module_type
-        );
+        info!("Registering module: {} ({})", request.module_name, request.module_type);
 
         let module = self
             .storage
@@ -230,11 +217,7 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn update_module_config(
-        &self,
-        module_name: &str,
-        config: serde_json::Value,
-    ) -> Result<Module, ApiError> {
+    pub async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, ApiError> {
         let module = self
             .storage
             .update_module_config(module_name, config)
@@ -245,11 +228,7 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn enable_module(
-        &self,
-        module_name: &str,
-        enabled: bool,
-    ) -> Result<Module, ApiError> {
+    pub async fn enable_module(&self, module_name: &str, enabled: bool) -> Result<Module, ApiError> {
         let module = self
             .storage
             .enable_module(module_name, enabled)
@@ -270,10 +249,7 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn check_spam(
-        &self,
-        context: &SpamCheckContext,
-    ) -> Result<SpamCheckOutput, ApiError> {
+    pub async fn check_spam(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError> {
         let registry = self.registry.read().await;
         let checkers = registry.spam_checkers();
 
@@ -286,12 +262,8 @@ impl ModuleService {
             });
         }
 
-        let mut final_result = SpamCheckOutput {
-            result: SpamCheckResultType::Allow,
-            score: 0,
-            reason: None,
-            action_taken: None,
-        };
+        let mut final_result =
+            SpamCheckOutput { result: SpamCheckResultType::Allow, score: 0, reason: None, action_taken: None };
 
         for checker in checkers {
             let start = Instant::now();
@@ -317,10 +289,7 @@ impl ModuleService {
                         })
                         .await;
 
-                    let _ = self
-                        .storage
-                        .record_execution(&module_name, true, None)
-                        .await;
+                    let _ = self.storage.record_execution(&module_name, true, None).await;
 
                     let _ = self
                         .storage
@@ -343,10 +312,7 @@ impl ModuleService {
                         final_result = output;
                     }
 
-                    if matches!(
-                        final_result.result,
-                        SpamCheckResultType::Block | SpamCheckResultType::ShadowBan
-                    ) {
+                    if matches!(final_result.result, SpamCheckResultType::Block | SpamCheckResultType::ShadowBan) {
                         break;
                     }
                 }
@@ -356,10 +322,7 @@ impl ModuleService {
 
                     error!("Spam checker {} failed: {}", module_name, error_msg);
 
-                    let _ = self
-                        .storage
-                        .record_execution(&module_name, false, Some(&error_msg))
-                        .await;
+                    let _ = self.storage.record_execution(&module_name, false, Some(&error_msg)).await;
 
                     let _ = self
                         .storage
@@ -390,11 +353,7 @@ impl ModuleService {
         let rules = registry.third_party_rules();
 
         if rules.is_empty() {
-            return Ok(ThirdPartyRuleOutput {
-                is_allowed: true,
-                reason: None,
-                modified_content: None,
-            });
+            return Ok(ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None });
         }
 
         let mut current_content = context.content.clone();
@@ -478,27 +437,17 @@ impl ModuleService {
         Ok(ThirdPartyRuleOutput {
             is_allowed: allowed,
             reason,
-            modified_content: if current_content != context.content {
-                Some(current_content)
-            } else {
-                None
-            },
+            modified_content: if current_content != context.content { Some(current_content) } else { None },
         })
     }
 
     #[instrument(skip(self))]
-    pub async fn check_password_auth(
-        &self,
-        context: &PasswordAuthContext,
-    ) -> Result<PasswordAuthOutput, ApiError> {
+    pub async fn check_password_auth(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, ApiError> {
         let registry = self.registry.read().await;
         let providers = registry.password_providers();
 
         if providers.is_empty() {
-            return Ok(PasswordAuthOutput {
-                valid: false,
-                user_id: None,
-            });
+            return Ok(PasswordAuthOutput { valid: false, user_id: None });
         }
 
         for provider in providers {
@@ -553,10 +502,7 @@ impl ModuleService {
             }
         }
 
-        Ok(PasswordAuthOutput {
-            valid: false,
-            user_id: None,
-        })
+        Ok(PasswordAuthOutput { valid: false, user_id: None })
     }
 
     pub fn registry(&self) -> Arc<tokio::sync::RwLock<ModuleRegistry>> {
@@ -579,10 +525,7 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_result(
-        &self,
-        event_id: &str,
-    ) -> Result<Option<SpamCheckResult>, ApiError> {
+    pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, ApiError> {
         let result = self
             .storage
             .get_spam_check_result(event_id)
@@ -608,27 +551,18 @@ impl ModuleService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_third_party_rule_results(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<ThirdPartyRuleResult>, ApiError> {
+    pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, ApiError> {
         let results = self
             .storage
             .get_third_party_rule_results(event_id)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to get third party rule results", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get third party rule results", &e))?;
 
         Ok(results)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_execution_logs(
-        &self,
-        module_name: &str,
-        limit: i64,
-    ) -> Result<Vec<ModuleExecutionLog>, ApiError> {
+    pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, ApiError> {
         let logs = self
             .storage
             .get_execution_logs(module_name, limit)
@@ -649,10 +583,7 @@ impl AccountValidityService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_validity(
-        &self,
-        request: CreateAccountValidityRequest,
-    ) -> Result<AccountValidity, ApiError> {
+    pub async fn create_validity(&self, request: CreateAccountValidityRequest) -> Result<AccountValidity, ApiError> {
         let validity = self
             .storage
             .create_account_validity(request)
@@ -712,10 +643,7 @@ impl AccountValidityService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_expired_accounts(
-        &self,
-        before_ts: i64,
-    ) -> Result<Vec<AccountValidity>, ApiError> {
+    pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, ApiError> {
         let accounts = self
             .storage
             .get_expired_accounts(before_ts)
@@ -734,11 +662,7 @@ pub struct SimpleSpamChecker {
 
 impl SimpleSpamChecker {
     pub fn new(name: &str, blocked_words: Vec<String>, max_message_length: usize) -> Self {
-        Self {
-            name: name.to_string(),
-            blocked_words,
-            max_message_length,
-        }
+        Self { name: name.to_string(), blocked_words, max_message_length }
     }
 }
 
@@ -755,10 +679,7 @@ impl SpamChecker for SimpleSpamChecker {
             return Ok(SpamCheckOutput {
                 result: SpamCheckResultType::Block,
                 score: 100,
-                reason: Some(format!(
-                    "Message exceeds maximum length of {} characters",
-                    self.max_message_length
-                )),
+                reason: Some(format!("Message exceeds maximum length of {} characters", self.max_message_length)),
                 action_taken: Some("blocked".to_string()),
             });
         }
@@ -774,12 +695,7 @@ impl SpamChecker for SimpleSpamChecker {
             }
         }
 
-        Ok(SpamCheckOutput {
-            result: SpamCheckResultType::Allow,
-            score: 0,
-            reason: None,
-            action_taken: None,
-        })
+        Ok(SpamCheckOutput { result: SpamCheckResultType::Allow, score: 0, reason: None, action_taken: None })
     }
 }
 
@@ -790,10 +706,7 @@ pub struct SimpleThirdPartyRule {
 
 impl SimpleThirdPartyRule {
     pub fn new(name: &str, blocked_event_types: Vec<String>) -> Self {
-        Self {
-            name: name.to_string(),
-            blocked_event_types,
-        }
+        Self { name: name.to_string(), blocked_event_types }
     }
 }
 
@@ -803,10 +716,7 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
         &self.name
     }
 
-    async fn check(
-        &self,
-        context: &ThirdPartyRuleContext,
-    ) -> Result<ThirdPartyRuleOutput, ApiError> {
+    async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
         for blocked_type in &self.blocked_event_types {
             if context.event_type == *blocked_type {
                 return Ok(ThirdPartyRuleOutput {
@@ -817,10 +727,6 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
             }
         }
 
-        Ok(ThirdPartyRuleOutput {
-            is_allowed: true,
-            reason: None,
-            modified_content: None,
-        })
+        Ok(ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None })
     }
 }

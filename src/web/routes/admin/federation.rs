@@ -14,70 +14,22 @@ use tracing::info;
 
 pub fn create_federation_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/admin/v1/federation/destinations",
-            get(get_destinations),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}",
-            get(get_destination),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
-            post(reset_connection),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}/reset",
-            post(reset_connection),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}",
-            delete(delete_destination),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/destinations/{destination}/rooms",
-            get(get_destination_rooms),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/rewrite",
-            post(rewrite_federation),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/resolve",
-            post(resolve_federation),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/confirm",
-            post(confirm_federation),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/pending",
-            get(list_pending_federation),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/blacklist",
-            get(get_blacklist),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/blacklist/{server_name}",
-            post(add_to_blacklist),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/blacklist/{server_name}",
-            delete(remove_from_blacklist),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/cache",
-            get(get_federation_cache),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/cache/{key}",
-            delete(delete_federation_cache_entry),
-        )
-        .route(
-            "/_synapse/admin/v1/federation/cache/clear",
-            post(clear_federation_cache),
-        )
+        .route("/_synapse/admin/v1/federation/destinations", get(get_destinations))
+        .route("/_synapse/admin/v1/federation/destinations/{destination}", get(get_destination))
+        .route("/_synapse/admin/v1/federation/destinations/{destination}/reset_connection", post(reset_connection))
+        .route("/_synapse/admin/v1/federation/destinations/{destination}/reset", post(reset_connection))
+        .route("/_synapse/admin/v1/federation/destinations/{destination}", delete(delete_destination))
+        .route("/_synapse/admin/v1/federation/destinations/{destination}/rooms", get(get_destination_rooms))
+        .route("/_synapse/admin/v1/federation/rewrite", post(rewrite_federation))
+        .route("/_synapse/admin/v1/federation/resolve", post(resolve_federation))
+        .route("/_synapse/admin/v1/federation/confirm", post(confirm_federation))
+        .route("/_synapse/admin/v1/federation/pending", get(list_pending_federation))
+        .route("/_synapse/admin/v1/federation/blacklist", get(get_blacklist))
+        .route("/_synapse/admin/v1/federation/blacklist/{server_name}", post(add_to_blacklist))
+        .route("/_synapse/admin/v1/federation/blacklist/{server_name}", delete(remove_from_blacklist))
+        .route("/_synapse/admin/v1/federation/cache", get(get_federation_cache))
+        .route("/_synapse/admin/v1/federation/cache/{key}", delete(delete_federation_cache_entry))
+        .route("/_synapse/admin/v1/federation/cache/clear", post(clear_federation_cache))
 }
 
 pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -85,39 +37,18 @@ pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger
     use axum::http::Method;
     [
         (Method::GET, "/_synapse/admin/v1/federation/destinations"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/federation/destinations/{destination}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/federation/destinations/{destination}/reset",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/federation/destinations/{destination}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/federation/destinations/{destination}/rooms",
-        ),
+        (Method::GET, "/_synapse/admin/v1/federation/destinations/{destination}"),
+        (Method::POST, "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection"),
+        (Method::POST, "/_synapse/admin/v1/federation/destinations/{destination}/reset"),
+        (Method::DELETE, "/_synapse/admin/v1/federation/destinations/{destination}"),
+        (Method::GET, "/_synapse/admin/v1/federation/destinations/{destination}/rooms"),
         (Method::POST, "/_synapse/admin/v1/federation/rewrite"),
         (Method::POST, "/_synapse/admin/v1/federation/resolve"),
         (Method::POST, "/_synapse/admin/v1/federation/confirm"),
         (Method::GET, "/_synapse/admin/v1/federation/pending"),
         (Method::GET, "/_synapse/admin/v1/federation/blacklist"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/federation/blacklist/{server_name}",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/federation/blacklist/{server_name}",
-        ),
+        (Method::POST, "/_synapse/admin/v1/federation/blacklist/{server_name}"),
+        (Method::DELETE, "/_synapse/admin/v1/federation/blacklist/{server_name}"),
         (Method::GET, "/_synapse/admin/v1/federation/cache"),
         (Method::DELETE, "/_synapse/admin/v1/federation/cache/{key}"),
         (Method::POST, "/_synapse/admin/v1/federation/cache/clear"),
@@ -177,10 +108,7 @@ mod cursor_tests {
     #[test]
     fn test_pending_federation_cursor_round_trip() {
         let cursor = encode_pending_federation_cursor(1_700_000_000_000, "matrix.example.com");
-        assert_eq!(
-            decode_pending_federation_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "matrix.example.com"))
-        );
+        assert_eq!(decode_pending_federation_cursor(Some(&cursor)), Some((1_700_000_000_000, "matrix.example.com")));
     }
 
     #[test]
@@ -225,11 +153,10 @@ pub async fn get_destinations(
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let offset = query.from.unwrap_or(0);
 
-    let total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers")
-            .fetch_one(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let destinations = sqlx::query(
         "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name OFFSET $1 LIMIT $2"
@@ -245,11 +172,7 @@ pub async fn get_destinations(
         .map(|row| build_destination_json(row).map_err(|e| ApiError::internal_with_log("Row parse error", &e)))
         .collect::<Result<_, _>>()?;
 
-    let next_from = if offset + (limit as i64) < total {
-        Some(offset + (limit as i64))
-    } else {
-        None
-    };
+    let next_from = if offset + (limit as i64) < total { Some(offset + (limit as i64)) } else { None };
 
     Ok(Json(json!({
         "destinations": dest_list,
@@ -274,7 +197,9 @@ pub async fn get_destination(
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match dest {
-        Some(row) => Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal_with_log("Row parse error", &e))?)),
+        Some(row) => {
+            Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal_with_log("Row parse error", &e))?))
+        }
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
 }
@@ -286,7 +211,7 @@ pub async fn reset_connection(
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1"
+        "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1",
     )
     .bind(&destination)
     .execute(&*state.services.user_storage.pool)
@@ -325,13 +250,12 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let destination_exists =
-        sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
-            .bind(&destination)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .is_some();
+    let destination_exists = sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
+        .bind(&destination)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .is_some();
 
     if !destination_exists {
         return Err(ApiError::not_found("Destination not found".to_string()));
@@ -340,16 +264,14 @@ pub async fn get_destination_rooms(
     let rooms = sqlx::query(
         "SELECT DISTINCT room_id FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
     )
-        .bind(&destination)
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    .bind(&destination)
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
 
-    Ok(Json(
-        json!({ "rooms": room_list, "total": room_list.len() }),
-    ))
+    Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
 
 #[axum::debug_handler]
@@ -361,25 +283,23 @@ pub async fn rewrite_federation(
     let from_server = &body.from;
     let to_server = &body.to;
 
-    let source_exists =
-        sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
-            .bind(from_server)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .is_some();
+    let source_exists = sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
+        .bind(from_server)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .is_some();
 
     if !source_exists {
-        return Err(ApiError::not_found(format!(
-            "Source server {from_server} not found"
-        )));
+        return Err(ApiError::not_found(format!("Source server {from_server} not found")));
     }
 
-    let rooms_result = sqlx::query("SELECT DISTINCT room_id FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL")
-        .bind(format!("%:{from_server}"))
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let rooms_result =
+        sqlx::query("SELECT DISTINCT room_id FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL")
+            .bind(format!("%:{from_server}"))
+            .fetch_all(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let rooms_count = rooms_result.len();
 
@@ -422,10 +342,7 @@ pub async fn resolve_federation(
 
     let resolved = destination.is_some() && !is_blocked;
 
-    info!(
-        "Federation resolve for {}: resolved={}, blacklisted={}",
-        server_name, resolved, is_blocked
-    );
+    info!("Federation resolve for {}: resolved={}, blacklisted={}", server_name, resolved, is_blocked);
 
     Ok(Json(json!({
         "server_name": server_name,
@@ -452,14 +369,9 @@ pub async fn confirm_federation(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let previous_status = match existing {
-        Some(row) => row
-            .get::<Option<String>, _>("status")
-            .unwrap_or_else(|| "active".to_string()),
+        Some(row) => row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
         None => {
-            return Err(ApiError::not_found(format!(
-                "Server '{}' not found in federation registry",
-                body.server_name
-            )));
+            return Err(ApiError::not_found(format!("Server '{}' not found in federation registry", body.server_name)));
         }
     };
 
@@ -470,15 +382,13 @@ pub async fn confirm_federation(
         )));
     }
 
-    sqlx::query(
-        "UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3",
-    )
-    .bind(new_status)
-    .bind(now)
-    .bind(&body.server_name)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    sqlx::query("UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3")
+        .bind(new_status)
+        .bind(now)
+        .bind(&body.server_name)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if !body.accept {
         if let Err(e) = state
@@ -530,7 +440,7 @@ pub async fn list_pending_federation(
              OR COALESCE(updated_ts, 0) < $1
              OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2)) \
          ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC \
-         LIMIT $3"
+         LIMIT $3",
     )
     .bind(cursor.map(|(updated_ts, _)| updated_ts))
     .bind(cursor.map(|(_, server_name)| server_name))
@@ -539,11 +449,10 @@ pub async fn list_pending_federation(
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
-            .fetch_one(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
+        .fetch_one(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let list: Vec<Value> = pending
         .iter()
@@ -563,9 +472,7 @@ pub async fn list_pending_federation(
         pending.last().map(|row| {
             encode_pending_federation_cursor(
                 row.get::<Option<i64>, _>("updated_ts").unwrap_or_default(),
-                row.get::<Option<String>, _>("server_name")
-                    .unwrap_or_default()
-                    .as_str(),
+                row.get::<Option<String>, _>("server_name").unwrap_or_default().as_str(),
             )
         })
     } else {
@@ -586,21 +493,14 @@ pub async fn get_blacklist(
     State(state): State<AppState>,
     Query(query): Query<BlacklistQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = query
-        .limit
-        .unwrap_or(100)
-        .clamp(MIN_PAGINATION_LIMIT as i32, MAX_PAGINATION_LIMIT as i32);
+    let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT as i32, MAX_PAGINATION_LIMIT as i32);
     let from = decode_federation_blacklist_cursor(query.from.as_deref());
 
     if query.from.is_some() && from.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (blacklist, next_batch) = state
-        .services
-        .federation_blacklist_service
-        .get_blacklist(limit, from)
-        .await?;
+    let (blacklist, next_batch) = state.services.federation_blacklist_service.get_blacklist(limit, from).await?;
 
     let list: Vec<Value> = blacklist
         .iter()
@@ -639,9 +539,7 @@ pub async fn add_to_blacklist(
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::conflict(
-            "Server is already blacklisted".to_string(),
-        ));
+        return Err(ApiError::conflict("Server is already blacklisted".to_string()));
     }
 
     Ok(Json(json!({})))
@@ -667,10 +565,7 @@ pub async fn remove_from_blacklist(
 }
 
 #[axum::debug_handler]
-pub async fn get_federation_cache(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn get_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let cache = sqlx::query("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
         .fetch_all(&*state.services.user_storage.pool)
         .await
@@ -710,10 +605,7 @@ pub async fn delete_federation_cache_entry(
 }
 
 #[axum::debug_handler]
-pub async fn clear_federation_cache(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn clear_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query("DELETE FROM federation_cache")
         .execute(&*state.services.user_storage.pool)
         .await

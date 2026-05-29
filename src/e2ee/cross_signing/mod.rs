@@ -28,10 +28,7 @@ mod tests {
 
     #[test]
     fn test_verified_devices_map_creation() {
-        let map = VerifiedDevicesMap {
-            user_id: "@alice:example.com".to_string(),
-            verified_devices: vec![],
-        };
+        let map = VerifiedDevicesMap { user_id: "@alice:example.com".to_string(), verified_devices: vec![] };
         assert!(map.verified_devices.is_empty());
         assert_eq!(map.user_id, "@alice:example.com");
     }

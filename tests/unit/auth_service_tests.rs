@@ -24,9 +24,7 @@ async fn setup_test_database() -> Option<Arc<PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping auth service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping auth service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -64,9 +62,7 @@ fn test_auth_service_register_invalid_username() {
 
         let id = unique_id();
         let invalid_username = format!("user@{id}");
-        let result = auth
-            .register(&invalid_username, "password", false, None)
-            .await;
+        let result = auth.register(&invalid_username, "password", false, None).await;
         assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
 
         let result = auth.register("", "password", false, None).await;
@@ -269,51 +265,29 @@ fn test_no_migration_for_argon2_hash() {
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
-        let auth = AuthService::new(
-            &pool,
-            cache.clone(),
-            metrics.clone(),
-            &security,
-            "localhost",
-        );
+        let auth = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
 
         let id = unique_id();
         let username = format!("argon2_user_{id}");
         let password = "Argon2_password123";
         let user_id = format!("@{username}:localhost");
 
-        let (user, _, _, _) = auth
-            .register(&username, password, false, None)
+        let (user, _, _, _) =
+            auth.register(&username, password, false, None).await.expect("Registration should succeed");
+
+        let initial_hash = user.password_hash.clone().expect("Password hash should exist");
+        assert!(!is_legacy_hash(&initial_hash), "New user should have Argon2 hash");
+
+        let _ = auth.login(&username, password, None, None).await.expect("Login should succeed");
+
+        let updated_user = sqlx::query_as::<_, (Option<String>,)>("SELECT password_hash FROM users WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_one(&*pool)
             .await
-            .expect("Registration should succeed");
-
-        let initial_hash = user
-            .password_hash
-            .clone()
-            .expect("Password hash should exist");
-        assert!(
-            !is_legacy_hash(&initial_hash),
-            "New user should have Argon2 hash"
-        );
-
-        let _ = auth
-            .login(&username, password, None, None)
-            .await
-            .expect("Login should succeed");
-
-        let updated_user = sqlx::query_as::<_, (Option<String>,)>(
-            "SELECT password_hash FROM users WHERE user_id = $1",
-        )
-        .bind(&user_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to fetch user");
+            .expect("Failed to fetch user");
 
         let current_hash = updated_user.0.expect("Password hash should exist");
-        assert_eq!(
-            initial_hash, current_hash,
-            "Hash should not change for Argon2 users"
-        );
+        assert_eq!(initial_hash, current_hash, "Hash should not change for Argon2 users");
     });
 }
 

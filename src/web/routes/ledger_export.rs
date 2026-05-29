@@ -75,19 +75,9 @@ pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
 
     match name {
         "default" => Some(ProfileFlags::DEFAULT),
-        "oidc" => Some(ProfileFlags {
-            oidc_enabled: true,
-            ..ProfileFlags::DEFAULT
-        }),
-        "worker" => Some(ProfileFlags {
-            worker_enabled: true,
-            ..ProfileFlags::DEFAULT
-        }),
-        "saml" => Some(ProfileFlags {
-            saml_enabled,
-            oidc_enabled: true,
-            ..ProfileFlags::DEFAULT
-        }),
+        "oidc" => Some(ProfileFlags { oidc_enabled: true, ..ProfileFlags::DEFAULT }),
+        "worker" => Some(ProfileFlags { worker_enabled: true, ..ProfileFlags::DEFAULT }),
+        "saml" => Some(ProfileFlags { saml_enabled, oidc_enabled: true, ..ProfileFlags::DEFAULT }),
         "openclaw" => Some(ProfileFlags {
             #[cfg(feature = "openclaw-routes")]
             openclaw_enabled: true,
@@ -146,10 +136,7 @@ pub fn build_artifact(
         })
         .collect();
     entries.sort_by(|a, b| {
-        a.path
-            .cmp(&b.path)
-            .then_with(|| a.method.cmp(&b.method))
-            .then_with(|| a.registered_by.cmp(&b.registered_by))
+        a.path.cmp(&b.path).then_with(|| a.method.cmp(&b.method)).then_with(|| a.registered_by.cmp(&b.registered_by))
     });
     LedgerArtifact {
         schema_version: SCHEMA_VERSION.to_string(),
@@ -199,44 +186,25 @@ mod tests {
 
     #[test]
     fn path_param_extraction_handles_unbalanced_brace() {
-        assert_eq!(
-            extract_path_params("/foo/{unterminated"),
-            Vec::<String>::new()
-        );
+        assert_eq!(extract_path_params("/foo/{unterminated"), Vec::<String>::new());
     }
 
     #[test]
     fn profile_default_builds_artefact() {
-        let artifact = build_artifact(
-            "default",
-            &ProfileFlags::DEFAULT,
-            Some("deadbeef".into()),
-            "2026-05-02T00:00:00Z".into(),
-        );
+        let artifact =
+            build_artifact("default", &ProfileFlags::DEFAULT, Some("deadbeef".into()), "2026-05-02T00:00:00Z".into());
         assert_eq!(artifact.schema_version, SCHEMA_VERSION);
         assert_eq!(artifact.state_profile, "default");
         assert_eq!(artifact.entry_count, artifact.entries.len());
-        assert!(
-            artifact.entry_count > 100,
-            "expected substantial ledger; got {}",
-            artifact.entry_count
-        );
+        assert!(artifact.entry_count > 100, "expected substantial ledger; got {}", artifact.entry_count);
     }
 
     #[test]
     fn worker_profile_strictly_supersets_default() {
-        let default = build_artifact(
-            "default",
-            &ProfileFlags::DEFAULT,
-            None,
-            "2026-05-02T00:00:00Z".into(),
-        );
+        let default = build_artifact("default", &ProfileFlags::DEFAULT, None, "2026-05-02T00:00:00Z".into());
         let worker = build_artifact(
             "worker",
-            &ProfileFlags {
-                worker_enabled: true,
-                ..ProfileFlags::DEFAULT
-            },
+            &ProfileFlags { worker_enabled: true, ..ProfileFlags::DEFAULT },
             None,
             "2026-05-02T00:00:00Z".into(),
         );
@@ -248,12 +216,8 @@ mod tests {
 
     #[test]
     fn render_roundtrips_byte_stable() {
-        let artifact = build_artifact(
-            "default",
-            &ProfileFlags::DEFAULT,
-            Some("aaaaaaaa".into()),
-            "2026-05-02T00:00:00Z".into(),
-        );
+        let artifact =
+            build_artifact("default", &ProfileFlags::DEFAULT, Some("aaaaaaaa".into()), "2026-05-02T00:00:00Z".into());
         let once = render(&artifact);
         let reparsed: LedgerArtifact = serde_json::from_str(&once).unwrap();
         assert_eq!(reparsed, artifact);
@@ -263,12 +227,7 @@ mod tests {
 
     #[test]
     fn entries_sorted_path_method_registered() {
-        let artifact = build_artifact(
-            "all",
-            &profile_for_name("all").unwrap(),
-            None,
-            "2026-05-02T00:00:00Z".into(),
-        );
+        let artifact = build_artifact("all", &profile_for_name("all").unwrap(), None, "2026-05-02T00:00:00Z".into());
         let mut prev: Option<(&str, &str, &str)> = None;
         for e in &artifact.entries {
             let cur = (e.path.as_str(), e.method.as_str(), e.registered_by.as_str());

@@ -23,33 +23,17 @@ impl StateResolutionService {
                 Some(id) => id.to_string(),
                 None => continue,
             };
-            let room_id = evt
-                .get("room_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let event_type = evt
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let room_id = evt.get("room_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let event_type = evt.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let auth_events = evt
                 .get("auth_events")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|ae| ae.as_str().map(String::from))
-                        .collect()
-                })
+                .map(|arr| arr.iter().filter_map(|ae| ae.as_str().map(String::from)).collect())
                 .unwrap_or_default();
             let prev_events = evt
                 .get("prev_events")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|pe| pe.as_str().map(String::from))
-                        .collect()
-                })
+                .map(|arr| arr.iter().filter_map(|pe| pe.as_str().map(String::from)).collect())
                 .unwrap_or_default();
             let state_key = evt.get("state_key").cloned();
             let content = evt.get("content").cloned();
@@ -57,11 +41,7 @@ impl StateResolutionService {
             data.insert(
                 eid,
                 EventData {
-                    event_id: evt
-                        .get("event_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
+                    event_id: evt.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     room_id,
                     event_type,
                     auth_events,
@@ -89,27 +69,16 @@ impl StateResolutionService {
 
         let resolved = chain.resolve_state_with_auth_chain(&event_data, &event_ids);
 
-        let resolved_ids: std::collections::HashSet<&str> = resolved
-            .keys()
-            .map(|s| s.split(':').next().unwrap_or(""))
-            .collect();
+        let resolved_ids: std::collections::HashSet<&str> =
+            resolved.keys().map(|s| s.split(':').next().unwrap_or("")).collect();
 
-        let accepted: Vec<String> = event_ids
-            .iter()
-            .filter(|eid| resolved_ids.contains(*eid))
-            .map(|s| s.to_string())
-            .collect();
+        let accepted: Vec<String> =
+            event_ids.iter().filter(|eid| resolved_ids.contains(*eid)).map(|s| s.to_string()).collect();
 
-        let rejected: Vec<String> = event_ids
-            .iter()
-            .filter(|eid| !resolved_ids.contains(*eid))
-            .map(|s| s.to_string())
-            .collect();
+        let rejected: Vec<String> =
+            event_ids.iter().filter(|eid| !resolved_ids.contains(*eid)).map(|s| s.to_string()).collect();
 
-        Ok(ResolutionResult {
-            accepted_events: accepted,
-            rejected_events: rejected,
-        })
+        Ok(ResolutionResult { accepted_events: accepted, rejected_events: rejected })
     }
 }
 

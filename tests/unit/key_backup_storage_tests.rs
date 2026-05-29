@@ -6,14 +6,10 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 use synapse_rust::e2ee::backup::models::KeyBackup;
-use synapse_rust::e2ee::backup::storage::{
-    BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage,
-};
+use synapse_rust::e2ee::backup::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 
 async fn setup_test_database() -> Arc<Pool<Postgres>> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool()
-        .await
-        .expect("Failed to prepare test pool");
+    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"
@@ -102,10 +98,7 @@ fn test_key_backup_lifecycle() {
         key_storage.upload_backup_key(key_params).await.unwrap();
 
         // Get room keys
-        let keys = key_storage
-            .get_room_backup_keys(user_id, "!room:localhost")
-            .await
-            .unwrap();
+        let keys = key_storage.get_room_backup_keys(user_id, "!room:localhost").await.unwrap();
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].session_id, "session1");
         assert_eq!(keys[0].first_message_index, 0);

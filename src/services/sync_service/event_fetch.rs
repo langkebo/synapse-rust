@@ -21,11 +21,7 @@ impl SyncService {
             is_incremental,
         } = request;
         let event_filter = Self::event_query_filter_from_sync_filter(timeline_filter);
-        let fetch_limit = if limit <= 0 {
-            1
-        } else {
-            limit.saturating_add(1)
-        };
+        let fetch_limit = if limit <= 0 { 1 } else { limit.saturating_add(1) };
 
         if is_incremental {
             let since_stream_ordering = since_token
@@ -37,58 +33,34 @@ impl SyncService {
                 let events = match event_filter.as_ref() {
                     Some(filter) => {
                         self.event_storage
-                            .get_room_events_since_stream_batch_filtered(
-                                room_ids,
-                                stream_ord,
-                                fetch_limit,
-                                filter,
-                            )
+                            .get_room_events_since_stream_batch_filtered(room_ids, stream_ord, fetch_limit, filter)
                             .await?
                     }
                     None => {
-                        self.event_storage
-                            .get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit)
-                            .await?
+                        self.event_storage.get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit).await?
                     }
                 };
 
                 if events.values().all(|v| v.is_empty()) && timeout > 0 {
-                    let update = self
-                        .wait_for_incremental_update(
-                            user_id,
-                            device_id,
-                            room_ids,
-                            0,
-                            since_token,
-                            timeout,
-                        )
-                        .await?;
+                    let update =
+                        self.wait_for_incremental_update(user_id, device_id, room_ids, 0, since_token, timeout).await?;
 
                     match update {
                         IncrementalUpdate::Events => match event_filter.as_ref() {
                             Some(filter) => self
                                 .event_storage
-                                .get_room_events_since_stream_batch_filtered(
-                                    room_ids,
-                                    stream_ord,
-                                    fetch_limit,
-                                    filter,
-                                )
+                                .get_room_events_since_stream_batch_filtered(room_ids, stream_ord, fetch_limit, filter)
                                 .await
                                 .map_err(Into::into),
                             None => self
                                 .event_storage
-                                .get_room_events_since_stream_batch(
-                                    room_ids,
-                                    stream_ord,
-                                    fetch_limit,
-                                )
+                                .get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit)
                                 .await
                                 .map_err(Into::into),
                         },
-                        IncrementalUpdate::Timeout
-                        | IncrementalUpdate::ToDevice
-                        | IncrementalUpdate::DeviceLists => Ok(events),
+                        IncrementalUpdate::Timeout | IncrementalUpdate::ToDevice | IncrementalUpdate::DeviceLists => {
+                            Ok(events)
+                        }
                     }
                 } else {
                     Ok(events)
@@ -98,43 +70,22 @@ impl SyncService {
                 let events = match event_filter.as_ref() {
                     Some(filter) => {
                         self.event_storage
-                            .get_room_events_since_batch_filtered(
-                                room_ids,
-                                since_ts,
-                                fetch_limit,
-                                filter,
-                            )
+                            .get_room_events_since_batch_filtered(room_ids, since_ts, fetch_limit, filter)
                             .await?
                     }
-                    None => {
-                        self.event_storage
-                            .get_room_events_since_batch(room_ids, since_ts, fetch_limit)
-                            .await?
-                    }
+                    None => self.event_storage.get_room_events_since_batch(room_ids, since_ts, fetch_limit).await?,
                 };
 
                 if events.values().all(|v| v.is_empty()) && timeout > 0 {
                     let update = self
-                        .wait_for_incremental_update(
-                            user_id,
-                            device_id,
-                            room_ids,
-                            since_ts,
-                            since_token,
-                            timeout,
-                        )
+                        .wait_for_incremental_update(user_id, device_id, room_ids, since_ts, since_token, timeout)
                         .await?;
 
                     match update {
                         IncrementalUpdate::Events => match event_filter.as_ref() {
                             Some(filter) => self
                                 .event_storage
-                                .get_room_events_since_batch_filtered(
-                                    room_ids,
-                                    since_ts,
-                                    fetch_limit,
-                                    filter,
-                                )
+                                .get_room_events_since_batch_filtered(room_ids, since_ts, fetch_limit, filter)
                                 .await
                                 .map_err(Into::into),
                             None => self
@@ -143,9 +94,9 @@ impl SyncService {
                                 .await
                                 .map_err(Into::into),
                         },
-                        IncrementalUpdate::Timeout
-                        | IncrementalUpdate::ToDevice
-                        | IncrementalUpdate::DeviceLists => Ok(events),
+                        IncrementalUpdate::Timeout | IncrementalUpdate::ToDevice | IncrementalUpdate::DeviceLists => {
+                            Ok(events)
+                        }
                     }
                 } else {
                     Ok(events)
@@ -158,11 +109,7 @@ impl SyncService {
                     .get_room_events_batch_filtered(room_ids, fetch_limit, filter)
                     .await
                     .map_err(Into::into),
-                None => self
-                    .event_storage
-                    .get_room_events_batch(room_ids, fetch_limit)
-                    .await
-                    .map_err(Into::into),
+                None => self.event_storage.get_room_events_batch(room_ids, fetch_limit).await.map_err(Into::into),
             }
         }
     }
@@ -181,9 +128,7 @@ impl SyncService {
         let poll_interval = self.sync_poll_interval();
 
         let since_to_device = since_token.and_then(|t| t.to_device_stream_id).unwrap_or(0);
-        let since_device_lists = since_token
-            .and_then(|t| t.device_list_stream_id)
-            .unwrap_or(0);
+        let since_device_lists = since_token.and_then(|t| t.device_list_stream_id).unwrap_or(0);
 
         loop {
             if start.elapsed() >= timeout_duration {
@@ -212,11 +157,7 @@ impl SyncService {
         }
     }
 
-    async fn has_incremental_room_updates(
-        &self,
-        room_ids: &[String],
-        since_ts: i64,
-    ) -> ApiResult<bool> {
+    async fn has_incremental_room_updates(&self, room_ids: &[String], since_ts: i64) -> ApiResult<bool> {
         self.event_storage
             .has_room_events_since(room_ids, since_ts)
             .await
@@ -265,9 +206,7 @@ impl SyncService {
         .bind(since_stream_id)
         .fetch_optional(&*self.event_storage.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to poll for device-list updates", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to poll for device-list updates", &e))?;
 
         Ok(has_device_lists.is_some())
     }

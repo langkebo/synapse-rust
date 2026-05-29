@@ -154,10 +154,7 @@ impl ThreadStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_thread_root(
-        &self,
-        params: CreateThreadRootParams,
-    ) -> Result<ThreadRoot, sqlx::Error> {
+    pub async fn create_thread_root(&self, params: CreateThreadRootParams) -> Result<ThreadRoot, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query_as::<_, ThreadRoot>(
@@ -166,8 +163,8 @@ impl ThreadStorage {
                 room_id, root_event_id, sender, thread_id, participants, created_ts
             )
             VALUES ($1, $2, $3, $4, jsonb_build_array($3), $5)
-            RETURNING id, room_id, root_event_id, sender, thread_id, reply_count, 
-                      last_reply_event_id, last_reply_sender, last_reply_ts, 
+            RETURNING id, room_id, root_event_id, sender, thread_id, reply_count,
+                      last_reply_event_id, last_reply_sender, last_reply_ts,
                       participants, is_fetched, created_ts, updated_ts
             ",
         )
@@ -180,15 +177,11 @@ impl ThreadStorage {
         .await
     }
 
-    pub async fn get_thread_root(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<Option<ThreadRoot>, sqlx::Error> {
+    pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
             r"
-            SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
-                   last_reply_event_id, last_reply_sender, last_reply_ts, 
+            SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                   last_reply_event_id, last_reply_sender, last_reply_ts,
                    participants, is_fetched, created_ts, updated_ts
             FROM thread_roots
             WHERE room_id = $1 AND thread_id = $2
@@ -207,8 +200,8 @@ impl ThreadStorage {
     ) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
             r"
-            SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
-                   last_reply_event_id, last_reply_sender, last_reply_ts, 
+            SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                   last_reply_event_id, last_reply_sender, last_reply_ts,
                    participants, is_fetched, created_ts, updated_ts
             FROM thread_roots
             WHERE room_id = $1 AND root_event_id = $2
@@ -220,17 +213,14 @@ impl ThreadStorage {
         .await
     }
 
-    pub async fn list_thread_roots(
-        &self,
-        params: ThreadListParams,
-    ) -> Result<Vec<ThreadRoot>, sqlx::Error> {
+    pub async fn list_thread_roots(&self, params: ThreadListParams) -> Result<Vec<ThreadRoot>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50);
 
         if let Some(from) = params.from {
             sqlx::query_as::<_, ThreadRoot>(
                 r"
-                SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
-                       last_reply_event_id, last_reply_sender, last_reply_ts, 
+                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                       last_reply_event_id, last_reply_sender, last_reply_ts,
                        participants, is_fetched, created_ts, updated_ts
                 FROM thread_roots
                 WHERE room_id = $1 AND thread_id > $2
@@ -246,8 +236,8 @@ impl ThreadStorage {
         } else {
             sqlx::query_as::<_, ThreadRoot>(
                 r"
-                SELECT id, room_id, root_event_id, sender, thread_id, reply_count, 
-                       last_reply_event_id, last_reply_sender, last_reply_ts, 
+                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,
+                       last_reply_event_id, last_reply_sender, last_reply_ts,
                        participants, is_fetched, created_ts, updated_ts
                 FROM thread_roots
                 WHERE room_id = $1
@@ -302,10 +292,7 @@ impl ThreadStorage {
         }
     }
 
-    pub async fn create_thread_reply(
-        &self,
-        params: CreateThreadReplyParams,
-    ) -> Result<ThreadReply, sqlx::Error> {
+    pub async fn create_thread_reply(&self, params: CreateThreadReplyParams) -> Result<ThreadReply, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
@@ -316,7 +303,7 @@ impl ThreadStorage {
                 in_reply_to_event_id, content, origin_server_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, room_id, thread_id, event_id, root_event_id, sender, 
+            RETURNING id, room_id, thread_id, event_id, root_event_id, sender,
                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
             ",
         )
@@ -379,7 +366,7 @@ impl ThreadStorage {
         if let Some(from) = from {
             sqlx::query_as::<_, ThreadReply>(
                 r"
-                SELECT id, room_id, thread_id, event_id, root_event_id, sender, 
+                SELECT id, room_id, thread_id, event_id, root_event_id, sender,
                        in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2 AND event_id > $3
@@ -396,7 +383,7 @@ impl ThreadStorage {
         } else {
             sqlx::query_as::<_, ThreadReply>(
                 r"
-                SELECT id, room_id, thread_id, event_id, root_event_id, sender, 
+                SELECT id, room_id, thread_id, event_id, root_event_id, sender,
                        in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2
@@ -412,11 +399,7 @@ impl ThreadStorage {
         }
     }
 
-    pub async fn get_reply_count(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<i32, sqlx::Error> {
+    pub async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(
             r"
             SELECT COUNT(*) FROM thread_replies
@@ -431,11 +414,7 @@ impl ThreadStorage {
         Ok(result.map_or(0, |r| r.0 as i32))
     }
 
-    pub async fn get_thread_participants(
-        &self,
-        room_id: &str,
-        thread_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result: Vec<(String,)> = sqlx::query_as(
             r"
             SELECT DISTINCT sender FROM (
@@ -672,7 +651,7 @@ impl ThreadStorage {
         sqlx::query_as::<_, ThreadRelation>(
             r"
             INSERT INTO thread_relations (
-                room_id, event_id, relates_to_event_id, relation_type, 
+                room_id, event_id, relates_to_event_id, relation_type,
                 thread_id, is_falling_back, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -690,11 +669,7 @@ impl ThreadStorage {
         .await
     }
 
-    pub async fn mark_reply_edited(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_reply_edited(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE thread_replies
@@ -710,11 +685,7 @@ impl ThreadStorage {
         Ok(())
     }
 
-    pub async fn mark_reply_redacted(
-        &self,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE thread_replies
@@ -948,10 +919,7 @@ impl ThreadStorage {
         let limit = limit.unwrap_or(20);
         // Escape special characters in the query for ILIKE and plainto_tsquery
         // Double % for literal % in LIKE patterns. _ needs escaping too. Single quotes need escaping.
-        let escaped_query = query
-            .replace('%', r"%%")
-            .replace('_', r"\_")
-            .replace('\'', r"''");
+        let escaped_query = query.replace('%', r"%%").replace('_', r"\_").replace('\'', r"''");
 
         sqlx::query_as::<_, ThreadSummary>(
             r"
@@ -1152,12 +1120,8 @@ mod tests {
 
     #[test]
     fn test_thread_list_params_defaults() {
-        let params = ThreadListParams {
-            room_id: "!test:example.com".to_string(),
-            from: None,
-            limit: None,
-            include_all: false,
-        };
+        let params =
+            ThreadListParams { room_id: "!test:example.com".to_string(), from: None, limit: None, include_all: false };
         assert_eq!(params.room_id, "!test:example.com");
         assert!(params.from.is_none());
         assert!(params.limit.is_none());

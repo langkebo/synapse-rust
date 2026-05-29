@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
 use crate::storage::event_report::{
-    CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats,
-    UpdateEventReportRequest,
+    CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
 };
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 
@@ -142,9 +141,9 @@ impl From<EventReportStats> for StatsResponse {
             open_reports: s.open_reports,
             resolved_reports: s.resolved_reports,
             dismissed_reports: s.dismissed_reports,
-            avg_resolution_time_hours: s.avg_resolution_time_ms.and_then(
-                |avg_resolution_time_ms| i32::try_from(avg_resolution_time_ms / 3_600_000).ok(),
-            ),
+            avg_resolution_time_hours: s
+                .avg_resolution_time_ms
+                .and_then(|avg_resolution_time_ms| i32::try_from(avg_resolution_time_ms / 3_600_000).ok()),
             avg_resolution_time_ms: s.avg_resolution_time_ms,
             created_ts: s.created_ts,
             updated_ts: s.updated_ts,
@@ -168,11 +167,7 @@ pub async fn create_report(
         score: body.score,
     };
 
-    let report = state
-        .services
-        .event_report_service
-        .create_report(request)
-        .await?;
+    let report = state.services.event_report_service.create_report(request).await?;
 
     Ok((StatusCode::CREATED, Json(ReportResponse::from(report))))
 }
@@ -197,11 +192,7 @@ pub async fn get_reports_by_event(
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let reports = state
-        .services
-        .event_report_service
-        .get_reports_by_event(&event_id)
-        .await?;
+    let reports = state.services.event_report_service.get_reports_by_event(&event_id).await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
 
@@ -257,13 +248,7 @@ pub async fn get_reports_by_status(
     let reports = state
         .services
         .event_report_service
-        .get_reports_by_status(
-            &status,
-            limit,
-            query.since_score,
-            query.since_ts,
-            query.since_id,
-        )
+        .get_reports_by_status(&status, limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
@@ -295,18 +280,10 @@ pub async fn update_report(
     Path(id): Path<i64>,
     Json(body): Json<UpdateReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = UpdateEventReportRequest {
-        status: body.status,
-        score: body.score,
-        resolved_by: None,
-        resolution_reason: None,
-    };
+    let request =
+        UpdateEventReportRequest { status: body.status, score: body.score, resolved_by: None, resolution_reason: None };
 
-    let report = state
-        .services
-        .event_report_service
-        .update_report(id, request, &_auth_user.user_id)
-        .await?;
+    let report = state.services.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -317,11 +294,7 @@ pub async fn resolve_report(
     Path(id): Path<i64>,
     Json(body): Json<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state
-        .services
-        .event_report_service
-        .resolve_report(id, &_auth_user.user_id, &body.reason)
-        .await?;
+    let report = state.services.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -332,11 +305,7 @@ pub async fn dismiss_report(
     Path(id): Path<i64>,
     Json(body): Json<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state
-        .services
-        .event_report_service
-        .dismiss_report(id, &_auth_user.user_id, &body.reason)
-        .await?;
+    let report = state.services.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -346,11 +315,7 @@ pub async fn escalate_report(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state
-        .services
-        .event_report_service
-        .escalate_report(id, &_auth_user.user_id)
-        .await?;
+    let report = state.services.event_report_service.escalate_report(id, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -360,11 +325,7 @@ pub async fn delete_report(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .event_report_service
-        .delete_report(id)
-        .await?;
+    state.services.event_report_service.delete_report(id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -374,16 +335,9 @@ pub async fn get_report_history(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let history = state
-        .services
-        .event_report_service
-        .get_report_history(id)
-        .await?;
+    let history = state.services.event_report_service.get_report_history(id).await?;
 
-    let response: Vec<ReportHistoryResponse> = history
-        .into_iter()
-        .map(ReportHistoryResponse::from)
-        .collect();
+    let response: Vec<ReportHistoryResponse> = history.into_iter().map(ReportHistoryResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -393,11 +347,7 @@ pub async fn check_rate_limit(
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let check = state
-        .services
-        .event_report_service
-        .check_rate_limit(&user_id)
-        .await?;
+    let check = state.services.event_report_service.check_rate_limit(&user_id).await?;
 
     Ok(Json(serde_json::json!({
         "is_allowed": check.is_allowed,
@@ -412,11 +362,7 @@ pub async fn block_user(
     Path(user_id): Path<String>,
     Json(body): Json<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .event_report_service
-        .block_user_reports(&user_id, body.blocked_until, &body.reason)
-        .await?;
+    state.services.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -426,11 +372,7 @@ pub async fn unblock_user(
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .event_report_service
-        .unblock_user_reports(&user_id)
-        .await?;
+    state.services.event_report_service.unblock_user_reports(&user_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -454,11 +396,7 @@ pub async fn count_by_status(
     _auth_user: AdminUser,
     Path(status): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state
-        .services
-        .event_report_service
-        .count_reports_by_status(&status)
-        .await?;
+    let count = state.services.event_report_service.count_reports_by_status(&status).await?;
 
     Ok(Json(serde_json::json!({
         "status": status,
@@ -466,15 +404,8 @@ pub async fn count_by_status(
     })))
 }
 
-pub async fn count_all(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let count = state
-        .services
-        .event_report_service
-        .count_all_reports()
-        .await?;
+pub async fn count_all(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let count = state.services.event_report_service.count_all_reports().await?;
 
     Ok(Json(serde_json::json!({
         "total_reports": count,
@@ -486,65 +417,23 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/event_reports", post(create_report))
         .route("/_synapse/admin/v1/event_reports", get(get_all_reports))
         .route("/_synapse/admin/v1/event_reports/count", get(count_all))
-        .route(
-            "/_synapse/admin/v1/event_reports/status/{status}",
-            get(get_reports_by_status),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/status/{status}/count",
-            get(count_by_status),
-        )
+        .route("/_synapse/admin/v1/event_reports/status/{status}", get(get_reports_by_status))
+        .route("/_synapse/admin/v1/event_reports/status/{status}/count", get(count_by_status))
         .route("/_synapse/admin/v1/event_reports/{id}", get(get_report))
         .route("/_synapse/admin/v1/event_reports/{id}", put(update_report))
-        .route(
-            "/_synapse/admin/v1/event_reports/{id}",
-            delete(delete_report),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/{id}/resolve",
-            post(resolve_report),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/{id}/dismiss",
-            post(dismiss_report),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/{id}/escalate",
-            post(escalate_report),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/{id}/history",
-            get(get_report_history),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/event/{event_id}",
-            get(get_reports_by_event),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/room/{room_id}",
-            get(get_reports_by_room),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}",
-            get(get_reports_by_reporter),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}",
-            get(check_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
-            post(block_user),
-        )
-        .route(
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock",
-            post(unblock_user),
-        )
+        .route("/_synapse/admin/v1/event_reports/{id}", delete(delete_report))
+        .route("/_synapse/admin/v1/event_reports/{id}/resolve", post(resolve_report))
+        .route("/_synapse/admin/v1/event_reports/{id}/dismiss", post(dismiss_report))
+        .route("/_synapse/admin/v1/event_reports/{id}/escalate", post(escalate_report))
+        .route("/_synapse/admin/v1/event_reports/{id}/history", get(get_report_history))
+        .route("/_synapse/admin/v1/event_reports/event/{event_id}", get(get_reports_by_event))
+        .route("/_synapse/admin/v1/event_reports/room/{room_id}", get(get_reports_by_room))
+        .route("/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}", get(get_reports_by_reporter))
+        .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}", get(check_rate_limit))
+        .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block", post(block_user))
+        .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock", post(unblock_user))
         .route("/_synapse/admin/v1/event_reports/stats", get(get_stats))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 
@@ -555,54 +444,21 @@ pub fn event_report_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::POST, "/_synapse/admin/v1/event_reports"),
         (Method::GET, "/_synapse/admin/v1/event_reports"),
         (Method::GET, "/_synapse/admin/v1/event_reports/count"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/status/{status}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/status/{status}/count",
-        ),
+        (Method::GET, "/_synapse/admin/v1/event_reports/status/{status}"),
+        (Method::GET, "/_synapse/admin/v1/event_reports/status/{status}/count"),
         (Method::GET, "/_synapse/admin/v1/event_reports/{id}"),
         (Method::PUT, "/_synapse/admin/v1/event_reports/{id}"),
         (Method::DELETE, "/_synapse/admin/v1/event_reports/{id}"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/event_reports/{id}/resolve",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/event_reports/{id}/dismiss",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/event_reports/{id}/escalate",
-        ),
+        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/resolve"),
+        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/dismiss"),
+        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/escalate"),
         (Method::GET, "/_synapse/admin/v1/event_reports/{id}/history"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/event/{event_id}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/room/{room_id}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock",
-        ),
+        (Method::GET, "/_synapse/admin/v1/event_reports/event/{event_id}"),
+        (Method::GET, "/_synapse/admin/v1/event_reports/room/{room_id}"),
+        (Method::GET, "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}"),
+        (Method::GET, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}"),
+        (Method::POST, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block"),
+        (Method::POST, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock"),
         (Method::GET, "/_synapse/admin/v1/event_reports/stats"),
     ]
     .into_iter()

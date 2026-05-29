@@ -32,10 +32,7 @@ impl OpenIdTokenStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn create_token(
-        &self,
-        request: CreateOpenIdTokenRequest,
-    ) -> Result<OpenIdToken, ApiError> {
+    pub async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let token = sqlx::query_as::<_, OpenIdToken>(
@@ -136,9 +133,7 @@ impl OpenIdTokenStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to cleanup expired OpenID tokens", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired OpenID tokens", &e))?;
 
         Ok(result.rows_affected())
     }

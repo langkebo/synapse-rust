@@ -1,14 +1,13 @@
 use super::route_ledger::{RouteEntry, RouteLedger};
 use super::route_module::{route_modules, ProfileFlags};
 use super::{
-    account_data, background_update, captcha, device, dm, e2ee_routes, ephemeral, event_report,
-    feature_flags, guest, handlers, key_backup, key_rotation, media, moderation, presence, push,
-    push_notification, reactions, relations, rendezvous, room_summary, sliding_sync, space, sync,
-    tags, telemetry, thirdparty, typing, verification_routes, worker, *,
+    account_data, background_update, captcha, device, dm, e2ee_routes, ephemeral, event_report, feature_flags, guest,
+    handlers, key_backup, key_rotation, media, moderation, presence, push, push_notification, reactions, relations,
+    rendezvous, room_summary, sliding_sync, space, sync, tags, telemetry, thirdparty, typing, verification_routes,
+    worker, *,
 };
 use crate::web::middleware::{
-    cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware,
-    shadow_ban_middleware,
+    cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
     extract::{Path, State},
@@ -118,50 +117,17 @@ fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/.well-known/matrix/server"),
         (Method::GET, "/.well-known/matrix/client"),
         (Method::GET, "/.well-known/matrix/support"),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
-        ),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status"),
+        (Method::PUT, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
+        (Method::DELETE, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
+        (Method::POST, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events"),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"),
+        (Method::GET, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}"),
+        (Method::GET, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
+        (Method::PUT, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
+        (Method::DELETE, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, MODULE))
@@ -192,11 +158,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     // /media/config — under v1 + r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::media_config",
-        &[
-            "/_matrix/client/v1",
-            "/_matrix/client/r0",
-            "/_matrix/client/v3",
-        ],
+        &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"],
         &[(Method::GET, "/media/config")],
     ));
 
@@ -217,10 +179,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         &["/_matrix/client/r0", "/_matrix/client/v3"],
         &[
             (Method::PUT, "/rooms/{room_id}/send/m.call.invite/{txn_id}"),
-            (
-                Method::PUT,
-                "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-            ),
+            (Method::PUT, "/rooms/{room_id}/send/m.call.candidates/{txn_id}"),
             (Method::PUT, "/rooms/{room_id}/send/m.call.answer/{txn_id}"),
             (Method::PUT, "/rooms/{room_id}/send/m.call.hangup/{txn_id}"),
             (Method::GET, "/rooms/{room_id}/call/{call_id}"),
@@ -252,10 +211,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
             (Method::GET, "/_matrix/client/v1/login/get_qr_code"),
             (Method::POST, "/_matrix/client/v1/login/qr/confirm"),
             (Method::POST, "/_matrix/client/v1/login/qr/start"),
-            (
-                Method::GET,
-                "/_matrix/client/v1/login/qr/{transaction_id}/status",
-            ),
+            (Method::GET, "/_matrix/client/v1/login/qr/{transaction_id}/status"),
             (Method::POST, "/_matrix/client/v1/login/qr/invalidate"),
         ]
         .into_iter()
@@ -265,11 +221,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     // Account compat — under v1 + r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::account_compat",
-        &[
-            "/_matrix/client/v1",
-            "/_matrix/client/r0",
-            "/_matrix/client/v3",
-        ],
+        &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"],
         &[
             (Method::GET, "/account/whoami"),
             (Method::POST, "/account/password"),
@@ -328,19 +280,14 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         &[
             (Method::GET, "/directory/room/{room_id}/alias"),
             (Method::PUT, "/directory/room/{room_id}/alias/{room_alias}"),
-            (
-                Method::DELETE,
-                "/directory/room/{room_id}/alias/{room_alias}",
-            ),
+            (Method::DELETE, "/directory/room/{room_id}/alias/{room_alias}"),
         ],
     ));
 
     out
 }
 
-async fn get_client_config(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_client_config(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let config = &state.services.config;
     let base_url = config.server.get_public_baseurl();
 
@@ -380,11 +327,7 @@ async fn get_dehydrated_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let device = state
-        .services
-        .dehydrated_device_service
-        .get_device(&auth_user.user_id)
-        .await?;
+    let device = state.services.dehydrated_device_service.get_device(&auth_user.user_id).await?;
 
     match device {
         Some(device) => Ok(Json(device)),
@@ -399,11 +342,7 @@ async fn put_dehydrated_device(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // P0: Precondition checks (MSC3814)
     // 1. Check if user has cross-signing keys
-    let cs_status = state
-        .services
-        .cross_signing_service
-        .get_user_verification_status(&auth_user.user_id)
-        .await?;
+    let cs_status = state.services.cross_signing_service.get_user_verification_status(&auth_user.user_id).await?;
     if !cs_status.has_master_key {
         return Err(ApiError::forbidden(
             "Cross-signing keys not found. Please initialize cross-signing before creating a dehydrated device."
@@ -412,11 +351,7 @@ async fn put_dehydrated_device(
     }
 
     // 2. Check if user has SSSS keys
-    let ssss_keys = state
-        .services
-        .ssss_service
-        .get_all_keys(&auth_user.user_id)
-        .await?;
+    let ssss_keys = state.services.ssss_service.get_all_keys(&auth_user.user_id).await?;
     if ssss_keys.is_empty() {
         return Err(ApiError::forbidden(
             "Secret storage keys not found. Please initialize secret storage (SSSS) before creating a dehydrated device."
@@ -424,11 +359,7 @@ async fn put_dehydrated_device(
         ));
     }
 
-    let device_id = state
-        .services
-        .dehydrated_device_service
-        .put_device(&auth_user.user_id, body)
-        .await?;
+    let device_id = state.services.dehydrated_device_service.put_device(&auth_user.user_id, body).await?;
 
     Ok(Json(json!({
         "device_id": device_id
@@ -439,11 +370,7 @@ async fn get_dehydrated_device_status(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let status = state
-        .services
-        .dehydrated_device_service
-        .get_status(&auth_user.user_id)
-        .await?;
+    let status = state.services.dehydrated_device_service.get_status(&auth_user.user_id).await?;
     Ok(Json(status))
 }
 
@@ -451,11 +378,7 @@ async fn delete_dehydrated_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _deleted = state
-        .services
-        .dehydrated_device_service
-        .delete_device(&auth_user.user_id)
-        .await?;
+    let _deleted = state.services.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -474,11 +397,8 @@ async fn post_dehydrated_device_events(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
-    let response = state
-        .services
-        .dehydrated_device_service
-        .claim_events(&auth_user.user_id, &device_id, next_batch, 100)
-        .await?;
+    let response =
+        state.services.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, 100).await?;
     Ok(Json(response))
 }
 
@@ -538,10 +458,7 @@ const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
 const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 128;
 const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
 
-async fn ensure_extended_profile_user_exists(
-    state: &AppState,
-    user_id: &str,
-) -> Result<(), ApiError> {
+async fn ensure_extended_profile_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let exists = state
         .services
         .user_storage
@@ -571,15 +488,11 @@ async fn load_extended_profile_document(
         return Ok(serde_json::Map::new());
     };
 
-    let content = row
-        .get::<Option<serde_json::Value>, _>("content")
-        .unwrap_or(json!({}));
+    let content = row.get::<Option<serde_json::Value>, _>("content").unwrap_or(json!({}));
 
     match content {
         serde_json::Value::Object(map) => Ok(map),
-        _ => Err(ApiError::internal(
-            "Stored extended profile content is not a JSON object".to_string(),
-        )),
+        _ => Err(ApiError::internal("Stored extended profile content is not a JSON object".to_string())),
     }
 }
 
@@ -589,13 +502,11 @@ async fn save_extended_profile_document(
     document: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), ApiError> {
     let content = serde_json::Value::Object(document.clone());
-    let content_str = serde_json::to_string(&content)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    let content_str =
+        serde_json::to_string(&content).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
 
     if content_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
-        return Err(ApiError::bad_request(
-            "Extended profile data too large (max 64KB)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Extended profile data too large (max 64KB)".to_string()));
     }
 
     let now = chrono::Utc::now().timestamp_millis();
@@ -627,9 +538,7 @@ async fn get_extended_profile(
     crate::web::routes::validators::validate_user_id(&user_id)?;
     super::account_compat::enforce_profile_visibility(&state, &headers, &user_id).await?;
     ensure_extended_profile_user_exists(&state, &user_id).await?;
-    Ok(Json(serde_json::Value::Object(
-        load_extended_profile_document(&state, &user_id).await?,
-    )))
+    Ok(Json(serde_json::Value::Object(load_extended_profile_document(&state, &user_id).await?)))
 }
 
 async fn get_extended_profile_field(
@@ -642,9 +551,7 @@ async fn get_extended_profile_field(
     ensure_extended_profile_user_exists(&state, &user_id).await?;
 
     if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request(
-            "Invalid extended profile field name".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
     }
 
     let document = load_extended_profile_document(&state, &user_id).await?;
@@ -670,17 +577,12 @@ async fn put_extended_profile_field(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
     if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request(
-            "Invalid extended profile field name".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
     }
 
-    let body_str = serde_json::to_string(&body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
-        return Err(ApiError::bad_request(
-            "Extended profile field too large (max 64KB)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Extended profile field too large (max 64KB)".to_string()));
     }
 
     let mut document = load_extended_profile_document(&state, &user_id).await?;
@@ -706,9 +608,7 @@ async fn delete_extended_profile_field(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
     if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request(
-            "Invalid extended profile field name".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
     }
 
     let mut document = load_extended_profile_document(&state, &user_id).await?;
@@ -727,13 +627,9 @@ async fn delete_extended_profile_field(
 /// the homeserver supports OAuth2/OIDC-based login. When OIDC is not configured
 /// we must return `M_UNRECOGNIZED` rather than 404, so clients fall back to the
 /// classic password login flow without surfacing a misleading error to users.
-async fn get_auth_metadata(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_auth_metadata(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let discovery = oidc::openid_discovery(State(state)).await?;
-    Ok(Json(
-        serde_json::to_value(discovery.0).map_err(|e| ApiError::internal(e.to_string()))?,
-    ))
+    Ok(Json(serde_json::to_value(discovery.0).map_err(|e| ApiError::internal(e.to_string()))?))
 }
 
 fn create_client_capabilities_router() -> Router<AppState> {
@@ -748,35 +644,17 @@ fn create_voip_compat_router() -> Router<AppState> {
     // `mut` needed when `voip-tracking` feature is enabled; unused otherwise.
     #[allow(unused_mut)]
     let mut router = Router::new()
-        .route(
-            "/voip/turnServer",
-            get(get_turn_server).post(get_turn_server),
-        )
+        .route("/voip/turnServer", get(get_turn_server).post(get_turn_server))
         .route("/voip/config", get(get_voip_config))
         .route("/voip/turnServer/guest", get(get_turn_credentials_guest));
     #[cfg(feature = "voip-tracking")]
     {
         router = router
-            .route(
-                "/rooms/{room_id}/send/m.call.invite/{txn_id}",
-                put(voip::call_invite),
-            )
-            .route(
-                "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
-                put(voip::call_candidates),
-            )
-            .route(
-                "/rooms/{room_id}/send/m.call.answer/{txn_id}",
-                put(voip::call_answer),
-            )
-            .route(
-                "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
-                put(voip::call_hangup),
-            )
-            .route(
-                "/rooms/{room_id}/call/{call_id}",
-                get(voip::get_call_session),
-            );
+            .route("/rooms/{room_id}/send/m.call.invite/{txn_id}", put(voip::call_invite))
+            .route("/rooms/{room_id}/send/m.call.candidates/{txn_id}", put(voip::call_candidates))
+            .route("/rooms/{room_id}/send/m.call.answer/{txn_id}", put(voip::call_answer))
+            .route("/rooms/{room_id}/send/m.call.hangup/{txn_id}", put(voip::call_hangup))
+            .route("/rooms/{room_id}/call/{call_id}", get(voip::get_call_session));
     }
     router
 }
@@ -823,51 +701,22 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/health", get(handlers::health_check))
         .route("/_health", get(handlers::detailed_health_check))
-        .route(
-            "/_matrix/client/versions",
-            get(handlers::get_client_versions),
-        )
-        .route(
-            "/_matrix/client/v3/versions",
-            get(handlers::get_client_versions),
-        )
-        .route(
-            "/_matrix/client/r0/version",
-            get(handlers::get_server_version),
-        )
+        .route("/_matrix/client/versions", get(handlers::get_client_versions))
+        .route("/_matrix/client/v3/versions", get(handlers::get_client_versions))
+        .route("/_matrix/client/r0/version", get(handlers::get_server_version))
         .route("/_matrix/server_version", get(handlers::get_server_version))
         .route("/_matrix/client/v1/config/client", get(get_client_config))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
-        .route(
-            "/_matrix/client/v3/pushrules/global/",
-            get(get_push_rules_global_default),
-        )
+        .route("/_matrix/client/v3/pushrules/global/", get(get_push_rules_global_default))
         .route("/_matrix/client/r0/pushrules/", get(get_push_rules_default))
-        .route(
-            "/_matrix/client/r0/pushrules/global/",
-            get(get_push_rules_global_default),
-        )
-        .route(
-            "/.well-known/matrix/server",
-            get(handlers::get_well_known_server),
-        )
-        .route(
-            "/.well-known/matrix/client",
-            get(handlers::get_well_known_client),
-        )
-        .route(
-            "/.well-known/matrix/support",
-            get(handlers::get_well_known_support),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
-            get(get_auth_metadata),
-        )
+        .route("/_matrix/client/r0/pushrules/global/", get(get_push_rules_global_default))
+        .route("/.well-known/matrix/server", get(handlers::get_well_known_server))
+        .route("/.well-known/matrix/client", get(handlers::get_well_known_client))
+        .route("/.well-known/matrix/support", get(handlers::get_well_known_support))
+        .route("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata", get(get_auth_metadata))
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            get(get_dehydrated_device)
-                .put(put_dehydrated_device)
-                .delete(delete_dehydrated_device),
+            get(get_dehydrated_device).put(put_dehydrated_device).delete(delete_dehydrated_device),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
@@ -877,19 +726,11 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
             post(post_dehydrated_device_events),
         )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
-            get(get_rtc_transports),
-        )
-        .route(
-            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
-            get(get_extended_profile),
-        )
+        .route("/_matrix/client/unstable/org.matrix.msc4143/rtc/transports", get(get_rtc_transports))
+        .route("/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}", get(get_extended_profile))
         .route(
             "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
-            get(get_extended_profile_field)
-                .put(put_extended_profile_field)
-                .delete(delete_extended_profile_field),
+            get(get_extended_profile_field).put(put_extended_profile_field).delete(delete_extended_profile_field),
         )
         .merge(create_auth_router())
         .merge(create_account_router())
@@ -907,9 +748,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_reactions_router(state.clone()))
         .merge(create_admin_module_router(state.clone()))
         .merge(create_push_router(state.clone()))
-        .merge(crate::web::routes::handlers::search::create_search_router(
-            state.clone(),
-        ))
+        .merge(crate::web::routes::handlers::search::create_search_router(state.clone()))
         .merge(create_sliding_sync_router(state.clone()))
         .merge(create_space_router(state.clone()))
         .merge(create_app_service_router(state.clone()))
@@ -942,9 +781,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(dm::create_dm_router(state.clone()))
         .merge(typing::create_typing_router(state.clone()))
         .merge(ephemeral::create_ephemeral_router(state.clone()))
-        .merge(crate::web::routes::handlers::thread::create_thread_routes(
-            state.clone(),
-        ))
+        .merge(crate::web::routes::handlers::thread::create_thread_routes(state.clone()))
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_presence_router())
         .merge(oidc::create_oidc_router(state.clone()));
@@ -953,18 +790,9 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            csrf_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            rate_limit_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            shadow_ban_middleware,
-        ))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), shadow_ban_middleware))
         .with_state(state)
 }
 
@@ -972,10 +800,7 @@ fn create_auth_compat_router() -> Router<AppState> {
     Router::new()
         .route("/register", get(get_register_flows).post(register))
         .route("/register/available", get(check_username_availability))
-        .route(
-            "/register/email/requestToken",
-            post(request_email_verification),
-        )
+        .route("/register/email/requestToken", post(request_email_verification))
         .route("/register/email/submitToken", post(submit_email_token))
         .route("/login", get(get_login_flows).post(login))
         .route("/logout", post(logout))
@@ -1027,53 +852,32 @@ fn create_account_compat_router() -> Router<AppState> {
     Router::new()
         .route("/account/whoami", get(whoami))
         .route("/account/password", post(change_password_uia))
-        .route(
-            "/account/password/email/requestToken",
-            post(request_password_email_verification),
-        )
-        .route(
-            "/account/password/email/submitToken",
-            post(submit_email_token),
-        )
+        .route("/account/password/email/requestToken", post(request_password_email_verification))
+        .route("/account/password/email/submitToken", post(submit_email_token))
         .route("/account/deactivate", post(deactivate_account))
         .route("/account/3pid", get(get_threepids).post(add_threepid))
         .route("/account/3pid/add", post(add_threepid))
         .route("/account/3pid/bind", post(add_threepid))
-        .route(
-            "/account/3pid/email/requestToken",
-            post(request_3pid_add_email_verification),
-        )
+        .route("/account/3pid/email/requestToken", post(request_3pid_add_email_verification))
         .route("/account/3pid/email/submitToken", post(submit_email_token))
         .route("/account/3pid/delete", post(delete_threepid))
         .route("/account/3pid/unbind", post(unbind_threepid))
         .route("/profile/{user_id}", get(get_profile))
-        .route(
-            "/profile/{user_id}/displayname",
-            get(get_displayname).put(update_displayname),
-        )
-        .route(
-            "/profile/{user_id}/avatar_url",
-            get(get_avatar_url).put(update_avatar),
-        )
+        .route("/profile/{user_id}/displayname", get(get_displayname).put(update_displayname))
+        .route("/profile/{user_id}/avatar_url", get(get_avatar_url).put(update_avatar))
 }
 
 fn create_account_r0_only_router() -> Router<AppState> {
     Router::new()
         .route("/account/profile/{user_id}", get(get_profile))
-        .route(
-            "/account/profile/{user_id}/displayname",
-            put(update_displayname),
-        )
+        .route("/account/profile/{user_id}/displayname", put(update_displayname))
         .route("/account/profile/{user_id}/avatar_url", put(update_avatar))
 }
 
 fn create_account_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v1", create_account_compat_router())
-        .nest(
-            "/_matrix/client/r0",
-            create_account_compat_router().merge(create_account_r0_only_router()),
-        )
+        .nest("/_matrix/client/r0", create_account_compat_router().merge(create_account_r0_only_router()))
         .nest("/_matrix/client/v3", create_account_compat_router())
 }
 
@@ -1081,41 +885,24 @@ fn create_directory_compat_router() -> Router<AppState> {
     Router::new()
         .route("/user_directory/search", post(search_user_directory))
         .route("/user_directory/list", post(list_user_directory))
-        .route(
-            "/user_directory/profiles/{user_id}",
-            get(get_user_directory_profile),
-        )
-        .route(
-            "/directory/list/room/{room_id}",
-            get(get_room_visibility).put(set_room_visibility),
-        )
+        .route("/user_directory/profiles/{user_id}", get(get_user_directory_profile))
+        .route("/directory/list/room/{room_id}", get(get_room_visibility).put(set_room_visibility))
         .route(
             "/directory/room/{room_alias}",
-            get(get_room_by_alias)
-                .put(set_room_alias_direct)
-                .delete(delete_room_alias_direct),
+            get(get_room_by_alias).put(set_room_alias_direct).delete(delete_room_alias_direct),
         )
-        .route(
-            "/publicRooms",
-            get(get_public_rooms).post(query_public_rooms),
-        )
+        .route("/publicRooms", get(get_public_rooms).post(query_public_rooms))
 }
 
 fn create_directory_r0_only_router() -> Router<AppState> {
     Router::new()
         .route("/directory/room/{room_id}/alias", get(get_room_aliases))
-        .route(
-            "/directory/room/{room_id}/alias/{room_alias}",
-            put(set_room_alias).delete(delete_room_alias),
-        )
+        .route("/directory/room/{room_id}/alias/{room_alias}", put(set_room_alias).delete(delete_room_alias))
 }
 
 fn create_directory_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest(
-            "/_matrix/client/r0",
-            create_directory_compat_router().merge(create_directory_r0_only_router()),
-        )
+        .nest("/_matrix/client/r0", create_directory_compat_router().merge(create_directory_r0_only_router()))
         .nest("/_matrix/client/v3", create_directory_compat_router())
         .merge(create_guest_router(state.clone()))
         .with_state(state)

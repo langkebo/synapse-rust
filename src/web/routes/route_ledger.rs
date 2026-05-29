@@ -74,13 +74,7 @@ pub struct RouteEntry {
 
 impl RouteEntry {
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
-        Self {
-            method,
-            path,
-            registered_by,
-            query_params: &[],
-            auth: None,
-        }
+        Self { method, path, registered_by, query_params: &[], auth: None }
     }
 
     pub const fn with_auth(mut self, auth: &'static str) -> Self {
@@ -119,10 +113,7 @@ pub fn expand_under_prefixes(
             "prefix {prefix:?} must not end with '/' — expand_under_prefixes will add it"
         );
         for (method, relative) in paths {
-            debug_assert!(
-                relative.starts_with('/'),
-                "relative path {relative:?} must start with '/'"
-            );
+            debug_assert!(relative.starts_with('/'), "relative path {relative:?} must start with '/'");
             let full: &'static str = Box::leak(format!("{prefix}{relative}").into_boxed_str());
             out.push(RouteEntry::new(method.clone(), full, registered_by));
         }
@@ -177,18 +168,9 @@ impl RouteLedger {
             *counts.entry(entry.registered_by).or_insert(0) += 1;
         }
 
-        let mut out: Vec<RegisteredByCount> = counts
-            .into_iter()
-            .map(|(registered_by, entries)| RegisteredByCount {
-                registered_by,
-                entries,
-            })
-            .collect();
-        out.sort_by(|a, b| {
-            b.entries
-                .cmp(&a.entries)
-                .then_with(|| a.registered_by.cmp(b.registered_by))
-        });
+        let mut out: Vec<RegisteredByCount> =
+            counts.into_iter().map(|(registered_by, entries)| RegisteredByCount { registered_by, entries }).collect();
+        out.sort_by(|a, b| b.entries.cmp(&a.entries).then_with(|| a.registered_by.cmp(b.registered_by)));
         out
     }
 
@@ -205,9 +187,7 @@ impl RouteLedger {
         // duplicate report by `(method, path)` for stable diagnostics.
         let mut seen: HashMap<(Method, &'static str), Vec<&'static str>> = HashMap::new();
         for entry in &self.entries {
-            seen.entry((entry.method.clone(), entry.path))
-                .or_default()
-                .push(entry.registered_by);
+            seen.entry((entry.method.clone(), entry.path)).or_default().push(entry.registered_by);
         }
 
         let mut duplicates: Vec<DuplicateEntry> = seen
@@ -219,21 +199,13 @@ impl RouteLedger {
                 registered_by: owners.clone(),
             })
             .collect();
-        duplicates.sort_by(|a, b| {
-            a.method
-                .as_str()
-                .cmp(b.method.as_str())
-                .then_with(|| a.path.cmp(b.path))
-        });
+        duplicates.sort_by(|a, b| a.method.as_str().cmp(b.method.as_str()).then_with(|| a.path.cmp(b.path)));
 
         if !duplicates.is_empty() {
             return Err(DuplicateRouteError { duplicates });
         }
 
-        Ok(LedgerReport {
-            unique_tuples: seen.len(),
-            total_entries: self.entries.len(),
-        })
+        Ok(LedgerReport { unique_tuples: seen.len(), total_entries: self.entries.len() })
     }
 }
 
@@ -262,19 +234,9 @@ pub struct DuplicateRouteError {
 
 impl fmt::Display for DuplicateRouteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "route manifest contains {} duplicate (method, path) tuple(s):",
-            self.duplicates.len()
-        )?;
+        writeln!(f, "route manifest contains {} duplicate (method, path) tuple(s):", self.duplicates.len())?;
         for dup in &self.duplicates {
-            writeln!(
-                f,
-                "  - {} {} registered by: {}",
-                dup.method,
-                dup.path,
-                dup.registered_by.join(", ")
-            )?;
+            writeln!(f, "  - {} {} registered by: {}", dup.method, dup.path, dup.registered_by.join(", "))?;
         }
         Ok(())
     }
@@ -301,10 +263,8 @@ mod tests {
     #[test]
     fn validate_flags_cross_module_duplicates() {
         let mut ledger = RouteLedger::new();
-        ledger.extend([
-            RouteEntry::new(Method::GET, "/clash", "mod_a"),
-            RouteEntry::new(Method::GET, "/clash", "mod_b"),
-        ]);
+        ledger
+            .extend([RouteEntry::new(Method::GET, "/clash", "mod_a"), RouteEntry::new(Method::GET, "/clash", "mod_b")]);
         let err = ledger.validate().expect_err("duplicate must be reported");
         assert_eq!(err.duplicates.len(), 1);
         assert_eq!(err.duplicates[0].method, Method::GET);
@@ -318,16 +278,10 @@ mod tests {
 
     #[test]
     fn expand_under_prefixes_produces_full_paths() {
-        let entries = expand_under_prefixes(
-            "demo",
-            &["/api/v1", "/api/v3"],
-            &[(Method::GET, "/foo"), (Method::PUT, "/foo")],
-        );
+        let entries =
+            expand_under_prefixes("demo", &["/api/v1", "/api/v3"], &[(Method::GET, "/foo"), (Method::PUT, "/foo")]);
         let paths: Vec<_> = entries.iter().map(|e| e.path).collect();
-        assert_eq!(
-            paths,
-            vec!["/api/v1/foo", "/api/v1/foo", "/api/v3/foo", "/api/v3/foo"]
-        );
+        assert_eq!(paths, vec!["/api/v1/foo", "/api/v1/foo", "/api/v3/foo", "/api/v3/foo"]);
         assert!(entries.iter().all(|e| e.registered_by == "demo"));
     }
 
@@ -346,18 +300,9 @@ mod tests {
         assert_eq!(
             counts,
             vec![
-                RegisteredByCount {
-                    registered_by: "mod_a",
-                    entries: 2,
-                },
-                RegisteredByCount {
-                    registered_by: "mod_b",
-                    entries: 2,
-                },
-                RegisteredByCount {
-                    registered_by: "mod_c",
-                    entries: 1,
-                },
+                RegisteredByCount { registered_by: "mod_a", entries: 2 },
+                RegisteredByCount { registered_by: "mod_b", entries: 2 },
+                RegisteredByCount { registered_by: "mod_c", entries: 1 },
             ]
         );
     }

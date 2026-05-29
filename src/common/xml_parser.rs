@@ -45,8 +45,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
                     "Attribute" => {
                         for attr in e.attributes().flatten() {
                             if attr.key.local_name().as_ref() == b"Name" {
-                                current_attr_name =
-                                    String::from_utf8_lossy(&attr.value).to_string();
+                                current_attr_name = String::from_utf8_lossy(&attr.value).to_string();
                             }
                         }
                     }
@@ -56,8 +55,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
                     "AuthnStatement" => {
                         for attr in e.attributes().flatten() {
                             if attr.key.local_name().as_ref() == b"SessionIndex" {
-                                session_index =
-                                    Some(String::from_utf8_lossy(&attr.value).to_string());
+                                session_index = Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -74,10 +72,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
                     issuer = text;
                     in_issuer = false;
                 } else if in_attr_value && !current_attr_name.is_empty() {
-                    attributes
-                        .entry(current_attr_name.clone())
-                        .or_default()
-                        .push(text);
+                    attributes.entry(current_attr_name.clone()).or_default().push(text);
                 }
             }
             Ok(Event::End(ref e)) => {
@@ -108,12 +103,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
         return Err(XmlParseError::MissingElement("NameID".to_string()));
     }
 
-    Ok(SamlAssertionData {
-        name_id,
-        issuer,
-        attributes,
-        session_index,
-    })
+    Ok(SamlAssertionData { name_id, issuer, attributes, session_index })
 }
 
 pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseError> {
@@ -188,17 +178,10 @@ pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseErro
     }
 
     if entity_id.is_empty() || sso_url.is_empty() {
-        return Err(XmlParseError::MissingElement(
-            "entityID or SSO URL".to_string(),
-        ));
+        return Err(XmlParseError::MissingElement("entityID or SSO URL".to_string()));
     }
 
-    Ok(SamlMetadataParsed {
-        entity_id,
-        sso_url,
-        slo_url,
-        certificate,
-    })
+    Ok(SamlMetadataParsed { entity_id, sso_url, slo_url, certificate })
 }
 
 #[derive(Debug, Clone)]
@@ -263,9 +246,6 @@ mod tests {
         let result = parse_saml_metadata(xml).unwrap();
         assert_eq!(result.entity_id, "https://idp.example.com");
         assert_eq!(result.sso_url, "https://idp.example.com/sso");
-        assert_eq!(
-            result.slo_url,
-            Some("https://idp.example.com/slo".to_string())
-        );
+        assert_eq!(result.slo_url, Some("https://idp.example.com/slo".to_string()));
     }
 }

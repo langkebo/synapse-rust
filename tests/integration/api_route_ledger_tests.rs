@@ -43,10 +43,7 @@ static OPENCLAW_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static OPENCLAW_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 
 async fn default_fixture() -> TestFixture {
-    DEFAULT_FIXTURE
-        .get_or_init(|| async { setup_test_app_with_state().await })
-        .await
-        .clone()
+    DEFAULT_FIXTURE.get_or_init(|| async { setup_test_app_with_state().await }).await.clone()
 }
 
 async fn worker_enabled_fixture() -> TestFixture {
@@ -56,8 +53,7 @@ async fn worker_enabled_fixture() -> TestFixture {
                 container.config.federation.allow_ingress = true;
                 container.config.worker.enabled = true;
                 container.config.worker.replication.http.enabled = true;
-                container.config.worker.replication.http.secret =
-                    Some("test_worker_secret".to_string());
+                container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
                 container.config.worker.replication.http.secret_path = None;
             })
             .await
@@ -82,12 +78,7 @@ async fn openclaw_enabled_fixture() -> TestFixture {
 
 async fn default_ledger() -> Option<RouteLedger> {
     DEFAULT_LEDGER
-        .get_or_init(|| async {
-            default_fixture()
-                .await
-                .as_ref()
-                .map(|(_, state)| declared_route_manifest_for(state))
-        })
+        .get_or_init(|| async { default_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state)) })
         .await
         .clone()
 }
@@ -95,10 +86,7 @@ async fn default_ledger() -> Option<RouteLedger> {
 async fn worker_enabled_ledger() -> Option<RouteLedger> {
     WORKER_ENABLED_LEDGER
         .get_or_init(|| async {
-            worker_enabled_fixture()
-                .await
-                .as_ref()
-                .map(|(_, state)| declared_route_manifest_for(state))
+            worker_enabled_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state))
         })
         .await
         .clone()
@@ -108,21 +96,14 @@ async fn worker_enabled_ledger() -> Option<RouteLedger> {
 async fn openclaw_enabled_ledger() -> Option<RouteLedger> {
     OPENCLAW_ENABLED_LEDGER
         .get_or_init(|| async {
-            openclaw_enabled_fixture()
-                .await
-                .as_ref()
-                .map(|(_, state)| declared_route_manifest_for(state))
+            openclaw_enabled_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state))
         })
         .await
         .clone()
 }
 
 fn allow_methods(allow_header: &str) -> std::collections::HashSet<String> {
-    allow_header
-        .split(',')
-        .map(|s| s.trim().to_ascii_uppercase())
-        .filter(|s| !s.is_empty())
-        .collect()
+    allow_header.split(',').map(|s| s.trim().to_ascii_uppercase()).filter(|s| !s.is_empty()).collect()
 }
 
 fn has_declared_route(
@@ -130,9 +111,7 @@ fn has_declared_route(
     method: Method,
     path: &str,
 ) -> bool {
-    ledger
-        .iter()
-        .any(|entry| entry.method == method && entry.path == path)
+    ledger.iter().any(|entry| entry.method == method && entry.path == path)
 }
 
 fn render_ledger_snapshot(
@@ -141,30 +120,15 @@ fn render_ledger_snapshot(
 ) -> String {
     let mut lines: Vec<String> = ledger
         .iter()
-        .map(|entry| {
-            format!(
-                "{} {} [{}]",
-                entry.method.as_str(),
-                entry.path,
-                entry.registered_by
-            )
-        })
+        .map(|entry| format!("{} {} [{}]", entry.method.as_str(), entry.path, entry.registered_by))
         .collect();
     lines.sort();
 
-    format!(
-        "# route-ledger snapshot: {snapshot_name}\ncount: {}\n\n{}\n",
-        lines.len(),
-        lines.join("\n")
-    )
+    format!("# route-ledger snapshot: {snapshot_name}\ncount: {}\n\n{}\n", lines.len(), lines.join("\n"))
 }
 
 fn route_ledger_snapshot_path(snapshot_file: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("integration")
-        .join("snapshots")
-        .join(snapshot_file)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("integration").join("snapshots").join(snapshot_file)
 }
 
 fn assert_route_ledger_snapshot(snapshot_file: &str, actual: String) {
@@ -220,14 +184,9 @@ async fn declared_route_manifest_validates_with_no_duplicates() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    let report = ledger
-        .validate()
-        .expect("declared_route_manifest_for must be free of duplicate (method, path) tuples");
-    assert!(
-        report.unique_tuples >= 1,
-        "ledger should declare at least one route, got {}",
-        report.unique_tuples
-    );
+    let report =
+        ledger.validate().expect("declared_route_manifest_for must be free of duplicate (method, path) tuples");
+    assert!(report.unique_tuples >= 1, "ledger should declare at least one route, got {}", report.unique_tuples);
     assert_eq!(report.total_entries, report.unique_tuples);
 }
 
@@ -257,16 +216,9 @@ async fn declared_route_manifest_entries_are_actually_wired() {
         .map(|entry| {
             let app = app.clone();
             async move {
-                let req = Request::builder()
-                    .method("PATCH")
-                    .uri(entry.path)
-                    .body(Body::empty())
-                    .unwrap();
+                let req = Request::builder().method("PATCH").uri(entry.path).body(Body::empty()).unwrap();
 
-                let response = app
-                    .oneshot(with_local_connect_info(req))
-                    .await
-                    .expect("oneshot");
+                let response = app.oneshot(with_local_connect_info(req)).await.expect("oneshot");
                 let status = response.status();
 
                 if status == StatusCode::NOT_FOUND {
@@ -345,31 +297,15 @@ async fn worker_body_routes_follow_runtime_flag_in_ledger() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(!has_declared_route(
-        &disabled_ledger,
-        Method::POST,
-        "/_synapse/worker/v1/workers/{worker_id}/heartbeat"
-    ));
-    assert!(!has_declared_route(
-        &disabled_ledger,
-        Method::GET,
-        "/_synapse/worker/v1/events"
-    ));
+    assert!(!has_declared_route(&disabled_ledger, Method::POST, "/_synapse/worker/v1/workers/{worker_id}/heartbeat"));
+    assert!(!has_declared_route(&disabled_ledger, Method::GET, "/_synapse/worker/v1/events"));
 
     let Some(enabled_ledger) = worker_enabled_ledger().await else {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &enabled_ledger,
-        Method::POST,
-        "/_synapse/worker/v1/workers/{worker_id}/heartbeat"
-    ));
-    assert!(has_declared_route(
-        &enabled_ledger,
-        Method::GET,
-        "/_synapse/worker/v1/events"
-    ));
+    assert!(has_declared_route(&enabled_ledger, Method::POST, "/_synapse/worker/v1/workers/{worker_id}/heartbeat"));
+    assert!(has_declared_route(&enabled_ledger, Method::GET, "/_synapse/worker/v1/events"));
 }
 
 #[tokio::test]
@@ -399,11 +335,7 @@ async fn worker_body_routes_are_live_when_worker_mode_enabled() {
     let events_disabled = disabled_app
         .clone()
         .oneshot(with_local_connect_info(
-            Request::builder()
-                .method(Method::GET)
-                .uri(events_uri)
-                .body(Body::empty())
-                .unwrap(),
+            Request::builder().method(Method::GET).uri(events_uri).body(Body::empty()).unwrap(),
         ))
         .await
         .expect("oneshot");
@@ -431,11 +363,7 @@ async fn worker_body_routes_are_live_when_worker_mode_enabled() {
     let events_enabled = enabled_app
         .clone()
         .oneshot(with_local_connect_info(
-            Request::builder()
-                .method(Method::GET)
-                .uri(events_uri)
-                .body(Body::empty())
-                .unwrap(),
+            Request::builder().method(Method::GET).uri(events_uri).body(Body::empty()).unwrap(),
         ))
         .await
         .expect("oneshot");
@@ -459,11 +387,7 @@ async fn friend_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_matrix/client/v3/friends"
-    ));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/friends"));
 }
 
 #[cfg(feature = "voice-extended")]
@@ -473,21 +397,9 @@ async fn voice_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_matrix/client/r0/voice/config"
-    ));
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_matrix/client/v1/voice/config"
-    ));
-    assert!(has_declared_route(
-        &ledger,
-        Method::POST,
-        "/_matrix/client/r0/voice/upload"
-    ));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/r0/voice/config"));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v1/voice/config"));
+    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/r0/voice/upload"));
 }
 
 #[cfg(feature = "external-services")]
@@ -497,16 +409,8 @@ async fn external_service_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_synapse/admin/v1/external_services"
-    ));
-    assert!(has_declared_route(
-        &ledger,
-        Method::POST,
-        "/_synapse/external/webhook/{service_id}"
-    ));
+    assert!(has_declared_route(&ledger, Method::GET, "/_synapse/admin/v1/external_services"));
+    assert!(has_declared_route(&ledger, Method::POST, "/_synapse/external/webhook/{service_id}"));
 }
 
 #[cfg(feature = "widgets")]
@@ -516,11 +420,7 @@ async fn widget_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::POST,
-        "/_matrix/client/v1/widgets"
-    ));
+    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/v1/widgets"));
 }
 
 #[cfg(feature = "burn-after-read")]
@@ -530,11 +430,7 @@ async fn burn_after_read_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::PUT,
-        "/_matrix/client/v1/rooms/{room_id}/burn"
-    ));
+    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
 }
 
 #[cfg(feature = "cas-sso")]
@@ -545,11 +441,7 @@ async fn cas_routes_are_declared_when_feature_enabled() {
         return;
     };
     assert!(has_declared_route(&ledger, Method::GET, "/login"));
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_synapse/admin/v1/cas/services"
-    ));
+    assert!(has_declared_route(&ledger, Method::GET, "/_synapse/admin/v1/cas/services"));
 }
 
 #[cfg(feature = "openclaw-routes")]
@@ -564,11 +456,7 @@ async fn openclaw_routes_follow_runtime_flag_in_ledger() {
         Method::GET,
         "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
     ));
-    assert!(!has_declared_route(
-        &disabled_ledger,
-        Method::GET,
-        "/connections"
-    ));
+    assert!(!has_declared_route(&disabled_ledger, Method::GET, "/connections"));
 
     let Some(enabled_ledger) = openclaw_enabled_ledger().await else {
         eprintln!("Skipping: integration test database is not available");
@@ -579,11 +467,7 @@ async fn openclaw_routes_follow_runtime_flag_in_ledger() {
         Method::GET,
         "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
     ));
-    assert!(has_declared_route(
-        &enabled_ledger,
-        Method::GET,
-        "/connections"
-    ));
+    assert!(has_declared_route(&enabled_ledger, Method::GET, "/connections"));
 }
 
 #[cfg(feature = "voip-tracking")]
@@ -593,14 +477,6 @@ async fn voip_tracking_routes_are_declared_when_feature_enabled() {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
-    assert!(has_declared_route(
-        &ledger,
-        Method::PUT,
-        "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}"
-    ));
-    assert!(has_declared_route(
-        &ledger,
-        Method::GET,
-        "/_matrix/client/v3/rooms/{room_id}/call/{call_id}"
-    ));
+    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}"));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/rooms/{room_id}/call/{call_id}"));
 }

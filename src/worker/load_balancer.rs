@@ -52,11 +52,7 @@ pub struct WorkerLoadBalancer {
 
 impl WorkerLoadBalancer {
     pub fn new(strategy: LoadBalanceStrategy) -> Self {
-        Self {
-            workers: RwLock::new(HashMap::new()),
-            strategy,
-            round_robin_index: RwLock::new(0),
-        }
+        Self { workers: RwLock::new(HashMap::new()), strategy, round_robin_index: RwLock::new(0) }
     }
 
     pub async fn register_worker(&self, worker: WorkerInfo) {
@@ -75,12 +71,7 @@ impl WorkerLoadBalancer {
 
         workers.insert(
             worker.worker_id.clone(),
-            WorkerState {
-                info: worker,
-                load_stats: WorkerLoadStats::default(),
-                weight,
-                request_count: 0,
-            },
+            WorkerState { info: worker, load_stats: WorkerLoadStats::default(), weight, request_count: 0 },
         );
 
         info!("Worker registered: {} (weight: {})", worker_id, weight);
@@ -119,9 +110,7 @@ impl WorkerLoadBalancer {
         let selected = match self.strategy {
             LoadBalanceStrategy::RoundRobin => self.select_round_robin(&candidates).await,
             LoadBalanceStrategy::LeastConnections => Self::select_least_connections(&candidates),
-            LoadBalanceStrategy::WeightedRoundRobin => {
-                self.select_weighted_round_robin(&candidates).await
-            }
+            LoadBalanceStrategy::WeightedRoundRobin => self.select_weighted_round_robin(&candidates).await,
             LoadBalanceStrategy::Random => Self::select_random(&candidates),
         };
 
@@ -209,10 +198,7 @@ impl WorkerLoadBalancer {
 
     pub async fn get_active_worker_count(&self) -> usize {
         let workers = self.workers.read().await;
-        workers
-            .values()
-            .filter(|w| w.info.status == "running")
-            .count()
+        workers.values().filter(|w| w.info.status == "running").count()
     }
 
     pub async fn get_worker_stats(&self, worker_id: &str) -> Option<WorkerLoadStats> {
@@ -222,19 +208,12 @@ impl WorkerLoadBalancer {
 
     pub async fn get_all_stats(&self) -> HashMap<String, WorkerLoadStats> {
         let workers = self.workers.read().await;
-        workers
-            .iter()
-            .map(|(id, state)| (id.clone(), state.load_stats.clone()))
-            .collect()
+        workers.iter().map(|(id, state)| (id.clone(), state.load_stats.clone())).collect()
     }
 
     pub async fn get_total_capacity(&self) -> u32 {
         let workers = self.workers.read().await;
-        workers
-            .values()
-            .filter(|w| w.info.status == "running")
-            .map(|w| w.weight)
-            .sum()
+        workers.values().filter(|w| w.info.status == "running").map(|w| w.weight).sum()
     }
 
     pub fn set_strategy(&mut self, strategy: LoadBalanceStrategy) {
@@ -292,12 +271,8 @@ mod tests {
     async fn test_select_worker_round_robin() {
         let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
 
-        balancer
-            .register_worker(create_test_worker("worker1", "frontend"))
-            .await;
-        balancer
-            .register_worker(create_test_worker("worker2", "frontend"))
-            .await;
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        balancer.register_worker(create_test_worker("worker2", "frontend")).await;
 
         let selected1 = balancer.select_worker("http").await;
         let selected2 = balancer.select_worker("http").await;
@@ -311,12 +286,8 @@ mod tests {
     async fn test_select_worker_least_connections() {
         let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections);
 
-        balancer
-            .register_worker(create_test_worker("worker1", "frontend"))
-            .await;
-        balancer
-            .register_worker(create_test_worker("worker2", "frontend"))
-            .await;
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        balancer.register_worker(create_test_worker("worker2", "frontend")).await;
 
         balancer
             .update_worker_load(
@@ -350,12 +321,8 @@ mod tests {
     async fn test_select_worker_by_task_type() {
         let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
 
-        balancer
-            .register_worker(create_test_worker("frontend1", "frontend"))
-            .await;
-        balancer
-            .register_worker(create_test_worker("pusher1", "pusher"))
-            .await;
+        balancer.register_worker(create_test_worker("frontend1", "frontend")).await;
+        balancer.register_worker(create_test_worker("pusher1", "pusher")).await;
 
         let http_worker = balancer.select_worker("http").await;
         assert_eq!(http_worker, Some("frontend1".to_string()));
@@ -368,9 +335,7 @@ mod tests {
     async fn test_no_available_workers() {
         let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
 
-        balancer
-            .register_worker(create_test_worker("pusher1", "pusher"))
-            .await;
+        balancer.register_worker(create_test_worker("pusher1", "pusher")).await;
 
         let selected = balancer.select_worker("http").await;
         assert!(selected.is_none());
@@ -380,12 +345,8 @@ mod tests {
     async fn test_get_total_capacity() {
         let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
 
-        balancer
-            .register_worker(create_test_worker("master1", "master"))
-            .await;
-        balancer
-            .register_worker(create_test_worker("frontend1", "frontend"))
-            .await;
+        balancer.register_worker(create_test_worker("master1", "master")).await;
+        balancer.register_worker(create_test_worker("frontend1", "frontend")).await;
 
         let capacity = balancer.get_total_capacity().await;
         assert_eq!(capacity, 180);

@@ -25,14 +25,10 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -53,9 +49,7 @@ fn test_friend_system_extended() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // 2. Get Friend Requests
@@ -64,9 +58,7 @@ fn test_friend_system_extended() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // 3. Get Outgoing Friend Requests
@@ -75,9 +67,7 @@ fn test_friend_system_extended() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     });
 }
@@ -109,15 +99,11 @@ fn test_trusted_private_chat_preset() {
                 .to_string(),
             ))
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // Verify room was created
-        let body = axum::body::to_bytes(response.into_body(), 4096)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert!(json["room_id"].is_string());
 
@@ -128,9 +114,7 @@ fn test_trusted_private_chat_preset() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     });
 }
@@ -151,9 +135,7 @@ fn test_voice_messages() {
             .header("Authorization", format!("Bearer {}", _alice_token))
             .body(Body::empty())
             .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-            .await
-            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     });
 }
@@ -166,8 +148,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             Some(app) => app,
             None => return,
         };
-        let alice_token =
-            register_user(&app, &format!("thirdparty_{}", rand::random::<u32>())).await;
+        let alice_token = register_user(&app, &format!("thirdparty_{}", rand::random::<u32>())).await;
 
         let v3_protocols_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/protocols")
@@ -175,14 +156,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let v3_protocols_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocols_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocols_request).await.unwrap();
         assert_eq!(v3_protocols_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(v3_protocols_response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(v3_protocols_response.into_body(), 1024).await.unwrap();
         let v3_protocols_json: Value = serde_json::from_slice(&body).unwrap();
         assert!(v3_protocols_json.get("irc").is_some());
 
@@ -192,14 +169,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let r0_protocols_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocols_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocols_request).await.unwrap();
         assert_eq!(r0_protocols_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(r0_protocols_response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(r0_protocols_response.into_body(), 1024).await.unwrap();
         let r0_protocols_json: Value = serde_json::from_slice(&body).unwrap();
         assert!(r0_protocols_json.get("irc").is_some());
 
@@ -209,14 +182,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let v3_protocol_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocol_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocol_request).await.unwrap();
         assert_eq!(v3_protocol_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(v3_protocol_response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(v3_protocol_response.into_body(), 1024).await.unwrap();
         let v3_protocol_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v3_protocol_json["instances"], json!([]));
 
@@ -226,14 +195,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let r0_protocol_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocol_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocol_request).await.unwrap();
         assert_eq!(r0_protocol_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(r0_protocol_response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(r0_protocol_response.into_body(), 1024).await.unwrap();
         let r0_protocol_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(r0_protocol_json["instances"], json!([]));
 
@@ -243,14 +208,10 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let v3_location_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request).await.unwrap();
         assert_eq!(v3_location_response.status(), StatusCode::NOT_FOUND);
 
-        let body = axum::body::to_bytes(v3_location_response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(v3_location_response.into_body(), 1024).await.unwrap();
         let v3_location_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v3_location_json["errcode"], "M_UNRECOGNIZED");
 
@@ -259,9 +220,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let r0_location_response = ServiceExt::<Request<Body>>::oneshot(app, r0_location_request)
-            .await
-            .unwrap();
+        let r0_location_response = ServiceExt::<Request<Body>>::oneshot(app, r0_location_request).await.unwrap();
         assert_eq!(r0_location_response.status(), StatusCode::NOT_FOUND);
     });
 }
@@ -275,18 +234,11 @@ fn test_client_config_endpoint_returns_config() {
             None => return,
         };
 
-        let request = Request::builder()
-            .uri("/_matrix/client/v1/config/client")
-            .body(Body::empty())
-            .unwrap();
-        let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-            .await
-            .unwrap();
+        let request = Request::builder().uri("/_matrix/client/v1/config/client").body(Body::empty()).unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("homeserver").is_some());
     });
@@ -322,10 +274,7 @@ fn test_push_routes_share_across_r0_and_v3() {
                 .to_string(),
             ))
             .unwrap();
-        let set_pusher_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), set_pusher_request)
-                .await
-                .unwrap();
+        let set_pusher_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_pusher_request).await.unwrap();
         assert_eq!(set_pusher_response.status(), StatusCode::OK);
 
         let r0_pushers_request = Request::builder()
@@ -333,15 +282,10 @@ fn test_push_routes_share_across_r0_and_v3() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let r0_pushers_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_pushers_request)
-                .await
-                .unwrap();
+        let r0_pushers_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_pushers_request).await.unwrap();
         assert_eq!(r0_pushers_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(r0_pushers_response.into_body(), 2048)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(r0_pushers_response.into_body(), 2048).await.unwrap();
         let r0_pushers_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(r0_pushers_json["pushers"][0]["pushkey"], json!("pushkey-1"));
 
@@ -351,14 +295,10 @@ fn test_push_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let v3_pushrules_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_pushrules_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_pushrules_request).await.unwrap();
         assert_eq!(v3_pushrules_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(v3_pushrules_response.into_body(), 4096)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(v3_pushrules_response.into_body(), 4096).await.unwrap();
         let v3_pushrules_json: Value = serde_json::from_slice(&body).unwrap();
         assert!(v3_pushrules_json.get("global").is_some());
 
@@ -368,14 +308,10 @@ fn test_push_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let r0_notifications_response =
-            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_notifications_request)
-                .await
-                .unwrap();
+            ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_notifications_request).await.unwrap();
         assert_eq!(r0_notifications_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(r0_notifications_response.into_body(), 2048)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(r0_notifications_response.into_body(), 2048).await.unwrap();
         let r0_notifications_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(r0_notifications_json["notifications"], json!([]));
 
@@ -384,9 +320,7 @@ fn test_push_routes_share_across_r0_and_v3() {
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
-        let r0_enabled_response = ServiceExt::<Request<Body>>::oneshot(app, r0_enabled_request)
-            .await
-            .unwrap();
+        let r0_enabled_response = ServiceExt::<Request<Body>>::oneshot(app, r0_enabled_request).await.unwrap();
         assert_eq!(r0_enabled_response.status(), StatusCode::NOT_FOUND);
     });
 }

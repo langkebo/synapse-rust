@@ -24,39 +24,29 @@ impl ApplicationServiceManager {
                 Client::new()
             });
 
-        Self {
-            storage,
-            http_client,
-            server_name,
-        }
+        Self { storage, http_client, server_name }
     }
 
     #[instrument(skip(self, request))]
-    pub async fn register(
-        &self,
-        request: RegisterApplicationServiceRequest,
-    ) -> Result<ApplicationService, ApiError> {
+    pub async fn register(&self, request: RegisterApplicationServiceRequest) -> Result<ApplicationService, ApiError> {
         info!("Registering application service: as_id={}", request.as_id);
 
-        if let Some(existing) =
-            self.storage.get_by_id(&request.as_id).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to check existing service", &e)
-            })?
+        if let Some(existing) = self
+            .storage
+            .get_by_id(&request.as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check existing service", &e))?
         {
-            return Err(ApiError::bad_request(format!(
-                "Application service '{}' already exists",
-                existing.as_id
-            )));
+            return Err(ApiError::bad_request(format!("Application service '{}' already exists", existing.as_id)));
         }
 
-        let service = self.storage.register(request).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to register application service", &e)
-        })?;
+        let service = self
+            .storage
+            .register(request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to register application service", &e))?;
 
-        info!(
-            "Application service registered successfully: as_id={}",
-            service.as_id
-        );
+        info!("Application service registered successfully: as_id={}", service.as_id);
         Ok(service)
     }
 
@@ -69,20 +59,16 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_by_token(
-        &self,
-        as_token: &str,
-    ) -> Result<Option<ApplicationService>, ApiError> {
-        let service = self.storage.get_by_token(as_token).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to get application service by token", &e)
-        })?;
+    pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, ApiError> {
+        let service = self
+            .storage
+            .get_by_token(as_token)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get application service by token", &e))?;
 
         if let Some(ref svc) = service {
-            let _ = self
-                .storage
-                .update_last_seen(&svc.as_id)
-                .await
-                .map_err(|e| warn!("Failed to update last seen: {}", e));
+            let _ =
+                self.storage.update_last_seen(&svc.as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
         }
 
         Ok(service)
@@ -104,9 +90,11 @@ impl ApplicationServiceManager {
     ) -> Result<ApplicationService, ApiError> {
         info!("Updating application service: as_id={}", as_id);
 
-        let service = self.storage.update(as_id, &request).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to update application service", &e)
-        })?;
+        let service = self
+            .storage
+            .update(as_id, &request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to update application service", &e))?;
 
         info!("Application service updated successfully: as_id={}", as_id);
         Ok(service)
@@ -116,22 +104,18 @@ impl ApplicationServiceManager {
     pub async fn unregister(&self, as_id: &str) -> Result<(), ApiError> {
         info!("Unregistering application service: as_id={}", as_id);
 
-        self.storage.unregister(as_id).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to unregister application service", &e)
-        })?;
+        self.storage
+            .unregister(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to unregister application service", &e))?;
 
-        info!(
-            "Application service unregistered successfully: as_id={}",
-            as_id
-        );
+        info!("Application service unregistered successfully: as_id={}", as_id);
         Ok(())
     }
 
     #[instrument(skip(self))]
     pub async fn validate_token(&self, as_token: &str) -> Result<ApplicationService, ApiError> {
-        self.get_by_token(as_token)
-            .await?
-            .ok_or_else(|| ApiError::unauthorized("Invalid application service token"))
+        self.get_by_token(as_token).await?.ok_or_else(|| ApiError::unauthorized("Invalid application service token"))
     }
 
     #[instrument(skip(self))]
@@ -148,11 +132,7 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_state(
-        &self,
-        as_id: &str,
-        state_key: &str,
-    ) -> Result<Option<ApplicationServiceState>, ApiError> {
+    pub async fn get_state(&self, as_id: &str, state_key: &str) -> Result<Option<ApplicationServiceState>, ApiError> {
         self.storage
             .get_state(as_id, state_key)
             .await
@@ -160,14 +140,8 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_all_states(
-        &self,
-        as_id: &str,
-    ) -> Result<Vec<ApplicationServiceState>, ApiError> {
-        self.storage
-            .get_all_states(as_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get states", &e))
+    pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, ApiError> {
+        self.storage.get_all_states(as_id).await.map_err(|e| ApiError::internal_with_log("Failed to get states", &e))
     }
 
     #[instrument(skip(self, content))]
@@ -184,25 +158,16 @@ impl ApplicationServiceManager {
 
         let event = self
             .storage
-            .add_event(
-                &event_id, as_id, room_id, event_type, sender, content, state_key,
-            )
+            .add_event(&event_id, as_id, room_id, event_type, sender, content, state_key)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
 
-        info!(
-            "Event pushed to application service: as_id={}, event_id={}",
-            as_id, event_id
-        );
+        info!("Event pushed to application service: as_id={}, event_id={}", as_id, event_id);
         Ok(event)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_pending_events(
-        &self,
-        as_id: &str,
-        limit: i64,
-    ) -> Result<Vec<ApplicationServiceEvent>, ApiError> {
+    pub async fn get_pending_events(&self, as_id: &str, limit: i64) -> Result<Vec<ApplicationServiceEvent>, ApiError> {
         self.storage
             .get_pending_events(as_id, limit)
             .await
@@ -210,11 +175,7 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn send_transaction(
-        &self,
-        as_id: &str,
-        events: Vec<serde_json::Value>,
-    ) -> Result<(), ApiError> {
+    pub async fn send_transaction(&self, as_id: &str, events: Vec<serde_json::Value>) -> Result<(), ApiError> {
         let service = self
             .storage
             .get_by_id(as_id)
@@ -260,10 +221,7 @@ impl ApplicationServiceManager {
                     }
                 }
 
-                info!(
-                    "Transaction sent successfully: as_id={}, txn_id={}",
-                    as_id, transaction_id
-                );
+                info!("Transaction sent successfully: as_id={}, txn_id={}", as_id, transaction_id);
                 Ok(())
             }
             Ok(resp) => {
@@ -272,18 +230,11 @@ impl ApplicationServiceManager {
 
                 let _ = self
                     .storage
-                    .fail_transaction(
-                        as_id,
-                        &transaction_id,
-                        &format!("HTTP {status}: {error_body}"),
-                    )
+                    .fail_transaction(as_id, &transaction_id, &format!("HTTP {status}: {error_body}"))
                     .await
                     .map_err(|e| error!("Failed to fail transaction: {}", e));
 
-                Err(ApiError::internal_with_log(
-                    "Application service returned error",
-                    &format!("HTTP {status}"),
-                ))
+                Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
             }
             Err(e) => {
                 let _ = self
@@ -329,10 +280,7 @@ impl ApplicationServiceManager {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> Result<ApplicationServiceUser, ApiError> {
-        info!(
-            "Registering virtual user: as_id={}, user_id={}",
-            as_id, user_id
-        );
+        info!("Registering virtual user: as_id={}, user_id={}", as_id, user_id);
 
         let user = self
             .storage
@@ -345,10 +293,7 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_virtual_users(
-        &self,
-        as_id: &str,
-    ) -> Result<Vec<ApplicationServiceUser>, ApiError> {
+    pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, ApiError> {
         self.storage
             .get_virtual_users(as_id)
             .await
@@ -366,28 +311,19 @@ impl ApplicationServiceManager {
             .storage
             .get_room_alias_namespaces(as_id)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to get room alias namespaces", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get room alias namespaces", &e))?;
         let rooms = self
             .storage
             .get_room_namespaces(as_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get room namespaces", &e))?;
 
-        Ok(NamespacesInfo {
-            users,
-            aliases,
-            rooms,
-        })
+        Ok(NamespacesInfo { users, aliases, rooms })
     }
 
     #[instrument(skip(self))]
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        self.storage
-            .get_statistics()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+        self.storage.get_statistics().await.map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
     }
 
     pub async fn ping(&self, as_id: &str) -> Result<bool, ApiError> {
@@ -410,11 +346,8 @@ impl ApplicationServiceManager {
 
         match response {
             Ok(resp) if resp.status().is_success() => {
-                let _ = self
-                    .storage
-                    .update_last_seen(as_id)
-                    .await
-                    .map_err(|e| warn!("Failed to update last seen: {}", e));
+                let _ =
+                    self.storage.update_last_seen(as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
                 Ok(true)
             }
             _ => Ok(false),
@@ -437,11 +370,7 @@ mod tests {
 
     #[test]
     fn test_namespaces_info_serialization() {
-        let info = NamespacesInfo {
-            users: vec![],
-            aliases: vec![],
-            rooms: vec![],
-        };
+        let info = NamespacesInfo { users: vec![], aliases: vec![], rooms: vec![] };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("users"));
         assert!(json.contains("aliases"));
@@ -458,11 +387,7 @@ mod tests {
             regex: "@_.*:example.com".to_string(),
             created_ts: 1234567890,
         };
-        let info = NamespacesInfo {
-            users: vec![namespace.clone()],
-            aliases: vec![],
-            rooms: vec![namespace],
-        };
+        let info = NamespacesInfo { users: vec![namespace.clone()], aliases: vec![], rooms: vec![namespace] };
         assert_eq!(info.users.len(), 1);
         assert_eq!(info.rooms.len(), 1);
         assert!(info.aliases.is_empty());
@@ -488,10 +413,7 @@ mod tests {
             .description("Only Description Update");
 
         assert!(request.url.is_none());
-        assert_eq!(
-            request.description,
-            Some("Only Description Update".to_string())
-        );
+        assert_eq!(request.description, Some("Only Description Update".to_string()));
         assert!(request.rate_limited.is_none());
         assert!(request.is_enabled.is_none());
     }
@@ -583,10 +505,7 @@ mod tests {
             api_key: None,
             config: None,
         };
-        assert_eq!(
-            request.description,
-            Some("A full bridge service".to_string())
-        );
+        assert_eq!(request.description, Some("A full bridge service".to_string()));
         assert_eq!(request.rate_limited, Some(true));
         assert!(request.namespaces.is_some());
     }

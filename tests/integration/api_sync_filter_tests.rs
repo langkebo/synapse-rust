@@ -20,19 +20,12 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -44,40 +37,24 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .body(Body::from(json!({ "name": name }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
 
-async fn send_event(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    event_type: &str,
-    txn_id: &str,
-    content: Value,
-) {
+async fn send_event(app: &axum::Router, token: &str, room_id: &str, event_type: &str, txn_id: &str, content: Value) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/{}/{}",
-            room_id, event_type, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/{}/{}", room_id, event_type, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -90,14 +67,10 @@ async fn create_filter(app: &axum::Router, token: &str, user_id: &str, filter: V
         .body(Body::from(filter.to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["filter_id"].as_str().unwrap().to_string()
 }
@@ -158,14 +131,10 @@ async fn test_sync_filter_applies_room_timeline_matchers_before_limit() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 128 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 128 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let timeline = json["rooms"]["join"][room_id.as_str()]["timeline"]["events"]
         .as_array()

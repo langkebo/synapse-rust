@@ -53,15 +53,7 @@ impl DatabaseMaintenance {
     async fn vacuum_analyze(&self) -> Result<VacuumResult, sqlx::Error> {
         let mut result = VacuumResult::new();
 
-        let tables = vec![
-            "users",
-            "devices",
-            "access_tokens",
-            "refresh_tokens",
-            "rooms",
-            "room_memberships",
-            "events",
-        ];
+        let tables = vec!["users", "devices", "access_tokens", "refresh_tokens", "rooms", "room_memberships", "events"];
 
         // Only VACUUM ANALYZE tables that have meaningful changes since the
         // last analyze, to avoid stalling for tens of seconds on tables that
@@ -85,19 +77,13 @@ impl DatabaseMaintenance {
             .unwrap_or(0);
 
             if modifications < MIN_MODIFICATIONS {
-                debug!(
-                    "VACUUM {} skipped: only {} modifications since last analyze",
-                    table, modifications
-                );
+                debug!("VACUUM {} skipped: only {} modifications since last analyze", table, modifications);
                 continue;
             }
 
             let start = Instant::now();
 
-            match sqlx::query(&format!("VACUUM ANALYZE {table}"))
-                .execute(&self.pool)
-                .await
-            {
+            match sqlx::query(&format!("VACUUM ANALYZE {table}")).execute(&self.pool).await {
                 Ok(_) => {
                     result.tables_processed.push(table.to_string());
                     result.execution_time_ms += start.elapsed().as_millis() as i64;
@@ -143,17 +129,12 @@ impl DatabaseMaintenance {
             .fetch_optional(&self.pool)
             .await
             {
-                Ok(Some(_)) => {
-                    match sqlx::query(&format!("REINDEX INDEX {index}"))
-                        .execute(&self.pool)
-                        .await
-                    {
-                        Ok(_) => reindexed.push(index.to_string()),
-                        Err(e) => {
-                            warn!("索引 {} 重建失败: {}", index, e);
-                        }
+                Ok(Some(_)) => match sqlx::query(&format!("REINDEX INDEX {index}")).execute(&self.pool).await {
+                    Ok(_) => reindexed.push(index.to_string()),
+                    Err(e) => {
+                        warn!("索引 {} 重建失败: {}", index, e);
                     }
-                }
+                },
                 Ok(None) => {
                     debug!("索引 {} 不存在，跳过重建", index);
                 }
@@ -171,7 +152,7 @@ impl DatabaseMaintenance {
 
         let tables = sqlx::query_as::<_, (String, i64, i64, i64)>(
             r"
-            SELECT 
+            SELECT
                 relname as table_name,
                 COALESCE(n_live_tup, 0) as live_tuples,
                 COALESCE(n_dead_tup, 0) as dead_tuples,
@@ -230,10 +211,7 @@ pub struct VacuumResult {
 
 impl VacuumResult {
     fn new() -> Self {
-        Self {
-            tables_processed: Vec::new(),
-            execution_time_ms: 0,
-        }
+        Self { tables_processed: Vec::new(), execution_time_ms: 0 }
     }
 }
 
@@ -251,10 +229,8 @@ mod tests {
 
     #[test]
     fn test_maintenance_report_creation() {
-        let vacuum_result = VacuumResult {
-            tables_processed: vec!["events".to_string(), "users".to_string()],
-            execution_time_ms: 5000,
-        };
+        let vacuum_result =
+            VacuumResult { tables_processed: vec!["events".to_string(), "users".to_string()], execution_time_ms: 5000 };
 
         let report = MaintenanceReport {
             started_at: chrono::DateTime::from_timestamp(1234567800, 0).unwrap(),
@@ -270,22 +246,15 @@ mod tests {
 
     #[test]
     fn test_vacuum_result_creation() {
-        let result = VacuumResult {
-            tables_processed: vec!["events".to_string()],
-            execution_time_ms: 5000,
-        };
+        let result = VacuumResult { tables_processed: vec!["events".to_string()], execution_time_ms: 5000 };
         assert_eq!(result.tables_processed.len(), 1);
         assert_eq!(result.execution_time_ms, 5000);
     }
 
     #[test]
     fn test_table_stats_creation() {
-        let stats = TableStats {
-            table_name: "users".to_string(),
-            live_tuples: 5000,
-            dead_tuples: 100,
-            modifications: 1000,
-        };
+        let stats =
+            TableStats { table_name: "users".to_string(), live_tuples: 5000, dead_tuples: 100, modifications: 1000 };
         assert_eq!(stats.table_name, "users");
         assert_eq!(stats.live_tuples, 5000);
     }

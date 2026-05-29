@@ -57,21 +57,13 @@ pub async fn get_voip_config(
     let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
-        return Ok(Json(VoipConfigResponse {
-            turn_servers: None,
-            stun_servers: None,
-        }));
+        return Ok(Json(VoipConfigResponse { turn_servers: None, stun_servers: None }));
     }
 
     let settings = voip_service.get_settings();
     let turn_servers = if !settings.turn_uris.is_empty() {
         if let (Some(username), Some(password)) = (settings.turn_username, settings.turn_password) {
-            Some(vec![TurnServerResponse {
-                username,
-                password,
-                uris: settings.turn_uris,
-                ttl: 86400,
-            }])
+            Some(vec![TurnServerResponse { username, password, uris: settings.turn_uris, ttl: 86400 }])
         } else {
             None
         }
@@ -83,18 +75,12 @@ pub async fn get_voip_config(
 
     Ok(Json(VoipConfigResponse {
         turn_servers,
-        stun_servers: if !settings.stun_uris.is_empty() {
-            Some(settings.stun_uris)
-        } else {
-            None
-        },
+        stun_servers: if !settings.stun_uris.is_empty() { Some(settings.stun_uris) } else { None },
     }))
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_turn_credentials_guest(
-    State(state): State<AppState>,
-) -> Result<Json<TurnServerResponse>, ApiError> {
+pub async fn get_turn_credentials_guest(State(state): State<AppState>) -> Result<Json<TurnServerResponse>, ApiError> {
     let voip_service = &state.services.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
@@ -102,9 +88,7 @@ pub async fn get_turn_credentials_guest(
     }
 
     if !voip_service.can_guest_use_turn() {
-        return Err(ApiError::forbidden(
-            "Guest access to TURN server is disabled",
-        ));
+        return Err(ApiError::forbidden("Guest access to TURN server is disabled"));
     }
 
     let creds = voip_service.generate_turn_credentials("@guest:anonymous")?;
@@ -159,9 +143,7 @@ mod tests {
 // ============================================================================
 
 #[cfg(feature = "voip-tracking")]
-use crate::services::rtc::call::{
-    CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent,
-};
+use crate::services::rtc::call::{CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent};
 
 #[cfg(feature = "voip-tracking")]
 async fn ensure_call_room_member(
@@ -170,13 +152,7 @@ async fn ensure_call_room_member(
     room_id: &str,
 ) -> Result<(), ApiError> {
     validate_room_id(room_id)?;
-    ensure_room_member(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to access call state",
-    )
-    .await
+    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to access call state").await
 }
 
 /// Call invite event
@@ -190,12 +166,8 @@ pub async fn call_invite(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session = state
-        .services
-        .rtc_domain_service
-        .call
-        .handle_invite(&room_id, &auth_user.user_id, content.clone())
-        .await?;
+    let _session =
+        state.services.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -233,11 +205,7 @@ pub async fn call_candidates(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state
-        .services
-        .rtc_domain_service.call
-        .handle_candidates(&room_id, &auth_user.user_id, content)
-        .await?;
+    state.services.rtc_domain_service.call.handle_candidates(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -253,11 +221,8 @@ pub async fn call_answer(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session = state
-        .services
-        .rtc_domain_service.call
-        .handle_answer(&room_id, &auth_user.user_id, content.clone())
-        .await?;
+    let _session =
+        state.services.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -295,11 +260,7 @@ pub async fn call_hangup(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state
-        .services
-        .rtc_domain_service.call
-        .handle_hangup(&room_id, &auth_user.user_id, content)
-        .await?;
+    state.services.rtc_domain_service.call.handle_hangup(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -316,16 +277,13 @@ pub async fn get_call_session(
 
     let session = state
         .services
-        .rtc_domain_service.call
+        .rtc_domain_service
+        .call
         .get_session(&call_id, &room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
-    let candidates = state
-        .services
-        .rtc_domain_service.call
-        .get_candidates(&call_id, &room_id)
-        .await?;
+    let candidates = state.services.rtc_domain_service.call.get_candidates(&call_id, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "call_id": session.call_id,

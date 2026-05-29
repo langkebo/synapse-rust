@@ -28,15 +28,9 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v3", compat_router.clone())
         .nest("/_matrix/client/r0", compat_router)
-        .route(
-            "/_matrix/client/v3/thirdparty/location",
-            get(get_location_by_alias),
-        )
+        .route("/_matrix/client/v3/thirdparty/location", get(get_location_by_alias))
         .route("/_matrix/client/v3/thirdparty/user", get(get_user_by_id))
-        .route(
-            "/_matrix/client/r0/thirdparty/location",
-            get(get_location_by_alias),
-        )
+        .route("/_matrix/client/r0/thirdparty/location", get(get_location_by_alias))
         .route("/_matrix/client/r0/thirdparty/user", get(get_user_by_id))
         .with_state(state)
 }
@@ -57,11 +51,7 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;
 
-    let mut out = expand_under_prefixes(
-        "thirdparty",
-        THIRDPARTY_COMPAT_PREFIXES,
-        &thirdparty_compat_relative_routes(),
-    );
+    let mut out = expand_under_prefixes("thirdparty", THIRDPARTY_COMPAT_PREFIXES, &thirdparty_compat_relative_routes());
     out.extend(
         [
             (Method::GET, "/_matrix/client/v3/thirdparty/location"),
@@ -75,9 +65,7 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     out
 }
 
-async fn get_protocols(
-    State(_state): State<AppState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_protocols(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(serde_json::json!({})))
 }
 
@@ -107,9 +95,7 @@ async fn get_location(
     Path(_protocol): Path<String>,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "No third-party location bridges configured",
-    ))
+    Err(ApiError::unrecognized("No third-party location bridges configured"))
 }
 
 async fn get_location_by_alias(
@@ -117,9 +103,7 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "No third-party location bridges configured",
-    ))
+    Err(ApiError::unrecognized("No third-party location bridges configured"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,9 +120,7 @@ async fn get_user(
     Path(_protocol): Path<String>,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "No third-party user bridges configured",
-    ))
+    Err(ApiError::unrecognized("No third-party user bridges configured"))
 }
 
 async fn get_user_by_id(
@@ -146,9 +128,7 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized(
-        "No third-party user bridges configured",
-    ))
+    Err(ApiError::unrecognized("No third-party user bridges configured"))
 }
 
 #[cfg(test)]
@@ -161,17 +141,10 @@ mod tests {
             "/_matrix/client/v3/thirdparty/location/{protocol}",
             "/_matrix/client/r0/thirdparty/user/{protocol}",
         ];
-        let v3_only_routes = [
-            "/_matrix/client/v3/thirdparty/location",
-            "/_matrix/client/v3/thirdparty/user",
-        ];
+        let v3_only_routes = ["/_matrix/client/v3/thirdparty/location", "/_matrix/client/v3/thirdparty/user"];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
-        assert!(v3_only_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/v3/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]
@@ -184,32 +157,19 @@ mod tests {
         ];
 
         assert_eq!(shared_paths.len(), 4);
-        assert!(shared_paths
-            .iter()
-            .all(|path| path.starts_with("/thirdparty/")));
+        assert!(shared_paths.iter().all(|path| path.starts_with("/thirdparty/")));
     }
 
     #[test]
     fn test_thirdparty_router_keeps_query_endpoints_outside_compat_scope() {
         let compat_paths = ["/thirdparty/protocols", "/thirdparty/location/{protocol}"];
-        let v3_only_paths = [
-            "/_matrix/client/v3/thirdparty/location",
-            "/_matrix/client/v3/thirdparty/user",
-        ];
-        let absent_r0_paths = [
-            "/_matrix/client/r0/thirdparty/location",
-            "/_matrix/client/r0/thirdparty/user",
-        ];
+        let v3_only_paths = ["/_matrix/client/v3/thirdparty/location", "/_matrix/client/v3/thirdparty/user"];
+        let absent_r0_paths = ["/_matrix/client/r0/thirdparty/location", "/_matrix/client/r0/thirdparty/user"];
 
         assert!(compat_paths
             .iter()
-            .all(|path| !path.ends_with("/thirdparty/location")
-                && !path.ends_with("/thirdparty/user")));
-        assert!(v3_only_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/v3/")));
-        assert!(absent_r0_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/r0/")));
+            .all(|path| !path.ends_with("/thirdparty/location") && !path.ends_with("/thirdparty/user")));
+        assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(absent_r0_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 }

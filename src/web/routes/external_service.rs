@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 use crate::services::external_service_integration::*;
-use crate::web::routes::{AdminUser, AuthenticatedUser, AppState};
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
@@ -78,10 +78,7 @@ fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
         "slack_bridge" | "slack" => Ok(ExternalServiceType::SlackBridge),
         "discord_bridge" | "discord" => Ok(ExternalServiceType::DiscordBridge),
         "custom" => Ok(ExternalServiceType::Custom),
-        _ => Err(ApiError::bad_request(format!(
-            "Unknown service type: {}",
-            s
-        ))),
+        _ => Err(ApiError::bad_request(format!("Unknown service type: {}", s))),
     }
 }
 
@@ -90,16 +87,8 @@ fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) ->
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .or_else(|| {
-            headers
-                .get("x-webhook-token")
-                .and_then(|value| value.to_str().ok())
-        })
-        .or_else(|| {
-            headers
-                .get("x-api-key")
-                .and_then(|value| value.to_str().ok())
-        })
+        .or_else(|| headers.get("x-webhook-token").and_then(|value| value.to_str().ok()))
+        .or_else(|| headers.get("x-api-key").and_then(|value| value.to_str().ok()))
         .map(ToOwned::to_owned);
 
     let signature = headers
@@ -135,10 +124,7 @@ pub async fn register_external_service(
 
     let service = integration.register_external_service(config).await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(ExternalServiceResponse::from(service)),
-    ))
+    Ok((StatusCode::CREATED, Json(ExternalServiceResponse::from(service))))
 }
 
 pub async fn list_external_services(
@@ -158,10 +144,7 @@ pub async fn list_external_services(
 
     let services = integration.list_external_services(stype).await?;
 
-    let response: Vec<ExternalServiceResponse> = services
-        .into_iter()
-        .map(ExternalServiceResponse::from)
-        .collect();
+    let response: Vec<ExternalServiceResponse> = services.into_iter().map(ExternalServiceResponse::from).collect();
 
     Ok(Json(response))
 }
@@ -265,9 +248,7 @@ pub async fn handle_trendradar_webhook(
         state.services.server_name.clone(),
     );
 
-    integration
-        .handle_trendradar_webhook(&service_id, payload, extract_webhook_auth(&headers, None))
-        .await?;
+    integration.handle_trendradar_webhook(&service_id, payload, extract_webhook_auth(&headers, None)).await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -287,9 +268,7 @@ pub async fn handle_openclaw_webhook(
         state.services.server_name.clone(),
     );
 
-    integration
-        .handle_openclaw_webhook(&service_id, payload, extract_webhook_auth(&headers, None))
-        .await?;
+    integration.handle_openclaw_webhook(&service_id, payload, extract_webhook_auth(&headers, None)).await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -396,79 +375,45 @@ pub async fn client_health_check_all(
 
 pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     let admin_routes = Router::new()
-        .route(
-            "/_synapse/admin/v1/external_services",
-            get(list_external_services).post(register_external_service),
-        )
-        .route(
-            "/_synapse/admin/v1/external_services/{as_id}/health",
-            get(get_external_service_health),
-        )
-        .route(
-            "/_synapse/admin/v1/external_services/{as_id}/health/check",
-            post(check_service_health),
-        )
+        .route("/_synapse/admin/v1/external_services", get(list_external_services).post(register_external_service))
+        .route("/_synapse/admin/v1/external_services/{as_id}/health", get(get_external_service_health))
+        .route("/_synapse/admin/v1/external_services/{as_id}/health/check", post(check_service_health))
         .route(
             "/_synapse/admin/v1/external_services/{as_id}",
             put(update_external_service).delete(unregister_external_service),
         )
-        .route(
-            "/_synapse/admin/v1/external_services/health",
-            get(get_all_health_status),
-        )
+        .route("/_synapse/admin/v1/external_services/health", get(get_all_health_status))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
         ));
 
     let admin_v1_routes = Router::new()
-        .route(
-            "/_matrix/admin/v1/external_services",
-            get(list_external_services).post(register_external_service),
-        )
+        .route("/_matrix/admin/v1/external_services", get(list_external_services).post(register_external_service))
         .route(
             "/_matrix/admin/v1/external_services/{as_id}",
             put(update_external_service).delete(unregister_external_service),
         )
-        .route(
-            "/_matrix/admin/v1/external_services/health",
-            get(get_all_health_status),
-        )
+        .route("/_matrix/admin/v1/external_services/health", get(get_all_health_status))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::web::middleware::admin_auth_middleware,
         ));
 
-    let client_v1_routes = Router::new()
-        .route(
-            "/_matrix/client/v1/external_services/health",
-            get(client_health_check_all),
-        )
-        .route(
+    let client_v1_routes =
+        Router::new().route("/_matrix/client/v1/external_services/health", get(client_health_check_all)).route(
             "/_matrix/client/v1/external_services/{service_id}",
             put(client_update_external_service).delete(client_delete_external_service),
         );
 
     let public_routes = Router::new()
-        .route(
-            "/_synapse/external/trendradar/{service_id}/webhook",
-            post(handle_trendradar_webhook),
-        )
-        .route(
-            "/_synapse/external/webhook/{service_id}",
-            post(handle_generic_webhook),
-        );
+        .route("/_synapse/external/trendradar/{service_id}/webhook", post(handle_trendradar_webhook))
+        .route("/_synapse/external/webhook/{service_id}", post(handle_generic_webhook));
     #[cfg(feature = "openclaw-routes")]
-    let public_routes = public_routes.route(
-        "/_synapse/external/openclaw/{service_id}/webhook",
-        post(handle_openclaw_webhook),
-    );
+    let public_routes =
+        public_routes.route("/_synapse/external/openclaw/{service_id}/webhook", post(handle_openclaw_webhook));
 
-    public_routes
-        .merge(admin_routes)
-        .merge(admin_v1_routes)
-        .merge(client_v1_routes)
-        .with_state(state)
+    public_routes.merge(admin_routes).merge(admin_v1_routes).merge(client_v1_routes).with_state(state)
 }
 
 pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -478,53 +423,28 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
     let mut entries: Vec<RouteEntry> = [
         (Method::GET, "/_synapse/admin/v1/external_services"),
         (Method::POST, "/_synapse/admin/v1/external_services"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/external_services/{as_id}/health",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/external_services/{as_id}/health/check",
-        ),
+        (Method::GET, "/_synapse/admin/v1/external_services/{as_id}/health"),
+        (Method::POST, "/_synapse/admin/v1/external_services/{as_id}/health/check"),
         (Method::PUT, "/_synapse/admin/v1/external_services/{as_id}"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/external_services/{as_id}",
-        ),
+        (Method::DELETE, "/_synapse/admin/v1/external_services/{as_id}"),
         (Method::GET, "/_synapse/admin/v1/external_services/health"),
-        (
-            Method::POST,
-            "/_synapse/external/trendradar/{service_id}/webhook",
-        ),
+        (Method::POST, "/_synapse/external/trendradar/{service_id}/webhook"),
         (Method::POST, "/_synapse/external/webhook/{service_id}"),
         (Method::GET, "/_matrix/admin/v1/external_services"),
         (Method::POST, "/_matrix/admin/v1/external_services"),
         (Method::PUT, "/_matrix/admin/v1/external_services/{as_id}"),
-        (
-            Method::DELETE,
-            "/_matrix/admin/v1/external_services/{as_id}",
-        ),
+        (Method::DELETE, "/_matrix/admin/v1/external_services/{as_id}"),
         (Method::GET, "/_matrix/admin/v1/external_services/health"),
         (Method::GET, "/_matrix/client/v1/external_services/health"),
-        (
-            Method::PUT,
-            "/_matrix/client/v1/external_services/{service_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/external_services/{service_id}",
-        ),
+        (Method::PUT, "/_matrix/client/v1/external_services/{service_id}"),
+        (Method::DELETE, "/_matrix/client/v1/external_services/{service_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "external_service"))
     .collect();
 
     #[cfg(feature = "openclaw-routes")]
-    entries.push(RouteEntry::new(
-        Method::POST,
-        "/_synapse/external/openclaw/{service_id}/webhook",
-        "external_service",
-    ));
+    entries.push(RouteEntry::new(Method::POST, "/_synapse/external/openclaw/{service_id}/webhook", "external_service"));
 
     entries
 }
@@ -535,23 +455,11 @@ mod tests {
 
     #[test]
     fn test_parse_service_type() {
-        assert!(matches!(
-            parse_service_type("trendradar"),
-            Ok(ExternalServiceType::TrendRadar)
-        ));
+        assert!(matches!(parse_service_type("trendradar"), Ok(ExternalServiceType::TrendRadar)));
         #[cfg(feature = "openclaw-routes")]
-        assert!(matches!(
-            parse_service_type("openclaw"),
-            Ok(ExternalServiceType::OpenClaw)
-        ));
-        assert!(matches!(
-            parse_service_type("webhook"),
-            Ok(ExternalServiceType::GenericWebhook)
-        ));
-        assert!(matches!(
-            parse_service_type("irc"),
-            Ok(ExternalServiceType::IrcBridge)
-        ));
+        assert!(matches!(parse_service_type("openclaw"), Ok(ExternalServiceType::OpenClaw)));
+        assert!(matches!(parse_service_type("webhook"), Ok(ExternalServiceType::GenericWebhook)));
+        assert!(matches!(parse_service_type("irc"), Ok(ExternalServiceType::IrcBridge)));
         assert!(parse_service_type("unknown").is_err());
     }
 

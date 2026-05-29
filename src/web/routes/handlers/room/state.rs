@@ -1,14 +1,11 @@
+use super::{
+    ensure_room_state_write_access, ensure_room_view_access, normalize_room_event_type, state_event_content_response,
+};
 use crate::common::ApiError;
 use crate::map_internal;
 use crate::storage::CreateEventParams;
 use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
-use super::{
-    ensure_room_state_write_access, ensure_room_view_access,
-    normalize_room_event_type, state_event_content_response,
-};
-use axum::{
-    extract::{Json, Path, State},
-};
+use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
 pub(crate) async fn get_room_state(
@@ -31,12 +28,8 @@ pub(crate) async fn get_room_state(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let events = state
-        .services
-        .event_storage
-        .get_state_events(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get state"))?;
+    let events =
+        state.services.event_storage.get_state_events(&room_id).await.map_err(map_internal!("Failed to get state"))?;
     let state_events: Vec<Value> = events
         .iter()
         .map(|e| {
@@ -88,9 +81,7 @@ pub(crate) async fn get_state_by_type(
         .await
         .map_err(map_internal!("Failed to get state"))?;
 
-    let event_with_empty_key = events
-        .iter()
-        .find(|e| e.state_key.as_deref() == Some("") || e.state_key.is_none());
+    let event_with_empty_key = events.iter().find(|e| e.state_key.as_deref() == Some("") || e.state_key.is_none());
 
     if let Some(event) = event_with_empty_key {
         Ok(Json(state_event_content_response(&event.content)))
@@ -141,8 +132,7 @@ pub(crate) async fn get_state_event(
         .iter()
         .find(|e| {
             e.state_key.as_deref() == Some(state_key.as_str())
-                || (e.state_key.as_ref().map(|s| s.is_empty()) == Some(true)
-                    && state_key.is_empty())
+                || (e.state_key.as_ref().map(|s| s.is_empty()) == Some(true) && state_key.is_empty())
         })
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
@@ -174,24 +164,16 @@ pub(crate) async fn send_state_event(
         let beacon_obj = content
             .get("m.beacon_info")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string())
-            })?;
+            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string()))?;
 
         let timeout = beacon_obj
             .get("timeout")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
 
-        let is_live = beacon_obj
-            .get("live")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let is_live = beacon_obj.get("live").and_then(|v| v.as_bool()).unwrap_or(true);
 
-        let description = beacon_obj
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(|v| v.to_string());
+        let description = beacon_obj.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
 
         let created_ts = content
             .get("m.ts")
@@ -304,9 +286,7 @@ pub(crate) async fn put_state_event(
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info"))
         && state_key != auth_user.user_id
     {
-        return Err(ApiError::forbidden(
-            "beacon_info stateKey must match sender".to_string(),
-        ));
+        return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
     }
 
     // Variable used only when `beacons` feature is enabled.
@@ -318,30 +298,19 @@ pub(crate) async fn put_state_event(
         let beacon_obj = body
             .get("m.beacon_info")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string())
-            })?;
+            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string()))?;
 
         let timeout = beacon_obj
             .get("timeout")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
 
-        let is_live = beacon_obj
-            .get("live")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let is_live = beacon_obj.get("live").and_then(|v| v.as_bool()).unwrap_or(true);
 
-        let description = beacon_obj
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(|v| v.to_string());
+        let description = beacon_obj.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
 
-        let created_ts = body
-            .get("m.ts")
-            .or_else(|| body.get("org.matrix.msc3488.ts"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(now);
+        let created_ts =
+            body.get("m.ts").or_else(|| body.get("org.matrix.msc3488.ts")).and_then(|v| v.as_i64()).unwrap_or(now);
 
         let asset_type = body
             .get("m.asset")
@@ -581,12 +550,7 @@ pub(crate) async fn get_room_permissions(
         .get("users")
         .and_then(|u| u.get(&auth_user.user_id))
         .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| {
-            pl_content
-                .get("users_default")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0)
-        });
+        .unwrap_or_else(|| pl_content.get("users_default").and_then(|v| v.as_i64()).unwrap_or(0));
 
     Ok(Json(json!({
         "room_id": room_id,

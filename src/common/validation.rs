@@ -16,11 +16,7 @@ pub struct ValidationError {
 
 impl ValidationError {
     pub fn new(field: &str, message: &str, code: &str) -> Self {
-        Self {
-            field: field.to_string(),
-            message: message.to_string(),
-            code: code.to_string(),
-        }
+        Self { field: field.to_string(), message: message.to_string(), code: code.to_string() }
     }
 }
 
@@ -61,19 +57,13 @@ impl Validator {
 
     pub fn validate_username(&self, username: &str) -> ValidationResult {
         if username.is_empty() {
-            return Err(ValidationError::new(
-                "username",
-                "Username cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("username", "Username cannot be empty", "EMPTY"));
         }
 
         if username.len() < MIN_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
-                &format!(
-                    "Username must be at least {MIN_USERNAME_LENGTH} characters"
-                ),
+                &format!("Username must be at least {MIN_USERNAME_LENGTH} characters"),
                 "TOO_SHORT",
             ));
         }
@@ -81,19 +71,13 @@ impl Validator {
         if username.len() > MAX_USERNAME_LENGTH {
             return Err(ValidationError::new(
                 "username",
-                &format!(
-                    "Username must be at most {MAX_USERNAME_LENGTH} characters"
-                ),
+                &format!("Username must be at most {MAX_USERNAME_LENGTH} characters"),
                 "TOO_LONG",
             ));
         }
 
         if !self.username_regex.is_match(username) {
-            return Err(ValidationError::new(
-                "username",
-                "Username contains invalid characters",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("username", "Username contains invalid characters", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -101,19 +85,13 @@ impl Validator {
 
     pub fn validate_password(&self, password: &str) -> ValidationResult {
         if password.is_empty() {
-            return Err(ValidationError::new(
-                "password",
-                "Password cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("password", "Password cannot be empty", "EMPTY"));
         }
 
         if password.len() < MIN_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                &format!(
-                    "Password must be at least {MIN_PASSWORD_LENGTH} characters"
-                ),
+                &format!("Password must be at least {MIN_PASSWORD_LENGTH} characters"),
                 "TOO_SHORT",
             ));
         }
@@ -121,9 +99,7 @@ impl Validator {
         if password.len() > MAX_PASSWORD_LENGTH {
             return Err(ValidationError::new(
                 "password",
-                &format!(
-                    "Password must be at most {MAX_PASSWORD_LENGTH} characters"
-                ),
+                &format!("Password must be at most {MAX_PASSWORD_LENGTH} characters"),
                 "TOO_LONG",
             ));
         }
@@ -131,9 +107,7 @@ impl Validator {
         let has_upper = password.chars().any(|c| c.is_uppercase());
         let has_lower = password.chars().any(|c| c.is_lowercase());
         let has_digit = password.chars().any(|c| c.is_ascii_digit());
-        let has_special = password
-            .chars()
-            .any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
+        let has_special = password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
 
         if !has_upper {
             return Err(ValidationError::new(
@@ -152,11 +126,7 @@ impl Validator {
         }
 
         if !has_digit {
-            return Err(ValidationError::new(
-                "password",
-                "Password must contain at least one digit",
-                "NO_DIGIT",
-            ));
+            return Err(ValidationError::new("password", "Password must contain at least one digit", "NO_DIGIT"));
         }
 
         if !has_special {
@@ -172,19 +142,11 @@ impl Validator {
 
     pub fn validate_email(&self, email: &str) -> ValidationResult {
         if email.is_empty() {
-            return Err(ValidationError::new(
-                "email",
-                "Email cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("email", "Email cannot be empty", "EMPTY"));
         }
 
         if !self.email_regex.is_match(email) {
-            return Err(ValidationError::new(
-                "email",
-                "Invalid email format",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("email", "Invalid email format", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -192,19 +154,11 @@ impl Validator {
 
     pub fn validate_matrix_id(&self, user_id: &str) -> ValidationResult {
         if user_id.is_empty() {
-            return Err(ValidationError::new(
-                "user_id",
-                "User ID cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("user_id", "User ID cannot be empty", "EMPTY"));
         }
 
         if !self.matrix_id_regex.is_match(user_id) {
-            return Err(ValidationError::new(
-                "user_id",
-                "Invalid Matrix ID format",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("user_id", "Invalid Matrix ID format", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -212,19 +166,11 @@ impl Validator {
 
     pub fn validate_room_id(&self, room_id: &str) -> ValidationResult {
         if room_id.is_empty() {
-            return Err(ValidationError::new(
-                "room_id",
-                "Room ID cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("room_id", "Room ID cannot be empty", "EMPTY"));
         }
 
         if !self.room_id_regex.is_match(room_id) {
-            return Err(ValidationError::new(
-                "room_id",
-                "Invalid room ID format",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("room_id", "Invalid room ID format", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -232,29 +178,19 @@ impl Validator {
 
     pub fn validate_device_id(&self, device_id: &str) -> ValidationResult {
         if device_id.is_empty() {
-            return Err(ValidationError::new(
-                "device_id",
-                "Device ID cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("device_id", "Device ID cannot be empty", "EMPTY"));
         }
 
         if device_id.len() > MAX_DEVICE_ID_LENGTH {
             return Err(ValidationError::new(
                 "device_id",
-                &format!(
-                    "Device ID must be at most {MAX_DEVICE_ID_LENGTH} characters"
-                ),
+                &format!("Device ID must be at most {MAX_DEVICE_ID_LENGTH} characters"),
                 "TOO_LONG",
             ));
         }
 
         if !self.device_id_regex.is_match(device_id) {
-            return Err(ValidationError::new(
-                "device_id",
-                "Device ID contains invalid characters",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("device_id", "Device ID contains invalid characters", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -266,29 +202,15 @@ impl Validator {
         }
 
         if !self.url_regex.is_match(url) {
-            return Err(ValidationError::new(
-                "url",
-                "Invalid URL format",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("url", "Invalid URL format", "INVALID_FORMAT"));
         }
 
         Ok(())
     }
 
-    pub fn validate_string_length(
-        &self,
-        field: &str,
-        value: &str,
-        min: usize,
-        max: usize,
-    ) -> ValidationResult {
+    pub fn validate_string_length(&self, field: &str, value: &str, min: usize, max: usize) -> ValidationResult {
         if min > 0 && value.is_empty() {
-            return Err(ValidationError::new(
-                field,
-                &format!("{field} cannot be empty"),
-                "EMPTY",
-            ));
+            return Err(ValidationError::new(field, &format!("{field} cannot be empty"), "EMPTY"));
         }
 
         if value.len() < min {
@@ -300,11 +222,7 @@ impl Validator {
         }
 
         if value.len() > max {
-            return Err(ValidationError::new(
-                field,
-                &format!("{field} must be at most {max} characters"),
-                "TOO_LONG",
-            ));
+            return Err(ValidationError::new(field, &format!("{field} must be at most {max} characters"), "TOO_LONG"));
         }
 
         Ok(())
@@ -324,19 +242,11 @@ impl Validator {
 
     pub fn validate_limit(&self, limit: i64, min: i64, max: i64) -> ValidationResult {
         if limit < min {
-            return Err(ValidationError::new(
-                "limit",
-                format!("Limit must be at least {min}").as_str(),
-                "TOO_SMALL",
-            ));
+            return Err(ValidationError::new("limit", format!("Limit must be at least {min}").as_str(), "TOO_SMALL"));
         }
 
         if limit > max {
-            return Err(ValidationError::new(
-                "limit",
-                format!("Limit must be at most {max}").as_str(),
-                "TOO_LARGE",
-            ));
+            return Err(ValidationError::new("limit", format!("Limit must be at most {max}").as_str(), "TOO_LARGE"));
         }
 
         Ok(())
@@ -349,19 +259,11 @@ impl Validator {
         let max_valid = now + window;
 
         if timestamp < min_valid {
-            return Err(ValidationError::new(
-                "timestamp",
-                "Timestamp is too old",
-                "TOO_OLD",
-            ));
+            return Err(ValidationError::new("timestamp", "Timestamp is too old", "TOO_OLD"));
         }
 
         if timestamp > max_valid {
-            return Err(ValidationError::new(
-                "timestamp",
-                "Timestamp is too far in the future",
-                "TOO_FUTURE",
-            ));
+            return Err(ValidationError::new("timestamp", "Timestamp is too far in the future", "TOO_FUTURE"));
         }
 
         Ok(())
@@ -369,19 +271,11 @@ impl Validator {
 
     pub fn validate_ip_address(&self, ip: &str) -> ValidationResult {
         if ip.is_empty() {
-            return Err(ValidationError::new(
-                "ip_address",
-                "IP address cannot be empty",
-                "EMPTY",
-            ));
+            return Err(ValidationError::new("ip_address", "IP address cannot be empty", "EMPTY"));
         }
 
         if ip.parse::<std::net::IpAddr>().is_err() {
-            return Err(ValidationError::new(
-                "ip_address",
-                "Invalid IP address format",
-                "INVALID_FORMAT",
-            ));
+            return Err(ValidationError::new("ip_address", "Invalid IP address format", "INVALID_FORMAT"));
         }
 
         Ok(())
@@ -402,18 +296,13 @@ impl Validator {
     #[allow(clippy::expect_used)]
     fn create_fallback_validator() -> Self {
         Self {
-            username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$")
-                .expect("hardcoded fallback regex is syntactically valid"),
-            email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
-                .expect("hardcoded fallback regex is syntactically valid"),
-            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$")
-                .expect("hardcoded fallback regex is syntactically valid"),
-            room_id_regex: Regex::new(r"^![^:]+:[^:]+$")
-                .expect("hardcoded fallback regex is syntactically valid"),
+            username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$").expect("hardcoded fallback regex is syntactically valid"),
+            email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$").expect("hardcoded fallback regex is syntactically valid"),
+            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$").expect("hardcoded fallback regex is syntactically valid"),
+            room_id_regex: Regex::new(r"^![^:]+:[^:]+$").expect("hardcoded fallback regex is syntactically valid"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
                 .expect("hardcoded fallback regex is syntactically valid"),
-            url_regex: Regex::new(r"^https?://.+")
-                .expect("hardcoded fallback regex is syntactically valid"),
+            url_regex: Regex::new(r"^https?://.+").expect("hardcoded fallback regex is syntactically valid"),
         }
     }
 }
@@ -426,10 +315,7 @@ pub struct ValidationContext {
 
 impl ValidationContext {
     pub fn new(validator: Arc<Validator>) -> Self {
-        Self {
-            validator,
-            errors: Vec::new(),
-        }
+        Self { validator, errors: Vec::new() }
     }
 
     pub fn validate_username(&mut self, username: &str) -> &mut Self {
@@ -545,20 +431,13 @@ impl ValidationContext {
         } else {
             Err(ApiError::bad_request(format!(
                 "Validation failed: {}",
-                self.errors
-                    .iter()
-                    .map(|e| format!("{}: {}", e.field, e.message))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                self.errors.iter().map(|e| format!("{}: {}", e.field, e.message)).collect::<Vec<_>>().join(", ")
             )))
         }
     }
 
     pub fn into_error_map(self) -> HashMap<String, String> {
-        self.errors
-            .into_iter()
-            .map(|e| (e.field, e.message))
-            .collect()
+        self.errors.into_iter().map(|e| (e.field, e.message)).collect()
     }
 }
 
@@ -599,9 +478,7 @@ mod tests {
     fn test_validate_username_invalid() {
         let validator = Validator::new().unwrap();
         assert!(validator.validate_username("").is_err()); // too short
-        assert!(validator
-            .validate_username("a".repeat(256).as_str())
-            .is_err());
+        assert!(validator.validate_username("a".repeat(256).as_str()).is_err());
         assert!(validator.validate_username("test user").is_err());
     }
 
@@ -626,21 +503,15 @@ mod tests {
     #[test]
     fn test_validate_matrix_id_valid() {
         let validator = Validator::new().unwrap();
-        assert!(validator
-            .validate_matrix_id("@testuser:example.com")
-            .is_ok());
-        assert!(validator
-            .validate_matrix_id("@user_name:server.org")
-            .is_ok());
+        assert!(validator.validate_matrix_id("@testuser:example.com").is_ok());
+        assert!(validator.validate_matrix_id("@user_name:server.org").is_ok());
     }
 
     #[test]
     fn test_validate_matrix_id_invalid() {
         let validator = Validator::new().unwrap();
         assert!(validator.validate_matrix_id("").is_err());
-        assert!(validator
-            .validate_matrix_id("testuser:example.com")
-            .is_err());
+        assert!(validator.validate_matrix_id("testuser:example.com").is_err());
         assert!(validator.validate_matrix_id("@testuser").is_err());
     }
 
@@ -664,9 +535,7 @@ mod tests {
         let validator = Arc::new(Validator::new().unwrap());
         let mut ctx = ValidationContext::new(validator);
 
-        ctx.validate_username("testuser")
-            .validate_password("TestPass123!")
-            .validate_email("test@example.com");
+        ctx.validate_username("testuser").validate_password("TestPass123!").validate_email("test@example.com");
 
         assert!(ctx.is_valid());
     }
@@ -676,9 +545,7 @@ mod tests {
         let validator = Arc::new(Validator::new().unwrap());
         let mut ctx = ValidationContext::new(validator);
 
-        ctx.validate_username("")
-            .validate_password("short")
-            .validate_email("invalid");
+        ctx.validate_username("").validate_password("short").validate_email("invalid");
 
         assert!(!ctx.is_valid());
         assert_eq!(ctx.errors.len(), 3);

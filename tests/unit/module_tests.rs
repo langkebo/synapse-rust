@@ -34,7 +34,7 @@ async fn test_register_module() {
     };
 
     let result = service.register_module(request).await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_register_module: database table not available");
         return;
@@ -65,7 +65,7 @@ async fn test_get_module() {
     let _ = service.register_module(request).await;
 
     let result = service.get_module("test_get_module").await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_get_module: database table not available");
         return;
@@ -95,7 +95,7 @@ async fn test_get_modules_by_type() {
     let _ = service.register_module(request).await;
 
     let result = service.get_modules_by_type("third_party_rule").await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_get_modules_by_type: database table not available");
         return;
@@ -123,7 +123,7 @@ async fn test_enable_disable_module() {
     let _ = service.register_module(request).await;
 
     let result = service.enable_module("test_enable_disable", false).await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_enable_disable_module: database table not available");
         return;
@@ -156,7 +156,7 @@ async fn test_update_module_config() {
 
     let new_config = serde_json::json!({"key": "updated_value", "new_key": "new_value"});
     let result = service.update_module_config("test_update_config", new_config).await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_update_module_config: database table not available");
         return;
@@ -180,7 +180,7 @@ async fn test_account_validity_creation() {
     };
 
     let result = service.create_validity(request).await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_account_validity_creation: database table not available");
         return;
@@ -199,16 +199,12 @@ async fn test_is_account_valid() {
     let user_id = "@test_is_valid:localhost";
     let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000;
 
-    let request = CreateAccountValidityRequest {
-        user_id: user_id.to_string(),
-        expiration_ts,
-        is_valid: Some(true),
-    };
+    let request = CreateAccountValidityRequest { user_id: user_id.to_string(), expiration_ts, is_valid: Some(true) };
 
     let _ = service.create_validity(request).await;
 
     let result = service.is_account_valid(user_id).await;
-    
+
     if result.is_err() {
         eprintln!("Skipping test_is_account_valid: database table not available");
         return;
@@ -250,11 +246,7 @@ async fn test_third_party_rule_context() {
 
 #[tokio::test]
 async fn test_simple_spam_checker() {
-    let checker = SimpleSpamChecker::new(
-        "test_checker",
-        vec!["spam".to_string(), "badword".to_string()],
-        1000,
-    );
+    let checker = SimpleSpamChecker::new("test_checker", vec!["spam".to_string(), "badword".to_string()], 1000);
 
     assert_eq!(checker.name(), "test_checker");
 
@@ -285,10 +277,7 @@ async fn test_simple_spam_checker() {
 
 #[tokio::test]
 async fn test_simple_third_party_rule() {
-    let rule = SimpleThirdPartyRule::new(
-        "test_rule",
-        vec!["m.room.bad_event".to_string()],
-    );
+    let rule = SimpleThirdPartyRule::new("test_rule", vec!["m.room.bad_event".to_string()]);
 
     assert_eq!(rule.name(), "test_rule");
 
@@ -343,24 +332,19 @@ async fn test_password_auth_provider_trait() {
             &self.name
         }
 
-        async fn check(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, synapse_rust::common::error::ApiError> {
+        async fn check(
+            &self,
+            context: &PasswordAuthContext,
+        ) -> Result<PasswordAuthOutput, synapse_rust::common::error::ApiError> {
             if context.password == "correct_password" {
-                Ok(PasswordAuthOutput {
-                    valid: true,
-                    user_id: Some(context.user_id.clone()),
-                })
+                Ok(PasswordAuthOutput { valid: true, user_id: Some(context.user_id.clone()) })
             } else {
-                Ok(PasswordAuthOutput {
-                    valid: false,
-                    user_id: None,
-                })
+                Ok(PasswordAuthOutput { valid: false, user_id: None })
             }
         }
     }
 
-    let provider = TestPasswordProvider {
-        name: "test_provider".to_string(),
-    };
+    let provider = TestPasswordProvider { name: "test_provider".to_string() };
 
     assert_eq!(provider.name(), "test_provider");
 

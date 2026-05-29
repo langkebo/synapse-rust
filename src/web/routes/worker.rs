@@ -11,9 +11,7 @@ use std::str::FromStr;
 
 use crate::common::ApiError;
 use crate::web::middleware::replication_http_auth_middleware;
-use crate::web::routes::response_helpers::{
-    created_json_from, json_from, json_vec_from, require_found, status_json,
-};
+use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
 use crate::web::routes::{AdminUser, AppState};
 use crate::worker::types::*;
 
@@ -181,12 +179,7 @@ pub struct WorkerTaskResponse {
 
 impl From<WorkerTaskAssignment> for WorkerTaskResponse {
     fn from(t: WorkerTaskAssignment) -> Self {
-        Self {
-            task_id: t.task_id,
-            task_type: t.task_type,
-            status: t.status,
-            assigned_worker_id: t.assigned_worker_id,
-        }
+        Self { task_id: t.task_id, task_type: t.task_type, status: t.status, assigned_worker_id: t.assigned_worker_id }
     }
 }
 
@@ -209,10 +202,7 @@ pub async fn get_worker(
 ) -> Result<impl IntoResponse, ApiError> {
     let worker = state.services.worker_manager.get(&worker_id).await?;
 
-    Ok(json_from::<_, WorkerResponse>(require_found(
-        worker,
-        "Worker not found",
-    )?))
+    Ok(json_from::<_, WorkerResponse>(require_found(worker, "Worker not found")?))
 }
 
 pub async fn list_workers(
@@ -243,11 +233,7 @@ pub async fn heartbeat(
 ) -> Result<impl IntoResponse, ApiError> {
     let status = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
 
-    state
-        .services
-        .worker_manager
-        .heartbeat(&worker_id, status, body.load_stats)
-        .await?;
+    state.services.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
 
     Ok(status_json("ok"))
 }
@@ -281,11 +267,7 @@ pub async fn get_pending_commands(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let commands = state
-        .services
-        .worker_manager
-        .get_pending_commands(&worker_id, limit)
-        .await?;
+    let commands = state.services.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
@@ -294,11 +276,7 @@ pub async fn complete_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .complete_command(&command_id)
-        .await?;
+    state.services.worker_manager.complete_command(&command_id).await?;
 
     Ok(status_json("completed"))
 }
@@ -308,11 +286,7 @@ pub async fn fail_command(
     Path(command_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .fail_command(&command_id, &body.error)
-        .await?;
+    state.services.worker_manager.fail_command(&command_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
@@ -335,11 +309,7 @@ pub async fn get_pending_tasks(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
-    let tasks = state
-        .services
-        .worker_manager
-        .get_pending_tasks(limit)
-        .await?;
+    let tasks = state.services.worker_manager.get_pending_tasks(limit).await?;
 
     Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
@@ -349,11 +319,7 @@ pub async fn claim_next_task(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task = state
-        .services
-        .worker_manager
-        .claim_next_pending_task(&worker_id)
-        .await?;
+    let task = state.services.worker_manager.claim_next_pending_task(&worker_id).await?;
 
     Ok(Json(WorkerTaskResponse::from(task)))
 }
@@ -363,11 +329,7 @@ pub async fn claim_task(
     Path((task_id, worker_id)): Path<(String, String)>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .claim_task(&task_id, &worker_id)
-        .await?;
+    state.services.worker_manager.claim_task(&task_id, &worker_id).await?;
 
     Ok(status_json("claimed"))
 }
@@ -377,11 +339,7 @@ pub async fn complete_task(
     Path(task_id): Path<String>,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .complete_task(&task_id, body.result)
-        .await?;
+    state.services.worker_manager.complete_task(&task_id, body.result).await?;
 
     Ok(status_json("completed"))
 }
@@ -391,11 +349,7 @@ pub async fn fail_task(
     Path(task_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .fail_task(&task_id, &body.error)
-        .await?;
+    state.services.worker_manager.fail_task(&task_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
@@ -405,11 +359,7 @@ pub async fn connect_worker(
     Path(worker_id): Path<String>,
     Json(body): Json<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .connect_to_worker(&worker_id, &body.address)
-        .await?;
+    state.services.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
 
     Ok(status_json("connected"))
 }
@@ -418,11 +368,7 @@ pub async fn disconnect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .disconnect_from_worker(&worker_id)
-        .await?;
+    state.services.worker_manager.disconnect_from_worker(&worker_id).await?;
 
     Ok(status_json("disconnected"))
 }
@@ -432,11 +378,7 @@ pub async fn get_replication_position(
     Path(worker_id): Path<String>,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let position = state
-        .services
-        .worker_manager
-        .get_replication_position(&worker_id, &query.stream_name)
-        .await?;
+    let position = state.services.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
 
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
@@ -450,11 +392,7 @@ pub async fn update_replication_position(
     Path((worker_id, stream_name)): Path<(String, String)>,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .worker_manager
-        .update_replication_position(&worker_id, &stream_name, body.position)
-        .await?;
+    state.services.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
 
     Ok(status_json("updated"))
 }
@@ -465,11 +403,7 @@ pub async fn get_events(
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id = query.stream_id.unwrap_or(0);
     let limit = 100;
-    let events = state
-        .services
-        .worker_manager
-        .get_events_since(stream_id, limit)
-        .await?;
+    let events = state.services.worker_manager.get_events_since(stream_id, limit).await?;
 
     Ok(Json(events))
 }
@@ -497,11 +431,7 @@ pub async fn select_worker(
     Path(task_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_id = state
-        .services
-        .worker_manager
-        .select_worker_for_task(&task_type)
-        .await?;
+    let worker_id = state.services.worker_manager.select_worker_for_task(&task_type).await?;
 
     Ok(Json(serde_json::json!({
         "task_type": task_type,
@@ -512,9 +442,7 @@ pub async fn select_worker(
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
     let admin = create_worker_admin_router(state.clone());
     if state.services.config.worker.enabled {
-        admin
-            .merge(create_worker_body_router(state.clone()))
-            .with_state(state)
+        admin.merge(create_worker_body_router(state.clone())).with_state(state)
     } else {
         admin.with_state(state)
     }
@@ -526,39 +454,18 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/worker/v1/register", post(register_worker))
         .route("/_synapse/worker/v1/workers", get(list_workers))
-        .route(
-            "/_synapse/worker/v1/workers/type/{worker_type}",
-            get(list_workers_by_type),
-        )
+        .route("/_synapse/worker/v1/workers/type/{worker_type}", get(list_workers_by_type))
         .route("/_synapse/worker/v1/workers/{worker_id}", get(get_worker))
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}",
-            delete(unregister_worker),
-        )
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/commands",
-            post(send_command),
-        )
+        .route("/_synapse/worker/v1/workers/{worker_id}", delete(unregister_worker))
+        .route("/_synapse/worker/v1/workers/{worker_id}/commands", post(send_command))
         .route("/_synapse/worker/v1/tasks", post(assign_task))
         .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
-        .route(
-            "/_synapse/worker/v1/tasks/claim/{worker_id}",
-            post(claim_next_task),
-        )
-        .route(
-            "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
-            post(claim_task),
-        )
+        .route("/_synapse/worker/v1/tasks/claim/{worker_id}", post(claim_next_task))
+        .route("/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}", post(claim_task))
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
-        .route(
-            "/_synapse/worker/v1/statistics/types",
-            get(get_type_statistics),
-        )
+        .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
-        .route_layer(middleware::from_fn_with_state(
-            state,
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route_layer(middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware))
 }
 
 /// Conditional worker-body surface, only merged when
@@ -567,48 +474,18 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
 /// `route_module::WorkerBodyModule`.
 pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
-            post(heartbeat),
-        )
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/connect",
-            post(connect_worker),
-        )
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/disconnect",
-            post(disconnect_worker),
-        )
-        .route(
-            "/_synapse/worker/v1/workers/{worker_id}/commands",
-            get(get_pending_commands),
-        )
-        .route(
-            "/_synapse/worker/v1/commands/{command_id}/complete",
-            post(complete_command),
-        )
-        .route(
-            "/_synapse/worker/v1/commands/{command_id}/fail",
-            post(fail_command),
-        )
-        .route(
-            "/_synapse/worker/v1/tasks/{task_id}/complete",
-            post(complete_task),
-        )
+        .route("/_synapse/worker/v1/workers/{worker_id}/heartbeat", post(heartbeat))
+        .route("/_synapse/worker/v1/workers/{worker_id}/connect", post(connect_worker))
+        .route("/_synapse/worker/v1/workers/{worker_id}/disconnect", post(disconnect_worker))
+        .route("/_synapse/worker/v1/workers/{worker_id}/commands", get(get_pending_commands))
+        .route("/_synapse/worker/v1/commands/{command_id}/complete", post(complete_command))
+        .route("/_synapse/worker/v1/commands/{command_id}/fail", post(fail_command))
+        .route("/_synapse/worker/v1/tasks/{task_id}/complete", post(complete_task))
         .route("/_synapse/worker/v1/tasks/{task_id}/fail", post(fail_task))
-        .route(
-            "/_synapse/worker/v1/replication/{worker_id}/position",
-            get(get_replication_position),
-        )
-        .route(
-            "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
-            put(update_replication_position),
-        )
+        .route("/_synapse/worker/v1/replication/{worker_id}/position", get(get_replication_position))
+        .route("/_synapse/worker/v1/replication/{worker_id}/{stream_name}", put(update_replication_position))
         .route("/_synapse/worker/v1/events", get(get_events))
-        .route_layer(middleware::from_fn_with_state(
-            state,
-            replication_http_auth_middleware,
-        ))
+        .route_layer(middleware::from_fn_with_state(state, replication_http_auth_middleware))
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_worker_router`
@@ -623,23 +500,14 @@ pub fn worker_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
     [
         (Method::POST, "/_synapse/worker/v1/register"),
         (Method::GET, "/_synapse/worker/v1/workers"),
-        (
-            Method::GET,
-            "/_synapse/worker/v1/workers/type/{worker_type}",
-        ),
+        (Method::GET, "/_synapse/worker/v1/workers/type/{worker_type}"),
         (Method::GET, "/_synapse/worker/v1/workers/{worker_id}"),
         (Method::DELETE, "/_synapse/worker/v1/workers/{worker_id}"),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/workers/{worker_id}/commands",
-        ),
+        (Method::POST, "/_synapse/worker/v1/workers/{worker_id}/commands"),
         (Method::POST, "/_synapse/worker/v1/tasks"),
         (Method::GET, "/_synapse/worker/v1/tasks"),
         (Method::POST, "/_synapse/worker/v1/tasks/claim/{worker_id}"),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
-        ),
+        (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}"),
         (Method::GET, "/_synapse/worker/v1/statistics"),
         (Method::GET, "/_synapse/worker/v1/statistics/types"),
         (Method::GET, "/_synapse/worker/v1/select/{task_type}"),
@@ -657,40 +525,16 @@ pub fn worker_body_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
-        (
-            Method::POST,
-            "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
-        ),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/workers/{worker_id}/connect",
-        ),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/workers/{worker_id}/disconnect",
-        ),
-        (
-            Method::GET,
-            "/_synapse/worker/v1/workers/{worker_id}/commands",
-        ),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/commands/{command_id}/complete",
-        ),
-        (
-            Method::POST,
-            "/_synapse/worker/v1/commands/{command_id}/fail",
-        ),
+        (Method::POST, "/_synapse/worker/v1/workers/{worker_id}/heartbeat"),
+        (Method::POST, "/_synapse/worker/v1/workers/{worker_id}/connect"),
+        (Method::POST, "/_synapse/worker/v1/workers/{worker_id}/disconnect"),
+        (Method::GET, "/_synapse/worker/v1/workers/{worker_id}/commands"),
+        (Method::POST, "/_synapse/worker/v1/commands/{command_id}/complete"),
+        (Method::POST, "/_synapse/worker/v1/commands/{command_id}/fail"),
         (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/complete"),
         (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/fail"),
-        (
-            Method::GET,
-            "/_synapse/worker/v1/replication/{worker_id}/position",
-        ),
-        (
-            Method::PUT,
-            "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
-        ),
+        (Method::GET, "/_synapse/worker/v1/replication/{worker_id}/position"),
+        (Method::PUT, "/_synapse/worker/v1/replication/{worker_id}/{stream_name}"),
         (Method::GET, "/_synapse/worker/v1/events"),
     ]
     .into_iter()
@@ -737,9 +581,7 @@ mod tests {
             version: None,
         };
 
-        let error = body
-            .into_request()
-            .expect_err("invalid worker type should fail");
+        let error = body.into_request().expect_err("invalid worker type should fail");
 
         match error {
             ApiError::BadRequest(message) => {

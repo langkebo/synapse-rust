@@ -27,9 +27,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping sync service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping sync service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -353,9 +351,7 @@ fn create_room_service(
         user_storage,
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
-            Arc::new(synapse_rust::cache::CacheManager::new(
-                &synapse_rust::cache::CacheConfig::default(),
-            )),
+            Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
@@ -407,38 +403,24 @@ fn test_sync_success() {
         );
 
         // Create a room and send a message
-        let config = CreateRoomConfig {
-            name: Some("Test Room".to_string()),
-            ..Default::default()
-        };
-        let room_val = room_service
-            .create_room("@alice:localhost", config)
-            .await
-            .unwrap();
+        let config = CreateRoomConfig { name: Some("Test Room".to_string()), ..Default::default() };
+        let room_val = room_service.create_room("@alice:localhost", config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let content = json!({"msgtype": "m.text", "body": "Hello"});
-        room_service
-            .send_message(room_id, "@alice:localhost", "m.room.message", &content)
-            .await
-            .unwrap();
+        room_service.send_message(room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
-        let result = sync_service
-            .sync("@alice:localhost", None, 0, false, "online", None, None)
-            .await;
+        let result = sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await;
         assert!(result.is_ok());
         let val = result.unwrap();
         assert!(val["rooms"]["join"].is_object());
 
-        assert!(val["rooms"]["join"]
-            .as_object()
-            .unwrap()
-            .contains_key(room_id));
+        assert!(val["rooms"]["join"].as_object().unwrap().contains_key(room_id));
         let room_data = &val["rooms"]["join"][room_id];
         let events = room_data["timeline"]["events"].as_array().unwrap();
-        assert!(events.iter().any(|event| {
-            event["type"] == "m.room.message" && event["content"]["body"] == "Hello"
-        }));
+        assert!(events
+            .iter()
+            .any(|event| { event["type"] == "m.room.message" && event["content"]["body"] == "Hello" }));
     });
 }
 
@@ -479,46 +461,21 @@ fn test_incremental_sync_does_not_replay_old_timeline() {
             PerformanceConfig::default(),
         );
 
-        let config = CreateRoomConfig {
-            name: Some("Incremental Room".to_string()),
-            ..Default::default()
-        };
-        let room_val = room_service
-            .create_room("@alice:localhost", config)
-            .await
-            .unwrap();
+        let config = CreateRoomConfig { name: Some("Incremental Room".to_string()), ..Default::default() };
+        let room_val = room_service.create_room("@alice:localhost", config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
         let content = json!({"msgtype": "m.text", "body": "Hello once"});
-        room_service
-            .send_message(&room_id, "@alice:localhost", "m.room.message", &content)
-            .await
-            .unwrap();
+        room_service.send_message(&room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
-        let first_sync = sync_service
-            .sync("@alice:localhost", None, 0, false, "offline", None, None)
-            .await
-            .unwrap();
+        let first_sync = sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None).await.unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
-        let second_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                None,
-                0,
-                false,
-                "offline",
-                None,
-                Some(since.as_str()),
-            )
-            .await
-            .unwrap();
+        let second_sync =
+            sync_service.sync("@alice:localhost", None, 0, false, "offline", None, Some(since.as_str())).await.unwrap();
 
         let joined_rooms = second_sync["rooms"]["join"].as_object().unwrap();
-        assert!(
-            joined_rooms.is_empty(),
-            "incremental sync should not replay unchanged rooms"
-        );
+        assert!(joined_rooms.is_empty(), "incremental sync should not replay unchanged rooms");
     });
 }
 
@@ -550,20 +507,10 @@ fn test_sync_offline_presence_overwrites_previous_presence_state() {
             PerformanceConfig::default(),
         );
 
-        sync_service
-            .sync("@alice:localhost", None, 0, false, "online", None, None)
-            .await
-            .unwrap();
-        sync_service
-            .sync("@alice:localhost", None, 0, false, "offline", None, None)
-            .await
-            .unwrap();
+        sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await.unwrap();
+        sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None).await.unwrap();
 
-        let persisted = presence_storage
-            .get_presence("@alice:localhost")
-            .await
-            .unwrap()
-            .unwrap();
+        let persisted = presence_storage.get_presence("@alice:localhost").await.unwrap().unwrap();
         assert_eq!(persisted.0, "offline");
     });
 }
@@ -596,28 +543,14 @@ fn test_sync_presence_events_reflect_persisted_presence_state() {
             PerformanceConfig::default(),
         );
 
-        let response = sync_service
-            .sync(
-                "@alice:localhost",
-                None,
-                0,
-                false,
-                "unavailable",
-                None,
-                None,
-            )
-            .await
-            .unwrap();
+        let response = sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None).await.unwrap();
 
         let presence_events = response["presence"]["events"].as_array().unwrap();
         assert_eq!(presence_events.len(), 1);
         assert_eq!(presence_events[0]["type"], "m.presence");
         assert_eq!(presence_events[0]["sender"], "@alice:localhost");
         assert_eq!(presence_events[0]["content"]["presence"], "unavailable");
-        assert_eq!(
-            presence_events[0]["content"]["currently_active"],
-            json!(false)
-        );
+        assert_eq!(presence_events[0]["content"]["currently_active"], json!(false));
     });
 }
 
@@ -657,18 +590,12 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
             .create_room(
                 "@alice:localhost",
-                CreateRoomConfig {
-                    name: Some("Lazy Delta Room".to_string()),
-                    ..Default::default()
-                },
+                CreateRoomConfig { name: Some("Lazy Delta Room".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
@@ -694,20 +621,10 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
-        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
+        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
         let first_non_member_types: Vec<String> = first_state_events
             .iter()
             .filter_map(|event| {
@@ -715,10 +632,7 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
                 (event_type != "m.room.member").then(|| event_type.to_string())
             })
             .collect();
-        assert!(
-            !first_non_member_types.is_empty(),
-            "initial sync should include at least one non-member state event"
-        );
+        assert!(!first_non_member_types.is_empty(), "initial sync should include at least one non-member state event");
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
         room_service
@@ -744,14 +658,12 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
             .await
             .unwrap();
 
-        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
+        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
         assert!(
             !second_state_events.iter().any(|event| {
-                event["type"].as_str().is_some_and(|event_type| {
-                    first_non_member_types.iter().any(|ty| ty == event_type)
-                })
+                event["type"]
+                    .as_str()
+                    .is_some_and(|event_type| first_non_member_types.iter().any(|ty| ty == event_type))
             }),
             "incremental lazy-load sync should not repeat unchanged non-member state types"
         );
@@ -794,18 +706,12 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
             .create_room(
                 "@alice:localhost",
-                CreateRoomConfig {
-                    visibility: Some("public".to_string()),
-                    ..Default::default()
-                },
+                CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
@@ -821,15 +727,7 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -877,17 +775,13 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         let second_state_events = second_room["state"]["events"].as_array().unwrap();
         assert!(
             second_state_events.iter().any(|event| {
-                event["type"] == "m.room.topic"
-                    && event["content"]["topic"] == "State delta without lazy load"
+                event["type"] == "m.room.topic" && event["content"]["topic"] == "State delta without lazy load"
             }),
             "incremental sync should include state delta even without lazy-load"
         );
 
         let second_since = second_sync["next_batch"].as_str().unwrap().to_string();
-        assert_ne!(
-            second_since, since,
-            "state-only update should advance the sync token without lazy-load"
-        );
+        assert_ne!(second_since, since, "state-only update should advance the sync token without lazy-load");
 
         let third_sync = sync_service
             .sync(
@@ -944,15 +838,9 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
-        let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig::default())
-            .await
-            .unwrap();
+        let room_val = room_service.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
         let filter = json!({
@@ -968,15 +856,7 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1012,10 +892,7 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
             .unwrap();
 
         let second_room = &second_sync["rooms"]["join"][&room_id];
-        assert!(
-            second_room.is_object(),
-            "room with state-only changes should be included in incremental sync"
-        );
+        assert!(second_room.is_object(), "room with state-only changes should be included in incremental sync");
         let second_timeline_events = second_room["timeline"]["events"].as_array().unwrap();
         assert!(
             second_timeline_events.is_empty(),
@@ -1023,17 +900,14 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
         );
         let second_state_events = second_room["state"]["events"].as_array().unwrap();
         assert!(
-            second_state_events.iter().any(|event| {
-                event["type"] == "m.room.topic" && event["content"]["topic"] == "State only update"
-            }),
+            second_state_events
+                .iter()
+                .any(|event| { event["type"] == "m.room.topic" && event["content"]["topic"] == "State only update" }),
             "state-only change should still appear in state.events"
         );
 
         let second_since = second_sync["next_batch"].as_str().unwrap().to_string();
-        assert_ne!(
-            second_since, since,
-            "state-only update should advance the sync token"
-        );
+        assert_ne!(second_since, since, "state-only update should advance the sync token");
 
         let third_sync = sync_service
             .sync(
@@ -1090,15 +964,9 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
-        let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig::default())
-            .await
-            .unwrap();
+        let room_val = room_service.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
         room_service
@@ -1131,15 +999,7 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
         .to_string();
 
         let sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
 
@@ -1151,10 +1011,8 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
             "timeline should only be marked limited when more events exist than the requested limit"
         );
 
-        let bodies: Vec<&str> = timeline_events
-            .iter()
-            .map(|event| event["content"]["body"].as_str().unwrap())
-            .collect();
+        let bodies: Vec<&str> =
+            timeline_events.iter().map(|event| event["content"]["body"].as_str().unwrap()).collect();
         assert_eq!(
             bodies,
             vec!["First hello", "Second hello"],
@@ -1200,16 +1058,13 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
-            .create_room("@alice:localhost", CreateRoomConfig {
-                visibility: Some("public".to_string()),
-                ..Default::default()
-            })
+            .create_room(
+                "@alice:localhost",
+                CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
+            )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
@@ -1271,23 +1126,13 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
-        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
-        assert!(first_state_events.iter().any(|event| {
-            event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-        }));
+        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
+        assert!(first_state_events
+            .iter()
+            .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }));
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
         event_storage
@@ -1346,17 +1191,15 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
         let second_timeline_events = second_room["timeline"]["events"].as_array().unwrap();
         assert_eq!(second_timeline_events.len(), 1);
         assert!(
-            second_timeline_events
-                .iter()
-                .all(|event| event["sender"] == "@alice:localhost"),
+            second_timeline_events.iter().all(|event| event["sender"] == "@alice:localhost"),
             "returned limited timeline should only contain alice messages"
         );
 
         let second_state_events = second_room["state"]["events"].as_array().unwrap();
         assert!(
-            !second_state_events.iter().any(|event| {
-                event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-            }),
+            !second_state_events
+                .iter()
+                .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "limited timeline should not replay state-delta membership changes that are outside the returned timeline"
         );
     });
@@ -1400,27 +1243,18 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         );
 
         let device_storage = DeviceStorage::new(&pool);
-        device_storage
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        device_storage.create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
             .create_room(
                 "@alice:localhost",
-                CreateRoomConfig {
-                    visibility: Some("public".to_string()),
-                    ..Default::default()
-                },
+                CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-        room_service
-            .join_room(&room_id, "@bob:localhost")
-            .await
-            .unwrap();
+        room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
 
         let base_ts = chrono::Utc::now().timestamp_millis();
         event_storage
@@ -1474,24 +1308,14 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
-        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
-        assert!(first_state_events.iter().any(|event| {
-            event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-        }));
+        let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
+        assert!(first_state_events
+            .iter()
+            .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }));
 
         let persisted_count: i64 = sqlx::query_scalar(
             r#"
@@ -1506,10 +1330,7 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         .fetch_one(&*pool)
         .await
         .unwrap();
-        assert!(
-            persisted_count >= 2,
-            "expected persisted lazy-load members for alice and bob"
-        );
+        assert!(persisted_count >= 2, "expected persisted lazy-load members for alice and bob");
 
         let restarted_sync_service = SyncService::new(
             PresenceStorage::new(pool.clone(), cache),
@@ -1546,20 +1367,16 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
             .await
             .unwrap();
 
-        let second_timeline_events = second_sync["rooms"]["join"][&room_id]["timeline"]["events"]
-            .as_array()
-            .unwrap();
-        assert!(second_timeline_events.iter().any(|event| {
-            event["type"] == "m.room.message" && event["content"]["body"] == "Second hello"
-        }));
+        let second_timeline_events = second_sync["rooms"]["join"][&room_id]["timeline"]["events"].as_array().unwrap();
+        assert!(second_timeline_events
+            .iter()
+            .any(|event| { event["type"] == "m.room.message" && event["content"]["body"] == "Second hello" }));
 
-        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
+        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
         assert!(
-            !second_state_events.iter().any(|event| {
-                event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-            }),
+            !second_state_events
+                .iter()
+                .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "restarted sync service should restore lazy-load cache from database"
         );
     });
@@ -1602,27 +1419,18 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
             .create_room(
                 "@alice:localhost",
-                CreateRoomConfig {
-                    visibility: Some("public".to_string()),
-                    ..Default::default()
-                },
+                CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-        room_service
-            .join_room(&room_id, "@bob:localhost")
-            .await
-            .unwrap();
+        room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
 
         let base_ts = chrono::Utc::now().timestamp_millis();
         event_storage
@@ -1677,15 +1485,7 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
         .to_string();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some(filter.as_str()),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None)
             .await
             .unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1725,13 +1525,11 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
             .await
             .unwrap();
 
-        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
+        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
         assert!(
-            second_state_events.iter().any(|event| {
-                event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-            }),
+            second_state_events
+                .iter()
+                .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "include_redundant_members should keep member state even after cache restore"
         );
     });
@@ -1790,27 +1588,18 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             PerformanceConfig::default(),
         );
 
-        DeviceStorage::new(&pool)
-            .create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone"))
-            .await
-            .unwrap();
+        DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
         let room_val = room_service
             .create_room(
                 "@alice:localhost",
-                CreateRoomConfig {
-                    visibility: Some("public".to_string()),
-                    ..Default::default()
-                },
+                CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
         let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-        room_service
-            .join_room(&room_id, "@bob:localhost")
-            .await
-            .unwrap();
+        room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
 
         let base_ts = chrono::Utc::now().timestamp_millis();
         event_storage
@@ -1855,15 +1644,7 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             .unwrap();
 
         let first_sync = sync_service
-            .sync(
-                "@alice:localhost",
-                Some("ALICEDEVICE"),
-                0,
-                false,
-                "online",
-                Some("lazy-load-filter"),
-                None,
-            )
+            .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some("lazy-load-filter"), None)
             .await
             .unwrap();
         let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1903,13 +1684,11 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
             .await
             .unwrap();
 
-        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"]
-            .as_array()
-            .unwrap();
+        let second_state_events = second_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
         assert!(
-            !second_state_events.iter().any(|event| {
-                event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost"
-            }),
+            !second_state_events
+                .iter()
+                .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "stored filter id should resolve lazy-load settings and restore cache after restart"
         );
     });

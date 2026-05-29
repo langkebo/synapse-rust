@@ -20,19 +20,12 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_room_with_initial_state(
@@ -46,19 +39,13 @@ async fn create_room_with_initial_state(
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "name": name, "initial_state": initial_state }).to_string(),
-        ))
+        .body(Body::from(json!({ "name": name, "initial_state": initial_state }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -76,9 +63,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -90,19 +75,14 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
 async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            room_id, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/{}", room_id, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -114,14 +94,10 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
@@ -135,23 +111,16 @@ async fn put_state_event_empty_key(
 ) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/r0/rooms/{}/state/{}/",
-            room_id, event_type
-        ))
+        .uri(format!("/_matrix/client/r0/rooms/{}/state/{}/", room_id, event_type))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
@@ -166,23 +135,16 @@ async fn put_state_event(
 ) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/r0/rooms/{}/state/{}/{}",
-            room_id, event_type, state_key
-        ))
+        .uri(format!("/_matrix/client/r0/rooms/{}/state/{}/{}", room_id, event_type, state_key))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
@@ -197,14 +159,10 @@ async fn assert_matrix_error(
     expected_status: StatusCode,
     expected_errcode: &str,
 ) {
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), expected_status);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], expected_errcode);
 }
@@ -228,10 +186,7 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
         app.clone(),
         Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/state/m.room.power_levels",
-                room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.power_levels", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -269,9 +224,7 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
             .uri(format!("/_matrix/client/r0/rooms/{}/kick", room_id))
             .header("Authorization", format!("Bearer {}", bob_token))
             .header("Content-Type", "application/json")
-            .body(Body::from(
-                json!({ "user_id": charlie_user_id, "reason": "moderation" }).to_string(),
-            ))
+            .body(Body::from(json!({ "user_id": charlie_user_id, "reason": "moderation" }).to_string()))
             .unwrap(),
     )
     .await
@@ -298,10 +251,7 @@ async fn test_power_levels_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/v1/rooms/{}/state/m.room.power_levels/",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/v1/rooms/{}/state/m.room.power_levels/", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -329,10 +279,7 @@ async fn test_membership_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/get_membership_events",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/get_membership_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "limit": 10 }).to_string()))
@@ -361,10 +308,7 @@ async fn test_pinned_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/pinned_events",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -393,10 +337,7 @@ async fn test_pin_event_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/pinned_events",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -428,10 +369,7 @@ async fn test_pin_event_contract_rejects_regular_members_without_power() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/pinned_events",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -463,24 +401,18 @@ async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
             .uri("/_matrix/client/r0/search_rooms")
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
-            .body(Body::from(
-                json!({ "search_term": room_name, "limit": 10 }).to_string(),
-            ))
+            .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))
             .unwrap(),
     )
     .await
     .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().unwrap();
     assert!(
-        !results
-            .iter()
-            .any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
+        !results.iter().any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
         "Outsiders should not discover private rooms via search_rooms"
     );
 }
@@ -508,24 +440,18 @@ async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms(
             .uri("/_matrix/client/r0/search_rooms")
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
-            .body(Body::from(
-                json!({ "search_term": room_name, "limit": 10 }).to_string(),
-            ))
+            .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))
             .unwrap(),
     )
     .await
     .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().unwrap();
     assert!(
-        results
-            .iter()
-            .any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
+        results.iter().any(|room| room["room_id"].as_str() == Some(room_id.as_str())),
         "Joined members should still be able to find their private rooms via search_rooms"
     );
 }
@@ -565,10 +491,7 @@ async fn test_protected_state_events_contract_rejects_regular_members() {
             &app,
             Request::builder()
                 .method("PUT")
-                .uri(format!(
-                    "/_matrix/client/r0/rooms/{}/state/{}",
-                    room_id, event_type
-                ))
+                .uri(format!("/_matrix/client/r0/rooms/{}/state/{}", room_id, event_type))
                 .header("Authorization", format!("Bearer {}", bob_token))
                 .header("Content-Type", "application/json")
                 .body(Body::from(body.to_string()))
@@ -599,15 +522,10 @@ async fn test_state_default_contract_rejects_regular_member_topic_write() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/state/m.room.topic",
-                room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
             .header("Authorization", format!("Bearer {}", bob_token))
             .header("Content-Type", "application/json")
-            .body(Body::from(
-                json!({ "topic": "member overwrite" }).to_string(),
-            ))
+            .body(Body::from(json!({ "topic": "member overwrite" }).to_string()))
             .unwrap(),
         StatusCode::FORBIDDEN,
         "M_FORBIDDEN",
@@ -625,23 +543,14 @@ async fn test_get_state_event_empty_key_returns_raw_content_only() {
     let (alice_token, _) = register_user(&app, &alice).await;
     let room_id = create_room(&app, &alice_token, "State Empty Key Read Contract").await;
 
-    put_state_event_empty_key(
-        &app,
-        &alice_token,
-        &room_id,
-        "m.room.topic",
-        json!({ "topic": "raw topic payload" }),
-    )
-    .await;
+    put_state_event_empty_key(&app, &alice_token, &room_id, "m.room.topic", json!({ "topic": "raw topic payload" }))
+        .await;
 
     let response = ServiceExt::<Request<Body>>::oneshot(
         app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/state/m.room.topic",
-                room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -650,9 +559,7 @@ async fn test_get_state_event_empty_key_returns_raw_content_only() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, json!({ "topic": "raw topic payload" }));
     assert!(json.get("event_id").is_none());
@@ -683,10 +590,7 @@ async fn test_get_state_event_with_state_key_returns_raw_content_only() {
         app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/state/m.test.flag/primary",
-                room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.test.flag/primary", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -695,9 +599,7 @@ async fn test_get_state_event_with_state_key_returns_raw_content_only() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, json!({ "enabled": true, "label": "alpha" }));
     assert!(json.get("state_key").is_none());
@@ -778,9 +680,7 @@ async fn test_room_info_contract_reflects_invites_and_guest_access() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["room_id"], room_id);
@@ -816,10 +716,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/members/recent?from=0&limit=1",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/members/recent?from=0&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -828,9 +725,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let page1: Value = serde_json::from_slice(&body).unwrap();
     let page1_chunk_len = page1["chunk"].as_array().map(|v| v.len()).unwrap_or(0);
     assert_eq!(page1_chunk_len, 1);
@@ -841,10 +736,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/r0/rooms/{}/members/recent?from=1&limit=1",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/r0/rooms/{}/members/recent?from=1&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -853,9 +745,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let page2: Value = serde_json::from_slice(&body).unwrap();
     let page2_chunk_len = page2["chunk"].as_array().map(|v| v.len()).unwrap_or(0);
     assert_eq!(page2_chunk_len, 1);
@@ -880,10 +770,7 @@ async fn test_scanner_info_contract_is_not_empty_success() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/v1/rooms/{}/report/{}/scanner_info",
-                encoded_room_id, encoded_event_id
-            ))
+            .uri(format!("/_matrix/client/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -892,19 +779,14 @@ async fn test_scanner_info_contract_is_not_empty_success() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["scanner_enabled"], false);
     assert_eq!(json["room_id"], room_id);
     assert_eq!(json["event_id"], event_id);
     assert_eq!(json["status"], "not_configured");
-    assert!(
-        !json["message"].as_str().unwrap_or("").trim().is_empty(),
-        "message should not be empty"
-    );
+    assert!(!json["message"].as_str().unwrap_or("").trim().is_empty(), "message should not be empty");
 }
 
 #[tokio::test]
@@ -927,10 +809,7 @@ async fn test_scanner_info_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/v1/rooms/{}/report/{}/scanner_info",
-                encoded_room_id, encoded_event_id
-            ))
+            .uri(format!("/_matrix/client/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -957,10 +836,7 @@ async fn test_room_account_data_write_ack_persists_value() {
         app.clone(),
         Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/v3/rooms/{}/account_data/{}",
-                encoded_room_id, data_type
-            ))
+            .uri(format!("/_matrix/client/v3/rooms/{}/account_data/{}", encoded_room_id, data_type))
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(payload.to_string()))
@@ -974,10 +850,7 @@ async fn test_room_account_data_write_ack_persists_value() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/v3/rooms/{}/account_data/{}",
-                encoded_room_id, data_type
-            ))
+            .uri(format!("/_matrix/client/v3/rooms/{}/account_data/{}", encoded_room_id, data_type))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -986,9 +859,7 @@ async fn test_room_account_data_write_ack_persists_value() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, payload);
 }

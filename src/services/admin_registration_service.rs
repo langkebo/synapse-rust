@@ -53,12 +53,7 @@ impl AdminRegistrationService {
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self {
-            auth_service,
-            config,
-            cache,
-            metrics,
-        }
+        Self { auth_service, config, cache, metrics }
     }
 
     pub fn start_nonce_cleanup_task(self: Arc<Self>) {
@@ -91,10 +86,7 @@ impl AdminRegistrationService {
         }
 
         if cleaned > 0 {
-            ::tracing::debug!(
-                "Cleaned up {} expired admin registration nonces from local cache",
-                cleaned
-            );
+            ::tracing::debug!("Cleaned up {} expired admin registration nonces from local cache", cleaned);
             if let Some(counter) = self.metrics.get_counter("admin_nonce_cleanup_total") {
                 counter.inc_by(cleaned);
             }
@@ -114,32 +106,22 @@ impl AdminRegistrationService {
 
         let now = Utc::now().timestamp();
         let key = format!("admin:register:nonce:{nonce}");
-        let _ = self
-            .cache
-            .set(&key, &now, self.config.nonce_timeout_seconds)
-            .await;
+        let _ = self.cache.set(&key, &now, self.config.nonce_timeout_seconds).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("admin_nonce_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("admin_nonce_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("admin_nonce_duration_seconds".to_string());
             hist.observe(duration);
         }
 
         Ok(NonceResponse { nonce })
     }
 
-    pub async fn register_admin_user(
-        &self,
-        request: AdminRegisterRequest,
-    ) -> ApiResult<AdminRegisterResponse> {
+    pub async fn register_admin_user(&self, request: AdminRegisterRequest) -> ApiResult<AdminRegisterResponse> {
         if !self.config.enabled {
-            return Err(ApiError::forbidden(
-                "Admin registration is not enabled".to_string(),
-            ));
+            return Err(ApiError::forbidden("Admin registration is not enabled".to_string()));
         }
 
         let start = std::time::Instant::now();
@@ -150,30 +132,21 @@ impl AdminRegistrationService {
         let admin = request.admin.unwrap_or(false);
         let displayname = request.displayname.as_deref();
 
-        let (user, access_token, refresh_token, device_id) = self
-            .auth_service
-            .register(&request.username, &request.password, admin, displayname)
-            .await?;
+        let (user, access_token, refresh_token, device_id) =
+            self.auth_service.register(&request.username, &request.password, admin, displayname).await?;
 
         let duration = start.elapsed().as_secs_f64();
-        if let Some(hist) = self
-            .metrics
-            .get_histogram("admin_register_duration_seconds")
-        {
+        if let Some(hist) = self.metrics.get_histogram("admin_register_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("admin_register_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("admin_register_duration_seconds".to_string());
             hist.observe(duration);
         }
 
         if let Some(counter) = self.metrics.get_counter("admin_register_success_total") {
             counter.inc();
         } else {
-            let counter = self
-                .metrics
-                .register_counter("admin_register_success_total".to_string());
+            let counter = self.metrics.register_counter("admin_register_success_total".to_string());
             counter.inc();
         }
 
@@ -203,13 +176,10 @@ impl AdminRegistrationService {
 
     fn verify_hmac(&self, request: &AdminRegisterRequest) -> ApiResult<()> {
         if self.config.shared_secret.is_empty() {
-            return Err(ApiError::internal(
-                "Shared secret is not configured".to_string(),
-            ));
+            return Err(ApiError::internal("Shared secret is not configured".to_string()));
         }
 
-        let provided = hex::decode(&request.mac)
-            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
+        let provided = hex::decode(&request.mac).map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
 
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
@@ -232,8 +202,7 @@ impl AdminRegistrationService {
             mac.update(user_type.as_bytes());
         }
 
-        mac.verify_slice(&provided)
-            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))
+        mac.verify_slice(&provided).map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))
     }
 }
 
@@ -243,9 +212,7 @@ mod tests {
 
     #[test]
     fn test_nonce_response_serialization() {
-        let response = NonceResponse {
-            nonce: "abc123".to_string(),
-        };
+        let response = NonceResponse { nonce: "abc123".to_string() };
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("abc123"));
     }

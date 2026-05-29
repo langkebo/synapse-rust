@@ -39,26 +39,25 @@ pub use infra::TurnCredentials;
 pub use infra::VoipSettings;
 
 #[cfg(feature = "voip-tracking")]
+pub use crate::common::config::LivekitConfig;
+#[cfg(feature = "voip-tracking")]
 pub use call::CallOrchestrationService;
 #[cfg(feature = "voip-tracking")]
 pub use call::{
-    CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
-    CallState, IceCandidate,
+    CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer, CallState,
+    IceCandidate,
 };
 #[cfg(feature = "voip-tracking")]
-pub use session::RtcSessionService;
-#[cfg(feature = "voip-tracking")]
 pub use session::to_matrix_event;
+#[cfg(feature = "voip-tracking")]
+pub use session::RtcSessionService;
 #[cfg(feature = "voip-tracking")]
 pub use sfu::LivekitClient;
 #[cfg(feature = "voip-tracking")]
 pub use sfu::{
-    CreateRoomRequest, CreateRoomResponse, JoinRoomRequest, JoinRoomResponse, LivekitCodec,
-    LivekitError, LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant,
-    TrackInfo,
+    CreateRoomRequest, CreateRoomResponse, JoinRoomRequest, JoinRoomResponse, LivekitCodec, LivekitError,
+    LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
 };
-#[cfg(feature = "voip-tracking")]
-pub use crate::common::config::LivekitConfig;
 
 // Backward-compatible re-exports (old names → new types)
 pub use infra::RtcInfraService as VoipService;

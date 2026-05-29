@@ -8,9 +8,7 @@ pub struct DistributedTracer {
 
 impl DistributedTracer {
     pub fn new(service_name: String) -> Self {
-        Self {
-            _service_name: service_name,
-        }
+        Self { _service_name: service_name }
     }
 
     pub fn init_tracer(&self) -> Result<(), Box<dyn std::error::Error>> {

@@ -66,11 +66,7 @@ impl Argon2Config {
         Self::new_with_output_len(m_cost, t_cost, p_cost, Some(32))
     }
 
-    pub fn new_owasp_compliant(
-        m_cost: u32,
-        t_cost: u32,
-        p_cost: u32,
-    ) -> Result<Self, Argon2ConfigError> {
+    pub fn new_owasp_compliant(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Self, Argon2ConfigError> {
         let config = Self::new(m_cost, t_cost, p_cost)?;
         config.validate_owasp()?;
         Ok(config)
@@ -82,12 +78,7 @@ impl Argon2Config {
         p_cost: u32,
         output_len: Option<usize>,
     ) -> Result<Self, Argon2ConfigError> {
-        let config = Self {
-            m_cost,
-            t_cost,
-            p_cost,
-            output_len,
-        };
+        let config = Self { m_cost, t_cost, p_cost, output_len };
         config.validate()?;
         Ok(config)
     }
@@ -105,33 +96,23 @@ impl Argon2Config {
 
     pub fn validate(&self) -> Result<(), Argon2ConfigError> {
         if self.m_cost < 8 {
-            return Err(Argon2ConfigError::InvalidParams(
-                "m_cost must be at least 8 (Argon2 minimum)".to_string(),
-            ));
+            return Err(Argon2ConfigError::InvalidParams("m_cost must be at least 8 (Argon2 minimum)".to_string()));
         }
 
         if self.t_cost < 1 {
-            return Err(Argon2ConfigError::InvalidParams(
-                "t_cost must be at least 1".to_string(),
-            ));
+            return Err(Argon2ConfigError::InvalidParams("t_cost must be at least 1".to_string()));
         }
 
         if self.p_cost < 1 {
-            return Err(Argon2ConfigError::InvalidParams(
-                "p_cost must be at least 1".to_string(),
-            ));
+            return Err(Argon2ConfigError::InvalidParams("p_cost must be at least 1".to_string()));
         }
 
         if let Some(len) = self.output_len {
             if len < 4 {
-                return Err(Argon2ConfigError::InvalidParams(
-                    "output_len must be at least 4 bytes".to_string(),
-                ));
+                return Err(Argon2ConfigError::InvalidParams("output_len must be at least 4 bytes".to_string()));
             }
             if len > 256 {
-                return Err(Argon2ConfigError::InvalidParams(
-                    "output_len must not exceed 256 bytes".to_string(),
-                ));
+                return Err(Argon2ConfigError::InvalidParams("output_len must not exceed 256 bytes".to_string()));
             }
         }
 
@@ -214,10 +195,7 @@ impl Argon2Config {
         let memory_factor = self.m_cost as f64 / 65536.0;
         let parallelism_factor = 1.0 / self.p_cost as f64;
 
-        (base_time_per_iteration_ms as f64
-            * self.t_cost as f64
-            * memory_factor
-            * parallelism_factor) as u64
+        (base_time_per_iteration_ms as f64 * self.t_cost as f64 * memory_factor * parallelism_factor) as u64
     }
 }
 
@@ -278,62 +256,37 @@ mod tests {
     fn test_invalid_m_cost() {
         let result = Argon2Config::new(4, 3, 1);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Argon2ConfigError::InvalidParams(_)
-        ));
+        assert!(matches!(result.unwrap_err(), Argon2ConfigError::InvalidParams(_)));
     }
 
     #[test]
     fn test_invalid_t_cost() {
         let result = Argon2Config::new(65536, 0, 1);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Argon2ConfigError::InvalidParams(_)
-        ));
+        assert!(matches!(result.unwrap_err(), Argon2ConfigError::InvalidParams(_)));
     }
 
     #[test]
     fn test_invalid_p_cost() {
         let result = Argon2Config::new(65536, 3, 0);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Argon2ConfigError::InvalidParams(_)
-        ));
+        assert!(matches!(result.unwrap_err(), Argon2ConfigError::InvalidParams(_)));
     }
 
     #[test]
     fn test_owasp_validation_m_cost_too_low() {
-        let config = Argon2Config {
-            m_cost: 4096,
-            t_cost: 3,
-            p_cost: 1,
-            output_len: Some(32),
-        };
+        let config = Argon2Config { m_cost: 4096, t_cost: 3, p_cost: 1, output_len: Some(32) };
         let result = config.validate_owasp();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Argon2ConfigError::OwaspValidation(_)
-        ));
+        assert!(matches!(result.unwrap_err(), Argon2ConfigError::OwaspValidation(_)));
     }
 
     #[test]
     fn test_owasp_validation_t_cost_too_low() {
-        let config = Argon2Config {
-            m_cost: 65536,
-            t_cost: 1,
-            p_cost: 1,
-            output_len: Some(32),
-        };
+        let config = Argon2Config { m_cost: 65536, t_cost: 1, p_cost: 1, output_len: Some(32) };
         let result = config.validate_owasp();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            Argon2ConfigError::OwaspValidation(_)
-        ));
+        assert!(matches!(result.unwrap_err(), Argon2ConfigError::OwaspValidation(_)));
     }
 
     #[test]
@@ -397,12 +350,7 @@ mod tests {
 
     #[test]
     fn test_backward_compatible_low_cost() {
-        let config = Argon2Config {
-            m_cost: 4096,
-            t_cost: 3,
-            p_cost: 1,
-            output_len: Some(32),
-        };
+        let config = Argon2Config { m_cost: 4096, t_cost: 3, p_cost: 1, output_len: Some(32) };
 
         assert!(config.validate().is_ok());
         assert!(config.validate_owasp().is_err());

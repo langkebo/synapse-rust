@@ -26,12 +26,16 @@ def run_command(command: list[str], env: dict[str, str]) -> int:
     return completed.returncode
 
 
-def run_command_captured(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+def run_command_captured(
+    command: list[str], env: dict[str, str]
+) -> subprocess.CompletedProcess:
     print("Running:", " ".join(command))
     return subprocess.run(command, env=env, capture_output=True, text=True)
 
 
-def write_report(report_path: str, command: list[str], completed: subprocess.CompletedProcess) -> None:
+def write_report(
+    report_path: str, command: list[str], completed: subprocess.CompletedProcess
+) -> None:
     report = [
         "command: " + " ".join(command),
         "exit_code: " + str(completed.returncode),
@@ -50,7 +54,9 @@ def write_report(report_path: str, command: list[str], completed: subprocess.Com
     print(f"Wrote pg_amcheck report to {path}")
 
 
-def run_psql(connection: dict[str, str], container: str | None, env: dict[str, str], sql: str) -> int:
+def run_psql(
+    connection: dict[str, str], container: str | None, env: dict[str, str], sql: str
+) -> int:
     if container:
         command = [
             "docker",
@@ -170,7 +176,10 @@ def main() -> int:
             return completed.returncode
         return run_command(command, env)
 
-    print("pg_amcheck is not available and PG_AMCHECK_CONTAINER is not set", file=sys.stderr)
+    print(
+        "pg_amcheck is not available and PG_AMCHECK_CONTAINER is not set",
+        file=sys.stderr,
+    )
     return 2
 
 

@@ -46,23 +46,23 @@ wait_for_db() {
     local max_attempts="${DB_WAIT_ATTEMPTS:-30}"
     local attempt=0
     local wait_interval="${DB_WAIT_INTERVAL:-2}"
-    
+
     log_info "等待数据库就绪..."
-    
+
     while [ $attempt -lt $max_attempts ]; do
         # 每次尝试前清理连接状态
         psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
-        
-        if psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
+
+        if psql "$DATABASE_URL" -c "SELECT 1" >/dev/null 2>&1; then
             log_success "数据库连接成功"
             return 0
         fi
-        
+
         attempt=$((attempt + 1))
         log_info "等待数据库... ($attempt/$max_attempts)"
         sleep $wait_interval
     done
-    
+
     log_error "数据库连接超时"
     return 1
 }
@@ -73,23 +73,23 @@ wait_for_redis() {
         log_info "Redis 已禁用，跳过"
         return 0
     fi
-    
+
     local max_attempts="${REDIS_WAIT_ATTEMPTS:-30}"
     local attempt=0
-    
+
     log_info "等待 Redis 就绪..."
-    
+
     while [ $attempt -lt $max_attempts ]; do
-        if redis-cli -u "$REDIS_URL" ping > /dev/null 2>&1; then
+        if redis-cli -u "$REDIS_URL" ping >/dev/null 2>&1; then
             log_success "Redis 连接成功"
             return 0
         fi
-        
+
         attempt=$((attempt + 1))
         log_info "等待 Redis... ($attempt/$max_attempts)"
         sleep 2
     done
-    
+
     log_warning "Redis 连接超时，继续启动..."
     return 0
 }
@@ -100,16 +100,16 @@ run_migrations() {
         log_info "跳过数据库迁移 (RUN_MIGRATIONS=false)"
         return 0
     fi
-    
+
     log_info "开始执行数据库迁移..."
-    
+
     mkdir -p "$LOG_DIR"
     local log_file="$LOG_DIR/migration_$(date +%Y%m%d_%H%M%S).log"
-    
+
     # 确保数据库连接处于干净状态
     log_debug "确保数据库连接处于干净状态..."
     psql "$DATABASE_URL" -c "ABORT;" >/dev/null 2>&1 || true
-    
+
     if [ -f "$SCRIPT_DIR/db_migrate.sh" ]; then
         log_info "使用迁移脚本执行..."
 
@@ -147,9 +147,9 @@ verify_migrations() {
         log_info "跳过架构验证 (VERIFY_SCHEMA=false)"
         return 0
     fi
-    
+
     log_info "验证数据库架构..."
-    
+
     # 简单验证 - 检查必要表是否存在
     local required_tables=(
         "users"
@@ -158,15 +158,15 @@ verify_migrations() {
         "events"
         "schema_migrations"
     )
-    
+
     for table in "${required_tables[@]}"; do
         local exists=$(psql "$DATABASE_URL" -t -c "
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_name = '$table'
             )
         " 2>/dev/null | tr -d ' ')
-        
+
         if [ "$exists" = "t" ]; then
             log_debug "表验证通过: $table"
         else
@@ -174,14 +174,14 @@ verify_migrations() {
             return 1
         fi
     done
-    
+
     log_success "架构验证通过"
     return 0
 }
 
 # 健康检查
 healthcheck_db() {
-    if ! psql "$DATABASE_URL" -c "SELECT 1" > /dev/null 2>&1; then
+    if ! psql "$DATABASE_URL" -c "SELECT 1" >/dev/null 2>&1; then
         log_error "数据库健康检查失败"
         return 1
     fi
@@ -192,8 +192,8 @@ healthcheck_redis() {
     if [ "${REDIS_ENABLED:-true}" != "true" ]; then
         return 0
     fi
-    
-    if ! redis-cli -u "$REDIS_URL" ping > /dev/null 2>&1; then
+
+    if ! redis-cli -u "$REDIS_URL" ping >/dev/null 2>&1; then
         log_error "Redis 健康检查失败"
         return 1
     fi
@@ -206,17 +206,17 @@ start_application() {
     log_info "synapse-rust 容器启动"
     log_info "版本: $(date '+%Y-%m-%d %H:%M:%S')"
     log_info "=========================================="
-    
+
     # 设置配置文件路径
     export SYNAPSE_CONFIG_PATH="${SYNAPSE_CONFIG_PATH:-/app/config/homeserver.yaml}"
-    
+
     if [ -f "$SYNAPSE_CONFIG_PATH" ]; then
         log_info "使用配置文件: $SYNAPSE_CONFIG_PATH"
     else
         log_error "配置文件不存在: $SYNAPSE_CONFIG_PATH"
         exit 1
     fi
-    
+
     if [ $# -gt 0 ]; then
         log_info "执行命令: $*"
         exec "$@"
@@ -231,7 +231,7 @@ main() {
     log_info "=========================================="
     log_info "synapse-rust 容器初始化"
     log_info "=========================================="
-    
+
     if ! wait_for_db; then
         log_error "数据库连接失败，退出"
         exit 1
@@ -259,7 +259,7 @@ main() {
     log_info "=========================================="
     log_info "启动应用服务"
     log_info "=========================================="
-    
+
     start_application "$@"
 }
 

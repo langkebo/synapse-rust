@@ -55,10 +55,7 @@ fn cleanup_expired_nonces() {
     let Ok(mut nonces) = NONCES.lock() else {
         return;
     };
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let ten_minutes_ago = now.saturating_sub(600);
     nonces.retain(|_, data| data.created_at > ten_minutes_ago);
 }
@@ -73,13 +70,10 @@ pub fn create_register_router(state: AppState) -> Router<AppState> {
 pub fn admin_register_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/register/nonce"),
-        (Method::POST, "/_synapse/admin/v1/register"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::register"))
-    .collect()
+    [(Method::GET, "/_synapse/admin/v1/register/nonce"), (Method::POST, "/_synapse/admin/v1/register")]
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "admin::register"))
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -132,19 +126,14 @@ struct RegisterError {
 }
 
 fn register_error_response(status: u16, errcode: &str, error: impl Into<String>) -> Response<Body> {
-    let body = serde_json::to_string(&RegisterError {
-        errcode: errcode.to_string(),
-        error: error.into(),
-    })
-    .unwrap_or_else(|_| r#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_string());
+    let body = serde_json::to_string(&RegisterError { errcode: errcode.to_string(), error: error.into() })
+        .unwrap_or_else(|_| r#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_string());
 
     let mut response = Response::new(Body::from(body));
-    *response.status_mut() =
-        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("application/json"),
-    );
+    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    response
+        .headers_mut()
+        .insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"));
     response
 }
 
@@ -178,8 +167,7 @@ fn verify_mac(
         return false;
     };
 
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes())
-        .expect("HMAC-SHA256 accepts keys of any size");
+    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).expect("HMAC-SHA256 accepts keys of any size");
     mac.update(nonce.as_bytes());
     mac.update(b"\x00");
     mac.update(username.as_bytes());
@@ -200,11 +188,7 @@ fn verify_mac(
 }
 
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
-    let priority = vec![
-        "x-forwarded-for".to_string(),
-        "x-real-ip".to_string(),
-        "forwarded".to_string(),
-    ];
+    let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
     extract_client_ip(headers, &priority)
 }
 
@@ -212,9 +196,7 @@ fn is_local_client_ip(ip: &str) -> bool {
     if ip.eq_ignore_ascii_case("localhost") {
         return true;
     }
-    ip.parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    ip.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_registration_origin(value: &str) -> bool {
@@ -231,28 +213,17 @@ fn is_local_registration_origin(value: &str) -> bool {
         return true;
     }
     let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
-    normalized_host
-        .parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_registration_host(value: &str) -> bool {
-    let candidate = value
-        .split(',')
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let candidate = value.split(',').next().map(str::trim).filter(|value| !value.is_empty());
 
     let Some(candidate) = candidate else {
         return false;
     };
 
-    let candidate = if candidate.contains("://") {
-        candidate.to_string()
-    } else {
-        format!("http://{candidate}")
-    };
+    let candidate = if candidate.contains("://") { candidate.to_string() } else { format!("http://{candidate}") };
 
     let Ok(url) = Url::parse(&candidate) else {
         return false;
@@ -266,10 +237,7 @@ fn is_local_registration_host(value: &str) -> bool {
     }
 
     let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
-    normalized_host
-        .parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_proxy_ip(ip: IpAddr) -> bool {
@@ -289,18 +257,11 @@ fn request_targets_localhost(headers: &HeaderMap) -> bool {
         return true;
     }
 
-    if headers
-        .get("origin")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(is_local_registration_origin)
-    {
+    if headers.get("origin").and_then(|value| value.to_str().ok()).is_some_and(is_local_registration_origin) {
         return true;
     }
 
-    headers
-        .get("referer")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(is_local_registration_origin)
+    headers.get("referer").and_then(|value| value.to_str().ok()).is_some_and(is_local_registration_origin)
 }
 
 fn ensure_local_admin_registration_request(
@@ -313,8 +274,7 @@ fn ensure_local_admin_registration_request(
     }
 
     let remote_ip = connect_info.0.ip();
-    let proxied_localhost_request =
-        is_local_proxy_ip(remote_ip) && request_targets_localhost(headers);
+    let proxied_localhost_request = is_local_proxy_ip(remote_ip) && request_targets_localhost(headers);
     if !remote_ip.is_loopback() && !proxied_localhost_request {
         return Err(Box::new(register_error_response(
             403,
@@ -357,9 +317,7 @@ fn ensure_local_admin_registration_request(
 }
 
 fn runtime_environment() -> String {
-    std::env::var("RUST_ENV")
-        .unwrap_or_else(|_| "production".to_string())
-        .to_ascii_lowercase()
+    std::env::var("RUST_ENV").unwrap_or_else(|_| "production".to_string()).to_ascii_lowercase()
 }
 
 fn ensure_admin_registration_environment(production_only: bool) -> Result<(), Box<Response<Body>>> {
@@ -410,9 +368,7 @@ fn ensure_admin_registration_ip_policy(
         )));
     }
 
-    if let Some(client_ip) =
-        extract_registration_client_ip(headers).and_then(|ip| ip.parse::<IpAddr>().ok())
-    {
+    if let Some(client_ip) = extract_registration_client_ip(headers).and_then(|ip| ip.parse::<IpAddr>().ok()) {
         if !ip_matches_whitelist(client_ip, ip_whitelist) {
             return Err(Box::new(register_error_response(
                 403,
@@ -430,55 +386,35 @@ async fn verify_additional_registration_controls(
     payload: &RegisterRequest,
 ) -> Result<(), Response<Body>> {
     if state.services.config.admin_registration.require_captcha {
-        let captcha_id = payload.captcha_id.as_ref().ok_or_else(|| {
-            register_error_response(400, "M_INVALID_PARAM", "captcha_id is required")
-        })?;
-        let captcha_code = payload.captcha_code.as_ref().ok_or_else(|| {
-            register_error_response(400, "M_INVALID_PARAM", "captcha_code is required")
-        })?;
+        let captcha_id = payload
+            .captcha_id
+            .as_ref()
+            .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_id is required"))?;
+        let captcha_code = payload
+            .captcha_code
+            .as_ref()
+            .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_code is required"))?;
 
         let verified = state
             .services
             .captcha_service
-            .verify_captcha(VerifyCaptchaRequest {
-                captcha_id: captcha_id.clone(),
-                code: captcha_code.clone(),
-            })
+            .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;
 
         if !verified {
-            return Err(register_error_response(
-                400,
-                "M_FORBIDDEN",
-                "Captcha verification failed",
-            ));
+            return Err(register_error_response(400, "M_FORBIDDEN", "Captcha verification failed"));
         }
     }
 
-    if state
-        .services
-        .config
-        .admin_registration
-        .require_manual_approval
-    {
-        let approval_token = payload.approval_token.as_ref().ok_or_else(|| {
-            register_error_response(400, "M_INVALID_PARAM", "approval_token is required")
-        })?;
+    if state.services.config.admin_registration.require_manual_approval {
+        let approval_token = payload
+            .approval_token
+            .as_ref()
+            .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "approval_token is required"))?;
 
-        if !state
-            .services
-            .config
-            .admin_registration
-            .approval_tokens
-            .iter()
-            .any(|token| token == approval_token)
-        {
-            return Err(register_error_response(
-                403,
-                "M_FORBIDDEN",
-                "Manual approval token is invalid",
-            ));
+        if !state.services.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
+            return Err(register_error_response(403, "M_FORBIDDEN", "Manual approval token is invalid"));
         }
     }
 
@@ -495,24 +431,15 @@ async fn get_nonce(
 
     // 检查是否启用
     if !config.admin_registration.enabled {
-        return Err(register_error_response(
-            400,
-            "M_UNKNOWN",
-            "Admin registration is not enabled",
-        ));
+        return Err(register_error_response(400, "M_UNKNOWN", "Admin registration is not enabled"));
     }
 
     // 检查 shared_secret
     if config.admin_registration.shared_secret.is_empty() {
-        return Err(register_error_response(
-            400,
-            "M_UNKNOWN",
-            "Shared secret is not configured",
-        ));
+        return Err(register_error_response(400, "M_UNKNOWN", "Shared secret is not configured"));
     }
 
-    ensure_admin_registration_environment(config.admin_registration.production_only)
-        .map_err(|response| *response)?;
+    ensure_admin_registration_environment(config.admin_registration.production_only).map_err(|response| *response)?;
     ensure_admin_registration_ip_policy(
         &headers,
         &connect_info,
@@ -533,16 +460,8 @@ async fn get_nonce(
 
     // 存储 nonce
     {
-        let mut nonces = NONCES
-            .lock()
-            .map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
-        nonces.insert(
-            nonce.clone(),
-            NonceData {
-                created_at: now,
-                expires_at: now + timeout,
-            },
-        );
+        let mut nonces = NONCES.lock().map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
+        nonces.insert(nonce.clone(), NonceData { created_at: now, expires_at: now + timeout });
     }
 
     Ok(Json(NonceResponse { nonce }))
@@ -557,26 +476,17 @@ async fn register(
 ) -> Result<Json<RegisterResponse>, Response<Body>> {
     // Validate input
     if let Err(e) = payload.validate() {
-        return Err(register_error_response(
-            400,
-            "M_INVALID_PARAM",
-            format!("Validation error: {e}"),
-        ));
+        return Err(register_error_response(400, "M_INVALID_PARAM", format!("Validation error: {e}")));
     }
 
     let config = &state.services.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
-        return Err(register_error_response(
-            400,
-            "M_UNKNOWN",
-            "Admin registration is not enabled",
-        ));
+        return Err(register_error_response(400, "M_UNKNOWN", "Admin registration is not enabled"));
     }
 
-    ensure_admin_registration_environment(config.admin_registration.production_only)
-        .map_err(|response| *response)?;
+    ensure_admin_registration_environment(config.admin_registration.production_only).map_err(|response| *response)?;
     ensure_admin_registration_ip_policy(
         &headers,
         &connect_info,
@@ -588,9 +498,7 @@ async fn register(
 
     // 验证 nonce
     let nonce_valid = {
-        let mut nonces = NONCES
-            .lock()
-            .map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
+        let mut nonces = NONCES.lock().map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
         if let Some(data) = nonces.get(&payload.nonce) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -608,11 +516,7 @@ async fn register(
     };
 
     if !nonce_valid {
-        return Err(register_error_response(
-            400,
-            "M_UNKNOWN",
-            "Unrecognised nonce",
-        ));
+        return Err(register_error_response(400, "M_UNKNOWN", "Unrecognised nonce"));
     }
 
     // 验证 HMAC
@@ -642,14 +546,8 @@ async fn register(
         config.access_token_lifetime_seconds(),
     );
 
-    let register_result = auth_service
-        .register(
-            &payload.username,
-            &payload.password,
-            payload.admin,
-            Some(&display_name),
-        )
-        .await;
+    let register_result =
+        auth_service.register(&payload.username, &payload.password, payload.admin, Some(&display_name)).await;
 
     match register_result {
         Ok((_user, access_token, refresh_token, device_id)) => {
@@ -660,11 +558,7 @@ async fn register(
                     .execute(&*state.services.user_storage.pool)
                     .await
                     .map_err(|e| {
-                        register_error_response(
-                            500,
-                            "M_UNKNOWN",
-                            format!("Failed to persist user_type: {e}"),
-                        )
+                        register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
                     })?;
             }
 
@@ -687,17 +581,9 @@ async fn register(
                 || error_msg_lower.contains("user_in_use")
                 || error_msg_lower.contains("m_user_in_use");
             if user_conflict {
-                Err(register_error_response(
-                    400,
-                    "M_USER_IN_USE",
-                    "User already exists",
-                ))
+                Err(register_error_response(400, "M_USER_IN_USE", "User already exists"))
             } else {
-                Err(register_error_response(
-                    500,
-                    "M_UNKNOWN",
-                    format!("Failed to create user: {error_msg}"),
-                ))
+                Err(register_error_response(500, "M_UNKNOWN", format!("Failed to create user: {error_msg}")))
             }
         }
     }
@@ -781,17 +667,8 @@ mod tests {
     #[test]
     fn test_ip_matches_whitelist_supports_ip_and_cidr() {
         let whitelist = vec!["127.0.0.1".to_string(), "10.0.0.0/8".to_string()];
-        assert!(ip_matches_whitelist(
-            "127.0.0.1".parse().unwrap(),
-            &whitelist
-        ));
-        assert!(ip_matches_whitelist(
-            "10.10.1.3".parse().unwrap(),
-            &whitelist
-        ));
-        assert!(!ip_matches_whitelist(
-            "192.168.1.10".parse().unwrap(),
-            &whitelist
-        ));
+        assert!(ip_matches_whitelist("127.0.0.1".parse().unwrap(), &whitelist));
+        assert!(ip_matches_whitelist("10.10.1.3".parse().unwrap(), &whitelist));
+        assert!(!ip_matches_whitelist("192.168.1.10".parse().unwrap(), &whitelist));
     }
 }

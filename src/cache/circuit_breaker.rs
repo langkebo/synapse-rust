@@ -30,11 +30,7 @@ struct SlidingWindow {
 
 impl SlidingWindow {
     fn new(window_size: Duration) -> Self {
-        Self {
-            failures: Vec::new(),
-            successes: Vec::new(),
-            window_size,
-        }
+        Self { failures: Vec::new(), successes: Vec::new(), window_size }
     }
 
     fn record_failure(&mut self) {
@@ -86,22 +82,10 @@ impl std::fmt::Debug for CircuitBreaker {
             .field("state", &*self.state.read())
             .field("opened_at", &*self.opened_at.read())
             .field("metrics", &*self.metrics.read())
-            .field(
-                "total_requests",
-                &self.total_requests.load(Ordering::Relaxed),
-            )
-            .field(
-                "successful_requests",
-                &self.successful_requests.load(Ordering::Relaxed),
-            )
-            .field(
-                "failed_requests",
-                &self.failed_requests.load(Ordering::Relaxed),
-            )
-            .field(
-                "rejected_requests",
-                &self.rejected_requests.load(Ordering::Relaxed),
-            )
+            .field("total_requests", &self.total_requests.load(Ordering::Relaxed))
+            .field("successful_requests", &self.successful_requests.load(Ordering::Relaxed))
+            .field("failed_requests", &self.failed_requests.load(Ordering::Relaxed))
+            .field("rejected_requests", &self.rejected_requests.load(Ordering::Relaxed))
             .finish()
     }
 }
@@ -111,9 +95,7 @@ impl CircuitBreaker {
         Self {
             state: RwLock::new(CircuitState::Closed),
             opened_at: RwLock::new(None),
-            window: RwLock::new(SlidingWindow::new(Duration::from_secs(
-                config.window_size_seconds,
-            ))),
+            window: RwLock::new(SlidingWindow::new(Duration::from_secs(config.window_size_seconds))),
             metrics: RwLock::new(CircuitBreakerMetrics::default()),
             total_requests: AtomicU64::new(0),
             successful_requests: AtomicU64::new(0),
@@ -388,10 +370,7 @@ mod tests {
 
     #[test]
     fn test_circuit_breaker_disabled() {
-        let config = CircuitBreakerConfig {
-            enabled: false,
-            ..test_config()
-        };
+        let config = CircuitBreakerConfig { enabled: false, ..test_config() };
         let cb = CircuitBreaker::new(config);
 
         for _ in 0..10 {

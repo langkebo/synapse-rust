@@ -6,13 +6,7 @@ mod regex_cache_integration_tests {
     fn test_regex_cache_multiple_patterns() {
         let cache = RegexCache::new();
 
-        let patterns = [
-            r"\d+",
-            r"[a-z]+",
-            r"\w+",
-            r"\d{4}-\d{2}-\d{2}",
-            r"[A-Z][a-z]+",
-        ];
+        let patterns = [r"\d+", r"[a-z]+", r"\w+", r"\d{4}-\d{2}-\d{2}", r"[A-Z][a-z]+"];
 
         let test_strings = ["123", "abc", "test_123", "2023-10-27", "Hello"];
 
@@ -68,9 +62,7 @@ mod regex_cache_integration_tests {
         let email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$";
 
         assert!(cache.is_match(email_pattern, "test@example.com").unwrap());
-        assert!(cache
-            .is_match(email_pattern, "user.name@domain.co.uk")
-            .unwrap());
+        assert!(cache.is_match(email_pattern, "user.name@domain.co.uk").unwrap());
         assert!(!cache.is_match(email_pattern, "invalid-email").unwrap());
         assert!(!cache.is_match(email_pattern, "@missing-local.com").unwrap());
         assert!(!cache.is_match(email_pattern, "missing@domain").unwrap());
@@ -82,16 +74,15 @@ mod regex_cache_integration_tests {
         let url_pattern = r"^(https?|ftp)://[^\s/$.?#].[^\s]*$";
 
         assert!(cache.is_match(url_pattern, "http://example.com").unwrap());
-        assert!(cache
-            .is_match(url_pattern, "https://www.example.com/path")
-            .unwrap());
+        assert!(cache.is_match(url_pattern, "https://www.example.com/path").unwrap());
         assert!(!cache.is_match(url_pattern, "not-a-url").unwrap());
     }
 
     #[test]
     fn test_regex_cache_ipv4_patterns() {
         let cache = RegexCache::new();
-        let ipv4_pattern = r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
+        let ipv4_pattern =
+            r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
 
         assert!(cache.is_match(ipv4_pattern, "192.168.1.1").unwrap());
         assert!(cache.is_match(ipv4_pattern, "255.255.255.255").unwrap());

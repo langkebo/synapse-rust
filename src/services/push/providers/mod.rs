@@ -20,39 +20,19 @@ pub struct PushResult {
 
 impl PushResult {
     pub fn success() -> Self {
-        Self {
-            is_success: true,
-            error: None,
-            provider_response: None,
-            should_retry: false,
-        }
+        Self { is_success: true, error: None, provider_response: None, should_retry: false }
     }
 
     pub fn success_with_response(response: &str) -> Self {
-        Self {
-            is_success: true,
-            error: None,
-            provider_response: Some(response.to_string()),
-            should_retry: false,
-        }
+        Self { is_success: true, error: None, provider_response: Some(response.to_string()), should_retry: false }
     }
 
     pub fn failure(error: &str) -> Self {
-        Self {
-            is_success: false,
-            error: Some(error.to_string()),
-            provider_response: None,
-            should_retry: false,
-        }
+        Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: false }
     }
 
     pub fn retryable_failure(error: &str) -> Self {
-        Self {
-            is_success: false,
-            error: Some(error.to_string()),
-            provider_response: None,
-            should_retry: true,
-        }
+        Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: true }
     }
 }
 
@@ -84,10 +64,7 @@ pub trait PushProvider: Send + Sync {
 
     async fn send(&self, token: &str, payload: &NotificationPayload) -> PushResult;
 
-    async fn send_batch(
-        &self,
-        messages: Vec<(String, NotificationPayload)>,
-    ) -> Vec<(String, PushResult)> {
+    async fn send_batch(&self, messages: Vec<(String, NotificationPayload)>) -> Vec<(String, PushResult)> {
         let mut results = Vec::new();
         for (token, payload) in messages {
             let result = self.send(&token, &payload).await;

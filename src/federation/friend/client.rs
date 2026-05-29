@@ -19,12 +19,10 @@ pub struct FriendFederationClient {
 
 impl FriendFederationClient {
     pub fn new(server_name: String, key_rotation_manager: Option<Arc<KeyRotationManager>>) -> Self {
-        let signing_key_id =
-            std::env::var("FEDERATION_SIGNING_KEY_ID").unwrap_or_else(|_| "ed25519:0".to_string());
+        let signing_key_id = std::env::var("FEDERATION_SIGNING_KEY_ID").unwrap_or_else(|_| "ed25519:0".to_string());
 
-        let signing_key = std::env::var("FEDERATION_SIGNING_KEY")
-            .ok()
-            .and_then(|key_b64| Self::decode_signing_key(&key_b64));
+        let signing_key =
+            std::env::var("FEDERATION_SIGNING_KEY").ok().and_then(|key_b64| Self::decode_signing_key(&key_b64));
 
         Self {
             client: Client::new(),
@@ -57,13 +55,7 @@ impl FriendFederationClient {
         destination: &str,
         content: Option<&Value>,
     ) -> String {
-        let message = canonical_federation_request_bytes(
-            method,
-            path,
-            &self.server_name,
-            destination,
-            content,
-        );
+        let message = canonical_federation_request_bytes(method, path, &self.server_name, destination, content);
 
         let signature = signing_key.sign(&message);
         let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
@@ -82,21 +74,14 @@ impl FriendFederationClient {
         content: Option<&Value>,
     ) -> Result<String, ApiError> {
         if let Some(signing_key) = self.signing_key.as_ref() {
-            return Ok(self.build_auth_header(
-                &self.signing_key_id,
-                signing_key,
-                method,
-                path,
-                destination,
-                content,
-            ));
+            return Ok(self.build_auth_header(&self.signing_key_id, signing_key, method, path, destination, content));
         }
 
         if let Some(key_rotation_manager) = &self.key_rotation_manager {
-            if let Some(current_key) =
-                key_rotation_manager.get_current_key().await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to load federation signing key", &e)
-                })?
+            if let Some(current_key) = key_rotation_manager
+                .get_current_key()
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to load federation signing key", &e))?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
                     return Ok(self.build_auth_header(
@@ -111,35 +96,23 @@ impl FriendFederationClient {
             }
         }
 
-        if !self
-            .missing_signing_key_logged
-            .swap(true, Ordering::Relaxed)
-        {
+        if !self.missing_signing_key_logged.swap(true, Ordering::Relaxed) {
             tracing::warn!(
                 "Friend federation signing key unavailable; checked FEDERATION_SIGNING_KEY and database-managed federation keys"
             );
         }
 
-        Err(ApiError::internal(
-            "Federation signing key not configured".to_string(),
-        ))
+        Err(ApiError::internal("Federation signing key not configured".to_string()))
     }
 
-    pub async fn send_invite(
-        &self,
-        destination: &str,
-        _room_id: &str,
-        content: &Value,
-    ) -> ApiResult<()> {
+    pub async fn send_invite(&self, destination: &str, _room_id: &str, content: &Value) -> ApiResult<()> {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{destination}{path}");
 
-        let body_str = serde_json::to_string(content)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize body", &e))?;
+        let body_str =
+            serde_json::to_string(content).map_err(|e| ApiError::internal_with_log("Failed to serialize body", &e))?;
 
-        let auth_header = self
-            .sign_request("PUT", &path, destination, Some(content))
-            .await?;
+        let auth_header = self.sign_request("PUT", &path, destination, Some(content)).await?;
 
         tracing::info!("Sending federation invite to {}", url);
         let response = self
@@ -153,20 +126,13 @@ impl FriendFederationClient {
             .map_err(|e| ApiError::internal_with_log("Federation request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Remote server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Remote server returned error", &response.status()));
         }
 
         Ok(())
     }
 
-    pub async fn query_remote_friends(
-        &self,
-        destination: &str,
-        user_id: &str,
-    ) -> ApiResult<Vec<String>> {
+    pub async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>> {
         let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
         let url = format!("https://{destination}{path}");
 
@@ -186,16 +152,11 @@ impl FriendFederationClient {
         }
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Remote server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Remote server returned error", &response.status()));
         }
 
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+        let body: Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
         let friends = body
             .get("friends")

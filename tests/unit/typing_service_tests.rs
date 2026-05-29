@@ -9,16 +9,10 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing
-        service
-            .set_typing("!room:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
 
         // Check if user is typing
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_some());
     }
 
@@ -27,22 +21,13 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing
-        service
-            .set_typing("!room:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
 
         // Clear typing
-        service
-            .clear_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        service.clear_typing("!room:example.com", "@user:example.com").await.unwrap();
 
         // Should not be typing
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -51,14 +36,8 @@ mod tests {
         let service = TypingService::new();
 
         // Set multiple users typing
-        service
-            .set_typing("!room:example.com", "@user1:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room:example.com", "@user2:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user1:example.com", 30000).await.unwrap();
+        service.set_typing("!room:example.com", "@user2:example.com", 30000).await.unwrap();
 
         // Get typing users
         let users = service.get_typing_users("!room:example.com").await.unwrap();
@@ -73,10 +52,7 @@ mod tests {
         let service = TypingService::new();
 
         // Check user who hasn't typed
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -85,24 +61,12 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing in different rooms
-        service
-            .set_typing("!room1:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room2:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room1:example.com", "@user:example.com", 30000).await.unwrap();
+        service.set_typing("!room2:example.com", "@user:example.com", 30000).await.unwrap();
 
         // Should be typing in both rooms
-        let users1 = service
-            .get_typing_users("!room1:example.com")
-            .await
-            .unwrap();
-        let users2 = service
-            .get_typing_users("!room2:example.com")
-            .await
-            .unwrap();
+        let users1 = service.get_typing_users("!room1:example.com").await.unwrap();
+        let users2 = service.get_typing_users("!room2:example.com").await.unwrap();
 
         assert!(users1.contains_key("@user:example.com"));
         assert!(users2.contains_key("@user:example.com"));
@@ -113,19 +77,13 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing with very short timeout (would expire)
-        service
-            .set_typing("!room:example.com", "@user:example.com", 0)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 0).await.unwrap();
 
         // Clear expired
         service.clear_expired_typing().await.unwrap();
 
         // Should be cleared
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -134,16 +92,10 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing with specific timeout
-        service
-            .set_typing("!room:example.com", "@user:example.com", 5000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 5000).await.unwrap();
 
         // Check timeout value
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert_eq!(timeout, Some(5000));
     }
 }

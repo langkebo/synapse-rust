@@ -17,9 +17,7 @@ async fn setup_test_database() -> Option<Arc<PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping filter storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping filter storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -56,10 +54,7 @@ fn test_create_filter_request_construction() {
     };
     assert_eq!(request.user_id, "@alice:example.com");
     assert_eq!(request.filter_id, "my_filter");
-    assert_eq!(
-        request.content.get("room").unwrap().get("timeline").unwrap().get("limit"),
-        Some(&json!(50))
-    );
+    assert_eq!(request.content.get("room").unwrap().get("timeline").unwrap().get("limit"), Some(&json!(50)));
 }
 
 #[test]
@@ -183,10 +178,7 @@ async fn test_create_filter_success() {
     assert_eq!(filter.user_id, user_id);
     assert_eq!(filter.filter_id, "filter_1");
     assert!(filter.created_ts > 0);
-    assert_eq!(
-        filter.content.get("room").unwrap().get("timeline").unwrap().get("limit"),
-        Some(&json!(100))
-    );
+    assert_eq!(filter.content.get("room").unwrap().get("timeline").unwrap().get("limit"), Some(&json!(100)));
 }
 
 #[tokio::test]
@@ -201,11 +193,8 @@ async fn test_create_filter_sets_created_ts() {
 
     let before = chrono::Utc::now().timestamp_millis();
 
-    let request = CreateFilterRequest {
-        user_id: user_id.clone(),
-        filter_id: "ts_filter".to_string(),
-        content: json!({}),
-    };
+    let request =
+        CreateFilterRequest { user_id: user_id.clone(), filter_id: "ts_filter".to_string(), content: json!({}) };
 
     let filter = storage.create_filter(request).await.unwrap();
     let after = chrono::Utc::now().timestamp_millis();
@@ -275,10 +264,7 @@ async fn test_get_filter_not_found() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let result = storage
-        .get_filter(&format!("@nobody_{suffix}:localhost"), "no_filter")
-        .await
-        .unwrap();
+    let result = storage.get_filter(&format!("@nobody_{suffix}:localhost"), "no_filter").await.unwrap();
     assert!(result.is_none());
 }
 
@@ -292,17 +278,11 @@ async fn test_get_filter_wrong_user() {
     let suffix = unique_id();
     let user_id = format!("@filter_owner_{suffix}:localhost");
 
-    let request = CreateFilterRequest {
-        user_id: user_id.clone(),
-        filter_id: "owned_filter".to_string(),
-        content: json!({}),
-    };
+    let request =
+        CreateFilterRequest { user_id: user_id.clone(), filter_id: "owned_filter".to_string(), content: json!({}) };
     storage.create_filter(request).await.unwrap();
 
-    let result = storage
-        .get_filter(&format!("@other_{suffix}:localhost"), "owned_filter")
-        .await
-        .unwrap();
+    let result = storage.get_filter(&format!("@other_{suffix}:localhost"), "owned_filter").await.unwrap();
     assert!(result.is_none());
 }
 
@@ -342,10 +322,7 @@ async fn test_get_filters_by_user_empty() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let filters = storage
-        .get_filters_by_user(&format!("@empty_{suffix}:localhost"))
-        .await
-        .unwrap();
+    let filters = storage.get_filters_by_user(&format!("@empty_{suffix}:localhost")).await.unwrap();
     assert!(filters.is_empty());
 }
 
@@ -393,11 +370,8 @@ async fn test_delete_filter_success() {
     let suffix = unique_id();
     let user_id = format!("@filter_del_{suffix}:localhost");
 
-    let request = CreateFilterRequest {
-        user_id: user_id.clone(),
-        filter_id: "del_filter".to_string(),
-        content: json!({}),
-    };
+    let request =
+        CreateFilterRequest { user_id: user_id.clone(), filter_id: "del_filter".to_string(), content: json!({}) };
     storage.create_filter(request).await.unwrap();
 
     let deleted = storage.delete_filter(&user_id, "del_filter").await.unwrap();
@@ -416,10 +390,7 @@ async fn test_delete_filter_not_found() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let deleted = storage
-        .delete_filter(&format!("@ghost_{suffix}:localhost"), "ghost_filter")
-        .await
-        .unwrap();
+    let deleted = storage.delete_filter(&format!("@ghost_{suffix}:localhost"), "ghost_filter").await.unwrap();
     assert!(!deleted);
 }
 
@@ -433,17 +404,11 @@ async fn test_delete_filter_wrong_user() {
     let suffix = unique_id();
     let user_id = format!("@filter_owner_del_{suffix}:localhost");
 
-    let request = CreateFilterRequest {
-        user_id: user_id.clone(),
-        filter_id: "owner_del".to_string(),
-        content: json!({}),
-    };
+    let request =
+        CreateFilterRequest { user_id: user_id.clone(), filter_id: "owner_del".to_string(), content: json!({}) };
     storage.create_filter(request).await.unwrap();
 
-    let deleted = storage
-        .delete_filter(&format!("@wrong_{suffix}:localhost"), "owner_del")
-        .await
-        .unwrap();
+    let deleted = storage.delete_filter(&format!("@wrong_{suffix}:localhost"), "owner_del").await.unwrap();
     assert!(!deleted);
 
     let found = storage.get_filter(&user_id, "owner_del").await.unwrap();
@@ -485,10 +450,7 @@ async fn test_delete_filters_by_user_empty() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let count = storage
-        .delete_filters_by_user(&format!("@no_filters_{suffix}:localhost"))
-        .await
-        .unwrap();
+    let count = storage.delete_filters_by_user(&format!("@no_filters_{suffix}:localhost")).await.unwrap();
     assert_eq!(count, 0);
 }
 
@@ -570,11 +532,7 @@ async fn test_create_filter_with_various_content_types() {
         "nested": {"deep": {"key": "value"}}
     });
 
-    let request = CreateFilterRequest {
-        user_id: user_id.clone(),
-        filter_id: "content_filter".to_string(),
-        content,
-    };
+    let request = CreateFilterRequest { user_id: user_id.clone(), filter_id: "content_filter".to_string(), content };
 
     let filter = storage.create_filter(request).await.unwrap();
     assert_eq!(filter.content.get("string_val"), Some(&json!("hello")));
@@ -582,8 +540,5 @@ async fn test_create_filter_with_various_content_types() {
     assert_eq!(filter.content.get("bool_val"), Some(&json!(true)));
     assert_eq!(filter.content.get("null_val"), Some(&json!(null)));
     assert_eq!(filter.content.get("array_val"), Some(&json!([1, 2, 3])));
-    assert_eq!(
-        filter.content.get("nested").unwrap().get("deep").unwrap().get("key"),
-        Some(&json!("value"))
-    );
+    assert_eq!(filter.content.get("nested").unwrap().get("deep").unwrap().get("key"), Some(&json!("value")));
 }

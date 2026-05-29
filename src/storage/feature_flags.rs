@@ -88,10 +88,7 @@ pub struct FeatureFlagStorage {
 
 impl FeatureFlagStorage {
     pub fn new(pool: &Arc<PgPool>, cache: Arc<CacheManager>) -> Self {
-        Self {
-            pool: pool.clone(),
-            cache,
-        }
+        Self { pool: pool.clone(), cache }
     }
 
     pub async fn create_flag(
@@ -130,29 +127,13 @@ impl FeatureFlagStorage {
         .fetch_one(&mut *transaction)
         .await?;
 
-        let targets = self
-            .replace_targets(
-                &mut transaction,
-                &request.flag_key,
-                created_ts,
-                &request.targets,
-            )
-            .await?;
+        let targets = self.replace_targets(&mut transaction, &request.flag_key, created_ts, &request.targets).await?;
 
         transaction.commit().await?;
 
         let flag = to_feature_flag(record, targets);
-        let _ = self
-            .cache
-            .set(
-                &Self::flag_cache_key(&flag.flag_key),
-                &flag,
-                FEATURE_FLAG_CACHE_TTL_SECS,
-            )
-            .await;
-        self.cache
-            .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
-            .await;
+        let _ = self.cache.set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
+        self.cache.delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix).await;
 
         Ok(flag)
     }
@@ -192,10 +173,7 @@ impl FeatureFlagStorage {
         };
 
         let targets = match &request.targets {
-            Some(targets) => {
-                self.replace_targets(&mut transaction, flag_key, updated_ts, targets)
-                    .await?
-            }
+            Some(targets) => self.replace_targets(&mut transaction, flag_key, updated_ts, targets).await?,
             None => Vec::new(),
         };
 
@@ -209,17 +187,8 @@ impl FeatureFlagStorage {
         };
 
         let flag = to_feature_flag(record, targets);
-        let _ = self
-            .cache
-            .set(
-                &Self::flag_cache_key(&flag.flag_key),
-                &flag,
-                FEATURE_FLAG_CACHE_TTL_SECS,
-            )
-            .await;
-        self.cache
-            .delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix)
-            .await;
+        let _ = self.cache.set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
+        self.cache.delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix).await;
 
         Ok(Some(flag))
     }
@@ -247,25 +216,18 @@ impl FeatureFlagStorage {
 
         let targets = self.list_targets(&[flag_key.to_string()]).await?;
         let flag = to_feature_flag(record, targets.get(flag_key).cloned().unwrap_or_default());
-        let _ = self
-            .cache
-            .set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS)
-            .await;
+        let _ = self.cache.set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
 
         Ok(Some(flag))
     }
 
-    pub async fn list_flags(
-        &self,
-        filters: &FeatureFlagFilters,
-    ) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
+    pub async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
         let cache_key = Self::flag_list_cache_key(filters);
         if let Ok(Some(cached)) = self.cache.get::<(Vec<FeatureFlag>, i64)>(&cache_key).await {
             return Ok(cached);
         }
 
-        let mut count_query =
-            QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM feature_flags WHERE 1=1");
+        let mut count_query = QueryBuilder::<Postgres>::new("SELECT COUNT(*)::BIGINT FROM feature_flags WHERE 1=1");
         if let Some(ref target_scope) = filters.target_scope {
             count_query.push(" AND target_scope = ");
             count_query.push_bind(target_scope);
@@ -274,10 +236,7 @@ impl FeatureFlagStorage {
             count_query.push(" AND status = ");
             count_query.push_bind(status);
         }
-        let total = count_query
-            .build_query_scalar::<i64>()
-            .fetch_one(&*self.pool)
-            .await?;
+        let total = count_query.build_query_scalar::<i64>().fetch_one(&*self.pool).await?;
 
         let mut query = QueryBuilder::<Postgres>::new(
             "SELECT flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts FROM feature_flags WHERE 1=1",
@@ -304,14 +263,8 @@ impl FeatureFlagStorage {
         query.push(" ORDER BY updated_ts DESC, flag_key ASC LIMIT ");
         query.push_bind(filters.limit);
 
-        let records = query
-            .build_query_as::<FeatureFlagRecord>()
-            .fetch_all(&*self.pool)
-            .await?;
-        let keys: Vec<String> = records
-            .iter()
-            .map(|record| record.flag_key.clone())
-            .collect();
+        let records = query.build_query_as::<FeatureFlagRecord>().fetch_all(&*self.pool).await?;
+        let keys: Vec<String> = records.iter().map(|record| record.flag_key.clone()).collect();
         let targets = self.list_targets(&keys).await?;
 
         let flags = records
@@ -323,10 +276,7 @@ impl FeatureFlagStorage {
             .collect();
 
         let result = (flags, total);
-        let _ = self
-            .cache
-            .set(&cache_key, &result, FEATURE_FLAG_LIST_CACHE_TTL_SECS)
-            .await;
+        let _ = self.cache.set(&cache_key, &result, FEATURE_FLAG_LIST_CACHE_TTL_SECS).await;
 
         Ok(result)
     }
@@ -388,10 +338,7 @@ impl FeatureFlagStorage {
         }
         query.push(") ORDER BY created_ts ASC, id ASC");
 
-        let rows = query
-            .build_query_as::<FeatureFlagTargetRecord>()
-            .fetch_all(&*self.pool)
-            .await?;
+        let rows = query.build_query_as::<FeatureFlagTargetRecord>().fetch_all(&*self.pool).await?;
 
         let mut grouped: HashMap<String, Vec<FeatureFlagTargetRecord>> = HashMap::new();
         for row in rows {
@@ -411,18 +358,13 @@ impl FeatureFlagStorage {
             filters.target_scope.as_deref().unwrap_or("all"),
             filters.status.as_deref().unwrap_or("all"),
             filters.limit,
-            filters
-                .cursor_updated_ts
-                .map_or_else(String::new, |ts| ts.to_string()),
+            filters.cursor_updated_ts.map_or_else(String::new, |ts| ts.to_string()),
             filters.cursor_flag_key.as_deref().unwrap_or(""),
         )
     }
 }
 
-fn to_feature_flag(
-    record: FeatureFlagRecord,
-    targets: Vec<FeatureFlagTargetRecord>,
-) -> FeatureFlag {
+fn to_feature_flag(record: FeatureFlagRecord, targets: Vec<FeatureFlagTargetRecord>) -> FeatureFlag {
     FeatureFlag {
         flag_key: record.flag_key,
         target_scope: record.target_scope,
@@ -495,10 +437,7 @@ mod tests {
             .bind(&like_pattern)
             .execute(pool)
             .await?;
-        sqlx::query("DELETE FROM feature_flags WHERE flag_key LIKE $1")
-            .bind(&like_pattern)
-            .execute(pool)
-            .await?;
+        sqlx::query("DELETE FROM feature_flags WHERE flag_key LIKE $1").bind(&like_pattern).execute(pool).await?;
         Ok(())
     }
 
@@ -594,10 +533,7 @@ mod tests {
         storage
             .update_flag(
                 &flag_key_a,
-                &UpdateFeatureFlagRequest {
-                    status: Some("active".to_string()),
-                    ..Default::default()
-                },
+                &UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() },
                 created_ts + 2,
             )
             .await

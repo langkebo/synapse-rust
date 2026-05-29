@@ -1,4 +1,5 @@
 import psycopg2
+
 conn = psycopg2.connect("postgresql://synapse:synapse@localhost:5432/synapse_test")
 conn.autocommit = True
 cur = conn.cursor()

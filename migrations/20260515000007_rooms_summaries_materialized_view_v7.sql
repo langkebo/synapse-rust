@@ -25,7 +25,7 @@ SELECT
     r.created_ts,
     r.last_activity_ts,
     COALESCE(member_count.cnt, 0)                       AS joined_members,
-    COALESCE(member_count.cnt, 0) + 
+    COALESCE(member_count.cnt, 0) +
         COALESCE(invite_count.cnt, 0)                   AS total_members,
     COALESCE(invite_count.cnt, 0)                       AS invited_members,
     latest_event.event_id                               AS last_event_id,

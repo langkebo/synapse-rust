@@ -69,10 +69,7 @@ pub struct PushGatewayConfig {
 
 impl Default for PushGatewayConfig {
     fn default() -> Self {
-        Self {
-            timeout_secs: 30,
-            max_retries: 3,
-        }
+        Self { timeout_secs: 30, max_retries: 3 }
     }
 }
 
@@ -110,27 +107,16 @@ impl PushGateway {
         let status = response.status();
 
         if !status.is_success() {
-            let body = response
-                .text()
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
+            let body = response.text().await.map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
 
             error!("Push gateway returned error: {} - {}", status, body);
-            return Err(ApiError::internal_with_log(
-                "Push gateway error",
-                &status,
-            ));
+            return Err(ApiError::internal_with_log("Push gateway error", &status));
         }
 
-        let gateway_response: PushGatewayResponse = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
+        let gateway_response: PushGatewayResponse =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
 
-        debug!(
-            "Push gateway response: rejected {} devices",
-            gateway_response.rejected.len()
-        );
+        debug!("Push gateway response: rejected {} devices", gateway_response.rejected.len());
 
         Ok(gateway_response)
     }
@@ -155,10 +141,7 @@ impl PushGateway {
                 room_name: None,
                 room_alias: None,
                 user_is_target: None,
-                counts: NotificationCounts {
-                    missed_calls,
-                    unread: Some(unread_count),
-                },
+                counts: NotificationCounts { missed_calls, unread: Some(unread_count) },
                 devices: None,
             },
             devices: Some(devices),
@@ -172,13 +155,7 @@ impl PushGateway {
         data: Option<serde_json::Value>,
         tweaks: Option<serde_json::Value>,
     ) -> PushDevice {
-        PushDevice {
-            app_id: app_id.to_string(),
-            pushkey: pushkey.to_string(),
-            pushkey_ts: None,
-            data,
-            tweaks,
-        }
+        PushDevice { app_id: app_id.to_string(), pushkey: pushkey.to_string(), pushkey_ts: None, data, tweaks }
     }
 }
 
@@ -197,15 +174,8 @@ mod tests {
     fn test_build_notification() {
         let gateway = PushGateway::new(&PushGatewayConfig::default());
 
-        let notification = gateway.build_notification(
-            "event123",
-            "room123",
-            "m.room.message",
-            "@user:example.com",
-            5,
-            0,
-            vec![],
-        );
+        let notification =
+            gateway.build_notification("event123", "room123", "m.room.message", "@user:example.com", 5, 0, vec![]);
 
         assert_eq!(notification.notification.event_id, "event123");
         assert_eq!(notification.notification.room_id, "room123");
@@ -231,10 +201,7 @@ mod tests {
 
     #[test]
     fn test_notification_counts_serialization() {
-        let counts = NotificationCounts {
-            missed_calls: 0,
-            unread: Some(5),
-        };
+        let counts = NotificationCounts { missed_calls: 0, unread: Some(5) };
 
         let json = serde_json::to_string(&counts).unwrap();
         assert!(json.contains("missed_calls"));

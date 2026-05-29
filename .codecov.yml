@@ -1,18 +1,24 @@
-[codecov]
-require_ci=true
+codecov:
+  require_ci: true
+  uploaded_files:
+    artifacts: true
+    bundle: true
+    file_reports: true
+    flags: true
+    network: true
+    patch: true
+    files: true
 
-[coverage]
-precision=2
-range=70..90
+coverage:
+  precision: 2
+  range: "70...90"
+  status:
+    project:
+      default:
+        informational: false
+    patch:
+      default:
+        informational: false
 
-[coverage.notifications]
-  workflow = true
-
-[codecov.uploaded_files]
-  artifacts = true
-  bundle = true
-  file_reports = true
-  flags = true
-  network = true
-  patch = true
-  files = true
+comment:
+  require_changes: false

@@ -91,11 +91,7 @@ impl PerformanceMonitor {
         let max_connections = std::env::var("SYNAPSE__DATABASE__MAX_SIZE")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
-            .or_else(|| {
-                std::env::var("DB_MAX_CONNECTIONS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-            })
+            .or_else(|| std::env::var("DB_MAX_CONNECTIONS").ok().and_then(|s| s.parse::<u32>().ok()))
             .unwrap_or_else(|| pool_size.max(1));
         let active_connections = pool_size.saturating_sub(num_idle);
 
@@ -119,15 +115,13 @@ impl PerformanceMonitor {
         // Update internal metrics
         {
             let mut metrics = self.query_metrics.write().await;
-            let entry = metrics
-                .entry(operation.to_string())
-                .or_insert_with(|| QueryMetricsData {
-                    count: 0,
-                    total_ms: 0,
-                    min_ms: duration_ms,
-                    max_ms: duration_ms,
-                    slow_count: 0,
-                });
+            let entry = metrics.entry(operation.to_string()).or_insert_with(|| QueryMetricsData {
+                count: 0,
+                total_ms: 0,
+                min_ms: duration_ms,
+                max_ms: duration_ms,
+                slow_count: 0,
+            });
 
             entry.count += 1;
             entry.total_ms += duration_ms;
@@ -136,37 +130,23 @@ impl PerformanceMonitor {
 
             if duration_ms > self.slow_query_threshold_ms {
                 entry.slow_count += 1;
-                ::tracing::warn!(
-                    operation,
-                    duration_ms,
-                    "Slow query detected (>{}ms)",
-                    self.slow_query_threshold_ms
-                );
+                ::tracing::warn!(operation, duration_ms, "Slow query detected (>{}ms)", self.slow_query_threshold_ms);
             }
         }
 
         // Update metrics collector
-        if let Some(hist) = self
-            .metrics
-            .get_histogram(&format!("db_query_{operation}_ms"))
-        {
+        if let Some(hist) = self.metrics.get_histogram(&format!("db_query_{operation}_ms")) {
             hist.observe(duration.as_secs_f64() * 1000.0);
         }
 
         // Increment query counter
-        if let Some(counter) = self
-            .metrics
-            .get_counter(&format!("db_query_{operation}_total"))
-        {
+        if let Some(counter) = self.metrics.get_counter(&format!("db_query_{operation}_total")) {
             counter.inc();
         }
 
         // Track slow queries
         if duration_ms > self.slow_query_threshold_ms {
-            if let Some(counter) = self
-                .metrics
-                .get_counter(&format!("db_query_{operation}_slow_total"))
-            {
+            if let Some(counter) = self.metrics.get_counter(&format!("db_query_{operation}_slow_total")) {
                 counter.inc();
             }
         }
@@ -181,11 +161,7 @@ impl PerformanceMonitor {
                 operation: operation.clone(),
                 execution_count: data.count,
                 total_duration_ms: data.total_ms,
-                avg_duration_ms: if data.count > 0 {
-                    data.total_ms as f64 / data.count as f64
-                } else {
-                    0.0
-                },
+                avg_duration_ms: if data.count > 0 { data.total_ms as f64 / data.count as f64 } else { 0.0 },
                 min_duration_ms: data.min_ms,
                 max_duration_ms: data.max_ms,
                 slow_count: data.slow_count,
@@ -200,11 +176,7 @@ impl PerformanceMonitor {
             operation: operation.to_string(),
             execution_count: data.count,
             total_duration_ms: data.total_ms,
-            avg_duration_ms: if data.count > 0 {
-                data.total_ms as f64 / data.count as f64
-            } else {
-                0.0
-            },
+            avg_duration_ms: if data.count > 0 { data.total_ms as f64 / data.count as f64 } else { 0.0 },
             min_duration_ms: data.min_ms,
             max_duration_ms: data.max_ms,
             slow_count: data.slow_count,
@@ -232,10 +204,8 @@ impl PerformanceMonitor {
 
         // Check if all connections are active (potential connection leak)
         if stats.idle_connections == 0 && stats.total_connections > 0 {
-            warnings.push(
-                "No idle connections - possible connection leak or consider increasing pool size"
-                    .to_string(),
-            );
+            warnings
+                .push("No idle connections - possible connection leak or consider increasing pool size".to_string());
         }
 
         // Check if pool is at max capacity
@@ -258,11 +228,7 @@ impl PerformanceMonitor {
 ///     user_storage.get_user(user_id).await
 /// }).await?;
 /// ```
-pub async fn time_query<F, T>(
-    monitor: &PerformanceMonitor,
-    operation: &str,
-    f: F,
-) -> Result<T, sqlx::Error>
+pub async fn time_query<F, T>(monitor: &PerformanceMonitor, operation: &str, f: F) -> Result<T, sqlx::Error>
 where
     F: std::future::Future<Output = Result<T, sqlx::Error>>,
 {
@@ -301,13 +267,7 @@ mod tests {
 
     #[test]
     fn test_query_metrics_aggregation() {
-        let mut data = QueryMetricsData {
-            count: 0,
-            total_ms: 0,
-            min_ms: 100,
-            max_ms: 0,
-            slow_count: 0,
-        };
+        let mut data = QueryMetricsData { count: 0, total_ms: 0, min_ms: 100, max_ms: 0, slow_count: 0 };
 
         // Simulate queries: 50ms, 75ms, 150ms (slow), 25ms
         let queries = vec![50, 75, 150, 25];

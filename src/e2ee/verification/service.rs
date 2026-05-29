@@ -12,10 +12,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 type HmacSha256 = Hmac<Sha256>;
 
 const SAS_EMOJIS: &[&str; 64] = &[
-    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
-    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
-    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
-    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🐤",
+    "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷", "🦂", "🐢",
+    "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓",
+    "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
 
 pub struct VerificationService {
@@ -24,9 +24,7 @@ pub struct VerificationService {
 
 impl Clone for VerificationService {
     fn clone(&self) -> Self {
-        Self {
-            storage: self.storage.clone(),
-        }
+        Self { storage: self.storage.clone() }
     }
 }
 
@@ -41,30 +39,19 @@ impl VerificationService {
 
         let public_bytes = public.as_bytes();
 
-        (
-            String::new(),
-            base64::engine::general_purpose::STANDARD.encode(public_bytes),
-        )
+        (String::new(), base64::engine::general_purpose::STANDARD.encode(public_bytes))
     }
 
-    pub fn compute_shared_secret(
-        &self,
-        our_secret: &str,
-        their_public: &str,
-    ) -> Result<[u8; 32], ApiError> {
-        let secret_bytes = base64::engine::general_purpose::STANDARD
-            .decode(our_secret)
-            .map_err(|e| {
-                tracing::error!("Invalid secret key: {e}");
-                ApiError::internal("An internal error occurred".to_string())
-            })?;
+    pub fn compute_shared_secret(&self, our_secret: &str, their_public: &str) -> Result<[u8; 32], ApiError> {
+        let secret_bytes = base64::engine::general_purpose::STANDARD.decode(our_secret).map_err(|e| {
+            tracing::error!("Invalid secret key: {e}");
+            ApiError::internal("An internal error occurred".to_string())
+        })?;
 
-        let public_bytes = base64::engine::general_purpose::STANDARD
-            .decode(their_public)
-            .map_err(|e| {
-                tracing::error!("Invalid public key: {e}");
-                ApiError::internal("An internal error occurred".to_string())
-            })?;
+        let public_bytes = base64::engine::general_purpose::STANDARD.decode(their_public).map_err(|e| {
+            tracing::error!("Invalid public key: {e}");
+            ApiError::internal("An internal error occurred".to_string())
+        })?;
 
         if secret_bytes.len() != 32 || public_bytes.len() != 32 {
             return Err(ApiError::internal("Invalid key length".to_string()));
@@ -95,17 +82,11 @@ impl VerificationService {
         sas_bytes
     }
 
-    pub fn compute_mac(
-        &self,
-        keys: &[String],
-        shared_secret: &[u8; 32],
-        info: &str,
-    ) -> Result<String, ApiError> {
-        let mut mac = HmacSha256::new_from_slice(shared_secret)
-            .map_err(|e| {
-                tracing::error!("MAC error: {e}");
-                ApiError::internal("An internal error occurred".to_string())
-            })?;
+    pub fn compute_mac(&self, keys: &[String], shared_secret: &[u8; 32], info: &str) -> Result<String, ApiError> {
+        let mut mac = HmacSha256::new_from_slice(shared_secret).map_err(|e| {
+            tracing::error!("MAC error: {e}");
+            ApiError::internal("An internal error occurred".to_string())
+        })?;
 
         for key in keys {
             mac.update(key.as_bytes());
@@ -175,31 +156,20 @@ impl VerificationService {
     ) -> Result<SasData, ApiError> {
         let request = self.storage.get_request(transaction_id).await?;
         let Some(request) = request else {
-            return Err(ApiError::not_found(
-                "Verification request not found".to_string(),
-            ));
+            return Err(ApiError::not_found("Verification request not found".to_string()));
         };
 
         if request.state == VerificationState::Cancelled {
-            return Err(ApiError::bad_request(
-                "Verification was cancelled".to_string(),
-            ));
+            return Err(ApiError::bad_request("Verification was cancelled".to_string()));
         }
         if request.state == VerificationState::Done {
-            return Err(ApiError::bad_request(
-                "Verification already completed".to_string(),
-            ));
+            return Err(ApiError::bad_request("Verification already completed".to_string()));
         }
 
         let (_secret_key, public_key) = self.generate_key_pair();
 
-        let commitment = self
-            .compute_mac(
-                slice_from_ref(&public_key),
-                &[0u8; 32],
-                "verification.commitment",
-            )
-            .map_err(|e| {
+        let commitment =
+            self.compute_mac(slice_from_ref(&public_key), &[0u8; 32], "verification.commitment").map_err(|e| {
                 tracing::error!("Failed to compute commitment: {e}");
                 ApiError::internal("An internal error occurred".to_string())
             })?;
@@ -213,23 +183,15 @@ impl VerificationService {
             commitment: Some(commitment),
         };
 
-        self.storage
-            .update_state(transaction_id, VerificationState::Ready)
-            .await?;
+        self.storage.update_state(transaction_id, VerificationState::Ready).await?;
 
         Ok(sas_data)
     }
 
-    pub async fn generate_sas(
-        &self,
-        transaction_id: &str,
-        other_pubkey: &str,
-    ) -> Result<SasResult, ApiError> {
+    pub async fn generate_sas(&self, transaction_id: &str, other_pubkey: &str) -> Result<SasResult, ApiError> {
         let request = self.storage.get_request(transaction_id).await?;
         let Some(_request) = request else {
-            return Err(ApiError::not_found(
-                "Verification request not found".to_string(),
-            ));
+            return Err(ApiError::not_found("Verification request not found".to_string()));
         };
 
         let (our_secret, _our_public) = self.generate_key_pair();
@@ -245,8 +207,7 @@ impl VerificationService {
 
         let sas_bytes = self.derive_sas(&shared_secret, "SAS");
 
-        let decimal =
-            ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
+        let decimal = ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
         let _decimal = (decimal % 900000) + 100000;
 
         let emoji_count = 7;
@@ -270,16 +231,12 @@ impl VerificationService {
 
         let request = self.storage.get_request(transaction_id).await?;
         let Some(request) = request else {
-            return Err(ApiError::bad_request(
-                "Verification request not found".to_string(),
-            ));
+            return Err(ApiError::bad_request("Verification request not found".to_string()));
         };
 
         match request.state {
             VerificationState::Cancelled => {
-                return Err(ApiError::bad_request(
-                    "Verification was cancelled".to_string(),
-                ));
+                return Err(ApiError::bad_request("Verification was cancelled".to_string()));
             }
             VerificationState::Done => {
                 return Ok(true);
@@ -295,54 +252,29 @@ impl VerificationService {
 
         if let Some(stored_mac) = &sas_state.mac {
             if mac != stored_mac {
-                self.storage
-                    .update_state(transaction_id, VerificationState::Cancelled)
-                    .await?;
+                self.storage.update_state(transaction_id, VerificationState::Cancelled).await?;
                 tracing::warn!("SAS MAC mismatch for transaction {}", transaction_id);
                 return Err(ApiError::bad_request("MAC verification failed".to_string()));
             }
         }
 
-        self.storage
-            .update_state(transaction_id, VerificationState::Done)
-            .await?;
+        self.storage.update_state(transaction_id, VerificationState::Done).await?;
 
-        tracing::info!(
-            "SAS verification confirmed for transaction {}",
-            transaction_id
-        );
+        tracing::info!("SAS verification confirmed for transaction {}", transaction_id);
         Ok(true)
     }
 
-    pub async fn get_pending_verifications(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<VerificationRequest>, ApiError> {
+    pub async fn get_pending_verifications(&self, user_id: &str) -> Result<Vec<VerificationRequest>, ApiError> {
         self.storage.get_pending_verifications(user_id).await
     }
 
-    pub async fn get_request(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Option<VerificationRequest>, ApiError> {
+    pub async fn get_request(&self, transaction_id: &str) -> Result<Option<VerificationRequest>, ApiError> {
         self.storage.get_request(transaction_id).await
     }
 
-    pub async fn cancel_verification(
-        &self,
-        transaction_id: &str,
-        code: &str,
-        reason: &str,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .update_state(transaction_id, VerificationState::Cancelled)
-            .await?;
-        tracing::info!(
-            "Verification {} cancelled: {} - {}",
-            transaction_id,
-            code,
-            reason
-        );
+    pub async fn cancel_verification(&self, transaction_id: &str, code: &str, reason: &str) -> Result<(), ApiError> {
+        self.storage.update_state(transaction_id, VerificationState::Cancelled).await?;
+        tracing::info!("Verification {} cancelled: {} - {}", transaction_id, code, reason);
         Ok(())
     }
 

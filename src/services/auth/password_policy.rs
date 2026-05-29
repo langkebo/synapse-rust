@@ -74,8 +74,8 @@ impl PasswordPolicy {
         }
 
         let special_chars: &[char] = &[
-            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-', '=', '[', ']', '{',
-            '}', '|', ';', ':', ',', '.', '<', '>', '?',
+            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-', '=', '[', ']', '{', '}', '|', ';', ':',
+            ',', '.', '<', '>', '?',
         ];
         if self.require_special && !password.chars().any(|c| special_chars.contains(&c)) {
             errors.push("密码必须包含至少一个特殊字符 (!@#$%^&* 等)".to_string());
@@ -83,11 +83,7 @@ impl PasswordPolicy {
             score += 20;
         }
 
-        PasswordValidationResult {
-            is_valid: errors.is_empty(),
-            errors,
-            strength_score: score.min(100),
-        }
+        PasswordValidationResult { is_valid: errors.is_empty(), errors, strength_score: score.min(100) }
     }
 
     pub fn is_password_expired(&self, password_changed_ts: Option<i64>) -> bool {
@@ -127,9 +123,7 @@ pub struct PasswordPolicyService {
 
 impl PasswordPolicyService {
     pub fn new(_pool: sqlx::PgPool) -> Self {
-        Self {
-            policy: PasswordPolicy::default(),
-        }
+        Self { policy: PasswordPolicy::default() }
     }
 
     pub fn from_policy(policy: PasswordPolicy) -> Self {
@@ -196,10 +190,7 @@ mod tests {
 
     #[test]
     fn test_password_expiry() {
-        let policy = PasswordPolicy {
-            max_age_days: 90,
-            ..Default::default()
-        };
+        let policy = PasswordPolicy { max_age_days: 90, ..Default::default() };
 
         let now = chrono::Utc::now().timestamp_millis();
         let ninety_one_days_ago = now - (91 * 24 * 60 * 60 * 1000);
@@ -210,10 +201,7 @@ mod tests {
 
     #[test]
     fn test_password_never_expires() {
-        let policy = PasswordPolicy {
-            max_age_days: 0,
-            ..Default::default()
-        };
+        let policy = PasswordPolicy { max_age_days: 0, ..Default::default() };
 
         assert!(!policy.is_password_expired(None));
         assert!(!policy.is_password_expired(Some(0)));

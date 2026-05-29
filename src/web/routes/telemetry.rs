@@ -1,7 +1,5 @@
 use crate::common::error::ApiError;
-use crate::services::telemetry_service::{
-    ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService,
-};
+use crate::services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -69,15 +67,11 @@ pub struct TelemetryAlertQuery {
     pub refresh: Option<bool>,
 }
 
-pub async fn get_status(
-    State(state): State<AppState>,
-    _admin_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_status(State(state): State<AppState>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service =
-        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
+    let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let response = TelemetryStatusResponse {
         enabled: telemetry_service.is_enabled(),
@@ -99,12 +93,9 @@ pub async fn get_resource_attributes(
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service =
-        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
+    let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
-    let response = ResourceAttributesResponse {
-        attributes: telemetry_service.get_resource_attributes(),
-    };
+    let response = ResourceAttributesResponse { attributes: telemetry_service.get_resource_attributes() };
 
     Ok(Json(response))
 }
@@ -134,15 +125,10 @@ pub async fn health_check(
     let config = &state.services.config.telemetry;
     let prometheus = &state.services.config.prometheus;
 
-    let telemetry_service =
-        TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
+    let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let readiness = state.health_checker.check_readiness().await;
-    let (database_health, alerts) = state
-        .services
-        .telemetry_alert_service
-        .sync_with_health()
-        .await?;
+    let (database_health, alerts) = state.services.telemetry_alert_service.sync_with_health().await?;
 
     Ok(Json(serde_json::json!({
         "status": readiness.status,
@@ -161,20 +147,13 @@ pub async fn list_alerts(
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if query.refresh.unwrap_or(true) {
-        let _ = state
-            .services
-            .telemetry_alert_service
-            .sync_with_health()
-            .await?;
+        let _ = state.services.telemetry_alert_service.sync_with_health().await?;
     }
 
     let alerts = state
         .services
         .telemetry_alert_service
-        .list_alerts(&TelemetryAlertFilters {
-            status: query.status,
-            severity: query.severity,
-        })?;
+        .list_alerts(&TelemetryAlertFilters { status: query.status, severity: query.severity })?;
 
     Ok(Json(TelemetryAlertsResponse { alerts }))
 }
@@ -185,10 +164,7 @@ pub async fn acknowledge_alert(
     Path(alert_id): Path<String>,
     admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let alert = state
-        .services
-        .telemetry_alert_service
-        .acknowledge_alert(&alert_id, &admin_user.user_id)?;
+    let alert = state.services.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     state
         .services
@@ -215,24 +191,12 @@ pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
 
     axum::Router::new()
         .route("/_synapse/admin/v1/telemetry/status", get(get_status))
-        .route(
-            "/_synapse/admin/v1/telemetry/attributes",
-            get(get_resource_attributes),
-        )
-        .route(
-            "/_synapse/admin/v1/telemetry/metrics",
-            get(get_metrics_summary),
-        )
+        .route("/_synapse/admin/v1/telemetry/attributes", get(get_resource_attributes))
+        .route("/_synapse/admin/v1/telemetry/metrics", get(get_metrics_summary))
         .route("/_synapse/admin/v1/telemetry/alerts", get(list_alerts))
-        .route(
-            "/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack",
-            post(acknowledge_alert),
-        )
+        .route("/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack", post(acknowledge_alert))
         .route("/_synapse/admin/v1/telemetry/health", get(health_check))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 
@@ -244,10 +208,7 @@ pub fn telemetry_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
         (Method::GET, "/_synapse/admin/v1/telemetry/attributes"),
         (Method::GET, "/_synapse/admin/v1/telemetry/metrics"),
         (Method::GET, "/_synapse/admin/v1/telemetry/alerts"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack",
-        ),
+        (Method::POST, "/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack"),
         (Method::GET, "/_synapse/admin/v1/telemetry/health"),
     ]
     .into_iter()

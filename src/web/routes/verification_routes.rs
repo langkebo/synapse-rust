@@ -12,42 +12,18 @@ use serde_json::Value;
 
 fn create_verification_compat_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/keys/device_signing/verify_start",
-            post(verification_start),
-        )
-        .route(
-            "/keys/device_signing/verify_accept",
-            put(verification_accept),
-        )
-        .route(
-            "/keys/device_signing/verify_key_agreement",
-            post(verification_key_agreement),
-        )
+        .route("/keys/device_signing/verify_start", post(verification_start))
+        .route("/keys/device_signing/verify_accept", put(verification_accept))
+        .route("/keys/device_signing/verify_key_agreement", post(verification_key_agreement))
         .route("/keys/device_signing/verify_mac", post(verification_mac))
         .route("/keys/device_signing/verify_done", post(verification_done))
-        .route(
-            "/keys/device_signing/verify_cancel",
-            post(verification_cancel),
-        )
-        .route(
-            "/keys/device_signing/requests",
-            get(list_verification_requests),
-        )
+        .route("/keys/device_signing/verify_cancel", post(verification_cancel))
+        .route("/keys/device_signing/requests", get(list_verification_requests))
         .route("/keys/qr_code/show", get(show_qr_code))
         .route("/keys/qr_code/scan", post(scan_qr_code))
-        .route(
-            "/keys/verification/request",
-            post(compat_verification_request),
-        )
-        .route(
-            "/keys/verification/{transaction_id}",
-            get(compat_verification_status),
-        )
-        .route(
-            "/keys/verification/{transaction_id}/cancel",
-            post(compat_verification_cancel),
-        )
+        .route("/keys/verification/request", post(compat_verification_request))
+        .route("/keys/verification/{transaction_id}", get(compat_verification_status))
+        .route("/keys/verification/{transaction_id}/cancel", post(compat_verification_cancel))
 }
 
 pub fn create_verification_router(_state: AppState) -> Router<AppState> {
@@ -59,11 +35,7 @@ pub fn create_verification_router(_state: AppState) -> Router<AppState> {
         .nest("/_matrix/client/v3", compat_router)
 }
 
-const VERIFICATION_NEST_PREFIXES: &[&str] = &[
-    "/_matrix/client/v1",
-    "/_matrix/client/r0",
-    "/_matrix/client/v3",
-];
+const VERIFICATION_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
 
 fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -79,10 +51,7 @@ fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static st
         (Method::POST, "/keys/qr_code/scan"),
         (Method::POST, "/keys/verification/request"),
         (Method::GET, "/keys/verification/{transaction_id}"),
-        (
-            Method::POST,
-            "/keys/verification/{transaction_id}/cancel",
-        ),
+        (Method::POST, "/keys/verification/{transaction_id}/cancel"),
     ]
 }
 
@@ -123,9 +92,7 @@ async fn verification_start(
     let to_user = match &body.to_user {
         Some(user) => user.clone(),
         None => {
-            return Err(ApiError::bad_request(
-                "to_user is required".to_string(),
-            ));
+            return Err(ApiError::bad_request("to_user is required".to_string()));
         }
     };
     let to_device = body.to_device.unwrap_or_else(|| "".to_string());
@@ -135,9 +102,10 @@ async fn verification_start(
         .or(body.methods.as_ref().and_then(|m| m.first().map(|s| s.as_str())))
         .unwrap_or("m.sas.v1");
 
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
+    let device_id = auth_user
+        .device_id
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("device_id is required for E2EE verification".to_string()))?;
 
     let sas_data = state
         .services
@@ -146,11 +114,7 @@ async fn verification_start(
             &auth_user.user_id,
             &device_id,
             &to_user,
-            if to_device.is_empty() {
-                None
-            } else {
-                Some(to_device)
-            },
+            if to_device.is_empty() { None } else { Some(to_device) },
         )
         .await?;
 
@@ -183,20 +147,12 @@ async fn verification_accept(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot accept another user's verification request",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot accept another user's verification request")?;
 
     let sas_data = state
         .services
         .verification_service
-        .accept_sas(
-            &body.transaction_id,
-            &body.key_agreement_protocol,
-            &body.hash,
-        )
+        .accept_sas(&body.transaction_id, &body.key_agreement_protocol, &body.hash)
         .await?;
 
     Ok(Json(json!({
@@ -227,17 +183,9 @@ async fn verification_key_agreement(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot participate in another user's verification",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot participate in another user's verification")?;
 
-    let sas_result = state
-        .services
-        .verification_service
-        .generate_sas(&body.transaction_id, &body.pubkey)
-        .await?;
+    let sas_result = state.services.verification_service.generate_sas(&body.transaction_id, &body.pubkey).await?;
 
     let mut response = json!({
         "transaction_id": sas_result.transaction_id,
@@ -292,21 +240,13 @@ async fn verification_mac(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot confirm another user's verification",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot confirm another user's verification")?;
 
     if body.mac.is_empty() {
         return Err(ApiError::bad_request("MAC must not be empty".to_string()));
     }
 
-    let verified = state
-        .services
-        .verification_service
-        .confirm_sas(&body.transaction_id, &body.mac)
-        .await?;
+    let verified = state.services.verification_service.confirm_sas(&body.transaction_id, &body.mac).await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -324,10 +264,8 @@ async fn verification_done(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing transaction_id".to_string()))?;
 
-    let mac = body
-        .get("mac")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing mac".to_string()))?;
+    let mac =
+        body.get("mac").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Missing mac".to_string()))?;
 
     let request = state
         .services
@@ -336,23 +274,13 @@ async fn verification_done(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot complete another user's verification",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot complete another user's verification")?;
 
     if mac.is_empty() {
-        return Err(ApiError::bad_request(
-            "MAC must not be empty for verification completion".to_string(),
-        ));
+        return Err(ApiError::bad_request("MAC must not be empty for verification completion".to_string()));
     }
 
-    state
-        .services
-        .verification_service
-        .confirm_sas(transaction_id, mac)
-        .await?;
+    state.services.verification_service.confirm_sas(transaction_id, mac).await?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id
@@ -378,17 +306,9 @@ async fn verification_cancel(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot cancel another user's verification request",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot cancel another user's verification request")?;
 
-    state
-        .services
-        .verification_service
-        .cancel_verification(&body.transaction_id, &body.code, &body.reason)
-        .await?;
+    state.services.verification_service.cancel_verification(&body.transaction_id, &body.code, &body.reason).await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -402,32 +322,20 @@ async fn list_verification_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests = state
-        .services
-        .verification_service
-        .get_pending_verifications(&auth_user.user_id)
-        .await?;
+    let requests = state.services.verification_service.get_pending_verifications(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "requests": requests.iter().map(serialize_verification_request).collect::<Vec<_>>()
     })))
 }
 
-async fn show_qr_code(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user
-        .device_id
-        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+async fn show_qr_code(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+    let device_id = auth_user.device_id.ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     let server_name = state.services.config.federation.server_name.clone();
 
-    let qr_data = state
-        .services
-        .verification_service
-        .generate_qr_code(&auth_user.user_id, &device_id, &server_name)
-        .await?;
+    let qr_data =
+        state.services.verification_service.generate_qr_code(&auth_user.user_id, &device_id, &server_name).await?;
 
     Ok(Json(json!({
         "transaction_id": qr_data.transaction_id,
@@ -454,9 +362,7 @@ async fn scan_qr_code(
     auth_user: AuthenticatedUser,
     Json(body): Json<ScanQrBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user
-        .device_id
-        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     let qr_data = crate::e2ee::verification::QrCodeData {
         transaction_id: body.transaction_id,
@@ -469,11 +375,7 @@ async fn scan_qr_code(
         signature: String::new(),
     };
 
-    state
-        .services
-        .verification_service
-        .scan_qr_code(&qr_data, &device_id, &auth_user.user_id)
-        .await?;
+    state.services.verification_service.scan_qr_code(&qr_data, &device_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "transaction_id": qr_data.transaction_id,
@@ -490,9 +392,7 @@ fn generate_decimal_from_emoji(emojis: &[String]) -> u32 {
     (decimal % 900000) + 100000
 }
 
-fn serialize_verification_request(
-    request: &crate::e2ee::verification::VerificationRequest,
-) -> Value {
+fn serialize_verification_request(request: &crate::e2ee::verification::VerificationRequest) -> Value {
     json!({
         "transaction_id": request.transaction_id,
         "from_user": request.from_user,
@@ -511,9 +411,10 @@ fn ensure_verification_participant(
     auth_user: &AuthenticatedUser,
     forbidden_message: &str,
 ) -> Result<(), ApiError> {
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
+    let device_id = auth_user
+        .device_id
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("device_id is required for E2EE verification".to_string()))?;
     let is_participant = request.from_user == auth_user.user_id
         || request.to_user == auth_user.user_id
         || request.from_device == device_id
@@ -541,9 +442,10 @@ async fn compat_verification_request(
     auth_user: AuthenticatedUser,
     Json(body): Json<CompatVerificationRequestBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user.device_id.clone().ok_or_else(|| {
-        ApiError::bad_request("device_id is required for E2EE verification".to_string())
-    })?;
+    let device_id = auth_user
+        .device_id
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("device_id is required for E2EE verification".to_string()))?;
     let from_device = body.from_device.unwrap_or(device_id);
     let to_user = body.to_user;
     let to_device = body.to_device;
@@ -557,12 +459,7 @@ async fn compat_verification_request(
     let sas_data = state
         .services
         .verification_service
-        .start_sas_verification(
-            &auth_user.user_id,
-            &from_device,
-            &to_user,
-            to_device.clone(),
-        )
+        .start_sas_verification(&auth_user.user_id, &from_device, &to_user, to_device.clone())
         .await?;
 
     Ok(Json(json!({
@@ -592,11 +489,7 @@ async fn compat_verification_status(
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
-    ensure_verification_participant(
-        &request,
-        &auth_user,
-        "Cannot inspect another user's verification request",
-    )?;
+    ensure_verification_participant(&request, &auth_user, "Cannot inspect another user's verification request")?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id,
@@ -619,20 +512,11 @@ async fn compat_verification_cancel(
 ) -> Result<Json<Value>, ApiError> {
     let body = body.map(|Json(payload)| payload).unwrap_or_default();
     let code = body.code.unwrap_or_else(|| "m.user".to_string());
-    let reason = body
-        .reason
-        .unwrap_or_else(|| "Cancelled by user".to_string());
+    let reason = body.reason.unwrap_or_else(|| "Cancelled by user".to_string());
 
-    let Json(cancelled) = verification_cancel(
-        State(state),
-        auth_user,
-        Json(VerificationCancelBody {
-            transaction_id,
-            code,
-            reason,
-        }),
-    )
-    .await?;
+    let Json(cancelled) =
+        verification_cancel(State(state), auth_user, Json(VerificationCancelBody { transaction_id, code, reason }))
+            .await?;
 
     Ok(Json(json!({
         "transaction_id": cancelled["transaction_id"],
@@ -643,10 +527,10 @@ async fn compat_verification_cancel(
 }
 
 const SAS_EMOJIS: &[&str; 64] = &[
-    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
-    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
-    "🐜", "🦟", "🦗", "🕷", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
-    "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🐤",
+    "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷", "🦂", "🐢",
+    "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🦈", "🐊", "🐅", "🐆", "🦓",
+    "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
 
 #[allow(clippy::unused_async)]
@@ -661,9 +545,7 @@ mod tests {
             "/_matrix/client/r0/keys/qr_code/scan",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]

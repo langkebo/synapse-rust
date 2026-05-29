@@ -10,9 +10,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn read_json(response: axum::response::Response) -> Value {
-    let body = axum::body::to_bytes(response.into_body(), 4096)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     serde_json::from_slice(&body).unwrap()
 }
 
@@ -31,16 +29,11 @@ async fn register_user_with_id(app: &axum::Router, username: &str) -> (String, S
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let json = read_json(response).await;
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -52,9 +45,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         .body(Body::from(json!({ "name": name }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let json = read_json(response).await;
@@ -70,9 +61,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -84,33 +73,20 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn send_message(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    txn_id: &str,
-    body: Value,
-) -> String {
+async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str, body: Value) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            room_id, txn_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/{}", room_id, txn_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let json = read_json(response).await;
@@ -123,18 +99,12 @@ async fn test_set_sticky_event_rejects_event_from_different_room() {
         return;
     };
 
-    let (token, _) =
-        register_user_with_id(&app, &format!("sticky_owner_{}", rand::random::<u32>())).await;
+    let (token, _) = register_user_with_id(&app, &format!("sticky_owner_{}", rand::random::<u32>())).await;
     let room_a = create_room(&app, &token, "Sticky A").await;
     let room_b = create_room(&app, &token, "Sticky B").await;
-    let foreign_event_id = send_message(
-        &app,
-        &token,
-        &room_b,
-        "sticky-foreign-event",
-        json!({ "msgtype": "m.text", "body": "foreign" }),
-    )
-    .await;
+    let foreign_event_id =
+        send_message(&app, &token, &room_b, "sticky-foreign-event", json!({ "msgtype": "m.text", "body": "foreign" }))
+            .await;
 
     let request = Request::builder()
         .method("POST")
@@ -152,9 +122,7 @@ async fn test_set_sticky_event_rejects_event_from_different_room() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -164,8 +132,7 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
         return;
     };
 
-    let (owner_token, _) =
-        register_user_with_id(&app, &format!("sticky_owner_{}", rand::random::<u32>())).await;
+    let (owner_token, _) = register_user_with_id(&app, &format!("sticky_owner_{}", rand::random::<u32>())).await;
     let (member_token, member_user_id) =
         register_user_with_id(&app, &format!("sticky_member_{}", rand::random::<u32>())).await;
     let room_id = create_room(&app, &owner_token, "Sticky Shared Room").await;
@@ -183,10 +150,7 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
 
     let set_request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/sticky_events",
-            room_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -199,23 +163,16 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
             .to_string(),
         ))
         .unwrap();
-    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request)
-        .await
-        .unwrap();
+    let set_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), set_request).await.unwrap();
     assert_eq!(set_response.status(), StatusCode::OK);
 
     let member_get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/sticky_events",
-            room_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
-    let member_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_get_request)
-        .await
-        .unwrap();
+    let member_get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), member_get_request).await.unwrap();
     assert_eq!(member_get_response.status(), StatusCode::OK);
     let member_json = read_json(member_get_response).await;
     assert_eq!(member_json["events"].as_array().unwrap().len(), 1);
@@ -223,16 +180,11 @@ async fn test_sticky_events_are_scoped_to_the_authenticated_user() {
 
     let owner_get_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/sticky_events",
-            room_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/sticky_events", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
-    let owner_get_response = ServiceExt::<Request<Body>>::oneshot(app, owner_get_request)
-        .await
-        .unwrap();
+    let owner_get_response = ServiceExt::<Request<Body>>::oneshot(app, owner_get_request).await.unwrap();
     assert_eq!(owner_get_response.status(), StatusCode::OK);
     let owner_json = read_json(owner_get_response).await;
     assert_eq!(owner_json["events"].as_array().unwrap().len(), 0);

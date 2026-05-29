@@ -65,14 +65,7 @@ impl AuthService {
         security: &SecurityConfig,
         server_name: &str,
     ) -> Self {
-        Self::new_with_lifetime(
-            pool,
-            cache,
-            metrics,
-            security,
-            server_name,
-            security.expiry_time,
-        )
+        Self::new_with_lifetime(pool, cache, metrics, security, server_name, security.expiry_time)
     }
 
     pub fn new_with_lifetime(

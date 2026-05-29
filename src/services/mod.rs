@@ -52,7 +52,7 @@ pub mod translation_service;
 pub mod directory_service;
 // Compatibility-only in-memory DM helper. Runtime DM semantics now converge on
 // friend_room_service plus m.direct account data, so this legacy helper is only
-// compiled for test-oriented builds. It is NO LONGER part of the pub services::* 
+// compiled for test-oriented builds. It is NO LONGER part of the pub services::*
 // surface.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod dm_service;
@@ -89,9 +89,7 @@ pub use room::summary as room_summary_service;
 #[cfg(feature = "builtin-oidc")]
 pub mod builtin_oidc_provider;
 #[cfg(feature = "builtin-oidc")]
-pub use builtin_oidc_provider::{
-    AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken,
-};
+pub use builtin_oidc_provider::{AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken};
 
 // =============================================================================
 // L3 — Experimental / non-core extensions (feature-gated, off by default)
@@ -130,30 +128,29 @@ pub use beacon_service::*;
 pub mod rtc;
 
 // Backward-compatible re-exports from rtc domain
-pub use rtc::RtcInfraService as VoipService;
-pub use rtc::RtcInfraService;
-pub use rtc::RtcInfraSettings;
-pub use rtc::TurnCredentials;
-pub use rtc::VoipSettings;
+#[cfg(feature = "voip-tracking")]
+pub use crate::common::config::LivekitConfig;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService as CallService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService;
 #[cfg(feature = "voip-tracking")]
+pub use rtc::LivekitClient;
+pub use rtc::RtcInfraService as VoipService;
+pub use rtc::RtcInfraService;
+pub use rtc::RtcInfraSettings;
+#[cfg(feature = "voip-tracking")]
 pub use rtc::RtcSessionService as MatrixRTCService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::RtcSessionService;
-#[cfg(feature = "voip-tracking")]
-pub use rtc::LivekitClient;
+pub use rtc::TurnCredentials;
+pub use rtc::VoipSettings;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::{
-    CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
-    CallState, IceCandidate, CreateRoomRequest, CreateRoomResponse, JoinRoomRequest,
-    JoinRoomResponse, LivekitCodec, LivekitError, LivekitParticipant, LivekitRoom,
-    LivekitTrack, RoomParticipant, TrackInfo, to_matrix_event,
+    to_matrix_event, CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
+    CallState, CreateRoomRequest, CreateRoomResponse, IceCandidate, JoinRoomRequest, JoinRoomResponse, LivekitCodec,
+    LivekitError, LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
 };
-#[cfg(feature = "voip-tracking")]
-pub use crate::common::config::LivekitConfig;
 
 #[cfg(feature = "widgets")]
 pub mod widget_service;
