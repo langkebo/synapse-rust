@@ -83,6 +83,39 @@ fn signed_request(
         .unwrap()
 }
 
+fn signed_request_with_destination_header(
+    method: &str,
+    uri: &str,
+    origin: &str,
+    destination: &str,
+    key_id: &str,
+    signing_key: &ed25519_dalek::SigningKey,
+    content: Option<&Value>,
+) -> Request<Body> {
+    let signed_bytes =
+        canonical_federation_request_bytes(method, uri, origin, destination, content);
+    let sig = signing_key.sign(&signed_bytes);
+    let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
+
+    let mut builder = Request::builder().method(method).uri(uri).header(
+        "Authorization",
+        format!(
+            "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
+            origin, destination, key_id, sig_b64
+        ),
+    );
+
+    if content.is_some() {
+        builder = builder.header("Content-Type", "application/json");
+    }
+
+    builder
+        .body(Body::from(
+            content.map(Value::to_string).unwrap_or_default(),
+        ))
+        .unwrap()
+}
+
 async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, joined_ts: i64) {
     sqlx::query(
         r#"
@@ -174,6 +207,50 @@ fn tiny_png() -> Vec<u8> {
         0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00,
         0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ]
+}
+
+#[tokio::test]
+async fn test_federation_destination_accepts_configured_server_name_alias() {
+    let public_server_name = "public.example.com";
+    let internal_server_name = "internal.test";
+    let key_id = "ed25519:1";
+    let signing_key_seed = [6u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, _state)) = setup_federation_ingress_app_with(
+        public_server_name,
+        key_id,
+        &signing_key_b64,
+        |container| {
+            container.config.server.name = internal_server_name.to_string();
+            container.config.server.server_name = Some(public_server_name.to_string());
+            container.config.federation.server_name = public_server_name.to_string();
+            container.server_name = public_server_name.to_string();
+        },
+    )
+    .await
+    else {
+        return;
+    };
+
+    let uri = format!(
+        "/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}",
+        public_server_name
+    );
+    let content = json!({ "invite": { "display_name": "test" } });
+    let request = signed_request_with_destination_header(
+        "PUT",
+        &uri,
+        public_server_name,
+        public_server_name,
+        key_id,
+        &signing_key,
+        Some(&content),
+    );
+
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
