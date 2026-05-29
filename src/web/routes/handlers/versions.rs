@@ -1,8 +1,17 @@
 //! 版本相关处理器
 
+use crate::common::config::Config;
+use crate::common::room_versions::client_room_versions_capability;
 use crate::web::AppState;
 use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
-use axum::{extract::{Query, State}, Json};
+use axum::{
+    extract::{Query, State},
+    http::{
+        header::{CACHE_CONTROL, VARY},
+        HeaderMap, HeaderValue,
+    },
+    Json,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use url::Url;
@@ -14,27 +23,59 @@ use url::Url;
 #[derive(Deserialize, Default)]
 pub struct EmptyQuery {}
 
-const CLIENT_VERSIONS_JSON_BASE: &str = r#"{"versions":["r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5","v1.6","v1.7","v1.8","v1.9","v1.10","v1.11","v1.12","v1.13"],"unstable_features":{"m.lazy_load_members":true,"m.require_identity_server":false,"m.supports_login_via_phone_number":true,"org.matrix.msc3882":true,"org.matrix.msc3983":true,"org.matrix.msc3245":true,"org.matrix.msc3266":true,"org.matrix.msc3916":true,"uk.tcpip.msc4133":true,"org.matrix.msc3886.sliding_sync":true,"org.matrix.msc4261.widget":true,"io.hula.burn_after_read":true,"io.hula.friends":true}}"#;
+const CLIENT_API_VERSIONS: &[&str] = &[
+    "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6",
+    "v1.7", "v1.8", "v1.9", "v1.10", "v1.11", "v1.12", "v1.13",
+];
+
+const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
+    ("m.lazy_load_members", true),
+    ("m.require_identity_server", false),
+    ("m.supports_login_via_phone_number", true),
+    ("org.matrix.msc3882", true),
+    ("org.matrix.msc3983", true),
+    ("org.matrix.msc3245", true),
+    ("org.matrix.msc3266", true),
+    ("org.matrix.msc3916", true),
+    ("uk.tcpip.msc4133", true),
+    ("org.matrix.msc3886.sliding_sync", true),
+    ("org.matrix.msc4261.widget", true),
+    ("io.hula.burn_after_read", true),
+    ("io.hula.friends", true),
+];
+
+fn build_client_versions(config: &Config) -> Value {
+    let mut unstable_features = serde_json::Map::new();
+
+    for (feature, enabled) in BASE_UNSTABLE_FEATURES {
+        unstable_features.insert((*feature).to_string(), json!(enabled));
+    }
+
+    if config.experimental.msc3814_enabled {
+        unstable_features.insert("org.matrix.msc3814".to_string(), json!(true));
+    }
+
+    json!({
+        "versions": CLIENT_API_VERSIONS,
+        "unstable_features": unstable_features
+    })
+}
+
+fn client_versions_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=600, s-maxage=3600, stale-while-revalidate=600"),
+    );
+    headers.insert(VARY, HeaderValue::from_static("Authorization"));
+    headers
+}
 
 /// 获取客户端 API 版本
-#[allow(clippy::expect_used)]
 pub async fn get_client_versions(
     State(state): State<AppState>,
 ) -> impl axum::response::IntoResponse {
-    let config = &state.services.config;
-    let mut versions: Value =
-        serde_json::from_str(CLIENT_VERSIONS_JSON_BASE).expect("base versions json is valid");
-
-    if let Some(unstable_features) = versions
-        .get_mut("unstable_features")
-        .and_then(|f| f.as_object_mut())
-    {
-        if config.experimental.msc3814_enabled {
-            unstable_features.insert("org.matrix.msc3814".to_string(), json!(true));
-        }
-    }
-
-    Json(versions)
+    (client_versions_headers(), Json(build_client_versions(&state.services.config)))
 }
 
 /// 获取服务端版本
@@ -110,15 +151,7 @@ pub async fn get_capabilities(
     let saml_enabled = state.services.config.saml.enabled;
     let mut capabilities = json!({
         "m.change_password": { "enabled": true },
-        "m.room_versions": {
-            "default": "10",
-            "available": {
-                "1": "stable", "2": "stable", "3": "stable",
-                "4": "stable", "5": "stable", "6": "stable",
-                "7": "stable", "8": "stable", "9": "stable",
-                "10": "stable", "11": "stable"
-            }
-        },
+        "m.room_versions": client_room_versions_capability(),
         "m.set_displayname": { "enabled": true },
         "m.set_avatar_url": { "enabled": true },
         "m.3pid_changes": { "enabled": true },
@@ -258,7 +291,11 @@ pub async fn get_capabilities(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_well_known_client, derive_well_known_server, get_client_versions};
+    use super::{
+        build_client_versions, build_well_known_client, client_versions_headers,
+        derive_well_known_server, get_client_versions, CLIENT_API_VERSIONS,
+    };
+    use axum::http::header::{CACHE_CONTROL, VARY};
     use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::Config;
     use crate::services::ServiceContainer;
@@ -279,6 +316,44 @@ mod tests {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let services = ServiceContainer::new(&pool, cache.clone(), config, None).await;
         AppState::new(services, cache)
+    }
+
+    #[test]
+    fn test_build_client_versions_keeps_supported_versions_ordered_and_unique() {
+        let body = build_client_versions(&Config::default());
+        let versions = body["versions"].as_array().expect("versions should be an array");
+
+        assert_eq!(versions.len(), CLIENT_API_VERSIONS.len());
+        for expected in CLIENT_API_VERSIONS {
+            assert_eq!(
+                versions.iter().filter(|version| version.as_str() == Some(expected)).count(),
+                1,
+                "version {expected} should appear exactly once"
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_client_versions_omits_disabled_msc3814() {
+        let mut config = Config::default();
+        config.experimental.msc3814_enabled = false;
+        let body = build_client_versions(&config);
+
+        assert!(body["unstable_features"].get("org.matrix.msc3814").is_none());
+    }
+
+    #[test]
+    fn test_client_versions_headers_allow_public_cache_and_vary_on_auth() {
+        let headers = client_versions_headers();
+
+        assert_eq!(
+            headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()),
+            Some("public, max-age=600, s-maxage=3600, stale-while-revalidate=600")
+        );
+        assert_eq!(
+            headers.get(VARY).and_then(|value| value.to_str().ok()),
+            Some("Authorization")
+        );
     }
 
     #[tokio::test]

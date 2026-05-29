@@ -53,12 +53,12 @@ pub async fn federation_auth_middleware(
     };
 
     if let Some(ref dest) = params.destination {
-        if dest != &state.services.config.server.name {
+        if !is_local_federation_destination(&state, dest) {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_destination_mismatch",
                 claimed_destination = dest,
-                local_server = state.services.config.server.name,
+                local_server = state.services.server_name,
                 origin = params.origin,
                 "Federation request destination does not match local server - possible replay attack"
             );
@@ -196,6 +196,18 @@ pub async fn federation_auth_middleware(
     next.run(request).await
 }
 
+fn is_local_federation_destination(state: &AppState, destination: &str) -> bool {
+    let server_config = &state.services.config.server;
+    [
+        state.services.server_name.as_str(),
+        server_config.name.as_str(),
+        server_config.get_server_name(),
+        state.services.config.federation.server_name.as_str(),
+    ]
+    .into_iter()
+    .any(|local_name| !local_name.is_empty() && local_name == destination)
+}
+
 pub async fn replication_http_auth_middleware(
     State(state): State<AppState>,
     request: Request<Body>,
@@ -260,13 +272,13 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
         let Some((k, v)) = part.split_once('=') else {
             continue;
         };
-        let k = k.trim();
+        let k = k.trim().to_ascii_lowercase();
         let mut v = v.trim();
         if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
             v = &v[1..v.len() - 1];
         }
 
-        match k {
+        match k.as_str() {
             "origin" => origin = Some(v.to_string()),
             "key" => key = Some(v.to_string()),
             "sig" => sig = Some(v.to_string()),
@@ -730,6 +742,19 @@ mod tests {
         .expect("header should parse");
 
         assert_eq!(params.origin, "test.example.com");
+        assert_eq!(params.key, "ed25519:test");
+        assert_eq!(params.sig, "abc123");
+    }
+
+    #[test]
+    fn test_parse_x_matrix_authorization_parameter_names_case_insensitive() {
+        let params = parse_x_matrix_authorization(
+            r#"X-Matrix Origin="test.example.com", Destination="dest.example.com", Key="ed25519:test", Sig="abc123""#,
+        )
+        .expect("header should parse");
+
+        assert_eq!(params.origin, "test.example.com");
+        assert_eq!(params.destination.as_deref(), Some("dest.example.com"));
         assert_eq!(params.key, "ed25519:test");
         assert_eq!(params.sig, "abc123");
     }
