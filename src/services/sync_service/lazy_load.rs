@@ -20,11 +20,9 @@ impl SyncService {
         }
 
         let known_members = match device_id {
-            Some(device_id) => self
-                .device_storage
-                .get_lazy_loaded_members(user_id, device_id, room_id)
-                .await
-                .unwrap_or_default(),
+            Some(device_id) => {
+                self.device_storage.get_lazy_loaded_members(user_id, device_id, room_id).await.unwrap_or_default()
+            }
             None => HashSet::new(),
         };
 
@@ -45,17 +43,11 @@ impl SyncService {
         }
 
         if let Some(device_id) = device_id {
-            let _ = self
-                .device_storage
-                .upsert_lazy_loaded_members(user_id, device_id, room_id, known_members)
-                .await;
+            let _ = self.device_storage.upsert_lazy_loaded_members(user_id, device_id, room_id, known_members).await;
         }
     }
 
-    pub(crate) async fn apply_lazy_load_members(
-        &self,
-        request: LazyLoadMembersRequest<'_>,
-    ) -> Vec<Value> {
+    pub(crate) async fn apply_lazy_load_members(&self, request: LazyLoadMembersRequest<'_>) -> Vec<Value> {
         let LazyLoadMembersRequest {
             state_events,
             timeline_events,
@@ -72,14 +64,9 @@ impl SyncService {
         }
 
         let cache_key = LazyLoadedMembersCacheKey::new(user_id, device_id, room_id);
-        let known_members = self
-            .get_known_lazy_loaded_members(user_id, device_id, room_id)
-            .await;
+        let known_members = self.get_known_lazy_loaded_members(user_id, device_id, room_id).await;
         let include_redundant_members = Self::room_filter_requests_redundant_members(room_filter);
-        let changed_member_ids = changed_member_ids
-            .filter(|_| !timeline_limited)
-            .cloned()
-            .unwrap_or_default();
+        let changed_member_ids = changed_member_ids.filter(|_| !timeline_limited).cloned().unwrap_or_default();
         let (filtered_events, known_now) = Self::apply_lazy_load_members_with_cache(
             state_events,
             timeline_events,
@@ -92,13 +79,9 @@ impl SyncService {
 
         if !known_now.is_empty() {
             let mut cache = self.lazy_loaded_members_cache.write().await;
-            cache
-                .entry(cache_key)
-                .or_default()
-                .extend(known_now.iter().cloned());
+            cache.entry(cache_key).or_default().extend(known_now.iter().cloned());
         }
-        self.persist_lazy_loaded_members(user_id, device_id, room_id, &known_now)
-            .await;
+        self.persist_lazy_loaded_members(user_id, device_id, room_id, &known_now).await;
 
         filtered_events
     }
@@ -115,9 +98,7 @@ impl SyncService {
         if timeline_limited {
             let known_now: HashSet<String> = state_events
                 .iter()
-                .filter(|event| {
-                    event.get("type").and_then(|value| value.as_str()) == Some("m.room.member")
-                })
+                .filter(|event| event.get("type").and_then(|value| value.as_str()) == Some("m.room.member"))
                 .filter_map(|event| event.get("state_key").and_then(|value| value.as_str()))
                 .map(|s| s.to_string())
                 .collect();
@@ -127,8 +108,7 @@ impl SyncService {
                     if event.get("type").and_then(|value| value.as_str()) != Some("m.room.member") {
                         return true;
                     }
-                    let Some(state_key) = event.get("state_key").and_then(|value| value.as_str())
-                    else {
+                    let Some(state_key) = event.get("state_key").and_then(|value| value.as_str()) else {
                         return false;
                     };
                     include_redundant_members || !known_members.contains(state_key)
@@ -162,8 +142,7 @@ impl SyncService {
                     return true;
                 }
 
-                let Some(state_key) = event.get("state_key").and_then(|value| value.as_str())
-                else {
+                let Some(state_key) = event.get("state_key").and_then(|value| value.as_str()) else {
                     return false;
                 };
                 if !required_members.contains(state_key) {

@@ -103,7 +103,7 @@ wait_for_health() {
     local service_name="$1"
     local attempts="${2:-40}"
     local sleep_seconds="${3:-3}"
-    for ((i=1; i<=attempts; i++)); do
+    for ((i = 1; i <= attempts; i++)); do
         local container_id
         container_id="$(docker_compose ps -q "$service_name" 2>/dev/null || true)"
         if [ -z "$container_id" ]; then
@@ -129,7 +129,7 @@ wait_for_http() {
     local attempts="${2:-20}"
     local sleep_seconds="${3:-3}"
 
-    for ((i=1; i<=attempts; i++)); do
+    for ((i = 1; i <= attempts; i++)); do
         if curl -fsS "$url" >/dev/null 2>&1; then
             return 0
         fi

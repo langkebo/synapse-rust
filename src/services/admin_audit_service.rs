@@ -15,22 +15,16 @@ impl AdminAuditService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_event(
-        &self,
-        request: CreateAuditEventRequest,
-    ) -> Result<AuditEvent, ApiError> {
+    pub async fn create_event(&self, request: CreateAuditEventRequest) -> Result<AuditEvent, ApiError> {
         validate_request(&request)?;
 
         let event_id = uuid::Uuid::new_v4().to_string();
         let created_ts = chrono::Utc::now().timestamp_millis();
 
-        self.storage
-            .create_event(&event_id, created_ts, &request)
-            .await
-            .map_err(|error| {
-                error!(target: "security_audit", event_id = %event_id, "failed to persist audit event: {}", error);
-                ApiError::internal("An internal error occurred".to_string())
-            })
+        self.storage.create_event(&event_id, created_ts, &request).await.map_err(|error| {
+            error!(target: "security_audit", event_id = %event_id, "failed to persist audit event: {}", error);
+            ApiError::internal("An internal error occurred".to_string())
+        })
     }
 
     #[instrument(skip(self))]
@@ -42,10 +36,7 @@ impl AdminAuditService {
     }
 
     #[instrument(skip(self))]
-    pub async fn list_events(
-        &self,
-        filters: AuditEventFilters,
-    ) -> AuditListResult {
+    pub async fn list_events(&self, filters: AuditEventFilters) -> AuditListResult {
         self.storage
             .list_events(&filters)
             .await
@@ -76,9 +67,7 @@ fn validate_request(request: &CreateAuditEventRequest) -> Result<(), ApiError> {
 
     match request.result.as_str() {
         "success" | "denied" | "failed" | "failure" => Ok(()),
-        _ => Err(ApiError::bad_request(
-            "result must be one of success, denied, failed, failure",
-        )),
+        _ => Err(ApiError::bad_request("result must be one of success, denied, failed, failure")),
     }
 }
 

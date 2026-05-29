@@ -103,10 +103,10 @@ FAILED=0
 PASSED=0
 
 for mapping in "${API_MAPPINGS[@]}"; do
-    IFS='|' read -r method api tables <<< "$mapping"
+    IFS='|' read -r method api tables <<<"$mapping"
 
     missing=""
-    IFS=',' read -ra TABLE_ARRAY <<< "$tables"
+    IFS=',' read -ra TABLE_ARRAY <<<"$tables"
     for table in "${TABLE_ARRAY[@]}"; do
         table=$(echo "$table" | tr -d ' ')
         if ! table_exists "$table"; then
@@ -146,10 +146,10 @@ echo -e "${BLUE}API 端点与 Schema 映射详情${NC}"
 echo "========================================"
 
 for mapping in "${API_MAPPINGS[@]}"; do
-    IFS='|' read -r method api tables <<< "$mapping"
+    IFS='|' read -r method api tables <<<"$mapping"
     echo -e "${CYAN}$method $api${NC}"
 
-    IFS=',' read -ra TABLE_ARRAY <<< "$tables"
+    IFS=',' read -ra TABLE_ARRAY <<<"$tables"
     for table in "${TABLE_ARRAY[@]}"; do
         table=$(echo "$table" | tr -d ' ')
         if table_exists "$table"; then

@@ -7,9 +7,7 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new(config: super::Config) -> Self {
-        Self {
-            config: Arc::new(RwLock::new(config)),
-        }
+        Self { config: Arc::new(RwLock::new(config)) }
     }
 
     fn read_config(&self, _location: &str) -> RwLockReadGuard<'_, super::Config> {
@@ -68,8 +66,6 @@ impl ConfigManager {
 
 impl Clone for ConfigManager {
     fn clone(&self) -> Self {
-        Self {
-            config: Arc::clone(&self.config),
-        }
+        Self { config: Arc::clone(&self.config) }
     }
 }

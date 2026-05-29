@@ -21,10 +21,7 @@ pub struct PresenceStorage {
 
 impl PresenceStorage {
     pub fn new(pool: Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self {
-            pool,
-            cache,
-        }
+        Self { pool, cache }
     }
 
     pub async fn set_presence(
@@ -68,10 +65,7 @@ impl PresenceStorage {
         Ok(())
     }
 
-    pub async fn get_presence(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    pub async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying presence");
         let key = CacheKeyBuilder::user_presence(user_id);
         if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
@@ -190,12 +184,7 @@ impl PresenceStorage {
         Ok(map)
     }
 
-    pub async fn set_typing(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        typing: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
         if typing {
             let now = chrono::Utc::now().timestamp_millis();
             sqlx::query(
@@ -226,11 +215,7 @@ impl PresenceStorage {
         Ok(())
     }
 
-    pub async fn add_subscription(
-        &self,
-        subscriber_id: &str,
-        target_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let result = sqlx::query(
             r"
@@ -269,11 +254,7 @@ impl PresenceStorage {
         }
     }
 
-    pub async fn remove_subscription(
-        &self,
-        subscriber_id: &str,
-        target_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             r"
             DELETE FROM presence_subscriptions

@@ -24,9 +24,7 @@ fn test_search_service_disabled() {
             .await;
         assert!(result.is_ok());
 
-        let result = search_service
-            .search_messages("@alice:localhost", "Hello", 10, None)
-            .await;
+        let result = search_service.search_messages("@alice:localhost", "Hello", 10, None).await;
         assert!(result.is_err());
         match result {
             Err(ApiError::Internal(msg)) => assert_eq!(msg, "Elasticsearch is disabled"),

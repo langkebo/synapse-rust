@@ -34,8 +34,7 @@ impl Ed25519PublicKey {
     }
 
     pub fn from_base64(s: &str) -> Result<Self, CryptoError> {
-        let bytes =
-            base64::Engine::decode(&MATRIX_BASE64, s).map_err(|_| CryptoError::InvalidBase64)?;
+        let bytes = base64::Engine::decode(&MATRIX_BASE64, s).map_err(|_| CryptoError::InvalidBase64)?;
         if bytes.len() != 32 {
             return Err(CryptoError::InvalidKeyLength);
         }
@@ -56,16 +55,12 @@ impl Ed25519SecretKey {
         let mut key_bytes = [0u8; 32];
         rng.fill_bytes(&mut key_bytes);
         let signing_key = SigningKey::from_bytes(&key_bytes);
-        Self {
-            bytes: signing_key.to_bytes(),
-        }
+        Self { bytes: signing_key.to_bytes() }
     }
 
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
         let key = SigningKey::from_bytes(bytes);
-        Self {
-            bytes: key.to_bytes(),
-        }
+        Self { bytes: key.to_bytes() }
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {
@@ -113,9 +108,7 @@ impl Ed25519KeyPair {
         let message = message.as_ref();
         let verifying_key = VerifyingKey::from_bytes(self.public.as_bytes())
             .map_err(|_| super::CryptoError::SignatureVerificationFailed)?;
-        verifying_key
-            .verify(message, signature)
-            .map_err(|_| super::CryptoError::SignatureVerificationFailed)
+        verifying_key.verify(message, signature).map_err(|_| super::CryptoError::SignatureVerificationFailed)
     }
 }
 
@@ -235,9 +228,6 @@ mod tests {
     fn test_ed25519_key_pair_different_each_time() {
         let key_pair1 = Ed25519KeyPair::generate();
         let key_pair2 = Ed25519KeyPair::generate();
-        assert_ne!(
-            key_pair1.public_key().as_bytes(),
-            key_pair2.public_key().as_bytes()
-        );
+        assert_ne!(key_pair1.public_key().as_bytes(), key_pair2.public_key().as_bytes());
     }
 }

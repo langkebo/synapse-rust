@@ -115,7 +115,11 @@ def load_tables(tables_file: str | None) -> list[str]:
     if not tables_file:
         return DEFAULT_TABLES
     content = Path(tables_file).read_text().splitlines()
-    return [line.strip() for line in content if line.strip() and not line.strip().startswith("#")]
+    return [
+        line.strip()
+        for line in content
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
 
 def table_exists(connection: DatabaseConnection, table_name: str) -> bool:
@@ -150,7 +154,9 @@ def table_row_count(connection: DatabaseConnection, table_name: str) -> int:
     return int(output or "0")
 
 
-def table_checksum(connection: DatabaseConnection, table_name: str, order_columns: list[str]) -> str | None:
+def table_checksum(
+    connection: DatabaseConnection, table_name: str, order_columns: list[str]
+) -> str | None:
     if not order_columns:
         return None
     order_expr = ", ".join(identifier(column) for column in order_columns)
@@ -232,7 +238,11 @@ def compare_reports(primary: dict, replica: dict) -> list[dict]:
                 }
             )
             continue
-        if entry["order_stable"] and other["order_stable"] and entry["checksum"] != other["checksum"]:
+        if (
+            entry["order_stable"]
+            and other["order_stable"]
+            and entry["checksum"] != other["checksum"]
+        ):
             diffs.append(
                 {
                     "table": entry["table"],
@@ -257,10 +267,16 @@ def write_json(output_path: str | None, payload: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
-    parser.add_argument("--replica-database-url", default=os.getenv("REPLICA_DATABASE_URL"))
-    parser.add_argument("--tables-file", default=os.getenv("LOGICAL_CHECKSUM_TABLES_FILE"))
+    parser.add_argument(
+        "--replica-database-url", default=os.getenv("REPLICA_DATABASE_URL")
+    )
+    parser.add_argument(
+        "--tables-file", default=os.getenv("LOGICAL_CHECKSUM_TABLES_FILE")
+    )
     parser.add_argument("--output", default=os.getenv("LOGICAL_CHECKSUM_REPORT"))
-    parser.add_argument("--replica-output", default=os.getenv("LOGICAL_CHECKSUM_REPLICA_REPORT"))
+    parser.add_argument(
+        "--replica-output", default=os.getenv("LOGICAL_CHECKSUM_REPLICA_REPORT")
+    )
     args = parser.parse_args()
 
     if not args.database_url:

@@ -353,17 +353,13 @@ impl SecuritySummary {
         // Generate recommendations
         let mut recommendations = Vec::new();
         if unverified > 0 {
-            recommendations.push(
-                "Consider verifying your new devices from an existing trusted device".to_string(),
-            );
+            recommendations.push("Consider verifying your new devices from an existing trusted device".to_string());
         }
         if blocked > 0 {
-            recommendations
-                .push("Review and unblock any devices that were mistakenly blocked".to_string());
+            recommendations.push("Review and unblock any devices that were mistakenly blocked".to_string());
         }
         if !has_master_key {
-            recommendations
-                .push("Set up cross-signing to automatically trust your devices".to_string());
+            recommendations.push("Set up cross-signing to automatically trust your devices".to_string());
         }
 
         Self {
@@ -459,13 +455,8 @@ mod tests {
 
     #[test]
     fn test_verification_request_new() {
-        let request = DeviceVerificationRequest::new(
-            "@user:example.com",
-            "DEVICE_NEW",
-            VerificationMethod::Sas,
-            "token123",
-            5,
-        );
+        let request =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE_NEW", VerificationMethod::Sas, "token123", 5);
 
         assert_eq!(request.status, VerificationRequestStatus::Pending);
         assert!(!request.is_expired());

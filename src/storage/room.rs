@@ -6,6 +6,8 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use tracing;
 
+use crate::common::room_versions::DEFAULT_ROOM_VERSION;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomSearchOrder {
     Created,
@@ -15,20 +17,9 @@ pub enum RoomSearchOrder {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoomSearchCursor {
-    Created {
-        created_ts: i64,
-        room_id: String,
-    },
-    Name {
-        name: Option<String>,
-        created_ts: i64,
-        room_id: String,
-    },
-    Size {
-        member_count: i64,
-        created_ts: i64,
-        room_id: String,
-    },
+    Created { created_ts: i64, room_id: String },
+    Name { name: Option<String>, created_ts: i64, room_id: String },
+    Size { member_count: i64, created_ts: i64, room_id: String },
 }
 
 impl RoomSearchOrder {
@@ -44,24 +35,15 @@ impl RoomSearchOrder {
 
 pub fn encode_room_search_cursor(cursor: &RoomSearchCursor) -> String {
     match cursor {
-        RoomSearchCursor::Created {
-            created_ts,
-            room_id,
-        } => format!("created|{created_ts}|{room_id}"),
-        RoomSearchCursor::Name {
-            name,
-            created_ts,
-            room_id,
-        } => {
+        RoomSearchCursor::Created { created_ts, room_id } => format!("created|{created_ts}|{room_id}"),
+        RoomSearchCursor::Name { name, created_ts, room_id } => {
             let is_null = if name.is_none() { 1 } else { 0 };
             let encoded_name = URL_SAFE_NO_PAD.encode(name.as_deref().unwrap_or(""));
             format!("name|{is_null}|{encoded_name}|{created_ts}|{room_id}")
         }
-        RoomSearchCursor::Size {
-            member_count,
-            created_ts,
-            room_id,
-        } => format!("size|{member_count}|{created_ts}|{room_id}"),
+        RoomSearchCursor::Size { member_count, created_ts, room_id } => {
+            format!("size|{member_count}|{created_ts}|{room_id}")
+        }
     }
 }
 
@@ -75,10 +57,7 @@ pub fn decode_room_search_cursor(cursor: Option<&str>) -> Option<RoomSearchCurso
             if room_id.is_empty() || parts.next().is_some() {
                 return None;
             }
-            Some(RoomSearchCursor::Created {
-                created_ts,
-                room_id,
-            })
+            Some(RoomSearchCursor::Created { created_ts, room_id })
         }
         "name" => {
             let is_null = parts.next()?.parse::<u8>().ok()?;
@@ -91,11 +70,7 @@ pub fn decode_room_search_cursor(cursor: Option<&str>) -> Option<RoomSearchCurso
             let decoded_name = URL_SAFE_NO_PAD.decode(encoded_name).ok()?;
             let decoded_name = String::from_utf8(decoded_name).ok()?;
             Some(RoomSearchCursor::Name {
-                name: if is_null == 1 {
-                    None
-                } else {
-                    Some(decoded_name)
-                },
+                name: if is_null == 1 { None } else { Some(decoded_name) },
                 created_ts,
                 room_id,
             })
@@ -107,11 +82,7 @@ pub fn decode_room_search_cursor(cursor: Option<&str>) -> Option<RoomSearchCurso
             if room_id.is_empty() || parts.next().is_some() {
                 return None;
             }
-            Some(RoomSearchCursor::Size {
-                member_count,
-                created_ts,
-                room_id,
-            })
+            Some(RoomSearchCursor::Size { member_count, created_ts, room_id })
         }
         _ => None,
     }
@@ -129,10 +100,7 @@ mod cursor_tests {
         });
         assert_eq!(
             decode_room_search_cursor(Some(&cursor)),
-            Some(RoomSearchCursor::Created {
-                created_ts: 1_700_000_000_000,
-                room_id: "!room:example.com".to_string(),
-            })
+            Some(RoomSearchCursor::Created { created_ts: 1_700_000_000_000, room_id: "!room:example.com".to_string() })
         );
     }
 
@@ -174,16 +142,12 @@ mod cursor_tests {
     fn test_room_search_cursor_rejects_invalid_value() {
         assert_eq!(decode_room_search_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_room_search_cursor(Some("created|123|")), None);
-        assert_eq!(
-            decode_room_search_cursor(Some("name|0|bad%%%|123|!room:example.com")),
-            None
-        );
+        assert_eq!(decode_room_search_cursor(Some("name|0|bad%%%|123|!room:example.com")), None);
     }
 }
 
 const DEFAULT_JOIN_RULE: &str = "invite";
 const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
-const DEFAULT_ROOM_VERSION: &str = "10";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Room {
@@ -229,12 +193,7 @@ impl RoomEncryptionStatus {
         rotation_period_ms: Option<i64>,
         rotation_period_msgs: Option<i64>,
     ) -> Self {
-        Self {
-            is_encrypted,
-            algorithm,
-            rotation_period_ms,
-            rotation_period_msgs,
-        }
+        Self { is_encrypted, algorithm, rotation_period_ms, rotation_period_msgs }
     }
 }
 
@@ -310,15 +269,7 @@ impl RoomStorage {
         version: &str,
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
-        Self::create_room_with_executor(
-            &*self.pool,
-            room_id,
-            creator,
-            join_rule,
-            version,
-            is_public,
-        )
-        .await
+        Self::create_room_with_executor(&*self.pool, room_id, creator, join_rule, version, is_public).await
     }
 
     pub async fn create_room_in_tx(
@@ -330,8 +281,7 @@ impl RoomStorage {
         version: &str,
         is_public: bool,
     ) -> Result<Room, sqlx::Error> {
-        Self::create_room_with_executor(&mut **tx, room_id, creator, join_rule, version, is_public)
-            .await
+        Self::create_room_with_executor(&mut **tx, room_id, creator, join_rule, version, is_public).await
     }
 
     async fn create_room_with_executor<'a, E>(
@@ -409,19 +359,13 @@ impl RoomStorage {
                 topic: row.topic,
                 avatar_url: row.avatar_url,
                 canonical_alias: row.canonical_alias,
-                join_rule: row
-                    .join_rule
-                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                join_rule: row.join_rule.unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator,
-                room_version: row
-                    .room_version
-                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row.room_version.unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
-                history_visibility: row
-                    .history_visibility
-                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                history_visibility: row.history_visibility.unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
                 is_federatable: true,
                 is_spotlight: false,
@@ -459,15 +403,9 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rule: row
-                    .join_rule
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
-                room_version: row
-                    .room_version
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -559,15 +497,9 @@ impl RoomStorage {
                 topic: row.topic.clone(),
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
-                join_rule: row
-                    .join_rule
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                 creator_user_id: row.creator.clone(),
-                room_version: row
-                    .room_version
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
                 member_count: row.member_count.unwrap_or(0),
@@ -615,27 +547,14 @@ impl RoomStorage {
         query_builder.push(" WHERE 1 = 1 ");
 
         match (order_by, from) {
-            (
-                RoomSearchOrder::Created,
-                Some(RoomSearchCursor::Created {
-                    created_ts,
-                    room_id,
-                }),
-            ) => {
+            (RoomSearchOrder::Created, Some(RoomSearchCursor::Created { created_ts, room_id })) => {
                 query_builder.push(" AND (r.created_ts, r.room_id) < (");
                 query_builder.push_bind(created_ts);
                 query_builder.push(", ");
                 query_builder.push_bind(room_id);
                 query_builder.push(")");
             }
-            (
-                RoomSearchOrder::Name,
-                Some(RoomSearchCursor::Name {
-                    name,
-                    created_ts,
-                    room_id,
-                }),
-            ) => {
+            (RoomSearchOrder::Name, Some(RoomSearchCursor::Name { name, created_ts, room_id })) => {
                 query_builder.push(" AND (r.name, r.created_ts, r.room_id) < (");
                 query_builder.push_bind(name);
                 query_builder.push(", ");
@@ -644,14 +563,7 @@ impl RoomStorage {
                 query_builder.push_bind(room_id);
                 query_builder.push(")");
             }
-            (
-                RoomSearchOrder::Size,
-                Some(RoomSearchCursor::Size {
-                    member_count,
-                    created_ts,
-                    room_id,
-                }),
-            ) => {
+            (RoomSearchOrder::Size, Some(RoomSearchCursor::Size { member_count, created_ts, room_id })) => {
                 query_builder.push(" AND (rs.member_count, r.created_ts, r.room_id) < (");
                 query_builder.push_bind(member_count);
                 query_builder.push(", ");
@@ -674,18 +586,14 @@ impl RoomStorage {
                 query_builder.push(" ORDER BY r.name DESC, r.created_ts DESC, r.room_id DESC");
             }
             RoomSearchOrder::Size => {
-                query_builder
-                    .push(" ORDER BY rs.member_count DESC, r.created_ts DESC, r.room_id DESC");
+                query_builder.push(" ORDER BY rs.member_count DESC, r.created_ts DESC, r.room_id DESC");
             }
         }
 
         query_builder.push(" LIMIT ");
         query_builder.push_bind(limit + 1); // Fetch one extra to check for next_batch
 
-        let rows: Vec<RoomWithMembersRecord> = query_builder
-            .build_query_as()
-            .fetch_all(&*self.pool)
-            .await?;
+        let rows: Vec<RoomWithMembersRecord> = query_builder.build_query_as().fetch_all(&*self.pool).await?;
 
         let next_batch = if rows.len() > limit as usize {
             rows.get(limit as usize).map(|last_room| {
@@ -722,15 +630,9 @@ impl RoomStorage {
                         topic: row.topic.clone(),
                         avatar_url: row.avatar_url.clone(),
                         canonical_alias: row.canonical_alias.clone(),
-                        join_rule: row
-                            .join_rule
-                            .clone()
-                            .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                        join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                         creator_user_id: row.creator.clone(),
-                        room_version: row
-                            .room_version
-                            .clone()
-                            .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                        room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                         encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                         is_public: row.is_public.unwrap_or(false),
                         member_count: row.member_count.unwrap_or(0),
@@ -776,11 +678,7 @@ impl RoomStorage {
         Self::update_room_name_with_executor(&mut **tx, room_id, name).await
     }
 
-    async fn update_room_name_with_executor<'a, E>(
-        executor: E,
-        room_id: &str,
-        name: &str,
-    ) -> Result<(), sqlx::Error>
+    async fn update_room_name_with_executor<'a, E>(executor: E, room_id: &str, name: &str) -> Result<(), sqlx::Error>
     where
         E: sqlx::Executor<'a, Database = Postgres>,
     {
@@ -809,11 +707,7 @@ impl RoomStorage {
         Self::update_room_topic_with_executor(&mut **tx, room_id, topic).await
     }
 
-    async fn update_room_topic_with_executor<'a, E>(
-        executor: E,
-        room_id: &str,
-        topic: &str,
-    ) -> Result<(), sqlx::Error>
+    async fn update_room_topic_with_executor<'a, E>(executor: E, room_id: &str, topic: &str) -> Result<(), sqlx::Error>
     where
         E: sqlx::Executor<'a, Database = Postgres>,
     {
@@ -829,11 +723,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn update_room_avatar(
-        &self,
-        room_id: &str,
-        avatar_url: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_room_avatar(&self, room_id: &str, avatar_url: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE rooms SET avatar_url = $1 WHERE room_id = $2
@@ -846,11 +736,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn set_canonical_alias(
-        &self,
-        room_id: &str,
-        alias: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_canonical_alias(&self, room_id: &str, alias: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE rooms SET canonical_alias = $1 WHERE room_id = $2
@@ -863,11 +749,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn update_canonical_alias(
-        &self,
-        room_id: &str,
-        alias: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_canonical_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
         self.set_canonical_alias(room_id, Some(alias)).await
     }
 
@@ -916,11 +798,7 @@ impl RoomStorage {
         Ok(count)
     }
 
-    pub async fn set_room_visibility(
-        &self,
-        room_id: &str,
-        visibility: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_room_visibility(&self, room_id: &str, visibility: &str) -> Result<(), sqlx::Error> {
         let visibility_value = match visibility {
             "public" => "public",
             "private" => "private",
@@ -938,12 +816,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn set_room_alias(
-        &self,
-        room_id: &str,
-        alias: &str,
-        _created_by: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
         let creation_ts = chrono::Utc::now().timestamp_millis();
         let server_name = alias
             .rsplit_once(':')
@@ -1027,11 +900,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn copy_room_state(
-        &self,
-        source_room_id: &str,
-        target_room_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
@@ -1047,7 +916,7 @@ impl RoomStorage {
                 content = EXCLUDED.content,
                 sender = EXCLUDED.sender,
                 origin_server_ts = EXCLUDED.origin_server_ts
-            "
+            ",
         )
         .bind(target_room_id)
         .bind(source_room_id)
@@ -1104,11 +973,7 @@ impl RoomStorage {
         Ok(result.is_some_and(|r| r.0))
     }
 
-    pub async fn set_room_directory(
-        &self,
-        room_id: &str,
-        is_public: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
@@ -1172,12 +1037,7 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn update_read_marker(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_read_marker(&self, room_id: &str, user_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         let now: i64 = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
@@ -1274,11 +1134,7 @@ impl RoomStorage {
         data: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let now: i64 = chrono::Utc::now().timestamp_millis();
-        let receipt_data = if data.is_object() {
-            data.clone()
-        } else {
-            json!({})
-        };
+        let receipt_data = if data.is_object() { data.clone() } else { json!({}) };
 
         sqlx::query(
             r"
@@ -1335,13 +1191,7 @@ impl RoomStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, event_id, receipt_type, ts, data)| Receipt {
-                user_id,
-                event_id,
-                receipt_type,
-                ts,
-                data,
-            })
+            .map(|(user_id, event_id, receipt_type, ts, data)| Receipt { user_id, event_id, receipt_type, ts, data })
             .collect())
     }
 
@@ -1391,15 +1241,9 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rule: row
-                        .join_rule
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                    join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
-                    room_version: row
-                        .room_version
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                    room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                     encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -1442,10 +1286,7 @@ impl RoomStorage {
     /// # Arguments
     ///
     /// * `min_age_ms` - Minimum room lifetime (milliseconds); empty rooms younger than this will not be cleaned up. Default 24h.
-    pub async fn cleanup_abnormal_data(
-        &self,
-        min_age_ms: Option<i64>,
-    ) -> Result<serde_json::Value, sqlx::Error> {
+    pub async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
         tracing::info!(min_age_ms = min_age_ms, "Starting abnormal data cleanup");
         let min_age = min_age_ms.unwrap_or(24 * 60 * 60 * 1000);
         let now = chrono::Utc::now().timestamp_millis();
@@ -1469,10 +1310,7 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?
         .rows_affected();
-        results.insert(
-            "deleted_empty_rooms".to_string(),
-            json!(deleted_empty_rooms),
-        );
+        results.insert("deleted_empty_rooms".to_string(), json!(deleted_empty_rooms));
 
         // 2. Clean up orphan events (events pointing to non-existent rooms)
         let deleted_orphan_events = sqlx::query(
@@ -1484,10 +1322,7 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?
         .rows_affected();
-        results.insert(
-            "deleted_orphan_events".to_string(),
-            json!(deleted_orphan_events),
-        );
+        results.insert("deleted_orphan_events".to_string(), json!(deleted_orphan_events));
 
         // 3. Clean up orphan memberships
         let deleted_orphan_memberships = sqlx::query(
@@ -1499,10 +1334,7 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?
         .rows_affected();
-        results.insert(
-            "deleted_orphan_memberships".to_string(),
-            json!(deleted_orphan_memberships),
-        );
+        results.insert("deleted_orphan_memberships".to_string(), json!(deleted_orphan_memberships));
 
         // 4. Clean up orphan state
         let deleted_orphan_state = sqlx::query(
@@ -1514,10 +1346,7 @@ impl RoomStorage {
         .execute(&*self.pool)
         .await?
         .rows_affected();
-        results.insert(
-            "deleted_orphan_state".to_string(),
-            json!(deleted_orphan_state),
-        );
+        results.insert("deleted_orphan_state".to_string(), json!(deleted_orphan_state));
 
         Ok(serde_json::Value::Object(results))
     }
@@ -1575,15 +1404,9 @@ impl RoomStorage {
                     topic: row.topic.clone(),
                     avatar_url: row.avatar_url.clone(),
                     canonical_alias: row.canonical_alias.clone(),
-                    join_rule: row
-                        .join_rule
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                    join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
                     creator_user_id: row.creator.clone(),
-                    room_version: row
-                        .room_version
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                    room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                     encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                     is_public: row.is_public.unwrap_or(false),
                     member_count: row.member_count.unwrap_or(0),
@@ -1651,10 +1474,7 @@ impl RoomStorage {
         Ok(rows.into_iter().collect())
     }
 
-    pub async fn increment_member_counts_batch(
-        &self,
-        room_ids: &[String],
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn increment_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(0);
         }
@@ -1676,10 +1496,7 @@ impl RoomStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn decrement_member_counts_batch(
-        &self,
-        room_ids: &[String],
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(0);
         }
@@ -1725,28 +1542,20 @@ impl RoomStorage {
     }
 
     pub async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let result: Option<(i64,)> = sqlx::query_as(r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
         Ok(result.map(|r| r.0))
     }
 
     pub async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r"DELETE FROM blocked_rooms WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query(r"DELETE FROM blocked_rooms WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
         Ok(())
     }
 
     pub async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
-        let total_rooms: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rooms")
-                .fetch_one(&*self.pool)
-                .await?;
+        let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms").fetch_one(&*self.pool).await?;
 
         let encrypted_rooms: i64 = sqlx::query_scalar(
             r"SELECT COUNT(DISTINCT room_id) FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)",
@@ -1755,26 +1564,20 @@ impl RoomStorage {
         .await?;
 
         let public_rooms: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true")
-                .fetch_one(&*self.pool)
-                .await?;
+            sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true").fetch_one(&*self.pool).await?;
 
-        let total_messages: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_type = 'm.room.message'")
-                .fetch_one(&*self.pool)
-                .await?;
+        let total_messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_type = 'm.room.message'")
+            .fetch_one(&*self.pool)
+            .await?;
 
         let total_members: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships")
+            sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships").fetch_one(&*self.pool).await?;
+
+        let active_rooms: i64 =
+            sqlx::query_scalar("SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1")
+                .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
                 .fetch_one(&*self.pool)
                 .await?;
-
-        let active_rooms: i64 = sqlx::query_scalar(
-            "SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1",
-        )
-        .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
-        .fetch_one(&*self.pool)
-        .await?;
 
         Ok(json!({
             "total_rooms": total_rooms,
@@ -1788,30 +1591,26 @@ impl RoomStorage {
     }
 
     pub async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let room_exists: Option<(String,)> = sqlx::query_as(
-            r"SELECT room_id FROM rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let room_exists: Option<(String,)> = sqlx::query_as(r"SELECT room_id FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         if room_exists.is_none() {
             return Ok(None);
         }
 
-        let member_count: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'",
-        )
-        .bind(room_id)
-        .fetch_one(&*self.pool)
-        .await?;
+        let member_count: i64 =
+            sqlx::query_scalar(r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'")
+                .bind(room_id)
+                .fetch_one(&*self.pool)
+                .await?;
 
-        let message_count: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'",
-        )
-        .bind(room_id)
-        .fetch_one(&*self.pool)
-        .await?;
+        let message_count: i64 =
+            sqlx::query_scalar(r"SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'")
+                .bind(room_id)
+                .fetch_one(&*self.pool)
+                .await?;
 
         let last_message_ts: Option<i64> =
             sqlx::query_scalar("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1")
@@ -1845,21 +1644,19 @@ impl RoomStorage {
     }
 
     pub async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
-        let is_public: Option<bool> =
-            sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let is_public: Option<bool> = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         let Some(is_public) = is_public else {
             return Ok(None);
         };
 
-        let in_directory: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
-                .bind(room_id)
-                .fetch_one(&*self.pool)
-                .await?;
+        let in_directory: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(room_id)
+            .fetch_one(&*self.pool)
+            .await?;
 
         Ok(Some((is_public, in_directory)))
     }
@@ -1896,21 +1693,16 @@ impl RoomStorage {
             return Ok(false);
         }
 
-        sqlx::query("DELETE FROM room_directory WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM room_directory WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
 
         Ok(true)
     }
 
     pub async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result: Option<(String,)> = sqlx::query_as(
-            r"SELECT room_version FROM rooms WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let result: Option<(String,)> = sqlx::query_as(r"SELECT room_version FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_optional(&*self.pool)
+            .await?;
         Ok(result.map(|r| r.0))
     }
 
@@ -2059,14 +1851,10 @@ impl RoomStorage {
         query.push(" LIMIT ");
         query.push_bind(limit);
 
-        let rooms = query
-            .build()
-            .fetch_all(&*self.pool)
-            .await?;
+        let rooms = query.build().fetch_all(&*self.pool).await?;
 
-        let mut count_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT COUNT(*) as total FROM rooms r WHERE 1=1",
-        );
+        let mut count_query =
+            sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT COUNT(*) as total FROM rooms r WHERE 1=1");
 
         if let Some(pattern) = &search_pattern {
             count_query.push(" AND (r.name ILIKE ");
@@ -2095,10 +1883,7 @@ impl RoomStorage {
             }
         }
 
-        let total_row = count_query
-            .build()
-            .fetch_one(&*self.pool)
-            .await?;
+        let total_row = count_query.build().fetch_one(&*self.pool).await?;
         let total: i64 = total_row.get("total");
 
         use sqlx::Row;

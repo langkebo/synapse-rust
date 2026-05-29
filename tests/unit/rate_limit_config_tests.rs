@@ -1,10 +1,10 @@
-use synapse_rust::common::rate_limit_config::{
-    RateLimitConfigFile, RateLimitConfigManager, RateLimitEndpointRule, RateLimitMatchType,
-    RateLimitRule, select_endpoint_rule,
-};
-use std::sync::Arc;
-use tempfile::NamedTempFile;
 use std::io::Write;
+use std::sync::Arc;
+use synapse_rust::common::rate_limit_config::{
+    select_endpoint_rule, RateLimitConfigFile, RateLimitConfigManager, RateLimitEndpointRule, RateLimitMatchType,
+    RateLimitRule,
+};
+use tempfile::NamedTempFile;
 
 fn create_temp_config_file() -> NamedTempFile {
     let mut file = NamedTempFile::new().unwrap();
@@ -45,7 +45,7 @@ reload_interval_seconds: 30
 async fn test_load_rate_limit_config_from_file() {
     let temp_file = create_temp_config_file();
     let config = RateLimitConfigFile::load(temp_file.path()).await.unwrap();
-    
+
     assert!(config.enabled);
     assert_eq!(config.default.per_second, 10);
     assert_eq!(config.default.burst_size, 20);
@@ -59,7 +59,7 @@ async fn test_load_rate_limit_config_from_file() {
 async fn test_config_manager_from_file() {
     let temp_file = create_temp_config_file();
     let manager = RateLimitConfigManager::from_file(temp_file.path()).await.unwrap();
-    
+
     let config = manager.get_config();
     assert!(config.enabled);
     assert_eq!(config.default.per_second, 10);
@@ -69,10 +69,10 @@ async fn test_config_manager_from_file() {
 async fn test_config_manager_reload() {
     let temp_file = create_temp_config_file();
     let manager = RateLimitConfigManager::from_file(temp_file.path()).await.unwrap();
-    
+
     let initial_config = manager.get_config();
     assert_eq!(initial_config.default.per_second, 10);
-    
+
     let updated_content = r#"
 enabled: true
 default:
@@ -89,9 +89,9 @@ fail_open_on_error: false
 reload_interval_seconds: 30
 "#;
     std::fs::write(temp_file.path(), updated_content).unwrap();
-    
+
     manager.reload().await.unwrap();
-    
+
     let reloaded_config = manager.get_config();
     assert_eq!(reloaded_config.default.per_second, 50);
     assert_eq!(reloaded_config.default.burst_size, 100);
@@ -100,21 +100,15 @@ reload_interval_seconds: 30
 #[tokio::test]
 async fn test_config_manager_update() {
     let temp_file = NamedTempFile::new().unwrap();
-    let manager = Arc::new(RateLimitConfigManager::new(
-        RateLimitConfigFile::default(),
-        temp_file.path().to_path_buf(),
-    ));
-    
+    let manager = Arc::new(RateLimitConfigManager::new(RateLimitConfigFile::default(), temp_file.path().to_path_buf()));
+
     manager.set_enabled(false).await.unwrap();
     let config = manager.get_config();
     assert!(!config.enabled);
-    
-    let new_rule = RateLimitRule {
-        per_second: 100,
-        burst_size: 200,
-    };
+
+    let new_rule = RateLimitRule { per_second: 100, burst_size: 200 };
     manager.set_default_rule(new_rule).await.unwrap();
-    
+
     let config = manager.get_config();
     assert_eq!(config.default.per_second, 100);
     assert_eq!(config.default.burst_size, 200);
@@ -123,25 +117,19 @@ async fn test_config_manager_update() {
 #[tokio::test]
 async fn test_add_remove_endpoint_rule() {
     let temp_file = NamedTempFile::new().unwrap();
-    let manager = Arc::new(RateLimitConfigManager::new(
-        RateLimitConfigFile::default(),
-        temp_file.path().to_path_buf(),
-    ));
-    
+    let manager = Arc::new(RateLimitConfigManager::new(RateLimitConfigFile::default(), temp_file.path().to_path_buf()));
+
     let rule = RateLimitEndpointRule {
         path: "/_matrix/client/r0/login".to_string(),
         match_type: RateLimitMatchType::Exact,
-        rule: RateLimitRule {
-            per_second: 5,
-            burst_size: 10,
-        },
+        rule: RateLimitRule { per_second: 5, burst_size: 10 },
     };
-    
+
     manager.add_endpoint_rule(rule).await.unwrap();
     let config = manager.get_config();
     assert_eq!(config.endpoints.len(), 1);
     assert_eq!(config.endpoints[0].path, "/_matrix/client/r0/login");
-    
+
     manager.remove_endpoint_rule("/_matrix/client/r0/login").await.unwrap();
     let config = manager.get_config();
     assert!(config.endpoints.is_empty());
@@ -150,15 +138,12 @@ async fn test_add_remove_endpoint_rule() {
 #[tokio::test]
 async fn test_add_remove_exempt_path() {
     let temp_file = NamedTempFile::new().unwrap();
-    let manager = Arc::new(RateLimitConfigManager::new(
-        RateLimitConfigFile::default(),
-        temp_file.path().to_path_buf(),
-    ));
-    
+    let manager = Arc::new(RateLimitConfigManager::new(RateLimitConfigFile::default(), temp_file.path().to_path_buf()));
+
     manager.add_exempt_path("/health".to_string()).await.unwrap();
     let config = manager.get_config();
     assert!(config.exempt_paths.contains(&"/health".to_string()));
-    
+
     manager.remove_exempt_path("/health").await.unwrap();
     let config = manager.get_config();
     assert!(!config.exempt_paths.contains(&"/health".to_string()));
@@ -170,19 +155,16 @@ fn test_select_endpoint_rule_exact_match() {
         endpoints: vec![RateLimitEndpointRule {
             path: "/_matrix/client/r0/login".to_string(),
             match_type: RateLimitMatchType::Exact,
-            rule: RateLimitRule {
-                per_second: 5,
-                burst_size: 10,
-            },
+            rule: RateLimitRule { per_second: 5, burst_size: 10 },
         }],
         ..Default::default()
     };
-    
+
     let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/r0/login");
     assert_eq!(id, "/_matrix/client/r0/login");
     assert_eq!(rule.per_second, 5);
     assert_eq!(rule.burst_size, 10);
-    
+
     let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/r0/login?redirect=1");
     assert_eq!(rule.per_second, config.default.per_second);
 }
@@ -194,27 +176,21 @@ fn test_select_endpoint_rule_prefix_match() {
             RateLimitEndpointRule {
                 path: "/_matrix/client".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 50,
-                    burst_size: 100,
-                },
+                rule: RateLimitRule { per_second: 50, burst_size: 100 },
             },
             RateLimitEndpointRule {
                 path: "/_matrix/client/r0/sync".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 20,
-                    burst_size: 40,
-                },
+                rule: RateLimitRule { per_second: 20, burst_size: 40 },
             },
         ],
         ..Default::default()
     };
-    
+
     let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/r0/sync?since=123");
     assert_eq!(id, "/_matrix/client/r0/sync");
     assert_eq!(rule.per_second, 20);
-    
+
     let (id, rule) = select_endpoint_rule(&config, "/_matrix/client/versions");
     assert_eq!(id, "/_matrix/client");
     assert_eq!(rule.per_second, 50);
@@ -227,37 +203,28 @@ fn test_select_endpoint_rule_longest_prefix_wins() {
             RateLimitEndpointRule {
                 path: "/api".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 100,
-                    burst_size: 200,
-                },
+                rule: RateLimitRule { per_second: 100, burst_size: 200 },
             },
             RateLimitEndpointRule {
                 path: "/api/v1".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 50,
-                    burst_size: 100,
-                },
+                rule: RateLimitRule { per_second: 50, burst_size: 100 },
             },
             RateLimitEndpointRule {
                 path: "/api/v1/users".to_string(),
                 match_type: RateLimitMatchType::Prefix,
-                rule: RateLimitRule {
-                    per_second: 10,
-                    burst_size: 20,
-                },
+                rule: RateLimitRule { per_second: 10, burst_size: 20 },
             },
         ],
         ..Default::default()
     };
-    
+
     let (_, rule) = select_endpoint_rule(&config, "/api/v1/users/123");
     assert_eq!(rule.per_second, 10);
-    
+
     let (_, rule) = select_endpoint_rule(&config, "/api/v1/posts");
     assert_eq!(rule.per_second, 50);
-    
+
     let (_, rule) = select_endpoint_rule(&config, "/api/v2/users");
     assert_eq!(rule.per_second, 100);
 }
@@ -265,19 +232,13 @@ fn test_select_endpoint_rule_longest_prefix_wins() {
 #[test]
 fn test_endpoint_aliases() {
     let mut config = RateLimitConfigFile::default();
-    config.endpoint_aliases.insert(
-        "/_matrix/client/r0/login".to_string(),
-        "login_endpoint".to_string(),
-    );
+    config.endpoint_aliases.insert("/_matrix/client/r0/login".to_string(), "login_endpoint".to_string());
     config.endpoints.push(RateLimitEndpointRule {
         path: "/_matrix/client/r0/login".to_string(),
         match_type: RateLimitMatchType::Exact,
-        rule: RateLimitRule {
-            per_second: 5,
-            burst_size: 10,
-        },
+        rule: RateLimitRule { per_second: 5, burst_size: 10 },
     });
-    
+
     let (id, _) = select_endpoint_rule(&config, "/_matrix/client/r0/login");
     assert_eq!(id, "login_endpoint");
 }
@@ -313,10 +274,7 @@ fn test_config_validation_endpoint_zero_per_second() {
     config.endpoints.push(RateLimitEndpointRule {
         path: "/test".to_string(),
         match_type: RateLimitMatchType::Exact,
-        rule: RateLimitRule {
-            per_second: 0,
-            burst_size: 10,
-        },
+        rule: RateLimitRule { per_second: 0, burst_size: 10 },
     });
     assert!(config.validate().is_err());
 }
@@ -325,27 +283,21 @@ fn test_config_validation_endpoint_zero_per_second() {
 async fn test_config_persistence() {
     let temp_file = NamedTempFile::new().unwrap();
     let path = temp_file.path().to_path_buf();
-    
+
     let config = RateLimitConfigFile {
         enabled: true,
-        default: RateLimitRule {
-            per_second: 25,
-            burst_size: 50,
-        },
+        default: RateLimitRule { per_second: 25, burst_size: 50 },
         endpoints: vec![RateLimitEndpointRule {
             path: "/api/test".to_string(),
             match_type: RateLimitMatchType::Prefix,
-            rule: RateLimitRule {
-                per_second: 100,
-                burst_size: 200,
-            },
+            rule: RateLimitRule { per_second: 100, burst_size: 200 },
         }],
         exempt_paths: vec!["/health".to_string()],
         ..Default::default()
     };
-    
+
     config.save(&path).await.unwrap();
-    
+
     let loaded = RateLimitConfigFile::load(&path).await.unwrap();
     assert_eq!(loaded.enabled, config.enabled);
     assert_eq!(loaded.default.per_second, 25);
@@ -358,28 +310,22 @@ async fn test_config_persistence() {
 #[tokio::test]
 async fn test_concurrent_config_access() {
     let temp_file = NamedTempFile::new().unwrap();
-    let manager = Arc::new(RateLimitConfigManager::new(
-        RateLimitConfigFile::default(),
-        temp_file.path().to_path_buf(),
-    ));
-    
+    let manager = Arc::new(RateLimitConfigManager::new(RateLimitConfigFile::default(), temp_file.path().to_path_buf()));
+
     let mut handles = vec![];
-    
+
     for i in 0..10 {
         let m = manager.clone();
         handles.push(tokio::spawn(async move {
-            let rule = RateLimitRule {
-                per_second: i as u32 * 10,
-                burst_size: i as u32 * 20,
-            };
+            let rule = RateLimitRule { per_second: i as u32 * 10, burst_size: i as u32 * 20 };
             m.set_default_rule(rule).await.unwrap();
         }));
     }
-    
+
     for handle in handles {
         handle.await.unwrap();
     }
-    
+
     let config = manager.get_config();
     assert!(config.default.per_second % 10 == 0);
 }

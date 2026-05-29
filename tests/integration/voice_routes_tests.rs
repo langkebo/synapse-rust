@@ -28,21 +28,13 @@ async fn create_test_user(app: &axum::Router) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
 
     if status != StatusCode::OK {
-        panic!(
-            "Registration failed with status {}: {:?}",
-            status,
-            String::from_utf8_lossy(&body)
-        );
+        panic!("Registration failed with status {}: {:?}", status, String::from_utf8_lossy(&body));
     }
 
     let json: Value = serde_json::from_slice(&body).unwrap();
@@ -58,34 +50,22 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .body(Body::from(json!({"name": "Voice Room"}).to_string()))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
 
     if status != StatusCode::OK {
-        panic!(
-            "Create room failed with status {}: {:?}",
-            status,
-            String::from_utf8_lossy(&body)
-        );
+        panic!("Create room failed with status {}: {:?}", status, String::from_utf8_lossy(&body));
     }
 
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
 
-async fn upload_voice_message(
-    app: &axum::Router,
-    token: &str,
-    room_id: Option<&str>,
-) -> (StatusCode, Value) {
-    let content = base64::engine::general_purpose::STANDARD
-        .encode(include_bytes!("../../docker/media/test/message.mp3"));
+async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&str>) -> (StatusCode, Value) {
+    let content =
+        base64::engine::general_purpose::STANDARD.encode(include_bytes!("../../docker/media/test/message.mp3"));
 
     let mut payload = json!({
         "content": content,
@@ -112,9 +92,7 @@ async fn upload_voice_message(
         .unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     (status, json)
 }
@@ -125,21 +103,12 @@ async fn test_voice_config_endpoint() {
         return;
     };
 
-    for uri in [
-        "/_matrix/client/r0/voice/config",
-        "/_matrix/client/v1/voice/config",
-        "/_matrix/client/v3/voice/config",
-    ] {
-        let response = app
-            .clone()
-            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+    for uri in ["/_matrix/client/r0/voice/config", "/_matrix/client/v1/voice/config", "/_matrix/client/v3/voice/config"]
+    {
+        let response = app.clone().oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap()).await.unwrap();
 
         let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
 
         if status != StatusCode::OK {
             eprintln!("Error response body for {uri}: {:?}", String::from_utf8_lossy(&body));
@@ -173,10 +142,7 @@ async fn test_voice_upload_returns_content_uri() {
     assert_eq!(status, StatusCode::OK);
 
     assert!(json.get("content_uri").is_some());
-    assert!(json["content_uri"]
-        .as_str()
-        .unwrap_or_default()
-        .starts_with("mxc://"));
+    assert!(json["content_uri"].as_str().unwrap_or_default().starts_with("mxc://"));
     assert_eq!(json["content_type"], "audio/mpeg");
     assert_eq!(json["duration_ms"], 1200);
     assert!(json["size"].as_u64().unwrap_or(0) > 0);
@@ -224,34 +190,20 @@ async fn test_voip_routes_work_across_r0_and_v3() {
     };
     let token = create_test_user(&app).await;
 
-    let r0_config_request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/r0/voip/config")
-        .body(Body::empty())
-        .unwrap();
-    let r0_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_config_request)
-        .await
-        .unwrap();
+    let r0_config_request =
+        Request::builder().method("GET").uri("/_matrix/client/r0/voip/config").body(Body::empty()).unwrap();
+    let r0_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_config_request).await.unwrap();
     assert_eq!(r0_config_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(r0_config_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(r0_config_response.into_body(), 2048).await.unwrap();
     let r0_config_json: Value = serde_json::from_slice(&body).unwrap();
 
-    let v3_config_request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/v3/voip/config")
-        .body(Body::empty())
-        .unwrap();
-    let v3_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_config_request)
-        .await
-        .unwrap();
+    let v3_config_request =
+        Request::builder().method("GET").uri("/_matrix/client/v3/voip/config").body(Body::empty()).unwrap();
+    let v3_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_config_request).await.unwrap();
     assert_eq!(v3_config_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(v3_config_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(v3_config_response.into_body(), 2048).await.unwrap();
     let v3_config_json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(r0_config_json, v3_config_json);
 
@@ -261,9 +213,7 @@ async fn test_voip_routes_work_across_r0_and_v3() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let r0_turn_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_turn_request)
-        .await
-        .unwrap();
+    let r0_turn_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_turn_request).await.unwrap();
 
     let v3_turn_request = Request::builder()
         .method("GET")
@@ -271,18 +221,11 @@ async fn test_voip_routes_work_across_r0_and_v3() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let v3_turn_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_turn_request)
-        .await
-        .unwrap();
+    let v3_turn_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_turn_request).await.unwrap();
     assert_eq!(r0_turn_response.status(), v3_turn_response.status());
 }
 
-async fn create_call_session(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    call_id: &str,
-) -> (StatusCode, String) {
+async fn create_call_session(app: &axum::Router, token: &str, room_id: &str, call_id: &str) -> (StatusCode, String) {
     let encoded_room_id = urlencoding::encode(room_id);
 
     let response = app
@@ -290,10 +233,7 @@ async fn create_call_session(
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!(
-                    "/_matrix/client/v3/rooms/{}/send/m.call.invite/test_txn",
-                    encoded_room_id
-                ))
+                .uri(format!("/_matrix/client/v3/rooms/{}/send/m.call.invite/test_txn", encoded_room_id))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .body(Body::from(
@@ -314,9 +254,7 @@ async fn create_call_session(
         .unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (status, String::from_utf8_lossy(&body).to_string())
 }
 
@@ -333,12 +271,7 @@ async fn test_call_invite_rejects_non_members() {
 
     let (status, body) = create_call_session(&app, &outsider_token, &room_id, &call_id).await;
 
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "unexpected response body: {}",
-        body
-    );
+    assert_eq!(status, StatusCode::FORBIDDEN, "unexpected response body: {}", body);
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["errcode"], "M_FORBIDDEN");
 }
@@ -354,14 +287,8 @@ async fn test_get_call_session_rejects_non_members() {
     let room_id = create_room(&app, &owner_token).await;
     let call_id = format!("call_{}", rand::random::<u32>());
 
-    let (invite_status, invite_body) =
-        create_call_session(&app, &owner_token, &room_id, &call_id).await;
-    assert_eq!(
-        invite_status,
-        StatusCode::OK,
-        "unexpected invite response body: {}",
-        invite_body
-    );
+    let (invite_status, invite_body) = create_call_session(&app, &owner_token, &room_id, &call_id).await;
+    assert_eq!(invite_status, StatusCode::OK, "unexpected invite response body: {}", invite_body);
     let invite_body: Value = serde_json::from_str(&invite_body).unwrap();
     assert_eq!(invite_body["call_id"], call_id);
 
@@ -383,9 +310,7 @@ async fn test_get_call_session_rejects_non_members() {
         .unwrap();
 
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(

@@ -116,22 +116,14 @@ impl VoiceStorage {
     }
 
     pub async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM voice_usage_stats WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .execute(&*self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
     pub async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM voice_usage_stats WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .execute(&*self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM voice_usage_stats WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 

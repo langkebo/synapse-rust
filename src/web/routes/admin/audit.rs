@@ -12,14 +12,8 @@ use serde_json::{json, Value};
 
 pub fn create_audit_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/admin/v1/audit/events",
-            post(create_audit_event).get(list_audit_events),
-        )
-        .route(
-            "/_synapse/admin/v1/audit/events/{event_id}",
-            get(get_audit_event),
-        )
+        .route("/_synapse/admin/v1/audit/events", post(create_audit_event).get(list_audit_events))
+        .route("/_synapse/admin/v1/audit/events/{event_id}", get(get_audit_event))
 }
 
 pub fn admin_audit_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {

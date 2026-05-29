@@ -174,10 +174,7 @@ fn test_captcha_status_validation() {
 
 // Helper functions
 fn is_valid_captcha_type(captcha_type: &str) -> bool {
-    matches!(
-        captcha_type,
-        "image" | "audio" | "math" | "hcaptcha" | "recaptcha"
-    )
+    matches!(captcha_type, "image" | "audio" | "math" | "hcaptcha" | "recaptcha")
 }
 
 fn is_valid_captcha_status(status: &str) -> bool {

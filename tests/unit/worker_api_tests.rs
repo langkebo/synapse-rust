@@ -365,17 +365,11 @@ fn test_worker_type_statistics() {
 
 // Helper functions
 fn is_valid_worker_type(worker_type: &str) -> bool {
-    matches!(
-        worker_type,
-        "synapse" | "federation" | "client" | "event_persister" | "presence" | "typing"
-    )
+    matches!(worker_type, "synapse" | "federation" | "client" | "event_persister" | "presence" | "typing")
 }
 
 fn is_valid_status(status: &str) -> bool {
-    matches!(
-        status,
-        "starting" | "running" | "stopping" | "stopped" | "error"
-    )
+    matches!(status, "starting" | "running" | "stopping" | "stopped" | "error")
 }
 
 fn is_valid_command_type(command_type: &str) -> bool {
@@ -383,8 +377,5 @@ fn is_valid_command_type(command_type: &str) -> bool {
 }
 
 fn is_valid_task_type(task_type: &str) -> bool {
-    matches!(
-        task_type,
-        "event_processing" | "sync" | "federation" | "presence"
-    )
+    matches!(task_type, "event_processing" | "sync" | "federation" | "presence")
 }

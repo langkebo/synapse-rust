@@ -7,7 +7,7 @@ mod user_storage_tests {
         // Test user creation logic
         let username = "testuser";
         let user_id = format!("@{}:localhost", username);
-        
+
         // Validate user ID format
         assert!(user_id.starts_with('@'));
         assert!(user_id.contains(':'));
@@ -17,14 +17,14 @@ mod user_storage_tests {
     fn test_username_validation() {
         // Valid usernames
         let valid = vec!["user", "user123", "user_name", "user-name"];
-        
+
         for username in valid {
             assert!(is_valid_username(username), "Username {} should be valid", username);
         }
-        
+
         // Invalid usernames
         let invalid_usernames = vec!["", "ab"];
-        
+
         for username in invalid_usernames {
             assert!(!is_valid_username(username), "Username {} should be invalid", username);
         }
@@ -56,7 +56,7 @@ mod room_storage_tests {
         // Valid room IDs
         assert!(is_valid_room_id("!room:localhost"));
         assert!(is_valid_room_id("!abc123:example.com"));
-        
+
         // Invalid
         assert!(!is_valid_room_id("room:localhost"));
         assert!(!is_valid_room_id("!room"));
@@ -65,9 +65,7 @@ mod room_storage_tests {
 
     #[test]
     fn test_room_version_handling() {
-        let valid_versions = vec![
-            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
-        ];
+        let valid_versions = vec!["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
 
         for version in valid_versions {
             assert!(is_valid_room_version(version), "Room version {} should be valid", version);
@@ -76,13 +74,7 @@ mod room_storage_tests {
 
     #[test]
     fn test_join_rules_validation() {
-        let valid_join_rules = vec![
-            "public",
-            "private",
-            "invite",
-            "knock",
-            "restricted",
-        ];
+        let valid_join_rules = vec!["public", "private", "invite", "knock", "restricted"];
 
         for rule in valid_join_rules {
             assert!(is_valid_join_rule(rule), "Join rule {} should be valid", rule);
@@ -112,11 +104,8 @@ mod event_storage_tests {
 
     #[test]
     fn test_event_content_types() {
-        let message_types = vec![
-            "m.text", "m.emote", "m.notice", "m.image", 
-            "m.video", "m.audio", "m.file"
-        ];
-        
+        let message_types = vec!["m.text", "m.emote", "m.notice", "m.image", "m.video", "m.audio", "m.file"];
+
         for msg_type in message_types {
             assert!(is_valid_message_type(msg_type), "Message type {} should be valid", msg_type);
         }
@@ -147,9 +136,14 @@ mod event_storage_tests {
     }
 
     fn is_state_event(event_type: &str) -> bool {
-        matches!(event_type,
-            "m.room.create" | "m.room.member" | "m.room.join_rules" |
-            "m.room.power_levels" | "m.room.avatar" | "m.room.name"
+        matches!(
+            event_type,
+            "m.room.create"
+                | "m.room.member"
+                | "m.room.join_rules"
+                | "m.room.power_levels"
+                | "m.room.avatar"
+                | "m.room.name"
         )
     }
 }
@@ -195,7 +189,7 @@ mod token_storage_tests {
         let created_at = 1700000000000i64;
         let expires_in = 3_600_000i64;
         let expires_at = created_at + expires_in;
-        
+
         assert_eq!(expires_at, 1_700_003_600_000i64);
     }
 
@@ -203,7 +197,7 @@ mod token_storage_tests {
     fn test_refresh_token_rotation() {
         let old_token = "refresh_old_token";
         let new_token = "refresh_new_token";
-        
+
         assert_ne!(old_token, new_token);
     }
 }

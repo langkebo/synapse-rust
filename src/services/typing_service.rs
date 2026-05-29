@@ -16,10 +16,10 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     let service = TypingService::new();
-//!     
+//!
 //!     // 设置用户正在打字
 //!     service.set_typing("!room:example.com", "@alice:example.com", 30000).await.unwrap();
-//!     
+//!
 //!     // 获取房间中正在打字的用户
 //!     let typing_users = service.get_typing_users("!room:example.com").await.unwrap();
 //!     assert!(typing_users.contains_key("@alice:example.com"));
@@ -60,9 +60,7 @@ impl TypingService {
     /// let service = TypingService::new();
     /// ```
     pub fn new() -> Self {
-        Self {
-            typing: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { typing: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     /// 生成打字状态的存储键
@@ -216,15 +214,9 @@ mod tests {
     async fn test_set_typing() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
 
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_some());
         assert_eq!(timeout, Some(30000));
     }
@@ -233,19 +225,10 @@ mod tests {
     async fn test_clear_typing() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .clear_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
+        service.clear_typing("!room:example.com", "@user:example.com").await.unwrap();
 
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -253,14 +236,8 @@ mod tests {
     async fn test_get_typing_users() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room:example.com", "@user1:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room:example.com", "@user2:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user1:example.com", 30000).await.unwrap();
+        service.set_typing("!room:example.com", "@user2:example.com", 30000).await.unwrap();
 
         let users = service.get_typing_users("!room:example.com").await.unwrap();
 
@@ -273,10 +250,7 @@ mod tests {
     async fn test_get_user_not_typing() {
         let service = TypingService::new();
 
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -284,23 +258,11 @@ mod tests {
     async fn test_typing_different_rooms() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room1:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room2:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room1:example.com", "@user:example.com", 30000).await.unwrap();
+        service.set_typing("!room2:example.com", "@user:example.com", 30000).await.unwrap();
 
-        let users1 = service
-            .get_typing_users("!room1:example.com")
-            .await
-            .unwrap();
-        let users2 = service
-            .get_typing_users("!room2:example.com")
-            .await
-            .unwrap();
+        let users1 = service.get_typing_users("!room1:example.com").await.unwrap();
+        let users2 = service.get_typing_users("!room2:example.com").await.unwrap();
 
         assert!(users1.contains_key("@user:example.com"));
         assert!(users2.contains_key("@user:example.com"));
@@ -311,19 +273,13 @@ mod tests {
         let service = TypingService::new();
 
         // Set typing with 0 timeout (immediately expired)
-        service
-            .set_typing("!room:example.com", "@user:example.com", 0)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 0).await.unwrap();
 
         // Clear expired
         service.clear_expired_typing().await.unwrap();
 
         // Should be cleared
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert!(timeout.is_none());
     }
 
@@ -331,15 +287,9 @@ mod tests {
     async fn test_typing_timeout() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room:example.com", "@user:example.com", 5000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 5000).await.unwrap();
 
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert_eq!(timeout, Some(5000));
     }
 
@@ -349,14 +299,8 @@ mod tests {
 
         assert_eq!(service.get_typing_count().await, 0);
 
-        service
-            .set_typing("!room1:example.com", "@user1:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room2:example.com", "@user2:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room1:example.com", "@user1:example.com", 30000).await.unwrap();
+        service.set_typing("!room2:example.com", "@user2:example.com", 30000).await.unwrap();
 
         assert_eq!(service.get_typing_count().await, 2);
     }
@@ -365,30 +309,15 @@ mod tests {
     async fn test_clear_room_typing() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room1:example.com", "@user1:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room1:example.com", "@user2:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room2:example.com", "@user3:example.com", 30000)
-            .await
-            .unwrap();
+        service.set_typing("!room1:example.com", "@user1:example.com", 30000).await.unwrap();
+        service.set_typing("!room1:example.com", "@user2:example.com", 30000).await.unwrap();
+        service.set_typing("!room2:example.com", "@user3:example.com", 30000).await.unwrap();
 
         let cleared = service.clear_room_typing("!room1:example.com").await;
         assert_eq!(cleared, 2);
 
-        let users1 = service
-            .get_typing_users("!room1:example.com")
-            .await
-            .unwrap();
-        let users2 = service
-            .get_typing_users("!room2:example.com")
-            .await
-            .unwrap();
+        let users1 = service.get_typing_users("!room1:example.com").await.unwrap();
+        let users2 = service.get_typing_users("!room2:example.com").await.unwrap();
 
         assert!(users1.is_empty());
         assert_eq!(users2.len(), 1);
@@ -398,19 +327,10 @@ mod tests {
     async fn test_overwrite_typing() {
         let service = TypingService::new();
 
-        service
-            .set_typing("!room:example.com", "@user:example.com", 30000)
-            .await
-            .unwrap();
-        service
-            .set_typing("!room:example.com", "@user:example.com", 60_000)
-            .await
-            .unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
+        service.set_typing("!room:example.com", "@user:example.com", 60_000).await.unwrap();
 
-        let timeout = service
-            .get_user_typing("!room:example.com", "@user:example.com")
-            .await
-            .unwrap();
+        let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
         assert_eq!(timeout, Some(60_000));
 
         assert_eq!(service.get_typing_count().await, 1);

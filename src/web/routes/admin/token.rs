@@ -13,42 +13,15 @@ use sqlx::Row;
 
 pub fn create_token_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/admin/v1/registration_tokens",
-            get(get_registration_tokens),
-        )
-        .route(
-            "/_synapse/admin/v1/registration_tokens",
-            post(create_registration_token),
-        )
-        .route(
-            "/_synapse/admin/v1/registration_tokens/{token}",
-            get(get_registration_token),
-        )
-        .route(
-            "/_synapse/admin/v1/registration_tokens/{token}",
-            delete(delete_registration_token),
-        )
-        .route(
-            "/_synapse/admin/v1/registration_tokens/{token}",
-            post(update_registration_token),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/tokens",
-            get(get_user_tokens),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/tokens/{token_id}",
-            delete(delete_user_token),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/refresh_tokens",
-            get(get_user_refresh_tokens),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}",
-            delete(delete_refresh_token),
-        )
+        .route("/_synapse/admin/v1/registration_tokens", get(get_registration_tokens))
+        .route("/_synapse/admin/v1/registration_tokens", post(create_registration_token))
+        .route("/_synapse/admin/v1/registration_tokens/{token}", get(get_registration_token))
+        .route("/_synapse/admin/v1/registration_tokens/{token}", delete(delete_registration_token))
+        .route("/_synapse/admin/v1/registration_tokens/{token}", post(update_registration_token))
+        .route("/_synapse/admin/v1/users/{user_id}/tokens", get(get_user_tokens))
+        .route("/_synapse/admin/v1/users/{user_id}/tokens/{token_id}", delete(delete_user_token))
+        .route("/_synapse/admin/v1/users/{user_id}/refresh_tokens", get(get_user_refresh_tokens))
+        .route("/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}", delete(delete_refresh_token))
 }
 
 pub fn admin_token_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -57,31 +30,13 @@ pub fn admin_token_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     [
         (Method::GET, "/_synapse/admin/v1/registration_tokens"),
         (Method::POST, "/_synapse/admin/v1/registration_tokens"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/registration_tokens/{token}",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/registration_tokens/{token}",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/registration_tokens/{token}",
-        ),
+        (Method::GET, "/_synapse/admin/v1/registration_tokens/{token}"),
+        (Method::DELETE, "/_synapse/admin/v1/registration_tokens/{token}"),
+        (Method::POST, "/_synapse/admin/v1/registration_tokens/{token}"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/tokens"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/tokens/{token_id}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/users/{user_id}/refresh_tokens",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}",
-        ),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/tokens/{token_id}"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/refresh_tokens"),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::token"))
@@ -129,21 +84,14 @@ pub async fn get_registration_tokens(
     State(state): State<AppState>,
     Query(query): Query<RegistrationTokenListQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = query
-        .limit
-        .unwrap_or(100)
-        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = decode_registration_token_cursor(query.from.as_deref());
 
     if query.from.is_some() && from.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (tokens, next_batch) = state
-        .services
-        .registration_token_service
-        .get_all_tokens(limit, from)
-        .await?;
+    let (tokens, next_batch) = state.services.registration_token_service.get_all_tokens(limit, from).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -174,9 +122,7 @@ pub async fn create_registration_token(
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
-    let token = body
-        .token
-        .unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
+    let token = body.token.unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
     let max_uses = body.uses_allowed.unwrap_or(0);
 
     sqlx::query(
@@ -208,7 +154,7 @@ pub async fn get_registration_token(
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query(
-        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens WHERE token = $1"
+        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens WHERE token = $1",
     )
     .bind(&token)
     .fetch_optional(&*state.services.user_storage.pool)
@@ -313,9 +259,7 @@ pub async fn get_user_tokens(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "tokens": token_list, "total": token_list.len() }),
-    ))
+    Ok(Json(json!({ "tokens": token_list, "total": token_list.len() })))
 }
 
 #[axum::debug_handler]
@@ -369,9 +313,7 @@ pub async fn get_user_refresh_tokens(
         })
         .collect();
 
-    Ok(Json(
-        json!({ "refresh_tokens": token_list, "total": token_list.len() }),
-    ))
+    Ok(Json(json!({ "refresh_tokens": token_list, "total": token_list.len() })))
 }
 
 #[axum::debug_handler]

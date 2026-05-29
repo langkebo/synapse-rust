@@ -249,4 +249,3 @@ CREATE TABLE IF NOT EXISTS ip_reputation (
     CONSTRAINT pk_ip_reputation PRIMARY KEY (id),
     CONSTRAINT uq_ip_reputation_ip UNIQUE (ip_address)
 );
-

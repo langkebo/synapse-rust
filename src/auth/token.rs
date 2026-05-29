@@ -1,17 +1,14 @@
 use super::AuthService;
+use super::ADMIN_CACHE_TTL_SECS;
 use super::TOKEN_CACHE_TTL_SECS;
 use super::USER_ACTIVE_CACHE_TTL_SECS;
-use super::ADMIN_CACHE_TTL_SECS;
 use crate::common::*;
 use crate::storage::refresh_token::CreateRefreshTokenRequest;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 impl AuthService {
-    pub async fn validate_token(
-        &self,
-        token: &str,
-    ) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
+    pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
 
         if self
@@ -70,48 +67,25 @@ impl AuthService {
                     let cached_shadow = self.cache.get::<bool>(&shadow_key).await?;
                     let cached_guest = self.cache.get::<bool>(&guest_key).await?;
 
-                    let (is_admin, is_shadow_banned, is_guest) =
-                        match (cached_admin, cached_shadow, cached_guest) {
-                            (Some(a), Some(s), Some(g)) => (a, s, g),
-                            _ => {
-                                let user = self
-                                    .user_storage
-                                    .get_user_by_id(&cached_claims.sub)
-                                    .await
-                                    .map_err(|e| {
-                                        ApiError::internal_with_log("Database error", &e)
-                                    })?
-                                    .ok_or_else(|| {
-                                        ApiError::unauthorized("User not found".to_string())
-                                    })?;
-                                self.cache
-                                    .set(&admin_cache_key, user.is_admin, ADMIN_CACHE_TTL_SECS)
-                                    .await?;
-                                self.cache
-                                    .set(
-                                        &shadow_key,
-                                        user.is_shadow_banned,
-                                        USER_ACTIVE_CACHE_TTL_SECS,
-                                    )
-                                    .await?;
-                                self.cache
-                                    .set(&guest_key, user.is_guest, USER_ACTIVE_CACHE_TTL_SECS)
-                                    .await?;
-                                (user.is_admin, user.is_shadow_banned, user.is_guest)
-                            }
-                        };
+                    let (is_admin, is_shadow_banned, is_guest) = match (cached_admin, cached_shadow, cached_guest) {
+                        (Some(a), Some(s), Some(g)) => (a, s, g),
+                        _ => {
+                            let user = self
+                                .user_storage
+                                .get_user_by_id(&cached_claims.sub)
+                                .await
+                                .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+                                .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
+                            self.cache.set(&admin_cache_key, user.is_admin, ADMIN_CACHE_TTL_SECS).await?;
+                            self.cache.set(&shadow_key, user.is_shadow_banned, USER_ACTIVE_CACHE_TTL_SECS).await?;
+                            self.cache.set(&guest_key, user.is_guest, USER_ACTIVE_CACHE_TTL_SECS).await?;
+                            (user.is_admin, user.is_shadow_banned, user.is_guest)
+                        }
+                    };
 
-                    Ok((
-                        cached_claims.user_id,
-                        cached_claims.device_id.clone(),
-                        is_admin,
-                        is_shadow_banned,
-                        is_guest,
-                    ))
+                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), is_admin, is_shadow_banned, is_guest))
                 } else {
-                    Err(ApiError::unauthorized(
-                        "User not found or deactivated".to_string(),
-                    ))
+                    Err(ApiError::unauthorized("User not found or deactivated".to_string()))
                 };
             }
 
@@ -127,12 +101,8 @@ impl AuthService {
                 let is_active = !u.is_deactivated;
                 ::tracing::debug!(target: "token_validation", "User found, is_deactivated: {:?}, is_active: {}", u.is_deactivated, is_active);
 
-                self.cache
-                    .set_user_active(&cached_claims.sub, is_active, USER_ACTIVE_CACHE_TTL_SECS)
-                    .await;
-                self.cache
-                    .set(&admin_cache_key, u.is_admin, ADMIN_CACHE_TTL_SECS)
-                    .await?;
+                self.cache.set_user_active(&cached_claims.sub, is_active, USER_ACTIVE_CACHE_TTL_SECS).await;
+                self.cache.set(&admin_cache_key, u.is_admin, ADMIN_CACHE_TTL_SECS).await?;
                 self.cache
                     .set(
                         &format!("user:shadow_banned:{}", cached_claims.sub),
@@ -141,11 +111,7 @@ impl AuthService {
                     )
                     .await?;
                 self.cache
-                    .set(
-                        &format!("user:guest:{}", cached_claims.sub),
-                        u.is_guest,
-                        USER_ACTIVE_CACHE_TTL_SECS,
-                    )
+                    .set(&format!("user:guest:{}", cached_claims.sub), u.is_guest, USER_ACTIVE_CACHE_TTL_SECS)
                     .await?;
 
                 if is_active {
@@ -161,9 +127,7 @@ impl AuthService {
                 }
             } else {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
-                self.cache
-                    .set_user_active(&cached_claims.sub, false, USER_ACTIVE_CACHE_TTL_SECS)
-                    .await;
+                self.cache.set_user_active(&cached_claims.sub, false, USER_ACTIVE_CACHE_TTL_SECS).await;
                 Err(ApiError::unauthorized("User not found".to_string()))
             };
         }
@@ -189,40 +153,14 @@ impl AuthService {
                 let mut final_claims = claims.clone();
                 final_claims.is_admin = is_admin;
 
+                self.cache.set_user_active(&claims.sub, true, USER_ACTIVE_CACHE_TTL_SECS).await;
+                self.cache.set(&format!("user:admin:{}", claims.sub), is_admin, ADMIN_CACHE_TTL_SECS).await?;
                 self.cache
-                    .set_user_active(&claims.sub, true, USER_ACTIVE_CACHE_TTL_SECS)
-                    .await;
-                self.cache
-                    .set(
-                        &format!("user:admin:{}", claims.sub),
-                        is_admin,
-                        ADMIN_CACHE_TTL_SECS,
-                    )
+                    .set(&format!("user:shadow_banned:{}", claims.sub), u.is_shadow_banned, USER_ACTIVE_CACHE_TTL_SECS)
                     .await?;
-                self.cache
-                    .set(
-                        &format!("user:shadow_banned:{}", claims.sub),
-                        u.is_shadow_banned,
-                        USER_ACTIVE_CACHE_TTL_SECS,
-                    )
-                    .await?;
-                self.cache
-                    .set(
-                        &format!("user:guest:{}", claims.sub),
-                        u.is_guest,
-                        USER_ACTIVE_CACHE_TTL_SECS,
-                    )
-                    .await?;
-                self.cache
-                    .set_token(token, &final_claims, TOKEN_CACHE_TTL_SECS)
-                    .await;
-                Ok((
-                    final_claims.user_id,
-                    final_claims.device_id.clone(),
-                    is_admin,
-                    u.is_shadow_banned,
-                    u.is_guest,
-                ))
+                self.cache.set(&format!("user:guest:{}", claims.sub), u.is_guest, USER_ACTIVE_CACHE_TTL_SECS).await?;
+                self.cache.set_token(token, &final_claims, TOKEN_CACHE_TTL_SECS).await;
+                Ok((final_claims.user_id, final_claims.device_id.clone(), is_admin, u.is_shadow_banned, u.is_guest))
             }
             None => {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
@@ -231,12 +169,7 @@ impl AuthService {
         }
     }
 
-    pub async fn generate_access_token(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        admin: bool,
-    ) -> ApiResult<String> {
+    pub async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
         let now = Utc::now();
         let jti = uuid::Uuid::new_v4().to_string();
         let claims = super::Claims {
@@ -252,12 +185,8 @@ impl AuthService {
         let mut header = Header::new(Algorithm::HS256);
         header.typ = Some("JWT".to_string());
 
-        let token = encode(
-            &header,
-            &claims,
-            &EncodingKey::from_secret(&self.jwt_secret),
-        )
-        .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
+        let token = encode(&header, &claims, &EncodingKey::from_secret(&self.jwt_secret))
+            .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
 
         let expires_at = (now + Duration::seconds(self.token_expiry)).timestamp_millis();
 
@@ -269,11 +198,7 @@ impl AuthService {
         Ok(token)
     }
 
-    pub async fn generate_refresh_token(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> ApiResult<String> {
+    pub async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
         let token = super::auth_generate_token(32);
         let token_hash = Self::hash_token(&token);
         let expiry_ts = Utc::now().timestamp_millis() + (self.refresh_token_expiry * 1000);
@@ -310,11 +235,6 @@ impl AuthService {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 5;
         validation.set_required_spec_claims(&["exp", "iat", "sub"]);
-        jsonwebtoken::decode(
-            token,
-            &DecodingKey::from_secret(&self.jwt_secret),
-            &validation,
-        )
-        .map(|e| e.claims)
+        jsonwebtoken::decode(token, &DecodingKey::from_secret(&self.jwt_secret), &validation).map(|e| e.claims)
     }
 }

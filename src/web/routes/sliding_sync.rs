@@ -13,14 +13,8 @@ use axum::{extract::State, routing::post, Json, Router};
 pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/sync", post(sliding_sync))
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc3575/sync",
-            post(sliding_sync),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
-            post(sliding_sync),
-        )
+        .route("/_matrix/client/unstable/org.matrix.msc3575/sync", post(sliding_sync))
+        .route("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", post(sliding_sync))
 }
 
 pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -28,14 +22,8 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use axum::http::Method;
     [
         (Method::POST, "/_matrix/client/v1/sync"),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.matrix.msc3575/sync",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
-        ),
+        (Method::POST, "/_matrix/client/unstable/org.matrix.msc3575/sync"),
+        (Method::POST, "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "sliding_sync"))
@@ -59,22 +47,14 @@ async fn sliding_sync(
     let device_id = auth_user.device_id.unwrap_or_else(|| "default".to_string());
 
     let file_config = state.sync_rate_limit_override();
-    let sync_rate_limit_enabled = file_config
-        .as_ref()
-        .map_or(state.services.config.rate_limit.sync.enabled, |config| config.sync.enabled);
+    let sync_rate_limit_enabled =
+        file_config.as_ref().map_or(state.services.config.rate_limit.sync.enabled, |config| config.sync.enabled);
 
     if sync_rate_limit_enabled {
         let (per_second, burst_size) =
             resolve_sliding_sync_rate_limit(&state, file_config.as_ref(), body.pos.is_none());
-        let kind = if body.pos.is_none() {
-            "initial"
-        } else {
-            "incremental"
-        };
-        let rate_limit_key = format!(
-            "ratelimit:sliding_sync:{}:{}:{}",
-            auth_user.user_id, device_id, kind
-        );
+        let kind = if body.pos.is_none() { "initial" } else { "incremental" };
+        let rate_limit_key = format!("ratelimit:sliding_sync:{}:{}:{}", auth_user.user_id, device_id, kind);
         let decision = state
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
@@ -87,11 +67,7 @@ async fn sliding_sync(
     }
 
     // Call the sliding sync service
-    let response = state
-        .services
-        .sliding_sync_service
-        .sync(&auth_user.user_id, &device_id, body)
-        .await?;
+    let response = state.services.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
 
     Ok(Json(response))
 }
@@ -104,15 +80,9 @@ fn resolve_sliding_sync_rate_limit(
     match file_config {
         Some(config) if config.sync.enabled => {
             if is_initial {
-                (
-                    config.sync.initial.per_second,
-                    config.sync.initial.burst_size,
-                )
+                (config.sync.initial.per_second, config.sync.initial.burst_size)
             } else {
-                (
-                    config.sync.incremental.per_second,
-                    config.sync.incremental.burst_size,
-                )
+                (config.sync.incremental.per_second, config.sync.incremental.burst_size)
             }
         }
         _ => {
@@ -144,10 +114,7 @@ mod tests {
         services.config.rate_limit.sync.incremental.per_second = 4;
         services.config.rate_limit.sync.incremental.burst_size = 8;
 
-        let state = AppState::new(
-            services,
-            Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())),
-        );
+        let state = AppState::new(services, Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())));
 
         let mut file_config = RateLimitConfigFile::default();
         file_config.sync.enabled = true;
@@ -160,14 +127,8 @@ mod tests {
             sync: file_config.sync.clone(),
         };
 
-        assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true),
-            (11, 22)
-        );
-        assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false),
-            (33, 44)
-        );
+        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
+        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
     }
 
     #[tokio::test]
@@ -179,10 +140,7 @@ mod tests {
         services.config.rate_limit.sync.incremental.per_second = 6;
         services.config.rate_limit.sync.incremental.burst_size = 60;
 
-        let state = AppState::new(
-            services,
-            Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())),
-        );
+        let state = AppState::new(services, Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())));
 
         let mut file_config = RateLimitConfigFile::default();
         file_config.sync.enabled = false;
@@ -193,13 +151,7 @@ mod tests {
             sync: file_config.sync.clone(),
         };
 
-        assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true),
-            (5, 50)
-        );
-        assert_eq!(
-            resolve_sliding_sync_rate_limit(&state, None, false),
-            (6, 60)
-        );
+        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));
+        assert_eq!(resolve_sliding_sync_rate_limit(&state, None, false), (6, 60));
     }
 }

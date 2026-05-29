@@ -12,49 +12,24 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
     let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping protocol tests; isolated schema setup failed: {}",
-                error
-            );
+            eprintln!("Skipping protocol tests; isolated schema setup failed: {}", error);
             return None;
         }
     };
 
-    sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'")
-        .execute(&*pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'")
-        .execute(&*pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'")
-        .execute(&*pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM events WHERE room_id = '!room:test'")
-        .execute(&*pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'")
-        .execute(&*pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'")
-        .execute(&*pool)
-        .await
-        .ok();
+    sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM events WHERE room_id = '!room:test'").execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'").execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
 
     Some((*pool).clone())
 }
 
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {
     // Extract username from user_id (e.g., "@alice:localhost" -> "alice")
-    let username = user_id
-        .trim_start_matches('@')
-        .split(':')
-        .next()
-        .unwrap_or("unknown");
+    let username = user_id.trim_start_matches('@').split(':').next().unwrap_or("unknown");
     let now = chrono::Utc::now().timestamp_millis();
 
     // Use the actual schema from master_unified_schema.sql
@@ -110,24 +85,22 @@ fn test_typing_set_and_clear() {
         create_test_room(&pool, room_id).await;
 
         presence.set_typing(room_id, user_id, true).await.unwrap();
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2 AND typing = TRUE",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(count.0, 1);
-
-        presence.set_typing(room_id, user_id, false).await.unwrap();
         let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2")
+            sqlx::query_as("SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2 AND typing = TRUE")
                 .bind(room_id)
                 .bind(user_id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
+        assert_eq!(count.0, 1);
+
+        presence.set_typing(room_id, user_id, false).await.unwrap();
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2")
+            .bind(room_id)
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count.0, 0);
     });
 }
@@ -149,17 +122,13 @@ fn test_read_marker_update() {
         create_test_user(&pool, user_id).await;
         create_test_room(&pool, room_id).await;
 
-        room_storage
-            .update_read_marker(room_id, user_id, event_id)
+        room_storage.update_read_marker(room_id, user_id, event_id).await.unwrap();
+        let row: (String,) = sqlx::query_as("SELECT event_id FROM read_markers WHERE room_id = $1 AND user_id = $2")
+            .bind(room_id)
+            .bind(user_id)
+            .fetch_one(&pool)
             .await
             .unwrap();
-        let row: (String,) =
-            sqlx::query_as("SELECT event_id FROM read_markers WHERE room_id = $1 AND user_id = $2")
-                .bind(room_id)
-                .bind(user_id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
         assert_eq!(row.0, event_id);
     });
 }

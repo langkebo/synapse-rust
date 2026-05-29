@@ -179,7 +179,9 @@ def main() -> int:
     summary["overall_passed"] = all(result["passed"] for result in summary["results"])
     markdown = render_markdown(summary["results"], args.base_url)
 
-    (results_dir / "performance_guardrail_report.md").write_text(markdown, encoding="utf-8")
+    (results_dir / "performance_guardrail_report.md").write_text(
+        markdown, encoding="utf-8"
+    )
     (results_dir / "performance_guardrail_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",

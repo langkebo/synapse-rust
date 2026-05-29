@@ -15,7 +15,7 @@ impl SecretStorage {
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO e2ee_secret_storage_keys 
+            INSERT INTO e2ee_secret_storage_keys
                 (key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (key_id, user_id) DO UPDATE SET
@@ -34,16 +34,15 @@ impl SecretStorage {
         .bind(key.created_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn get_key(
-        &self,
-        user_id: &str,
-        key_id: &str,
-    ) -> Result<Option<SecretStorageKey>, ApiError> {
+    pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
         let row: Option<sqlx::postgres::PgRow> = sqlx::query(
             r"
             SELECT key_id, user_id, algorithm, encrypted_key, public_key, signatures, created_ts
@@ -55,7 +54,10 @@ impl SecretStorage {
         .bind(key_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(row.map(|r| SecretStorageKey {
             key_id: r.get("key_id"),
@@ -63,9 +65,7 @@ impl SecretStorage {
             algorithm: r.get("algorithm"),
             encrypted_key: r.get("encrypted_key"),
             public_key: r.get("public_key"),
-            signatures: r
-                .get::<Option<serde_json::Value>, _>("signatures")
-                .unwrap_or(serde_json::json!({})),
+            signatures: r.get::<Option<serde_json::Value>, _>("signatures").unwrap_or(serde_json::json!({})),
             created_ts: r.get("created_ts"),
         }))
     }
@@ -81,7 +81,10 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(rows
             .into_iter()
@@ -91,9 +94,7 @@ impl SecretStorage {
                 algorithm: r.get("algorithm"),
                 encrypted_key: r.get("encrypted_key"),
                 public_key: r.get("public_key"),
-                signatures: r
-                    .get::<Option<serde_json::Value>, _>("signatures")
-                    .unwrap_or(serde_json::json!({})),
+                signatures: r.get::<Option<serde_json::Value>, _>("signatures").unwrap_or(serde_json::json!({})),
                 created_ts: r.get("created_ts"),
             })
             .collect())
@@ -110,7 +111,10 @@ impl SecretStorage {
         .bind(key_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -118,7 +122,7 @@ impl SecretStorage {
     pub async fn store_secret(&self, user_id: &str, secret: &StoredSecret) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO e2ee_stored_secrets 
+            INSERT INTO e2ee_stored_secrets
                 (user_id, secret_name, encrypted_secret, key_id)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, secret_name) DO UPDATE SET
@@ -132,16 +136,15 @@ impl SecretStorage {
         .bind(&secret.key_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn get_secret(
-        &self,
-        user_id: &str,
-        secret_name: &str,
-    ) -> Result<Option<StoredSecret>, ApiError> {
+    pub async fn get_secret(&self, user_id: &str, secret_name: &str) -> Result<Option<StoredSecret>, ApiError> {
         let row: Option<sqlx::postgres::PgRow> = sqlx::query(
             r"
             SELECT user_id, secret_name, encrypted_secret, key_id
@@ -153,7 +156,10 @@ impl SecretStorage {
         .bind(secret_name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(row.map(|r| StoredSecret {
             secret_name: r.get("secret_name"),
@@ -162,11 +168,7 @@ impl SecretStorage {
         }))
     }
 
-    pub async fn get_secrets(
-        &self,
-        user_id: &str,
-        secret_names: &[String],
-    ) -> Result<Vec<StoredSecret>, ApiError> {
+    pub async fn get_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<Vec<StoredSecret>, ApiError> {
         if secret_names.is_empty() {
             return Ok(Vec::new());
         }
@@ -182,7 +184,10 @@ impl SecretStorage {
         .bind(secret_names)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(rows
             .into_iter()
@@ -205,16 +210,15 @@ impl SecretStorage {
         .bind(secret_name)
         .execute(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn delete_secrets(
-        &self,
-        user_id: &str,
-        secret_names: &[String],
-    ) -> Result<(), ApiError> {
+    pub async fn delete_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<(), ApiError> {
         if secret_names.is_empty() {
             return Ok(());
         }
@@ -229,7 +233,10 @@ impl SecretStorage {
         .bind(secret_names)
         .execute(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -243,7 +250,10 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let count: i64 = row.get("count");
         Ok(count > 0)

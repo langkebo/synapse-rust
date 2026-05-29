@@ -30,9 +30,21 @@ def render_section(title: str, path: Path, filenames: list[str]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render PostgreSQL/Redis observability snapshots into Markdown.")
-    parser.add_argument("--pg-dir", type=Path, required=True, help="Path to one PostgreSQL sample directory")
-    parser.add_argument("--redis-dir", type=Path, required=True, help="Path to one Redis sample directory")
+    parser = argparse.ArgumentParser(
+        description="Render PostgreSQL/Redis observability snapshots into Markdown."
+    )
+    parser.add_argument(
+        "--pg-dir",
+        type=Path,
+        required=True,
+        help="Path to one PostgreSQL sample directory",
+    )
+    parser.add_argument(
+        "--redis-dir",
+        type=Path,
+        required=True,
+        help="Path to one Redis sample directory",
+    )
     parser.add_argument(
         "--output",
         type=Path,

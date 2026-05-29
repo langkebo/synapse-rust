@@ -9,10 +9,7 @@ const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
 const USER_PROFILE_BATCH_CACHE_TTL: u64 = 300;
 
 fn escape_like_pattern(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -105,10 +102,7 @@ pub struct UserStorage {
 impl UserStorage {
     /// Creates a new `UserStorage` instance.
     pub fn new(pool: &Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self {
-            pool: pool.clone(),
-            cache,
-        }
+        Self { pool: pool.clone(), cache }
     }
 
     /// Creates a new user in the database.
@@ -223,10 +217,7 @@ impl UserStorage {
         .await
     }
 
-    pub async fn get_user_by_identifier(
-        &self,
-        identifier: &str,
-    ) -> Result<Option<User>, sqlx::Error> {
+    pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error> {
         if identifier.starts_with('@') && identifier.contains(':') {
             self.get_user_by_id(identifier).await
         } else {
@@ -261,10 +252,10 @@ impl UserStorage {
         if let (Some(ts), Some(user_id)) = (since_ts, since_user_id) {
             sqlx::query_as::<_, User>(
                 r"
-                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
-                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
-                       generation, consent_version, appservice_id, user_type, invalid_update_at, 
-                       migration_state, email, phone, password_changed_ts, is_password_change_required, 
+                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin,
+                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts,
+                       generation, consent_version, appservice_id, user_type, invalid_update_at,
+                       migration_state, email, phone, password_changed_ts, is_password_change_required,
                        password_expires_at, failed_login_attempts, locked_until, must_change_password
                 FROM users
                 WHERE (created_ts < $2 OR (created_ts = $2 AND user_id < $3))
@@ -280,10 +271,10 @@ impl UserStorage {
         } else {
             sqlx::query_as::<_, User>(
                 r"
-                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, 
-                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts, 
-                       generation, consent_version, appservice_id, user_type, invalid_update_at, 
-                       migration_state, email, phone, password_changed_ts, is_password_change_required, 
+                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin,
+                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts,
+                       generation, consent_version, appservice_id, user_type, invalid_update_at,
+                       migration_state, email, phone, password_changed_ts, is_password_change_required,
                        password_expires_at, failed_login_attempts, locked_until, must_change_password
                 FROM users
                 ORDER BY created_ts DESC, user_id DESC
@@ -319,15 +310,12 @@ impl UserStorage {
         Ok(result.is_some())
     }
 
-    pub async fn filter_existing_users(
-        &self,
-        user_ids: &[String],
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
         let rows = sqlx::query_scalar::<_, String>(
-            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE"
+            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE",
         )
         .bind(user_ids)
         .fetch_all(&*self.pool)
@@ -335,11 +323,7 @@ impl UserStorage {
         Ok(rows)
     }
 
-    pub async fn update_password(
-        &self,
-        user_id: &str,
-        password_hash: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user password");
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
@@ -353,11 +337,7 @@ impl UserStorage {
         Ok(())
     }
 
-    pub async fn update_displayname(
-        &self,
-        user_id: &str,
-        displayname: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user displayname");
         sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
             .bind(displayname)
@@ -373,11 +353,7 @@ impl UserStorage {
         Ok(())
     }
 
-    pub async fn update_avatar_url(
-        &self,
-        user_id: &str,
-        avatar_url: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(r"UPDATE users SET avatar_url = $1 WHERE user_id = $2")
             .bind(avatar_url)
             .bind(user_id)
@@ -439,13 +415,11 @@ impl UserStorage {
         user_id: &str,
         data_type: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
-        )
-        .bind(user_id)
-        .bind(data_type)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
+            .bind(user_id)
+            .bind(data_type)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         match row {
             Some(row) => {
@@ -480,11 +454,7 @@ impl UserStorage {
         Ok(())
     }
 
-    pub async fn search_users(
-        &self,
-        query: &str,
-        limit: i64,
-    ) -> Result<Vec<UserSearchResult>, sqlx::Error> {
+    pub async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error> {
         let normalized = query.trim();
         if normalized.is_empty() {
             return Ok(Vec::new());
@@ -588,10 +558,7 @@ impl UserStorage {
         .await
     }
 
-    pub async fn get_user_profile(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<UserProfile>, sqlx::Error> {
+    pub async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user profile");
         let key = format!("user:profile:{user_id}");
 
@@ -617,10 +584,7 @@ impl UserStorage {
         Ok(result)
     }
 
-    pub async fn get_user_profiles_batch(
-        &self,
-        user_ids: &[String],
-    ) -> Result<Vec<UserProfile>, sqlx::Error> {
+    pub async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(vec![]);
         }
@@ -672,10 +636,7 @@ impl UserStorage {
 
         let profiles = self.get_user_profiles_batch(user_ids).await?;
 
-        Ok(profiles
-            .into_iter()
-            .map(|p| (p.user_id.clone(), p))
-            .collect())
+        Ok(profiles.into_iter().map(|p| (p.user_id.clone(), p)).collect())
     }
 
     pub async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
@@ -712,10 +673,7 @@ impl UserStorage {
         Ok(users.into_iter().map(|u| (u.user_id.clone(), u)).collect())
     }
 
-    pub async fn update_displayname_batch(
-        &self,
-        updates: &[(String, Option<String>)],
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn update_displayname_batch(&self, updates: &[(String, Option<String>)]) -> Result<u64, sqlx::Error> {
         if updates.is_empty() {
             return Ok(0);
         }
@@ -860,18 +818,9 @@ impl UserStorage {
         let exact_pattern = escaped.clone();
         let prefix_pattern = format!("{escaped}%");
         let contains_pattern = format!("%{escaped}%");
-        let cache_key = format!(
-            "user:directory_search:v1:{}:{}:{}",
-            normalized.to_lowercase(),
-            safe_limit,
-            exact_only
-        );
+        let cache_key = format!("user:directory_search:v1:{}:{}:{}", normalized.to_lowercase(), safe_limit, exact_only);
 
-        if let Ok(Some(cached)) = self
-            .cache
-            .get::<Vec<UserDirectorySearchResult>>(&cache_key)
-            .await
-        {
+        if let Ok(Some(cached)) = self.cache.get::<Vec<UserDirectorySearchResult>>(&cache_key).await {
             return Ok(cached);
         }
 
@@ -1043,24 +992,14 @@ impl UserStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let _ = self
-            .cache
-            .set(
-                &cache_key,
-                rows.clone(),
-                USER_DIRECTORY_SEARCH_CACHE_TTL_SECS,
-            )
-            .await;
+        let _ = self.cache.set(&cache_key, rows.clone(), USER_DIRECTORY_SEARCH_CACHE_TTL_SECS).await;
 
         Ok(rows)
     }
 
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deleting user");
-        sqlx::query(r"DELETE FROM users WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query(r"DELETE FROM users WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
         Ok(())
     }
 }

@@ -59,11 +59,7 @@ impl WorkerManager {
     }
 
     pub fn enable_bus(&mut self, config: RedisBusConfig, instance_name: String) {
-        self.bus = Some(Arc::new(WorkerBus::new(
-            config,
-            self.server_name.clone(),
-            instance_name,
-        )));
+        self.bus = Some(Arc::new(WorkerBus::new(config, self.server_name.clone(), instance_name)));
     }
 
     pub fn enable_load_balancer(&mut self, strategy: LoadBalanceStrategy) {
@@ -92,11 +88,7 @@ impl WorkerManager {
 
     #[instrument(skip(self, request))]
     pub async fn register(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, ApiError> {
-        info!(
-            "Registering worker: {} ({})",
-            request.worker_name,
-            request.worker_type.as_str()
-        );
+        info!("Registering worker: {} ({})", request.worker_name, request.worker_type.as_str());
 
         if let Some(existing) = self
             .storage
@@ -105,10 +97,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_log("Failed to check existing worker", &e))?
         {
             if existing.status == "running" {
-                return Err(ApiError::bad_request(format!(
-                    "Worker '{}' is already running",
-                    existing.worker_id
-                )));
+                return Err(ApiError::bad_request(format!("Worker '{}' is already running", existing.worker_id)));
             }
         }
 
@@ -145,10 +134,7 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn get(&self, worker_id: &str) -> Result<Option<WorkerInfo>, ApiError> {
-        self.storage
-            .get_worker(worker_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get worker", &e))
+        self.storage.get_worker(worker_id).await.map_err(|e| ApiError::internal_with_log("Failed to get worker", &e))
     }
 
     #[instrument(skip(self))]
@@ -217,14 +203,8 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn send_command(
-        &self,
-        request: SendCommandRequest,
-    ) -> Result<WorkerCommand, ApiError> {
-        info!(
-            "Sending command to worker: {} - {}",
-            request.target_worker_id, request.command_type
-        );
+    pub async fn send_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, ApiError> {
+        info!("Sending command to worker: {} - {}", request.target_worker_id, request.command_type);
 
         let command = self
             .storage
@@ -259,11 +239,7 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_pending_commands(
-        &self,
-        worker_id: &str,
-        limit: i64,
-    ) -> Result<Vec<WorkerCommand>, ApiError> {
+    pub async fn get_pending_commands(&self, worker_id: &str, limit: i64) -> Result<Vec<WorkerCommand>, ApiError> {
         self.storage
             .get_pending_commands(worker_id, limit)
             .await
@@ -341,11 +317,7 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_events_since(
-        &self,
-        stream_id: i64,
-        limit: i64,
-    ) -> Result<Vec<WorkerEvent>, ApiError> {
+    pub async fn get_events_since(&self, stream_id: i64, limit: i64) -> Result<Vec<WorkerEvent>, ApiError> {
         self.storage
             .get_events_since(stream_id, limit)
             .await
@@ -362,23 +334,14 @@ impl WorkerManager {
         self.storage
             .update_replication_position(worker_id, stream_name, position)
             .await
-            .map_err(|e| {
-                ApiError::internal_with_log("Failed to update replication position", &e)
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update replication position", &e))?;
 
-        debug!(
-            "Replication position updated: {} - {} = {}",
-            worker_id, stream_name, position
-        );
+        debug!("Replication position updated: {} - {} = {}", worker_id, stream_name, position);
         Ok(())
     }
 
     #[instrument(skip(self))]
-    pub async fn get_replication_position(
-        &self,
-        worker_id: &str,
-        stream_name: &str,
-    ) -> Result<Option<i64>, ApiError> {
+    pub async fn get_replication_position(&self, worker_id: &str, stream_name: &str) -> Result<Option<i64>, ApiError> {
         self.storage
             .get_replication_position(worker_id, stream_name)
             .await
@@ -386,10 +349,7 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn assign_task(
-        &self,
-        request: AssignTaskRequest,
-    ) -> Result<WorkerTaskAssignment, ApiError> {
+    pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, ApiError> {
         info!("Creating task: {}", request.task_type);
 
         let task = self
@@ -403,14 +363,10 @@ impl WorkerManager {
                 .storage
                 .assign_task_to_worker(&task.task_id, &preferred_worker_id)
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to assign task to worker", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to assign task to worker", &e))?;
 
             if !claimed {
-                return Err(ApiError::conflict(
-                    "Task was already claimed before preferred assignment".to_string(),
-                ));
+                return Err(ApiError::conflict("Task was already claimed before preferred assignment".to_string()));
             }
         }
 
@@ -419,10 +375,7 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_pending_tasks(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<WorkerTaskAssignment>, ApiError> {
+    pub async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, ApiError> {
         self.storage
             .get_pending_tasks(limit)
             .await
@@ -438,9 +391,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_log("Failed to claim task", &e))?;
 
         if !claimed {
-            return Err(ApiError::conflict(
-                "Task is already claimed or unavailable".to_string(),
-            ));
+            return Err(ApiError::conflict("Task is already claimed or unavailable".to_string()));
         }
 
         info!("Task {} claimed by worker {}", task_id, worker_id);
@@ -448,10 +399,7 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn claim_next_pending_task(
-        &self,
-        worker_id: &str,
-    ) -> Result<WorkerTaskAssignment, ApiError> {
+    pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<WorkerTaskAssignment, ApiError> {
         let task = self
             .storage
             .claim_next_pending_task(worker_id)
@@ -459,18 +407,11 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?
             .ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
 
-        info!(
-            "Task {} claimed atomically by worker {}",
-            task.task_id, worker_id
-        );
+        info!("Task {} claimed atomically by worker {}", task.task_id, worker_id);
         Ok(task)
     }
     #[instrument(skip(self, result))]
-    pub async fn complete_task(
-        &self,
-        task_id: &str,
-        result: Option<serde_json::Value>,
-    ) -> Result<(), ApiError> {
+    pub async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), ApiError> {
         self.storage
             .complete_task(task_id, result)
             .await
@@ -503,17 +444,11 @@ impl WorkerManager {
             .ok_or_else(|| ApiError::not_found("Worker not found"))?;
 
         let conn = ReplicationConnection::new(worker_id.to_string());
-        conn.connect(addr)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to connect to worker", &e))?;
+        conn.connect(addr).await.map_err(|e| ApiError::internal_with_log("Failed to connect to worker", &e))?;
 
         let _ = self
             .storage
-            .record_connection(
-                &self.local_worker_id.clone().unwrap_or_default(),
-                worker_id,
-                "replication",
-            )
+            .record_connection(&self.local_worker_id.clone().unwrap_or_default(), worker_id, "replication")
             .map_err(|e| warn!("Failed to record connection: {}", e));
 
         let mut connections = self.connections.write().await;
@@ -538,10 +473,7 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        self.storage
-            .get_statistics()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+        self.storage.get_statistics().await.map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
     }
 
     #[instrument(skip(self))]
@@ -552,10 +484,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_log("Failed to get type statistics", &e))
     }
 
-    pub async fn select_worker_for_task(
-        &self,
-        task_type: &str,
-    ) -> Result<Option<String>, ApiError> {
+    pub async fn select_worker_for_task(&self, task_type: &str) -> Result<Option<String>, ApiError> {
         if let Some(lb) = &self.load_balancer {
             if let Some(worker_id) = lb.select_worker(task_type).await {
                 if let Some(hc) = &self.health_checker {

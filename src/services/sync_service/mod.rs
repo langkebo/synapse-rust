@@ -99,19 +99,8 @@ impl SyncService {
         .await
     }
 
-    pub async fn sync_with_request(
-        &self,
-        request: SyncServiceRequest<'_>,
-    ) -> ApiResult<serde_json::Value> {
-        let SyncServiceRequest {
-            user_id,
-            device_id,
-            timeout,
-            is_full_state,
-            set_presence,
-            filter_id,
-            since,
-        } = request;
+    pub async fn sync_with_request(&self, request: SyncServiceRequest<'_>) -> ApiResult<serde_json::Value> {
+        let SyncServiceRequest { user_id, device_id, timeout, is_full_state, set_presence, filter_id, since } = request;
         let total_started = Instant::now();
         self.update_presence(user_id, set_presence).await?;
 
@@ -119,37 +108,22 @@ impl SyncService {
 
         if let (Some(device_id), Some(token)) = (device_id, &since_token) {
             if let Some(to_device_since) = token.to_device_stream_id {
-                let _ = self
-                    .to_device_storage
-                    .delete_messages_up_to(user_id, device_id, to_device_since)
-                    .await;
+                let _ = self.to_device_storage.delete_messages_up_to(user_id, device_id, to_device_since).await;
             }
         }
 
-        let response_filter = self
-            .resolve_sync_response_filter(user_id, filter_id)
-            .await?;
-        let room_filter = response_filter
-            .as_ref()
-            .and_then(|filter| filter.room.as_ref());
-        let timeline_limit =
-            Self::timeline_limit_from_room_filter(room_filter, self.sync_event_limit());
+        let response_filter = self.resolve_sync_response_filter(user_id, filter_id).await?;
+        let room_filter = response_filter.as_ref().and_then(|filter| filter.room.as_ref());
+        let timeline_limit = Self::timeline_limit_from_room_filter(room_filter, self.sync_event_limit());
 
         let since_token = since.and_then(SyncToken::parse);
         let is_incremental = since_token.is_some() && !is_full_state;
 
         let rooms_started = Instant::now();
-        let include_leave = room_filter
-            .and_then(|filter| filter.include_leave)
-            .unwrap_or(false);
-        let room_memberships = self
-            .member_storage
-            .get_sync_rooms(user_id, include_leave)
-            .await?;
-        let room_sections = Self::room_sections_from_memberships(&Self::filter_sync_rooms(
-            room_memberships,
-            room_filter,
-        ));
+        let include_leave = room_filter.and_then(|filter| filter.include_leave).unwrap_or(false);
+        let room_memberships = self.member_storage.get_sync_rooms(user_id, include_leave).await?;
+        let room_sections =
+            Self::room_sections_from_memberships(&Self::filter_sync_rooms(room_memberships, room_filter));
         let room_ids: Vec<String> = room_sections.keys().cloned().collect();
         let rooms_lookup_ms = rooms_started.elapsed().as_secs_f64() * 1000.0;
         self.observe_histogram("sync_rooms_lookup_duration_ms", rooms_lookup_ms);
@@ -282,11 +256,7 @@ impl SyncService {
             room_count: 1,
             event_count,
             is_incremental,
-            phases: [
-                ("event_fetch_ms", event_fetch_ms),
-                ("room_build_ms", room_build_ms),
-                ("rooms_lookup_ms", 0.0),
-            ],
+            phases: [("event_fetch_ms", event_fetch_ms), ("room_build_ms", room_build_ms), ("rooms_lookup_ms", 0.0)],
         });
 
         Ok(serde_json::Value::Object(result))
@@ -309,26 +279,18 @@ impl SyncService {
         match result {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(error)) => {
-                ::tracing::error!(
-                    "Room sync error for user {} in room {}: {}",
-                    user_id,
-                    room_id,
-                    error
-                );
+                ::tracing::error!("Room sync error for user {} in room {}: {}", user_id, room_id, error);
                 Err(error)
             }
             Err(_) => {
                 ::tracing::error!("Room sync timeout for user {} in room {}", user_id, room_id);
-                Err(ApiError::internal(
-                    "Room sync operation timed out".to_string(),
-                ))
+                Err(ApiError::internal("Room sync operation timed out".to_string()))
             }
         }
     }
 
     pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
-        let (highlight_count, notification_count) =
-            self.get_unread_counts(room_id, user_id).await?;
+        let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id).await?;
         Ok((notification_count, highlight_count))
     }
 
@@ -346,15 +308,9 @@ impl SyncService {
         room_ids
             .iter()
             .filter(|room_id| {
-                room_events
-                    .get(*room_id)
-                    .is_some_and(|events| !events.is_empty())
-                    || changed_members_by_room
-                        .get(*room_id)
-                        .is_some_and(|members| !members.is_empty())
-                    || state_change_ts_by_room
-                        .get(*room_id)
-                        .is_some_and(|&ts| ts > 0)
+                room_events.get(*room_id).is_some_and(|events| !events.is_empty())
+                    || changed_members_by_room.get(*room_id).is_some_and(|members| !members.is_empty())
+                    || state_change_ts_by_room.get(*room_id).is_some_and(|&ts| ts > 0)
             })
             .cloned()
             .collect()
@@ -393,11 +349,8 @@ impl SyncService {
         memberships
             .iter()
             .map(|membership| {
-                let section = if membership.membership == "leave" {
-                    SyncRoomSection::Leave
-                } else {
-                    SyncRoomSection::Join
-                };
+                let section =
+                    if membership.membership == "leave" { SyncRoomSection::Leave } else { SyncRoomSection::Join };
                 (membership.room_id.clone(), section)
             })
             .collect()
@@ -406,9 +359,7 @@ impl SyncService {
     pub(crate) fn event_since_ts(since_token: &Option<SyncToken>) -> i64 {
         match since_token {
             Some(token) if token.stream_id >= Self::TIMESTAMP_TOKEN_MIN => token.stream_id,
-            Some(token)
-                if token.to_device_stream_id.is_some() || token.device_list_stream_id.is_some() =>
-            {
+            Some(token) if token.to_device_stream_id.is_some() || token.device_list_stream_id.is_some() => {
                 token.stream_id.max(0)
             }
             Some(_) => 0,
@@ -421,20 +372,9 @@ impl SyncService {
         room_events: &HashMap<String, Vec<RoomEvent>>,
         state_change_ts_by_room: Option<&HashMap<String, i64>>,
     ) -> i64 {
-        let event_max_stream = room_events
-            .values()
-            .flat_map(|v| v.iter())
-            .filter_map(|e| e.stream_ordering)
-            .max();
-        let event_max_ts = room_events
-            .values()
-            .flat_map(|v| v.iter())
-            .map(|e| e.origin_server_ts)
-            .max();
-        let state_max_ts = state_change_ts_by_room
-            .into_iter()
-            .flat_map(|entries| entries.values().copied())
-            .max();
+        let event_max_stream = room_events.values().flat_map(|v| v.iter()).filter_map(|e| e.stream_ordering).max();
+        let event_max_ts = room_events.values().flat_map(|v| v.iter()).map(|e| e.origin_server_ts).max();
+        let state_max_ts = state_change_ts_by_room.into_iter().flat_map(|entries| entries.values().copied()).max();
 
         if let Some(max_stream) = event_max_stream {
             match since_token.as_ref() {

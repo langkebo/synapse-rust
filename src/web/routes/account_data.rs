@@ -13,10 +13,7 @@ fn create_account_data_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/account_data/", get(list_account_data))
         .route(
             "/user/{user_id}/account_data/{type}",
-            get(get_account_data)
-                .put(set_account_data)
-                .post(set_account_data)
-                .delete(delete_account_data),
+            get(get_account_data).put(set_account_data).post(set_account_data).delete(delete_account_data),
         )
         .route(
             "/user/{user_id}/rooms/{room_id}/account_data/{type}",
@@ -25,18 +22,9 @@ fn create_account_data_compat_router() -> Router<AppState> {
                 .post(set_room_account_data)
                 .delete(delete_room_account_data),
         )
-        .route(
-            "/user/{user_id}/filter",
-            put(create_filter).post(create_filter),
-        )
-        .route(
-            "/user/{user_id}/filter/{filter_id}",
-            get(get_filter).delete(delete_filter),
-        )
-        .route(
-            "/user/{user_id}/openid/request_token",
-            get(get_openid_token).post(get_openid_token),
-        )
+        .route("/user/{user_id}/filter", put(create_filter).post(create_filter))
+        .route("/user/{user_id}/filter/{filter_id}", get(get_filter).delete(delete_filter))
+        .route("/user/{user_id}/openid/request_token", get(get_openid_token).post(get_openid_token))
 }
 
 pub fn create_account_data_router(state: AppState) -> Router<AppState> {
@@ -57,18 +45,9 @@ fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static st
         (Method::GET, "/user/{user_id}/account_data/{type}"),
         (Method::PUT, "/user/{user_id}/account_data/{type}"),
         (Method::DELETE, "/user/{user_id}/account_data/{type}"),
-        (
-            Method::GET,
-            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
-        ),
-        (
-            Method::PUT,
-            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
-        ),
-        (
-            Method::DELETE,
-            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
-        ),
+        (Method::GET, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::PUT, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::DELETE, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
         (Method::PUT, "/user/{user_id}/filter"),
         (Method::POST, "/user/{user_id}/filter"),
         (Method::GET, "/user/{user_id}/filter/{filter_id}"),
@@ -92,9 +71,7 @@ async fn list_account_data(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot get account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
     let result = sqlx::query("SELECT data_type, content FROM account_data WHERE user_id = $1")
@@ -124,23 +101,16 @@ async fn set_account_data(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot set account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
     if data_type.len() > 128 {
-        return Err(ApiError::bad_request(
-            "data_type too long (max 128 characters)".to_string(),
-        ));
+        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
     }
 
-    let body_str = serde_json::to_string(&body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > 65536 {
-        return Err(ApiError::bad_request(
-            "Account data too large (max 64KB)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
     }
 
     let now = chrono::Utc::now().timestamp_millis();
@@ -169,23 +139,18 @@ async fn get_account_data(
     Path((user_id, data_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot get account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result =
-        sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
-            .bind(&user_id)
-            .bind(&data_type)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
+        .bind(&user_id)
+        .bind(&data_type)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
-        Some(row) => Ok(Json(
-            row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
-        )),
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("content").unwrap_or(json!({})))),
         None => {
             if data_type == "m.push_rules" {
                 Ok(Json(json!({
@@ -211,25 +176,18 @@ async fn set_room_account_data(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot set account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
     // 对称于 set_account_data 的尺寸/长度校验——避免其他客户端通过
     // room account data 路径绕过限制写入巨大或非法 key。
     if data_type.len() > 128 {
-        return Err(ApiError::bad_request(
-            "data_type too long (max 128 characters)".to_string(),
-        ));
+        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
     }
 
-    let body_str = serde_json::to_string(&body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > 65536 {
-        return Err(ApiError::bad_request(
-            "Account data too large (max 64KB)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
     }
 
     let now = chrono::Utc::now().timestamp_millis();
@@ -259,28 +217,21 @@ async fn get_room_account_data(
     Path((user_id, room_id, data_type)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot get account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = sqlx::query(
-        "SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-    )
-    .bind(&user_id)
-    .bind(&room_id)
-    .bind(&data_type)
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result =
+        sqlx::query("SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
+            .bind(&user_id)
+            .bind(&room_id)
+            .bind(&data_type)
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
-        Some(row) => Ok(Json(
-            row.get::<Option<Value>, _>("data").unwrap_or(json!({})),
-        )),
-        None => Err(ApiError::not_found(
-            "Room account data not found".to_string(),
-        )),
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("data").unwrap_or(json!({})))),
+        None => Err(ApiError::not_found("Room account data not found".to_string())),
     }
 }
 
@@ -291,9 +242,7 @@ async fn create_filter(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot create filter for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
     }
 
     let filter_id = crate::common::random_string(16);
@@ -324,9 +273,7 @@ async fn get_filter(
     Path((user_id, filter_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot get filter for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
     }
 
     let result = sqlx::query("SELECT content FROM filters WHERE filter_id = $1 AND user_id = $2")
@@ -337,9 +284,7 @@ async fn get_filter(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
-        Some(row) => Ok(Json(
-            row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
-        )),
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("content").unwrap_or(json!({})))),
         None => Err(ApiError::not_found("Filter not found".to_string())),
     }
 }
@@ -350,9 +295,7 @@ async fn delete_account_data(
     Path((user_id, data_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot delete account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
     }
 
     let result = sqlx::query("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2")
@@ -375,25 +318,19 @@ async fn delete_room_account_data(
     Path((user_id, room_id, data_type)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot delete room account data for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
 
-    let result = sqlx::query(
-        "DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-    )
-    .bind(&user_id)
-    .bind(&room_id)
-    .bind(&data_type)
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
+    let result = sqlx::query("DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
+        .bind(&user_id)
+        .bind(&room_id)
+        .bind(&data_type)
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::not_found(
-            "Room account data not found".to_string(),
-        ));
+        return Err(ApiError::not_found("Room account data not found".to_string()));
     }
 
     Ok(Json(json!({})))
@@ -405,9 +342,7 @@ async fn delete_filter(
     Path((user_id, filter_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot delete filter for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
     }
 
     let result = sqlx::query("DELETE FROM filters WHERE filter_id = $1 AND user_id = $2")
@@ -430,9 +365,7 @@ async fn get_openid_token(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot get OpenID token for other users".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }
 
     let token = crate::common::random_string(32);
@@ -474,9 +407,7 @@ mod tests {
             "/_matrix/client/r0/user/{user_id}/openid/request_token",
         ];
 
-        assert!(routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]

@@ -67,41 +67,31 @@ impl Default for FeatureFlags {
 
 impl Default for RoomSummaryFlags {
     fn default() -> Self {
-        Self {
-            realtime_sync: default_realtime_sync(),
-        }
+        Self { realtime_sync: default_realtime_sync() }
     }
 }
 
 impl Default for DmFlags {
     fn default() -> Self {
-        Self {
-            stable_mode: default_stable_mode(),
-        }
+        Self { stable_mode: default_stable_mode() }
     }
 }
 
 impl Default for SpaceFlags {
     fn default() -> Self {
-        Self {
-            max_depth: default_max_depth(),
-        }
+        Self { max_depth: default_max_depth() }
     }
 }
 
 impl Default for PusherFlags {
     fn default() -> Self {
-        Self {
-            experimental: false,
-        }
+        Self { experimental: false }
     }
 }
 
 impl Default for VerificationFlags {
     fn default() -> Self {
-        Self {
-            use_new_api: false,
-        }
+        Self { use_new_api: false }
     }
 }
 
@@ -112,9 +102,7 @@ pub struct RuntimeFeatureFlagService {
 
 impl RuntimeFeatureFlagService {
     pub fn new() -> Self {
-        Self {
-            flags: Arc::new(RwLock::new(FeatureFlags::default())),
-        }
+        Self { flags: Arc::new(RwLock::new(FeatureFlags::default())) }
     }
 
     pub async fn update(&self, flags: FeatureFlags) {
@@ -174,21 +162,11 @@ mod tests {
         let service = RuntimeFeatureFlagService::new();
 
         let new_flags = FeatureFlags {
-            room_summary: RoomSummaryFlags {
-                realtime_sync: true,
-            },
-            dm: DmFlags {
-                stable_mode: true,
-            },
-            space: SpaceFlags {
-                max_depth: 50,
-            },
-            pushers: PusherFlags {
-                experimental: true,
-            },
-            verification: VerificationFlags {
-                use_new_api: true,
-            },
+            room_summary: RoomSummaryFlags { realtime_sync: true },
+            dm: DmFlags { stable_mode: true },
+            space: SpaceFlags { max_depth: 50 },
+            pushers: PusherFlags { experimental: true },
+            verification: VerificationFlags { use_new_api: true },
         };
 
         service.update(new_flags.clone()).await;
@@ -212,9 +190,7 @@ mod tests {
         assert!(!service.is_verification_new_api_enabled().await);
 
         let flags = FeatureFlags {
-            room_summary: RoomSummaryFlags {
-                realtime_sync: true,
-            },
+            room_summary: RoomSummaryFlags { realtime_sync: true },
             dm: DmFlags::default(),
             space: SpaceFlags::default(),
             pushers: PusherFlags::default(),

@@ -60,16 +60,10 @@ impl TranslationService {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let cache = Cache::builder()
-            .max_capacity(10_000)
-            .time_to_idle(Duration::from_secs(config.cache_ttl_secs))
-            .build();
+        let cache =
+            Cache::builder().max_capacity(10_000).time_to_idle(Duration::from_secs(config.cache_ttl_secs)).build();
 
-        Self {
-            http_client,
-            config,
-            cache,
-        }
+        Self { http_client, config, cache }
     }
 
     /// Returns true if the translation service is properly configured and enabled.
@@ -98,10 +92,7 @@ impl TranslationService {
 
         // Validate text length
         if text.len() > self.config.max_text_length {
-            return Err(TranslationError::TextTooLong {
-                length: text.len(),
-                max: self.config.max_text_length,
-            });
+            return Err(TranslationError::TextTooLong { length: text.len(), max: self.config.max_text_length });
         }
 
         // Skip empty text
@@ -130,14 +121,9 @@ impl TranslationService {
         let result = match self.config.provider.as_str() {
             "google" => self.translate_google(text, target_lang, source_lang).await?,
             "deepl" => self.translate_deepl(text, target_lang, source_lang).await?,
-            "libretranslate" => {
-                self.translate_libretranslate(text, target_lang, source_lang)
-                    .await?
-            }
+            "libretranslate" => self.translate_libretranslate(text, target_lang, source_lang).await?,
             other => {
-                return Err(TranslationError::UnsupportedProvider {
-                    provider: other.to_string(),
-                });
+                return Err(TranslationError::UnsupportedProvider { provider: other.to_string() });
             }
         };
 
@@ -170,17 +156,10 @@ impl TranslationService {
             body["source"] = serde_json::Value::String(src.to_string());
         }
 
-        let response = self
-            .http_client
-            .post(&url)
-            .query(&[("key", &self.config.api_key)])
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| TranslationError::RequestFailed {
-                provider: "google".to_string(),
-                reason: e.to_string(),
-            })?;
+        let response =
+            self.http_client.post(&url).query(&[("key", &self.config.api_key)]).json(&body).send().await.map_err(
+                |e| TranslationError::RequestFailed { provider: "google".to_string(), reason: e.to_string() },
+            )?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -195,37 +174,24 @@ impl TranslationService {
         let result: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| TranslationError::ParseError {
-                provider: "google".to_string(),
-                reason: e.to_string(),
+            .map_err(|e| TranslationError::ParseError { provider: "google".to_string(), reason: e.to_string() })?;
+
+        let translations =
+            result.get("data").and_then(|d| d.get("translations")).and_then(|t| t.as_array()).ok_or_else(|| {
+                TranslationError::ParseError {
+                    provider: "google".to_string(),
+                    reason: "missing data.translations".to_string(),
+                }
             })?;
 
-        let translations = result
-            .get("data")
-            .and_then(|d| d.get("translations"))
-            .and_then(|t| t.as_array())
-            .ok_or_else(|| TranslationError::ParseError {
-                provider: "google".to_string(),
-                reason: "missing data.translations".to_string(),
-            })?;
+        let first = translations.first().ok_or_else(|| TranslationError::ParseError {
+            provider: "google".to_string(),
+            reason: "empty translations array".to_string(),
+        })?;
 
-        let first = translations
-            .first()
-            .ok_or_else(|| TranslationError::ParseError {
-                provider: "google".to_string(),
-                reason: "empty translations array".to_string(),
-            })?;
+        let translated_text = first.get("translatedText").and_then(|t| t.as_str()).unwrap_or(text).to_string();
 
-        let translated_text = first
-            .get("translatedText")
-            .and_then(|t| t.as_str())
-            .unwrap_or(text)
-            .to_string();
-
-        let detected_source_lang = first
-            .get("detectedSourceLanguage")
-            .and_then(|l| l.as_str())
-            .map(|s| s.to_string());
+        let detected_source_lang = first.get("detectedSourceLanguage").and_then(|l| l.as_str()).map(|s| s.to_string());
 
         Ok(TranslationResult {
             translated_text,
@@ -248,10 +214,8 @@ impl TranslationService {
         let base_url = self.config.resolved_api_url();
         let url = format!("{}/translate", base_url);
 
-        let mut params = vec![
-            ("text".to_string(), text.to_string()),
-            ("target_lang".to_string(), target_lang.to_uppercase()),
-        ];
+        let mut params =
+            vec![("text".to_string(), text.to_string()), ("target_lang".to_string(), target_lang.to_uppercase())];
 
         if let Some(src) = source_lang {
             params.push(("source_lang".to_string(), src.to_uppercase()));
@@ -264,10 +228,7 @@ impl TranslationService {
             .form(&params)
             .send()
             .await
-            .map_err(|e| TranslationError::RequestFailed {
-                provider: "deepl".to_string(),
-                reason: e.to_string(),
-            })?;
+            .map_err(|e| TranslationError::RequestFailed { provider: "deepl".to_string(), reason: e.to_string() })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -282,36 +243,21 @@ impl TranslationService {
         let result: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| TranslationError::ParseError {
-                provider: "deepl".to_string(),
-                reason: e.to_string(),
-            })?;
+            .map_err(|e| TranslationError::ParseError { provider: "deepl".to_string(), reason: e.to_string() })?;
 
-        let translations = result
-            .get("translations")
-            .and_then(|t| t.as_array())
-            .ok_or_else(|| TranslationError::ParseError {
-                provider: "deepl".to_string(),
-                reason: "missing translations".to_string(),
-            })?;
+        let translations = result.get("translations").and_then(|t| t.as_array()).ok_or_else(|| {
+            TranslationError::ParseError { provider: "deepl".to_string(), reason: "missing translations".to_string() }
+        })?;
 
-        let first = translations
-            .first()
-            .ok_or_else(|| TranslationError::ParseError {
-                provider: "deepl".to_string(),
-                reason: "empty translations array".to_string(),
-            })?;
+        let first = translations.first().ok_or_else(|| TranslationError::ParseError {
+            provider: "deepl".to_string(),
+            reason: "empty translations array".to_string(),
+        })?;
 
-        let translated_text = first
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or(text)
-            .to_string();
+        let translated_text = first.get("text").and_then(|t| t.as_str()).unwrap_or(text).to_string();
 
-        let detected_source_lang = first
-            .get("detected_source_language")
-            .and_then(|l| l.as_str())
-            .map(|s| s.to_string());
+        let detected_source_lang =
+            first.get("detected_source_language").and_then(|l| l.as_str()).map(|s| s.to_string());
 
         Ok(TranslationResult {
             translated_text,
@@ -350,16 +296,9 @@ impl TranslationService {
             body["api_key"] = serde_json::Value::String(self.config.api_key.clone());
         }
 
-        let response = self
-            .http_client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| TranslationError::RequestFailed {
-                provider: "libretranslate".to_string(),
-                reason: e.to_string(),
-            })?;
+        let response = self.http_client.post(&url).json(&body).send().await.map_err(|e| {
+            TranslationError::RequestFailed { provider: "libretranslate".to_string(), reason: e.to_string() }
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -371,19 +310,12 @@ impl TranslationService {
             });
         }
 
-        let result: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| TranslationError::ParseError {
-                provider: "libretranslate".to_string(),
-                reason: e.to_string(),
-            })?;
+        let result: serde_json::Value = response.json().await.map_err(|e| TranslationError::ParseError {
+            provider: "libretranslate".to_string(),
+            reason: e.to_string(),
+        })?;
 
-        let translated_text = result
-            .get("translatedText")
-            .and_then(|t| t.as_str())
-            .unwrap_or(text)
-            .to_string();
+        let translated_text = result.get("translatedText").and_then(|t| t.as_str()).unwrap_or(text).to_string();
 
         let detected_source_lang = result
             .get("detectedLanguage")
@@ -410,11 +342,7 @@ pub enum TranslationError {
     RequestFailed { provider: String, reason: String },
 
     #[error("Translation provider {provider} returned error {status}: {message}")]
-    ProviderError {
-        provider: String,
-        status: u16,
-        message: String,
-    },
+    ProviderError { provider: String, status: u16, message: String },
 
     #[error("Failed to parse {provider} response: {reason}")]
     ParseError { provider: String, reason: String },

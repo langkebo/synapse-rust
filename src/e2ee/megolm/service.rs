@@ -1,9 +1,7 @@
 use super::models::*;
 use super::storage::MegolmSessionStorage;
 use crate::cache::CacheManager;
-use crate::e2ee::crypto::aes::{
-    Aes256GcmCipher, Aes256GcmCiphertext, Aes256GcmKey, Aes256GcmNonce,
-};
+use crate::e2ee::crypto::aes::{Aes256GcmCipher, Aes256GcmCiphertext, Aes256GcmKey, Aes256GcmNonce};
 use crate::e2ee::crypto::CryptoError;
 use crate::error::ApiError;
 use chrono::Utc;
@@ -30,23 +28,11 @@ pub struct MegolmService {
 }
 
 impl MegolmService {
-    pub fn new(
-        storage: MegolmSessionStorage,
-        cache: Arc<CacheManager>,
-        encryption_key: [u8; 32],
-    ) -> Self {
-        Self {
-            storage,
-            cache,
-            encryption_key,
-        }
+    pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>, encryption_key: [u8; 32]) -> Self {
+        Self { storage, cache, encryption_key }
     }
 
-    pub async fn create_session(
-        &self,
-        room_id: &str,
-        sender_key: &str,
-    ) -> Result<MegolmSession, ApiError> {
+    pub async fn create_session(&self, room_id: &str, sender_key: &str) -> Result<MegolmSession, ApiError> {
         let session_id = uuid::Uuid::new_v4().to_string();
 
         let session_key = Aes256GcmKey::generate();
@@ -107,12 +93,7 @@ impl MegolmService {
         Ok(encrypted)
     }
 
-    pub async fn decrypt(
-        &self,
-        session_id: &str,
-        ciphertext: &[u8],
-        nonce: &[u8],
-    ) -> Result<Vec<u8>, ApiError> {
+    pub async fn decrypt(&self, session_id: &str, ciphertext: &[u8], nonce: &[u8]) -> Result<Vec<u8>, ApiError> {
         let session = self.load_session(session_id).await?;
         let session_key = self.decrypt_session_key(&session.session_key)?;
 
@@ -129,17 +110,12 @@ impl MegolmService {
 
         self.storage.delete_session(session_id).await?;
 
-        self.create_session(&session.room_id, &session.sender_key)
-            .await?;
+        self.create_session(&session.room_id, &session.sender_key).await?;
 
         Ok(())
     }
 
-    pub async fn share_session(
-        &self,
-        session_id: &str,
-        user_ids: &[String],
-    ) -> Result<(), ApiError> {
+    pub async fn share_session(&self, session_id: &str, user_ids: &[String]) -> Result<(), ApiError> {
         let session = self.load_session(session_id).await?;
         let session_key = self.decrypt_session_key(&session.session_key)?;
 
@@ -154,63 +130,45 @@ impl MegolmService {
     }
 
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
-        self.storage
-            .get_room_sessions(room_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get room sessions: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })
+        self.storage.get_room_sessions(room_id).await.map_err(|e| {
+            tracing::error!("Failed to get room sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        self.storage
-            .delete_session(session_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to delete session: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })
+        self.storage.delete_session(session_id).await.map_err(|e| {
+            tracing::error!("Failed to delete session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })
     }
 
     fn encrypt_session_key(&self, key: &Aes256GcmKey) -> Result<String, ApiError> {
         let cipher_key = Aes256GcmKey::from_bytes(self.encryption_key);
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&cipher_key, &key.as_bytes()[..])?;
-        let json = serde_json::to_string(&encrypted)
-            .map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
-        Ok(base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            json.as_bytes(),
-        ))
+        let json = serde_json::to_string(&encrypted).map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
+        Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes()))
     }
 
     fn decrypt_session_key(&self, encrypted: &str) -> Result<[u8; 32], ApiError> {
-        let json_bytes =
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted)
-                .map_err(|_| ApiError::DecryptionError("Invalid base64".to_string()))?;
-        let json_str = String::from_utf8(json_bytes)
-            .map_err(|_| ApiError::DecryptionError("Invalid UTF-8".to_string()))?;
-        let ciphertext: Aes256GcmCiphertext = serde_json::from_str(&json_str)
-            .map_err(|e| ApiError::DecryptionError(e.to_string()))?;
+        let json_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted)
+            .map_err(|_| ApiError::DecryptionError("Invalid base64".to_string()))?;
+        let json_str =
+            String::from_utf8(json_bytes).map_err(|_| ApiError::DecryptionError("Invalid UTF-8".to_string()))?;
+        let ciphertext: Aes256GcmCiphertext =
+            serde_json::from_str(&json_str).map_err(|e| ApiError::DecryptionError(e.to_string()))?;
         let cipher_key = Aes256GcmKey::from_bytes(self.encryption_key);
-        let decrypted =
-            Aes256GcmCipher::decrypt(&cipher_key, ciphertext.nonce(), ciphertext.ciphertext())?;
+        let decrypted = Aes256GcmCipher::decrypt(&cipher_key, ciphertext.nonce(), ciphertext.ciphertext())?;
         let mut key = [0u8; 32];
         key.copy_from_slice(&decrypted);
         Ok(key)
     }
 
-    pub async fn get_outbound_session(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+    pub async fn get_outbound_session(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
         self.get_room_key_distribution(room_id).await
     }
 
-    pub async fn get_room_key_distribution(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+    pub async fn get_room_key_distribution(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
         let sessions = self.get_room_sessions(room_id).await?;
 
         if let Some(session) = sessions.first() {
@@ -218,10 +176,7 @@ impl MegolmService {
 
             Ok(Some(RoomKeyDistributionData {
                 session_id: session.session_id.clone(),
-                session_key: base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    session_key,
-                ),
+                session_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, session_key),
                 algorithm: session.algorithm.clone(),
                 room_id: room_id.to_string(),
             }))

@@ -12,7 +12,16 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 BASE = "https://matrix.test"
 
-def api(method, path, token=None, data=None, content_type="application/json", raw_body=None, headers_extra=None):
+
+def api(
+    method,
+    path,
+    token=None,
+    data=None,
+    content_type="application/json",
+    raw_body=None,
+    headers_extra=None,
+):
     url = f"{BASE}{path}"
     headers = {}
     if content_type:
@@ -43,9 +52,11 @@ def api(method, path, token=None, data=None, content_type="application/json", ra
     except Exception as e:
         return {"connection_error": str(e)}, 0, {}
 
+
 pass_count = 0
 fail_count = 0
 results = []
+
 
 def check(name, method, path, token=None, data=None, expected_codes=None):
     global pass_count, fail_count
@@ -58,24 +69,35 @@ def check(name, method, path, token=None, data=None, expected_codes=None):
         return True, resp, code, hdrs
     else:
         fail_count += 1
-        err = resp.get('errcode', '') + ' ' + resp.get('error', '')[:60]
+        err = resp.get("errcode", "") + " " + resp.get("error", "")[:60]
         results.append(f"❌ {name}: {code} {err}")
         return False, resp, code, hdrs
 
+
 # Register and login
-reg, code, _ = api("POST", "/_matrix/client/v3/register", data={
-    "username": f"verify5_{int(time.time())}", "password": "Test1234!Abc",
-    "auth": {"type": "m.login.dummy"}
-})
+reg, code, _ = api(
+    "POST",
+    "/_matrix/client/v3/register",
+    data={
+        "username": f"verify5_{int(time.time())}",
+        "password": "Test1234!Abc",
+        "auth": {"type": "m.login.dummy"},
+    },
+)
 TOKEN1 = reg.get("access_token", "")
 USER1 = reg.get("user_id", "")
 DEVICE1 = reg.get("device_id", "")
 print(f"User: {USER1}")
 
-reg2, code2, _ = api("POST", "/_matrix/client/v3/register", data={
-    "username": f"verify5b_{int(time.time())}", "password": "Test1234!Abc",
-    "auth": {"type": "m.login.dummy"}
-})
+reg2, code2, _ = api(
+    "POST",
+    "/_matrix/client/v3/register",
+    data={
+        "username": f"verify5b_{int(time.time())}",
+        "password": "Test1234!Abc",
+        "auth": {"type": "m.login.dummy"},
+    },
+)
 TOKEN2 = reg2.get("access_token", "")
 USER2 = reg2.get("user_id", "")
 
@@ -107,11 +129,15 @@ except urllib.error.HTTPError as e:
 # P0-2: State Event Format
 # ============================================================
 print("\n=== P0-2: State Event Format ===")
-room, _, _ = api("POST", "/_matrix/client/v3/createRoom", TOKEN1, {"name": "Verify Format"})
+room, _, _ = api(
+    "POST", "/_matrix/client/v3/createRoom", TOKEN1, {"name": "Verify Format"}
+)
 ROOM_ID = room.get("room_id", "")
 
 # Without trailing slash (Element Web's actual request)
-resp, code, _ = api("GET", f"/_matrix/client/v3/rooms/{ROOM_ID}/state/m.room.name", TOKEN1)
+resp, code, _ = api(
+    "GET", f"/_matrix/client/v3/rooms/{ROOM_ID}/state/m.room.name", TOKEN1
+)
 if code == 200 and isinstance(resp, dict):
     if "name" in resp and "events" not in resp:
         pass_count += 1
@@ -127,7 +153,9 @@ if code == 200 and isinstance(resp, dict):
         print(f"  ❌ /state/m.room.name: unexpected {list(resp.keys())}")
 
 # With trailing slash
-resp2, code2, _ = api("GET", f"/_matrix/client/v3/rooms/{ROOM_ID}/state/m.room.name/", TOKEN1)
+resp2, code2, _ = api(
+    "GET", f"/_matrix/client/v3/rooms/{ROOM_ID}/state/m.room.name/", TOKEN1
+)
 if code2 == 200 and isinstance(resp2, dict) and "name" in resp2:
     pass_count += 1
     results.append("✅ State Event Format (with slash): content object")
@@ -141,9 +169,9 @@ else:
 # P0-3: Keys Upload (empty device_keys)
 # ============================================================
 print("\n=== P0-3: Keys Upload ===")
-resp, code, _ = api("POST", "/_matrix/client/v3/keys/upload", TOKEN1, {
-    "one_time_keys": {}
-})
+resp, code, _ = api(
+    "POST", "/_matrix/client/v3/keys/upload", TOKEN1, {"one_time_keys": {}}
+)
 if code == 200:
     pass_count += 1
     results.append("✅ Keys Upload (empty): 200")
@@ -157,18 +185,22 @@ else:
 # P0-4: Wrong Password Error Code
 # ============================================================
 print("\n=== P0-4: Wrong Password ===")
-resp, code, _ = api("POST", "/_matrix/client/v3/login", data={
-    "type": "m.login.password",
-    "identifier": {"type": "m.id.user", "user": USER1.split(":")[0][1:]},
-    "password": "WrongPassword"
-})
+resp, code, _ = api(
+    "POST",
+    "/_matrix/client/v3/login",
+    data={
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": USER1.split(":")[0][1:]},
+        "password": "WrongPassword",
+    },
+)
 if code == 403 and resp.get("errcode") == "M_FORBIDDEN":
     pass_count += 1
     results.append("✅ Wrong Password: 403 M_FORBIDDEN")
     print(f"  ✅ Wrong password: {code} {resp.get('errcode')}")
 else:
     fail_count += 1
-    results.append(f"❌ Wrong Password: {code} {resp.get('errcode','')}")
+    results.append(f"❌ Wrong Password: {code} {resp.get('errcode', '')}")
     print(f"  ❌ Wrong password: {code} {resp}")
 
 # ============================================================
@@ -176,15 +208,29 @@ else:
 # ============================================================
 print("\n=== P1-5: Sync Ephemeral ===")
 # Send typing
-api("PUT", f"/_matrix/client/v3/rooms/{ROOM_ID}/typing/{USER1}", TOKEN1, {"typing": True, "timeout": 30000})
+api(
+    "PUT",
+    f"/_matrix/client/v3/rooms/{ROOM_ID}/typing/{USER1}",
+    TOKEN1,
+    {"typing": True, "timeout": 30000},
+)
 time.sleep(1)
 
 # Send message and receipt
-msg, _, _ = api("PUT", f"/_matrix/client/v3/rooms/{ROOM_ID}/send/m.room.message/txn_verify", TOKEN1,
-    {"msgtype": "m.text", "body": "verify test"})
+msg, _, _ = api(
+    "PUT",
+    f"/_matrix/client/v3/rooms/{ROOM_ID}/send/m.room.message/txn_verify",
+    TOKEN1,
+    {"msgtype": "m.text", "body": "verify test"},
+)
 EVENT_ID = msg.get("event_id", "")
 if EVENT_ID:
-    api("POST", f"/_matrix/client/v3/rooms/{ROOM_ID}/receipt/m.read/{EVENT_ID}", TOKEN1, {})
+    api(
+        "POST",
+        f"/_matrix/client/v3/rooms/{ROOM_ID}/receipt/m.read/{EVENT_ID}",
+        TOKEN1,
+        {},
+    )
     time.sleep(1)
 
 # Sync
@@ -226,7 +272,7 @@ try:
         f"{BASE}/_matrix/media/v3/upload?filename=test_ct.txt",
         data=b"test content for content type",
         headers={"Authorization": f"Bearer {TOKEN1}", "Content-Type": "text/plain"},
-        method="POST"
+        method="POST",
     )
     with urllib.request.urlopen(upload_req, context=ctx) as resp:
         upload = json.loads(resp.read().decode())
@@ -235,7 +281,9 @@ try:
             parts = mxc.split("/")
             server = parts[2]
             mid = parts[3]
-            dl_req = urllib.request.Request(f"{BASE}/_matrix/media/v3/download/{server}/{mid}")
+            dl_req = urllib.request.Request(
+                f"{BASE}/_matrix/media/v3/download/{server}/{mid}"
+            )
             with urllib.request.urlopen(dl_req, context=ctx) as dl_resp:
                 ct = dl_resp.headers.get("Content-Type", "")
                 if "text/plain" in ct:
@@ -273,7 +321,7 @@ resp, code, _ = api("POST", "/_matrix/client/v3/register", data={"kind": "guest"
 if code in [200, 201] and "access_token" in resp:
     pass_count += 1
     results.append("✅ Guest Registration: OK")
-    print(f"  ✅ Guest Registration: {resp.get('user_id','')}")
+    print(f"  ✅ Guest Registration: {resp.get('user_id', '')}")
 else:
     fail_count += 1
     results.append(f"❌ Guest Registration: {code}")
@@ -286,18 +334,44 @@ print("\n=== Additional Verification ===")
 
 # Redact
 if EVENT_ID:
-    check("Redact", "PUT", f"/_matrix/client/v3/rooms/{ROOM_ID}/redact/{EVENT_ID}/txn_redact_v", TOKEN1, {"reason": "verify"})
+    check(
+        "Redact",
+        "PUT",
+        f"/_matrix/client/v3/rooms/{ROOM_ID}/redact/{EVENT_ID}/txn_redact_v",
+        TOKEN1,
+        {"reason": "verify"},
+    )
 
 # Receipt
 if EVENT_ID:
-    check("Receipt", "POST", f"/_matrix/client/v3/rooms/{ROOM_ID}/receipt/m.read/{EVENT_ID}", TOKEN1, {})
+    check(
+        "Receipt",
+        "POST",
+        f"/_matrix/client/v3/rooms/{ROOM_ID}/receipt/m.read/{EVENT_ID}",
+        TOKEN1,
+        {},
+    )
 
 # Read Markers
 if EVENT_ID:
-    check("Read Markers", "POST", f"/_matrix/client/v3/rooms/{ROOM_ID}/read_markers", TOKEN1, {"m.fully_read": EVENT_ID, "m.read": EVENT_ID})
+    check(
+        "Read Markers",
+        "POST",
+        f"/_matrix/client/v3/rooms/{ROOM_ID}/read_markers",
+        TOKEN1,
+        {"m.fully_read": EVENT_ID, "m.read": EVENT_ID},
+    )
 
 # Media upload/download
-check("Media Upload", "POST", "/_matrix/media/v3/upload?filename=v.txt", TOKEN1, raw_body=b"verify", content_type="text/plain", headers_extra={"Authorization": f"Bearer {TOKEN1}"})
+check(
+    "Media Upload",
+    "POST",
+    "/_matrix/media/v3/upload?filename=v.txt",
+    TOKEN1,
+    raw_body=b"verify",
+    content_type="text/plain",
+    headers_extra={"Authorization": f"Bearer {TOKEN1}"},
+)
 
 # Auth media download
 check("Auth Media Config", "GET", "/_matrix/client/v1/media/config", TOKEN1)
@@ -316,5 +390,5 @@ print("验证测试结果")
 print("=" * 60)
 for r in results:
     print(f"  {r}")
-print(f"\n通过: {pass_count}  失败: {fail_count}  总计: {pass_count+fail_count}")
-print(f"通过率: {pass_count/(pass_count+fail_count)*100:.1f}%")
+print(f"\n通过: {pass_count}  失败: {fail_count}  总计: {pass_count + fail_count}")
+print(f"通过率: {pass_count / (pass_count + fail_count) * 100:.1f}%")

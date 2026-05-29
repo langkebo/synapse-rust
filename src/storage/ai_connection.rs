@@ -60,10 +60,7 @@ impl AiConnectionStorage {
         .await
     }
 
-    pub async fn get_user_connections(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<AiConnection>, sqlx::Error> {
+    pub async fn get_user_connections(&self, user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> {
         sqlx::query_as::<_, AiConnection>(
             r#"
             SELECT id, user_id, provider, config, is_active, created_ts, updated_ts
@@ -97,11 +94,7 @@ impl AiConnectionStorage {
         .await
     }
 
-    pub async fn update_connection_status(
-        &self,
-        id: &str,
-        is_active: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r#"

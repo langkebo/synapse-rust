@@ -31,13 +31,7 @@ pub struct CacheInvalidationMessage {
 
 impl CacheInvalidationMessage {
     pub fn new(key: String, invalidation_type: InvalidationType, sender_instance: String) -> Self {
-        Self {
-            key,
-            invalidation_type,
-            sender_instance,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            reason: None,
-        }
+        Self { key, invalidation_type, sender_instance, timestamp: chrono::Utc::now().timestamp_millis(), reason: None }
     }
 
     pub fn with_reason(mut self, reason: String) -> Self {
@@ -46,15 +40,12 @@ impl CacheInvalidationMessage {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, ApiError> {
-        serde_json::to_vec(self).map_err(|e| {
-            ApiError::internal_with_log("Failed to encode invalidation message", &e)
-        })
+        serde_json::to_vec(self).map_err(|e| ApiError::internal_with_log("Failed to encode invalidation message", &e))
     }
 
     pub fn decode(data: &[u8]) -> Result<Self, ApiError> {
-        serde_json::from_slice(data).map_err(|e| {
-            ApiError::internal_with_log("Failed to decode invalidation message", &e)
-        })
+        serde_json::from_slice(data)
+            .map_err(|e| ApiError::internal_with_log("Failed to decode invalidation message", &e))
     }
 }
 
@@ -88,9 +79,7 @@ pub struct CacheInvalidationBroadcaster {
 
 impl std::fmt::Debug for CacheInvalidationBroadcaster {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CacheInvalidationBroadcaster")
-            .field("config", &self.config)
-            .finish()
+        f.debug_struct("CacheInvalidationBroadcaster").field("config", &self.config).finish()
     }
 }
 
@@ -99,59 +88,44 @@ impl CacheInvalidationBroadcaster {
         Self { pool, config }
     }
 
-    pub async fn broadcast_invalidation(
-        &self,
-        key: &str,
-        invalidation_type: InvalidationType,
-    ) -> Result<(), ApiError> {
+    pub async fn broadcast_invalidation(&self, key: &str, invalidation_type: InvalidationType) -> Result<(), ApiError> {
         if !self.config.enabled {
             return Ok(());
         }
 
-        let message = CacheInvalidationMessage::new(
-            key.to_string(),
-            invalidation_type,
-            self.config.instance_id.clone(),
-        );
+        let message =
+            CacheInvalidationMessage::new(key.to_string(), invalidation_type, self.config.instance_id.clone());
 
         let encoded = message.encode()?;
         let channel = &self.config.channel_name;
 
         let mut conn =
-            self.pool.get().await.map_err(|e| {
-                ApiError::internal_with_log("Failed to get Redis connection", &e)
-            })?;
+            self.pool.get().await.map_err(|e| ApiError::internal_with_log("Failed to get Redis connection", &e))?;
 
-        let _: () = conn.publish(channel, encoded).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to publish invalidation message", &e)
-        })?;
+        let _: () = conn
+            .publish(channel, encoded)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to publish invalidation message", &e))?;
 
-        debug!(
-            "Broadcasted cache invalidation: key={}, type={:?}",
-            key, invalidation_type
-        );
+        debug!("Broadcasted cache invalidation: key={}, type={:?}", key, invalidation_type);
 
         Ok(())
     }
 
     pub async fn invalidate_key(&self, key: &str) -> Result<(), ApiError> {
-        self.broadcast_invalidation(key, InvalidationType::Key)
-            .await
+        self.broadcast_invalidation(key, InvalidationType::Key).await
     }
 
     pub async fn invalidate_pattern(&self, pattern: &str) -> Result<(), ApiError> {
-        self.broadcast_invalidation(pattern, InvalidationType::Pattern)
-            .await
+        self.broadcast_invalidation(pattern, InvalidationType::Pattern).await
     }
 
     pub async fn invalidate_prefix(&self, prefix: &str) -> Result<(), ApiError> {
-        self.broadcast_invalidation(prefix, InvalidationType::Prefix)
-            .await
+        self.broadcast_invalidation(prefix, InvalidationType::Prefix).await
     }
 
     pub async fn invalidate_all(&self) -> Result<(), ApiError> {
-        self.broadcast_invalidation("*", InvalidationType::All)
-            .await
+        self.broadcast_invalidation("*", InvalidationType::All).await
     }
 }
 
@@ -175,15 +149,10 @@ impl std::fmt::Debug for CacheInvalidationSubscriber {
 
 impl CacheInvalidationSubscriber {
     pub fn new(redis_url: &str, config: CacheInvalidationConfig) -> Result<Self, ApiError> {
-        let client = Client::open(redis_url)
-            .map_err(|e| ApiError::internal_with_log("Failed to create Redis client", &e))?;
+        let client =
+            Client::open(redis_url).map_err(|e| ApiError::internal_with_log("Failed to create Redis client", &e))?;
         let (sender, _) = broadcast::channel(1024);
-        Ok(Self {
-            client,
-            config,
-            sender,
-            running: Arc::new(parking_lot::RwLock::new(false)),
-        })
+        Ok(Self { client, config, sender, running: Arc::new(parking_lot::RwLock::new(false)) })
     }
 
     pub fn subscribe(&self) -> InvalidationReceiver {
@@ -202,10 +171,7 @@ impl CacheInvalidationSubscriber {
         let instance_id = self.config.instance_id.clone();
         let sender = self.sender.clone();
 
-        info!(
-            "Starting cache invalidation subscriber on channel: {} (instance: {})",
-            channel, instance_id
-        );
+        info!("Starting cache invalidation subscriber on channel: {} (instance: {})", channel, instance_id);
 
         tokio::spawn(async move {
             loop {
@@ -254,9 +220,9 @@ impl CacheInvalidationSubscriber {
         loop {
             match message_stream.next().await {
                 Some(msg) => {
-                    let payload: Vec<u8> = msg.get_payload().map_err(|e| {
-                        ApiError::internal_with_log("Failed to get message payload", &e)
-                    })?;
+                    let payload: Vec<u8> = msg
+                        .get_payload()
+                        .map_err(|e| ApiError::internal_with_log("Failed to get message payload", &e))?;
 
                     match CacheInvalidationMessage::decode(&payload) {
                         Ok(invalidation_msg) => {
@@ -272,10 +238,7 @@ impl CacheInvalidationSubscriber {
                                     warn!("No active receivers for invalidation message");
                                 }
                             } else {
-                                debug!(
-                                    "Ignoring self-sent invalidation message: key={}",
-                                    invalidation_msg.key
-                                );
+                                debug!("Ignoring self-sent invalidation message: key={}", invalidation_msg.key);
                             }
                         }
                         Err(e) => {
@@ -333,25 +296,13 @@ impl std::fmt::Debug for CacheInvalidationManager {
 impl CacheInvalidationManager {
     pub fn new(pool: Option<Pool>, config: CacheInvalidationConfig) -> Self {
         let (broadcaster, subscriber) = if let Some(p) = pool {
-            let subscriber = CacheInvalidationSubscriber::new(&config.redis_url, config.clone())
-                .map(Arc::new)
-                .ok();
-            (
-                Some(Arc::new(CacheInvalidationBroadcaster::new(
-                    p,
-                    config.clone(),
-                ))),
-                subscriber,
-            )
+            let subscriber = CacheInvalidationSubscriber::new(&config.redis_url, config.clone()).map(Arc::new).ok();
+            (Some(Arc::new(CacheInvalidationBroadcaster::new(p, config.clone()))), subscriber)
         } else {
             (None, None)
         };
 
-        Self {
-            broadcaster,
-            subscriber,
-            config,
-        }
+        Self { broadcaster, subscriber, config }
     }
 
     pub fn broadcaster(&self) -> Option<&Arc<CacheInvalidationBroadcaster>> {
@@ -412,11 +363,8 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation_message_creation() {
-        let msg = CacheInvalidationMessage::new(
-            "test_key".to_string(),
-            InvalidationType::Key,
-            "instance-1".to_string(),
-        );
+        let msg =
+            CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Key, "instance-1".to_string());
 
         assert_eq!(msg.key, "test_key");
         assert_eq!(msg.invalidation_type, InvalidationType::Key);
@@ -426,24 +374,18 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation_message_with_reason() {
-        let msg = CacheInvalidationMessage::new(
-            "test_key".to_string(),
-            InvalidationType::Key,
-            "instance-1".to_string(),
-        )
-        .with_reason("User logged out".to_string());
+        let msg =
+            CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Key, "instance-1".to_string())
+                .with_reason("User logged out".to_string());
 
         assert_eq!(msg.reason, Some("User logged out".to_string()));
     }
 
     #[test]
     fn test_cache_invalidation_message_encode_decode() {
-        let msg = CacheInvalidationMessage::new(
-            "test_key".to_string(),
-            InvalidationType::Pattern,
-            "instance-1".to_string(),
-        )
-        .with_reason("Test reason".to_string());
+        let msg =
+            CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Pattern, "instance-1".to_string())
+                .with_reason("Test reason".to_string());
 
         let encoded = msg.encode().unwrap();
         let decoded = CacheInvalidationMessage::decode(&encoded).unwrap();

@@ -15,29 +15,14 @@ impl DatabaseIntegrityChecker {
         Self { pool }
     }
 
-    async fn fetch_orphan_samples(
-        &self,
-        sample_query: &str,
-    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+    async fn fetch_orphan_samples(&self, sample_query: &str) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query(sample_query).fetch_all(&self.pool).await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| row.get::<serde_json::Value, _>("sample"))
-            .collect())
+        Ok(rows.into_iter().map(|row| row.get::<serde_json::Value, _>("sample")).collect())
     }
 
-    async fn build_orphan_entry(
-        &self,
-        spec: &OrphanDiagnosticSpec,
-    ) -> Result<serde_json::Value, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(spec.count_query)
-            .fetch_one(&self.pool)
-            .await?;
-        let samples = if count > 0 {
-            self.fetch_orphan_samples(spec.sample_query).await?
-        } else {
-            Vec::new()
-        };
+    async fn build_orphan_entry(&self, spec: &OrphanDiagnosticSpec) -> Result<serde_json::Value, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(spec.count_query).fetch_one(&self.pool).await?;
+        let samples = if count > 0 { self.fetch_orphan_samples(spec.sample_query).await? } else { Vec::new() };
 
         Ok(serde_json::json!({
             "count": count,
@@ -161,10 +146,7 @@ impl DatabaseIntegrityChecker {
         let mut room_contract_orphan_total = 0_i64;
         for spec in room_contract_specs {
             let entry = self.build_orphan_entry(&spec).await?;
-            room_contract_orphan_total += entry
-                .get("count")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(0);
+            room_contract_orphan_total += entry.get("count").and_then(serde_json::Value::as_i64).unwrap_or(0);
             room_contract_orphans.insert(spec.key.to_string(), entry);
         }
 
@@ -297,16 +279,10 @@ impl DatabaseIntegrityChecker {
 
     async fn check_audit_critical_constraints(&self) -> Result<Vec<String>, sqlx::Error> {
         let critical_constraints = vec![
-            (
-                "room_summary_state",
-                "uq_room_summary_state_room_type_state",
-            ),
+            ("room_summary_state", "uq_room_summary_state_room_type_state"),
             ("room_summary_state", "fk_room_summary_state_room"),
             ("room_summary_stats", "fk_room_summary_stats_room"),
-            (
-                "room_summary_update_queue",
-                "fk_room_summary_update_queue_room",
-            ),
+            ("room_summary_update_queue", "fk_room_summary_update_queue_room"),
             ("device_trust_status", "uq_device_trust_status_user_device"),
             ("cross_signing_trust", "uq_cross_signing_trust_user_target"),
         ];
@@ -341,9 +317,7 @@ impl DatabaseIntegrityChecker {
 mod tests {
     use super::*;
 
-    async fn ensure_public_schema_contract_repairs(
-        pool: &Pool<Postgres>,
-    ) -> Result<(), sqlx::Error> {
+    async fn ensure_public_schema_contract_repairs(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
@@ -420,10 +394,7 @@ mod tests {
                 Some(pool)
             }
             Err(error) => {
-                eprintln!(
-                    "Skipping database integrity tests: unable to prepare isolated schema: {}",
-                    error
-                );
+                eprintln!("Skipping database integrity tests: unable to prepare isolated schema: {}", error);
                 None
             }
         }
@@ -436,16 +407,9 @@ mod tests {
         };
 
         let checker = DatabaseIntegrityChecker::new(pool);
-        let missing = checker
-            .check_audit_critical_indexes()
-            .await
-            .expect("Failed to check audit critical indexes");
+        let missing = checker.check_audit_critical_indexes().await.expect("Failed to check audit critical indexes");
 
-        assert!(
-            missing.is_empty(),
-            "Missing audit-critical indexes: {:?}",
-            missing
-        );
+        assert!(missing.is_empty(), "Missing audit-critical indexes: {:?}", missing);
     }
 
     #[tokio::test]
@@ -456,28 +420,19 @@ mod tests {
 
         if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
             let checker = DatabaseIntegrityChecker::new(pool.clone());
-            let orphan_data = checker
-                .check_orphan_data()
-                .await
-                .expect("Failed to inspect orphan data after contract repair failure");
+            let orphan_data =
+                checker.check_orphan_data().await.expect("Failed to inspect orphan data after contract repair failure");
             panic!(
                 "Unable to apply public schema contract repairs before constraint audit: {}. Orphan data summary: {}",
-                error,
-                orphan_data
+                error, orphan_data
             );
         }
 
         let checker = DatabaseIntegrityChecker::new(pool);
-        let missing = checker
-            .check_audit_critical_constraints()
-            .await
-            .expect("Failed to check audit critical constraints");
+        let missing =
+            checker.check_audit_critical_constraints().await.expect("Failed to check audit critical constraints");
 
-        assert!(
-            missing.is_empty(),
-            "Missing audit-critical constraints: {:?}",
-            missing
-        );
+        assert!(missing.is_empty(), "Missing audit-critical constraints: {:?}", missing);
     }
 
     #[tokio::test]
@@ -487,31 +442,14 @@ mod tests {
         };
 
         let checker = DatabaseIntegrityChecker::new(pool);
-        let orphan_data = checker
-            .check_orphan_data()
-            .await
-            .expect("Failed to execute orphan data diagnostics");
+        let orphan_data = checker.check_orphan_data().await.expect("Failed to execute orphan data diagnostics");
 
-        let diagnostics = orphan_data
-            .as_object()
-            .expect("Expected orphan data diagnostics to be a JSON object");
+        let diagnostics = orphan_data.as_object().expect("Expected orphan data diagnostics to be a JSON object");
 
-        assert!(
-            diagnostics.contains_key("room_contract_orphans"),
-            "Expected room_contract_orphans diagnostics entry"
-        );
-        assert!(
-            diagnostics.contains_key("membership_breakdown"),
-            "Expected membership_breakdown diagnostics entry"
-        );
-        assert!(
-            diagnostics.contains_key("event_samples"),
-            "Expected event_samples diagnostics entry"
-        );
-        assert!(
-            diagnostics.contains_key("token_samples"),
-            "Expected token_samples diagnostics entry"
-        );
+        assert!(diagnostics.contains_key("room_contract_orphans"), "Expected room_contract_orphans diagnostics entry");
+        assert!(diagnostics.contains_key("membership_breakdown"), "Expected membership_breakdown diagnostics entry");
+        assert!(diagnostics.contains_key("event_samples"), "Expected event_samples diagnostics entry");
+        assert!(diagnostics.contains_key("token_samples"), "Expected token_samples diagnostics entry");
     }
 
     #[tokio::test]
@@ -522,13 +460,13 @@ mod tests {
 
         if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {
             let checker = DatabaseIntegrityChecker::new(pool);
-            let orphan_data = checker.check_orphan_data().await.expect(
-                "Failed to inspect orphan data after public schema contract repair failure",
-            );
+            let orphan_data = checker
+                .check_orphan_data()
+                .await
+                .expect("Failed to inspect orphan data after public schema contract repair failure");
             panic!(
                 "Public schema contract repairs cannot be applied cleanly: {}. Orphan data summary: {}",
-                error,
-                orphan_data
+                error, orphan_data
             );
         }
     }

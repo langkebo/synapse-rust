@@ -45,11 +45,7 @@ pub struct AddChildBody {
 }
 
 impl AddChildBody {
-    pub fn into_request(
-        self,
-        space_id: String,
-        sender: String,
-    ) -> crate::storage::space::AddChildRequest {
+    pub fn into_request(self, space_id: String, sender: String) -> crate::storage::space::AddChildRequest {
         crate::storage::space::AddChildRequest {
             space_id,
             room_id: self.room_id,
@@ -267,10 +263,7 @@ mod tests {
 
         assert_eq!(request.room_id, "!room:example.com");
         assert_eq!(request.creator, "@alice:example.com");
-        assert_eq!(
-            request.parent_space_id.as_deref(),
-            Some("!parent:example.com")
-        );
+        assert_eq!(request.parent_space_id.as_deref(), Some("!parent:example.com"));
     }
 
     #[test]
@@ -307,10 +300,7 @@ mod tests {
             suggested: None,
         };
 
-        let request = body.into_request(
-            "!space:example.com".to_string(),
-            "@bob:example.com".to_string(),
-        );
+        let request = body.into_request("!space:example.com".to_string(), "@bob:example.com".to_string());
 
         assert_eq!(request.space_id, "!space:example.com");
         assert_eq!(request.sender, "@bob:example.com");
@@ -325,17 +315,11 @@ mod tests {
             suggested: Some(true),
         };
 
-        let request = body.into_request(
-            "!space:example.com".to_string(),
-            "@bob:example.com".to_string(),
-        );
+        let request = body.into_request("!space:example.com".to_string(), "@bob:example.com".to_string());
 
         assert_eq!(request.room_id, "!child:example.com");
         assert_eq!(request.space_id, "!space:example.com");
-        assert_eq!(
-            request.via_servers,
-            vec!["example.com".to_string(), "backup.example.com".to_string()]
-        );
+        assert_eq!(request.via_servers, vec!["example.com".to_string(), "backup.example.com".to_string()]);
         assert!(request.is_suggested);
     }
 
@@ -369,10 +353,7 @@ mod tests {
 
         assert_eq!(request.name.as_deref(), Some("Updated Name"));
         assert_eq!(request.topic.as_deref(), Some("Updated topic"));
-        assert_eq!(
-            request.avatar_url.as_deref(),
-            Some("mxc://example.com/updated")
-        );
+        assert_eq!(request.avatar_url.as_deref(), Some("mxc://example.com/updated"));
         assert_eq!(request.join_rule.as_deref(), Some("public"));
         assert_eq!(request.visibility.as_deref(), Some("public"));
         assert_eq!(request.is_public, Some(true));
@@ -401,10 +382,7 @@ mod tests {
 
     #[test]
     fn test_pagination_query() {
-        let query = PaginationQuery {
-            limit: Some(100),
-            from: Some("123|!space:example.com".to_string()),
-        };
+        let query = PaginationQuery { limit: Some(100), from: Some("123|!space:example.com".to_string()) };
 
         assert_eq!(query.limit, Some(100));
         assert_eq!(query.from.as_deref(), Some("123|!space:example.com"));
@@ -412,10 +390,7 @@ mod tests {
 
     #[test]
     fn test_search_query() {
-        let query = SearchQuery {
-            query: "test space".to_string(),
-            limit: Some(10),
-        };
+        let query = SearchQuery { query: "test space".to_string(), limit: Some(10) };
 
         assert_eq!(query.query, "test space");
         assert_eq!(query.limit, Some(10));
@@ -451,9 +426,7 @@ mod tests {
 
     #[test]
     fn test_invite_user_body() {
-        let body = InviteUserBody {
-            user_id: "@alice:example.com".to_string(),
-        };
+        let body = InviteUserBody { user_id: "@alice:example.com".to_string() };
 
         assert!(body.user_id.starts_with('@'));
     }

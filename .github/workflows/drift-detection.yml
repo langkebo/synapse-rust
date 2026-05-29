@@ -205,7 +205,7 @@ jobs:
         run: |
           echo "Checking for missing rollback scripts..."
           missing=0
-          
+
           for f in migrations/*.sql; do
             filename=$(basename "$f")
             if [[ "$filename" == "00000000_unified_schema_v6.sql" ]] || \
@@ -223,13 +223,13 @@ jobs:
             rollback_name="${f%.sql}.undo.sql"
             rollback_down="${f%.sql}.down.sql"
             rollback_alt="migrations/rollback/$(basename ${f%.sql}).rollback.sql"
-            
+
             if [ ! -f "$rollback_name" ] && [ ! -f "$rollback_down" ] && [ ! -f "$rollback_alt" ]; then
               echo "Missing rollback for: $f"
               missing=$((missing + 1))
             fi
           done
-          
+
           if [ $missing -gt 0 ]; then
             echo "Found $missing migrations without rollback scripts"
             exit 1
@@ -285,9 +285,9 @@ jobs:
               content JSONB,
               created_ts BIGINT NOT NULL
             );
-            
+
             INSERT INTO test_events (room_id, event_type, content, created_ts)
-            SELECT 
+            SELECT
               '!room:' || (random() * 100)::int || ':example.com',
               CASE (random() * 3)::int
                 WHEN 0 THEN 'm.room.message'
@@ -314,10 +314,10 @@ jobs:
             fi
 
             start_time=$(python3 - <<'PY'
-from time import time_ns
-print(time_ns() // 1_000_000)
-PY
-)
+            from time import time_ns
+            print(time_ns() // 1_000_000)
+            PY
+            )
 
             if ! PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration"; then
               failed=1
@@ -325,10 +325,10 @@ PY
             fi
 
             end_time=$(python3 - <<'PY'
-from time import time_ns
-print(time_ns() // 1_000_000)
-PY
-)
+            from time import time_ns
+            print(time_ns() // 1_000_000)
+            PY
+            )
             duration=$((end_time - start_time))
 
             echo "Migration: $(basename "$migration")"

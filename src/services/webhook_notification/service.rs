@@ -21,10 +21,7 @@ impl WebhookNotifier {
             });
         }
 
-        Self {
-            config,
-            sender: if enabled { Some(sender) } else { None },
-        }
+        Self { config, sender: if enabled { Some(sender) } else { None } }
     }
 
     async fn event_processor(
@@ -82,10 +79,7 @@ impl WebhookNotifier {
         config: &WebhookConfig,
         event: &WebhookEvent,
     ) -> Result<WebhookDeliveryResult, String> {
-        let mut request = http_client
-            .post(&config.url)
-            .timeout(Duration::from_millis(config.timeout_ms))
-            .json(event);
+        let mut request = http_client.post(&config.url).timeout(Duration::from_millis(config.timeout_ms)).json(event);
 
         if let Some(ref secret) = config.secret {
             request = request.header("X-Webhook-Secret", secret);

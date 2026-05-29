@@ -23,4 +23,3 @@
 - 先落地可验证门禁：
   - i18n 键完整度检查（de 必须覆盖 en 的键集合）。
   - 关键响应（HTML/XML/JSON）编码与 Content-Type 合规检查。
-

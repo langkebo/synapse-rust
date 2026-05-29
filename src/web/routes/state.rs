@@ -1,8 +1,6 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
-use crate::common::rate_limit_config::{
-    RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile,
-};
+use crate::common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
 use crate::services::ServiceContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,8 +22,7 @@ pub struct AppState {
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
     #[cfg(feature = "openclaw-routes")]
-    pub matrix_ai_connection_service:
-        Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
+    pub matrix_ai_connection_service: Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "openclaw-routes")]
     pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
     #[cfg(feature = "openclaw-routes")]
@@ -42,47 +39,31 @@ impl AppState {
     pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
         let mut health_checker = HealthChecker::new("0.1.0".to_string());
 
-        health_checker.add_check(Box::new(DatabaseHealthCheck::new(
-            (*services.user_storage.pool).clone(),
-        )));
+        health_checker.add_check(Box::new(DatabaseHealthCheck::new((*services.user_storage.pool).clone())));
         health_checker.add_check(Box::new(CacheHealthCheck::new((*cache).clone())));
 
-        let federation_signature_cache = Arc::new(FederationSignatureCache::new(
-            SignatureCacheConfig::from_federation_config(
+        let federation_signature_cache =
+            Arc::new(FederationSignatureCache::new(SignatureCacheConfig::from_federation_config(
                 services.config.federation.signature_cache_ttl,
                 services.config.federation.key_cache_ttl,
                 services.config.federation.key_rotation_grace_period_ms,
-            ),
-        ));
+            )));
 
         #[cfg(feature = "openclaw-routes")]
         let pool = services.user_storage.pool.clone();
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
-            let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(
-                pool.clone(),
-            ));
-            let encryption_key =
-                crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
-                    services.config.server.macaroon_secret_key.as_deref(),
-                    &services.config.security.secret,
-                );
-            Arc::new(crate::services::openclaw_service::OpenClawService::new(
-                openclaw_storage,
-                encryption_key,
-            ))
+            let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));
+            let encryption_key = crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
+                services.config.server.macaroon_secret_key.as_deref(),
+                &services.config.security.secret,
+            );
+            Arc::new(crate::services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
         };
         let key_fetch_max_concurrency = services.config.federation.key_fetch_max_concurrency.max(1);
-        let key_fetch_general_max_concurrency = if key_fetch_max_concurrency <= 1 {
-            1
-        } else {
-            (key_fetch_max_concurrency - 1).max(1)
-        };
-        let inbound_edu_max_concurrency = services
-            .config
-            .federation
-            .inbound_edu_max_concurrency
-            .max(1);
+        let key_fetch_general_max_concurrency =
+            if key_fetch_max_concurrency <= 1 { 1 } else { (key_fetch_max_concurrency - 1).max(1) };
+        let inbound_edu_max_concurrency = services.config.federation.inbound_edu_max_concurrency.max(1);
         let join_max_concurrency = services.config.federation.join_max_concurrency.max(1);
 
         Self {
@@ -90,30 +71,20 @@ impl AppState {
             cache: cache.clone(),
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
-            federation_key_fetch_priority_semaphore: Arc::new(Semaphore::new(
-                key_fetch_max_concurrency,
-            )),
-            federation_key_fetch_general_semaphore: Arc::new(Semaphore::new(
-                key_fetch_general_max_concurrency,
-            )),
+            federation_key_fetch_priority_semaphore: Arc::new(Semaphore::new(key_fetch_max_concurrency)),
+            federation_key_fetch_general_semaphore: Arc::new(Semaphore::new(key_fetch_general_max_concurrency)),
             federation_inbound_edu_semaphore: Arc::new(Semaphore::new(inbound_edu_max_concurrency)),
             federation_join_semaphore: Arc::new(Semaphore::new(join_max_concurrency)),
             federation_inbound_edu_origin_semaphores: Arc::new(Mutex::new(HashMap::new())),
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
             #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage: Arc::new(
-                crate::storage::ai_connection::AiConnectionStorage::new(pool.clone()),
-            ),
+            ai_connection_storage: Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool.clone())),
             #[cfg(feature = "openclaw-routes")]
             matrix_ai_connection_service: Arc::new(
                 crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(
-                        pool,
-                    )),
-                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(
-                        cache.clone(),
-                    )),
+                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool)),
+                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
                 ),
             ),
             #[cfg(feature = "openclaw-routes")]
@@ -129,18 +100,13 @@ impl AppState {
     }
 
     pub fn rate_limit_config(&self) -> Option<RateLimitConfigFile> {
-        self.rate_limit_config_manager
-            .as_ref()
-            .map(|manager| manager.get_config())
+        self.rate_limit_config_manager.as_ref().map(|manager| manager.get_config())
     }
 
     pub fn sync_rate_limit_override(&self) -> Option<SyncRateLimitOverride> {
         self.rate_limit_config_manager.as_ref().map(|manager| {
             let config = manager.get_config();
-            SyncRateLimitOverride {
-                fail_open_on_error: config.fail_open_on_error,
-                sync: config.sync,
-            }
+            SyncRateLimitOverride { fail_open_on_error: config.fail_open_on_error, sync: config.sync }
         })
     }
 }

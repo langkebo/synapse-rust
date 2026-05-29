@@ -18,9 +18,7 @@ use crate::web::routes::saml;
 use crate::web::routes::voice;
 #[cfg(feature = "widgets")]
 use crate::web::routes::widget;
-use crate::web::routes::{
-    federation, oidc, room, route_ledger::RouteEntry, state::AppState, worker,
-};
+use crate::web::routes::{federation, oidc, room, route_ledger::RouteEntry, state::AppState, worker};
 
 /// Pure-data profile flags that drive the conditional route surfaces in
 /// `route_modules()`. Used by the offline ledger-export tool
@@ -205,9 +203,7 @@ impl RouteModule for OidcModule {
             {
                 let fallback = oidc::oidc_fallback_manifest();
                 let has_jwks = entries.iter().any(|e| e.path == "/.well-known/jwks.json");
-                let has_discovery = entries
-                    .iter()
-                    .any(|e| e.path == "/.well-known/openid-configuration");
+                let has_discovery = entries.iter().any(|e| e.path == "/.well-known/openid-configuration");
                 for e in &fallback {
                     if e.path == "/.well-known/jwks.json" && !has_jwks {
                         entries.push(e.clone());
@@ -359,14 +355,8 @@ impl RouteModule for AiConnectionModule {
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         if state.services.config.experimental.openclaw_routes_enabled {
             router
-                .nest(
-                    "/_matrix/client/v1/ai",
-                    ai_connection::create_ai_connection_router(),
-                )
-                .nest(
-                    "/_matrix/client/v3/ai",
-                    ai_connection::create_ai_connection_router(),
-                )
+                .nest("/_matrix/client/v1/ai", ai_connection::create_ai_connection_router())
+                .nest("/_matrix/client/v3/ai", ai_connection::create_ai_connection_router())
         } else {
             router
         }
@@ -379,41 +369,23 @@ mod tests {
     use axum::http::Method;
 
     fn contains(entries: &[RouteEntry], method: Method, path: &str) -> bool {
-        entries
-            .iter()
-            .any(|entry| entry.method == method && entry.path == path)
+        entries.iter().any(|entry| entry.method == method && entry.path == path)
     }
 
     #[cfg(feature = "friends")]
     #[test]
     fn friend_manifest_declares_core_routes() {
         let entries = friend_room::friend_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/v3/friends"
-        ));
-        assert!(contains(
-            &entries,
-            Method::DELETE,
-            "/_matrix/client/v1/friends/{user_id}"
-        ));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/v3/friends"));
+        assert!(contains(&entries, Method::DELETE, "/_matrix/client/v1/friends/{user_id}"));
     }
 
     #[cfg(feature = "saml-sso")]
     #[test]
     fn saml_manifest_declares_core_routes() {
         let entries = saml::saml_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/r0/login/sso/redirect/saml"
-        ));
-        assert!(contains(
-            &entries,
-            Method::POST,
-            "/_synapse/admin/v1/saml/metadata/refresh"
-        ));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"));
+        assert!(contains(&entries, Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"));
     }
 
     #[cfg(feature = "cas-sso")]
@@ -421,80 +393,40 @@ mod tests {
     fn cas_manifest_declares_core_routes() {
         let entries = cas::cas_route_manifest();
         assert!(contains(&entries, Method::GET, "/login"));
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_synapse/admin/v1/cas/services"
-        ));
+        assert!(contains(&entries, Method::GET, "/_synapse/admin/v1/cas/services"));
     }
 
     #[cfg(feature = "widgets")]
     #[test]
     fn widget_manifest_declares_core_routes() {
         let entries = widget::widget_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::POST,
-            "/_matrix/client/v1/widgets"
-        ));
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/v1/widgets/{widget_id}/config"
-        ));
+        assert!(contains(&entries, Method::POST, "/_matrix/client/v1/widgets"));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"));
     }
 
     #[cfg(feature = "burn-after-read")]
     #[test]
     fn burn_after_read_manifest_declares_core_routes() {
         let entries = burn_after_read::burn_after_read_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::PUT,
-            "/_matrix/client/v1/rooms/{room_id}/burn"
-        ));
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/v1/user/burn/stats"
-        ));
+        assert!(contains(&entries, Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/user/burn/stats"));
     }
 
     #[cfg(feature = "voice-extended")]
     #[test]
     fn voice_manifest_declares_core_routes() {
         let entries = voice::voice_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/r0/voice/config"
-        ));
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/v1/voice/config"
-        ));
-        assert!(contains(
-            &entries,
-            Method::POST,
-            "/_matrix/client/r0/voice/upload"
-        ));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/r0/voice/config"));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/voice/config"));
+        assert!(contains(&entries, Method::POST, "/_matrix/client/r0/voice/upload"));
     }
 
     #[cfg(feature = "external-services")]
     #[test]
     fn external_service_manifest_declares_core_routes() {
         let entries = external_service::external_service_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_synapse/admin/v1/external_services"
-        ));
-        assert!(contains(
-            &entries,
-            Method::POST,
-            "/_synapse/external/webhook/{service_id}"
-        ));
+        assert!(contains(&entries, Method::GET, "/_synapse/admin/v1/external_services"));
+        assert!(contains(&entries, Method::POST, "/_synapse/external/webhook/{service_id}"));
     }
 
     #[cfg(feature = "openclaw-routes")]
@@ -509,15 +441,7 @@ mod tests {
     #[test]
     fn openclaw_manifest_declares_core_routes() {
         let entries = openclaw::openclaw_route_manifest();
-        assert!(contains(
-            &entries,
-            Method::GET,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
-        ));
-        assert!(contains(
-            &entries,
-            Method::POST,
-            "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"
-        ));
+        assert!(contains(&entries, Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"));
+        assert!(contains(&entries, Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"));
     }
 }

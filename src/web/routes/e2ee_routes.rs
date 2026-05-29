@@ -34,61 +34,25 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         .route("/keys/signatures", post(upload_signatures))
         .route("/keys/signatures/upload", post(upload_signatures))
         .route("/keys/device_signing/upload", post(upload_device_signing))
-        .route(
-            "/room_keys/request",
-            post(create_room_key_request).get(get_room_key_requests),
-        )
-        .route(
-            "/room_keys/request/{request_id}",
-            delete(delete_room_key_request),
-        )
-        .route(
-            "/rooms/{room_id}/keys/distribution",
-            get(room_key_distribution),
-        )
-        .route(
-            "/sendToDevice/{event_type}/{transaction_id}",
-            put(send_to_device).post(send_to_device),
-        )
+        .route("/room_keys/request", post(create_room_key_request).get(get_room_key_requests))
+        .route("/room_keys/request/{request_id}", delete(delete_room_key_request))
+        .route("/rooms/{room_id}/keys/distribution", get(room_key_distribution))
+        .route("/sendToDevice/{event_type}/{transaction_id}", put(send_to_device).post(send_to_device))
 }
 
 fn create_e2ee_v3_only_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/device_verification/request",
-            post(request_device_verification),
-        )
-        .route(
-            "/device_verification/respond",
-            post(respond_device_verification),
-        )
-        .route(
-            "/device_verification/status/{token}",
-            get(get_verification_status),
-        )
+        .route("/device_verification/request", post(request_device_verification))
+        .route("/device_verification/respond", post(respond_device_verification))
+        .route("/device_verification/status/{token}", get(get_verification_status))
         .route("/device_trust", get(get_device_trust_list))
         .route("/device_trust/{device_id}", get(get_device_trust))
         .route("/security/summary", get(get_security_summary))
-        .route(
-            "/keys/backup/secure",
-            post(create_secure_backup).get(get_secure_backup_list),
-        )
-        .route(
-            "/keys/backup/secure/{backup_id}",
-            get(get_secure_backup).delete(delete_secure_backup),
-        )
-        .route(
-            "/keys/backup/secure/{backup_id}/keys",
-            post(store_secure_backup_keys),
-        )
-        .route(
-            "/keys/backup/secure/{backup_id}/restore",
-            post(restore_secure_backup),
-        )
-        .route(
-            "/keys/backup/secure/{backup_id}/verify",
-            post(verify_secure_backup_passphrase),
-        )
+        .route("/keys/backup/secure", post(create_secure_backup).get(get_secure_backup_list))
+        .route("/keys/backup/secure/{backup_id}", get(get_secure_backup).delete(delete_secure_backup))
+        .route("/keys/backup/secure/{backup_id}/keys", post(store_secure_backup_keys))
+        .route("/keys/backup/secure/{backup_id}/restore", post(restore_secure_backup))
+        .route("/keys/backup/secure/{backup_id}/verify", post(verify_secure_backup_passphrase))
 }
 
 pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
@@ -104,11 +68,7 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
 }
 
 /// Nest prefixes `create_e2ee_router` mounts the compat sub-router under.
-const E2EE_COMPAT_NEST_PREFIXES: &[&str] = &[
-    "/_matrix/client/r0",
-    "/_matrix/client/v1",
-    "/_matrix/client/v3",
-];
+const E2EE_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/r0", "/_matrix/client/v1", "/_matrix/client/v3"];
 
 /// Nest prefix used for the v3-only sub-router.
 const E2EE_V3_ONLY_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
@@ -188,9 +148,7 @@ async fn upload_keys(
     let has_one_time_keys = body.get("one_time_keys").is_some();
 
     if !has_device_keys && !has_one_time_keys {
-        return Err(ApiError::bad_request(
-            "Must include at least device_keys or one_time_keys".to_string(),
-        ));
+        return Err(ApiError::bad_request("Must include at least device_keys or one_time_keys".to_string()));
     }
 
     // Validate device_keys has required fields when provided as a non-empty object
@@ -202,9 +160,7 @@ async fn upload_keys(
             if !obj.is_empty() {
                 // Non-empty device_keys should have keys field
                 if dk.get("keys").is_some_and(|k| k.as_object().is_none_or(|m| m.is_empty())) {
-                    return Err(ApiError::bad_request(
-                        "device_keys.keys must be a non-empty object".to_string(),
-                    ));
+                    return Err(ApiError::bad_request("device_keys.keys must be a non-empty object".to_string()));
                 }
             }
         }
@@ -217,11 +173,9 @@ async fn upload_keys(
                 Some(dk.clone())
             } else {
                 dk.as_object().and_then(|map| {
-                    map.values().next().and_then(|user_entry| {
-                        user_entry
-                            .as_object()
-                            .and_then(|m| m.values().next().cloned())
-                    })
+                    map.values()
+                        .next()
+                        .and_then(|user_entry| user_entry.as_object().and_then(|m| m.values().next().cloned()))
                 })
             }
         })
@@ -232,34 +186,13 @@ async fn upload_keys(
             Some(crate::e2ee::device_keys::DeviceKeys {
                 user_id: auth_user.user_id.clone(),
                 device_id: device_id.clone(),
-                algorithms: inner_device_keys
-                    .get("algorithms")
-                    .and_then(|v| v.as_array())
-                    .map_or_else(
-                        || {
-                            vec![
-                                "m.olm.v1.curve25519-aes-sha2".to_string(),
-                                "m.megolm.v1.aes-sha2".to_string(),
-                            ]
-                        },
-                        |arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect()
-                        },
-                    ),
-                keys: inner_device_keys
-                    .get("keys")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({})),
-                signatures: inner_device_keys
-                    .get("signatures")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({})),
-                unsigned: inner_device_keys
-                    .get("unsigned")
-                    .and_then(|v| v.as_object())
-                    .map(|v| v.clone().into()),
+                algorithms: inner_device_keys.get("algorithms").and_then(|v| v.as_array()).map_or_else(
+                    || vec!["m.olm.v1.curve25519-aes-sha2".to_string(), "m.megolm.v1.aes-sha2".to_string()],
+                    |arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
+                ),
+                keys: inner_device_keys.get("keys").cloned().unwrap_or_else(|| serde_json::json!({})),
+                signatures: inner_device_keys.get("signatures").cloned().unwrap_or_else(|| serde_json::json!({})),
+                unsigned: inner_device_keys.get("unsigned").and_then(|v| v.as_object()).map(|v| v.clone().into()),
             })
         } else {
             None
@@ -268,11 +201,7 @@ async fn upload_keys(
         fallback_keys: body.get("fallback_keys").cloned(),
     };
 
-    let response = state
-        .services
-        .device_keys_service
-        .upload_keys(request, &auth_user.user_id, &device_id)
-        .await?;
+    let response = state.services.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
 
     Ok(Json(serde_json::json!({
         "one_time_key_counts": response.one_time_key_counts
@@ -285,35 +214,21 @@ async fn query_keys(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyQueryRequest =
-        serde_json::from_value(body.clone())
-            .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
+    let mut request: crate::e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body.clone())
+        .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
 
-    let device_keys_raw = body
-        .get("device_keys")
-        .cloned()
-        .unwrap_or(serde_json::json!({}));
+    let device_keys_raw = body.get("device_keys").cloned().unwrap_or(serde_json::json!({}));
 
-    let requested_users: Vec<String> = device_keys_raw
-        .as_object()
-        .map(|map| map.keys().cloned().collect())
-        .unwrap_or_default();
+    let requested_users: Vec<String> =
+        device_keys_raw.as_object().map(|map| map.keys().cloned().collect()).unwrap_or_default();
 
-    let allowed_users =
-        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+    let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     let device_keys = if requested_users.is_empty() {
-        let mut shared = state
-            .services
-            .member_storage
-            .get_shared_room_users(&auth_user.user_id)
-            .await
-            .unwrap_or_default();
+        let mut shared =
+            state.services.member_storage.get_shared_room_users(&auth_user.user_id).await.unwrap_or_default();
         shared.push(auth_user.user_id.clone());
-        let map: serde_json::Map<String, Value> = shared
-            .into_iter()
-            .map(|uid| (uid, serde_json::json!([])))
-            .collect();
+        let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
     } else {
         let mut filtered = serde_json::Map::new();
@@ -329,22 +244,14 @@ async fn query_keys(
 
     request.device_keys = device_keys;
 
-    let response = state
-        .services
-        .device_keys_service
-        .query_keys(request)
-        .await?;
+    let response = state.services.device_keys_service.query_keys(request).await?;
 
     let mut verified_devices = serde_json::Map::new();
     if let Some(device_keys_obj) = response.device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
-            let batch_result = state
-                .services
-                .cross_signing_service
-                .get_verified_devices_batch(&user_ids)
-                .await
-                .unwrap_or_default();
+            let batch_result =
+                state.services.cross_signing_service.get_verified_devices_batch(&user_ids).await.unwrap_or_default();
 
             for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map
@@ -387,23 +294,18 @@ async fn claim_keys(
     let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
 
-    let requested_users = request
-        .one_time_keys
-        .as_object()
-        .map(|map| map.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    let allowed_users =
-        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+    let requested_users =
+        request.one_time_keys.as_object().map(|map| map.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+    let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
         one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
     }
 
-    let requested_device_count: usize = request.one_time_keys.as_object().map_or(0, |map| {
-        map.values()
-            .map(|v| v.as_object().map_or(0, |o| o.len()))
-            .sum()
-    });
+    let requested_device_count: usize = request
+        .one_time_keys
+        .as_object()
+        .map_or(0, |map| map.values().map(|v| v.as_object().map_or(0, |o| o.len())).sum());
 
     if requested_device_count == 0 {
         return Ok(Json(serde_json::json!({
@@ -414,17 +316,12 @@ async fn claim_keys(
         })));
     }
 
-    let response = state
-        .services
-        .device_keys_service
-        .claim_keys(request)
-        .await?;
+    let response = state.services.device_keys_service.claim_keys(request).await?;
 
-    let claimed_device_count: usize = response.one_time_keys.as_object().map_or(0, |map| {
-        map.values()
-            .map(|v| v.as_object().map_or(0, |o| o.len()))
-            .sum()
-    });
+    let claimed_device_count: usize = response
+        .one_time_keys
+        .as_object()
+        .map_or(0, |map| map.values().map(|v| v.as_object().map_or(0, |o| o.len())).sum());
 
     let mut failures = if let serde_json::Value::Object(failures_map) = response.failures {
         failures_map
@@ -458,39 +355,28 @@ async fn key_changes(
     let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
     let to = params.get("to").and_then(parse_stream_id);
 
-    let max_stream_id: i64 = state
-        .services
-        .device_storage
-        .get_max_device_list_stream_id()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get device list stream position: {e}");
-            ApiError::database("Failed to get device list stream position")
-        })?;
+    let max_stream_id: i64 = state.services.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+        tracing::error!("Failed to get device list stream position: {e}");
+        ApiError::database("Failed to get device list stream position")
+    })?;
 
     let to = to.unwrap_or(max_stream_id);
 
-    let changed: Vec<String> = state
-        .services
-        .device_storage
-        .get_device_list_changed_users(from, to, &auth_user.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get key changes: {e}");
-            ApiError::database("Failed to get key changes")
-        })?;
+    let changed: Vec<String> =
+        state.services.device_storage.get_device_list_changed_users(from, to, &auth_user.user_id).await.map_err(
+            |e| {
+                tracing::error!("Failed to get key changes: {e}");
+                ApiError::database("Failed to get key changes")
+            },
+        )?;
     let changed = filter_users_with_shared_rooms(&state, &auth_user.user_id, &changed)
         .await
         .into_iter()
         .filter(|user_id| user_id != &auth_user.user_id)
         .collect::<Vec<_>>();
 
-    let left: Vec<String> = state
-        .services
-        .device_storage
-        .get_device_list_left_users(from, to, &auth_user.user_id)
-        .await
-        .map_err(|e| {
+    let left: Vec<String> =
+        state.services.device_storage.get_device_list_left_users(from, to, &auth_user.user_id).await.map_err(|e| {
             tracing::error!("Failed to get key changes left: {e}");
             ApiError::database("Failed to get key changes left")
         })?;
@@ -522,24 +408,16 @@ async fn device_list_update(
 
     let users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
-    let since = body
-        .get("since")
-        .or_else(|| body.get("from"))
-        .and_then(parse_stream_id);
+    let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
 
     let mut changed: Vec<Value> = Vec::new();
     let mut left: Vec<String> = Vec::new();
 
     if since.is_none() {
-        let devices_by_user = state
-            .services
-            .device_storage
-            .get_users_devices_batch(&users)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get devices: {e}");
-                ApiError::database("Failed to get devices")
-            })?;
+        let devices_by_user = state.services.device_storage.get_users_devices_batch(&users).await.map_err(|e| {
+            tracing::error!("Failed to get devices: {e}");
+            ApiError::database("Failed to get devices")
+        })?;
 
         for user_id in &users {
             if let Some(devices) = devices_by_user.get(user_id) {
@@ -571,27 +449,17 @@ async fn device_list_update(
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
-    let max_stream_id: i64 = state
-        .services
-        .device_storage
-        .get_max_device_list_stream_id()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get device list stream position: {e}");
-            ApiError::database("Failed to get device list stream position")
-        })?;
+    let max_stream_id: i64 = state.services.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+        tracing::error!("Failed to get device list stream position: {e}");
+        ApiError::database("Failed to get device list stream position")
+    })?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
-    let change_rows = state
-        .services
-        .device_storage
-        .get_device_list_changes(since, to, &users)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get device list changes: {e}");
-            ApiError::database("Failed to get device list changes")
-        })?;
+    let change_rows = state.services.device_storage.get_device_list_changes(since, to, &users).await.map_err(|e| {
+        tracing::error!("Failed to get device list changes: {e}");
+        ApiError::database("Failed to get device list changes")
+    })?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -619,15 +487,13 @@ async fn device_list_update(
         let user_ids: Vec<&str> = active_pairs.iter().map(|(u, _)| u.as_str()).collect();
         let device_ids: Vec<&str> = active_pairs.iter().map(|(_, d)| d.as_str()).collect();
 
-        let device_rows = state
-            .services
-            .device_storage
-            .get_devices_by_user_device_pairs(&user_ids, &device_ids)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to batch get device data: {e}");
-                ApiError::database("Failed to get device data")
-            })?;
+        let device_rows =
+            state.services.device_storage.get_devices_by_user_device_pairs(&user_ids, &device_ids).await.map_err(
+                |e| {
+                    tracing::error!("Failed to batch get device data: {e}");
+                    ApiError::database("Failed to get device data")
+                },
+            )?;
 
         for (user_id, device_id, display_name, last_seen_ts) in device_rows {
             changed.push(json!({
@@ -641,12 +507,8 @@ async fn device_list_update(
         }
     }
 
-    let existing_users: Vec<String> = state
-        .services
-        .device_storage
-        .filter_existing_users(&users)
-        .await
-        .map_err(|e| {
+    let existing_users: Vec<String> =
+        state.services.device_storage.filter_existing_users(&users).await.map_err(|e| {
             tracing::error!("Failed to resolve left users: {e}");
             ApiError::database("Failed to resolve left users")
         })?;
@@ -684,25 +546,25 @@ async fn send_to_device(
     Path((event_type, transaction_id)): Path<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let sender_device_id = auth_user
-        .device_id
-        .as_deref()
-        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
-    let messages = body.get("messages").ok_or_else(|| {
-        crate::error::ApiError::bad_request("Missing 'messages' field".to_string())
-    })?;
+    let sender_device_id =
+        auth_user.device_id.as_deref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    let messages = body
+        .get("messages")
+        .ok_or_else(|| crate::error::ApiError::bad_request("Missing 'messages' field".to_string()))?;
 
     if event_type == "m.room_key" || event_type == "m.forwarded_room_key" {
         if let Some(msg_obj) = messages.as_object() {
             for (_user_id, user_devices) in msg_obj {
                 if let Some(devices) = user_devices.as_object() {
                     for (_device_id, device_msg) in devices {
-                        if let Some(session_key) = device_msg.get("session_key").or_else(|| {
-                            device_msg.get("content").and_then(|c| c.get("session_key"))
-                        }) {
+                        if let Some(session_key) = device_msg
+                            .get("session_key")
+                            .or_else(|| device_msg.get("content").and_then(|c| c.get("session_key")))
+                        {
                             if session_key.as_str().is_none_or(|s| s.is_empty()) {
                                 return Err(ApiError::bad_request(
-                                    "Session key is empty in room key event. Session creation may have failed.".to_string(),
+                                    "Session key is empty in room key event. Session creation may have failed."
+                                        .to_string(),
                                 ));
                             }
                         }
@@ -715,13 +577,7 @@ async fn send_to_device(
     state
         .services
         .to_device_service
-        .send_messages(
-            &auth_user.user_id,
-            sender_device_id,
-            &event_type,
-            Some(&transaction_id),
-            messages,
-        )
+        .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
 
     Ok(Json(json!({ "failures": {} })))
@@ -733,11 +589,7 @@ async fn upload_signatures(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state
-        .services
-        .device_keys_service
-        .upload_signatures(&auth_user.user_id, body)
-        .await?;
+    let response = state.services.device_keys_service.upload_signatures(&auth_user.user_id, body).await?;
 
     Ok(Json(response))
 }
@@ -766,10 +618,8 @@ async fn upload_device_signing(
     }
 
     // UIA passed, proceed with business logic
-    let device_id = auth_user
-        .device_id
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    let device_id =
+        auth_user.device_id.as_ref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     if let Some(master_key) = body.get("master_key") {
         if let Some(key_obj) = master_key.as_object() {
@@ -816,12 +666,10 @@ async fn create_room_key_request(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = auth_user
-        .device_id
-        .as_deref()
-        .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
-    let body: CreateRoomKeyRequestBody = serde_json::from_value(body)
-        .map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
+    let device_id =
+        auth_user.device_id.as_deref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    let body: CreateRoomKeyRequestBody =
+        serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
 
     let request = state
         .services
@@ -848,11 +696,8 @@ async fn get_room_key_requests(
     auth_user: AuthenticatedUser,
     Query(params): Query<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut requests = state
-        .services
-        .key_request_service
-        .get_requests(&auth_user.user_id, params.status.as_deref())
-        .await?;
+    let mut requests =
+        state.services.key_request_service.get_requests(&auth_user.user_id, params.status.as_deref()).await?;
 
     if let Some(room_id) = params.room_id.as_deref() {
         requests.retain(|request| request.room_id == room_id);
@@ -880,26 +725,15 @@ async fn delete_room_key_request(
     auth_user: AuthenticatedUser,
     Path(request_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state
-        .services
-        .key_request_service
-        .get_request(&request_id)
-        .await?;
+    let existing = state.services.key_request_service.get_request(&request_id).await?;
 
-    let request =
-        existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
+    let request = existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
 
     if request.user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Cannot delete another user's room key request".to_string(),
-        ));
+        return Err(ApiError::forbidden("Cannot delete another user's room key request".to_string()));
     }
 
-    state
-        .services
-        .key_request_service
-        .cancel_request(&request_id)
-        .await?;
+    state.services.key_request_service.cancel_request(&request_id).await?;
 
     Ok(empty_json())
 }
@@ -1004,10 +838,7 @@ async fn respond_device_verification(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("request_token required".to_string()))?;
 
-    let approved = body
-        .get("approved")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let approved = body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let response = state
         .services
@@ -1027,11 +858,7 @@ async fn get_verification_status(
     auth_user: AuthenticatedUser,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state
-        .services
-        .device_trust_service
-        .get_verification_status(&auth_user.user_id, &token)
-        .await?;
+    let response = state.services.device_trust_service.get_verification_status(&auth_user.user_id, &token).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -1052,11 +879,7 @@ async fn get_device_trust_list(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let devices = state
-        .services
-        .device_trust_service
-        .get_all_devices_with_trust(&auth_user.user_id)
-        .await?;
+    let devices = state.services.device_trust_service.get_all_devices_with_trust(&auth_user.user_id).await?;
 
     let devices_json: Vec<Value> = devices
         .into_iter()
@@ -1081,11 +904,7 @@ async fn get_device_trust(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let status = state
-        .services
-        .device_trust_service
-        .get_device_trust_status(&auth_user.user_id, &device_id)
-        .await?;
+    let status = state.services.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
 
     match status {
         Some(s) => Ok(Json(serde_json::json!({
@@ -1103,11 +922,7 @@ async fn get_security_summary(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let summary = state
-        .services
-        .device_trust_service
-        .get_security_summary(&auth_user.user_id)
-        .await?;
+    let summary = state.services.device_trust_service.get_security_summary(&auth_user.user_id).await?;
 
     Ok(Json(serde_json::json!({
         "verified_devices": summary.verified_devices,
@@ -1128,11 +943,7 @@ async fn get_secure_backup_list(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let backups = state
-        .services
-        .secure_backup_service
-        .list_backups(&auth_user.user_id)
-        .await?;
+    let backups = state.services.secure_backup_service.list_backups(&auth_user.user_id).await?;
 
     let mut response = serde_json::Map::with_capacity(backups.len());
     for backup in backups {
@@ -1166,11 +977,7 @@ async fn create_secure_backup(
 
     if let Some(passphrase) = passphrase {
         // Passphrase mode: server derives key from passphrase
-        let response = state
-            .services
-            .secure_backup_service
-            .create_backup(&auth_user.user_id, passphrase)
-            .await?;
+        let response = state.services.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
 
         Ok(Json(serde_json::json!({
             "backup_id": response.backup_id,
@@ -1184,11 +991,7 @@ async fn create_secure_backup(
         let response = state
             .services
             .secure_backup_service
-            .create_backup_with_data(
-                &auth_user.user_id,
-                algorithm,
-                auth_data_val,
-            )
+            .create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val)
             .await?;
 
         Ok(Json(serde_json::json!({
@@ -1199,9 +1002,7 @@ async fn create_secure_backup(
             "key_count": response.key_count
         })))
     } else {
-        Err(ApiError::bad_request(
-            "Either 'passphrase' or 'algorithm'+'auth_data' required".to_string(),
-        ))
+        Err(ApiError::bad_request("Either 'passphrase' or 'algorithm'+'auth_data' required".to_string()))
     }
 }
 
@@ -1211,11 +1012,7 @@ async fn get_secure_backup(
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state
-        .services
-        .secure_backup_service
-        .get_backup_info(&auth_user.user_id, &backup_id)
-        .await?;
+    let response = state.services.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -1252,10 +1049,7 @@ async fn store_secure_backup_keys(
                         session_id: k.get("session_id")?.as_str()?.to_string(),
                         first_message_index: k.get("first_message_index")?.as_i64().unwrap_or(0),
                         forwarded_count: k.get("forwarded_count")?.as_i64().unwrap_or(0),
-                        is_verified: k
-                            .get("is_verified")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
+                        is_verified: k.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
                         session_key: k
                             .get("session_key")
                             .or_else(|| k.get("session_data").and_then(|sd| sd.get("session_key")))
@@ -1310,11 +1104,8 @@ async fn verify_secure_backup_passphrase(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
 
-    let valid = state
-        .services
-        .secure_backup_service
-        .verify_passphrase(&auth_user.user_id, &backup_id, passphrase)
-        .await?;
+    let valid =
+        state.services.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
 
     Ok(Json(serde_json::json!({
         "valid": valid
@@ -1327,11 +1118,7 @@ async fn delete_secure_backup(
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .secure_backup_service
-        .delete_backup(&auth_user.user_id, &backup_id)
-        .await?;
+    state.services.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
     Ok(empty_json())
 }
@@ -1360,12 +1147,8 @@ mod tests {
             "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
-        assert!(v3_only_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/v3/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+        assert!(v3_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]
@@ -1402,20 +1185,19 @@ mod tests {
             fulfilled_by_device: None,
             fulfilled_ts: None,
         });
-        let cancelled =
-            super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
-                request_id: "req-2".to_string(),
-                user_id: "@alice:example.org".to_string(),
-                device_id: "DEVICE".to_string(),
-                room_id: "!room:example.org".to_string(),
-                session_id: "sess-2".to_string(),
-                algorithm: "m.megolm.v1.aes-sha2".to_string(),
-                action: "cancellation".to_string(),
-                created_ts: 2,
-                is_fulfilled: true,
-                fulfilled_by_device: None,
-                fulfilled_ts: None,
-            });
+        let cancelled = super::serialize_room_key_request(crate::e2ee::key_request::KeyRequestInfo {
+            request_id: "req-2".to_string(),
+            user_id: "@alice:example.org".to_string(),
+            device_id: "DEVICE".to_string(),
+            room_id: "!room:example.org".to_string(),
+            session_id: "sess-2".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "cancellation".to_string(),
+            created_ts: 2,
+            is_fulfilled: true,
+            fulfilled_by_device: None,
+            fulfilled_ts: None,
+        });
 
         assert_eq!(pending["status"], "pending");
         assert_eq!(pending["request_type"], "request");

@@ -2,8 +2,8 @@ pub mod chunked_upload;
 
 pub use chunked_upload::*;
 
-use crate::common::ApiError;
 use crate::common::random_string;
+use crate::common::ApiError;
 use crate::services::media_quota_service::MediaQuotaService;
 use crate::services::media_service::MediaService;
 use serde::{Deserialize, Serialize};
@@ -47,63 +47,30 @@ impl MediaDomainService {
         media_quota_service: Arc<MediaQuotaService>,
         chunked_upload_service: Arc<chunked_upload::ChunkedUploadService>,
     ) -> Self {
-        Self {
-            media_service,
-            media_quota_service,
-            chunked_upload_service,
-        }
+        Self { media_service, media_quota_service, chunked_upload_service }
     }
 
     async fn ensure_upload_allowed(&self, user_id: &str, file_size: i64) -> Result<(), ApiError> {
-        let quota_check = self
-            .media_quota_service
-            .check_upload_quota(user_id, file_size)
-            .await?;
+        let quota_check = self.media_quota_service.check_upload_quota(user_id, file_size).await?;
 
         if !quota_check.is_allowed {
             return Err(ApiError::bad_request(
-                quota_check
-                    .reason
-                    .unwrap_or_else(|| "Media quota exceeded".to_string()),
+                quota_check.reason.unwrap_or_else(|| "Media quota exceeded".to_string()),
             ));
         }
 
         Ok(())
     }
 
-    async fn record_upload_usage(
-        &self,
-        user_id: &str,
-        media_id: &str,
-        file_size: i64,
-        content_type: &str,
-    ) {
-        if let Err(e) = self
-            .media_quota_service
-            .record_upload(user_id, media_id, file_size, Some(content_type))
-            .await
-        {
-            tracing::warn!(
-                "Failed to record media quota usage for user {} and media {}: {}",
-                user_id,
-                media_id,
-                e
-            );
+    async fn record_upload_usage(&self, user_id: &str, media_id: &str, file_size: i64, content_type: &str) {
+        if let Err(e) = self.media_quota_service.record_upload(user_id, media_id, file_size, Some(content_type)).await {
+            tracing::warn!("Failed to record media quota usage for user {} and media {}: {}", user_id, media_id, e);
         }
     }
 
     async fn record_delete_usage(&self, user_id: &str, media_id: &str, file_size: i64) {
-        if let Err(e) = self
-            .media_quota_service
-            .record_delete(user_id, media_id, file_size)
-            .await
-        {
-            tracing::warn!(
-                "Failed to record media quota delete for user {} and media {}: {}",
-                user_id,
-                media_id,
-                e
-            );
+        if let Err(e) = self.media_quota_service.record_delete(user_id, media_id, file_size).await {
+            tracing::warn!("Failed to record media quota delete for user {} and media {}: {}", user_id, media_id, e);
         }
     }
 
@@ -117,18 +84,14 @@ impl MediaDomainService {
         let file_size = content.len() as i64;
         self.ensure_upload_allowed(user_id, file_size).await?;
 
-        let response = self
-            .media_service
-            .upload_media(user_id, content, content_type, filename)
-            .await?;
+        let response = self.media_service.upload_media(user_id, content, content_type, filename).await?;
 
         if let Some(media_id) = response
             .get("content_uri")
             .and_then(|value| value.as_str())
             .and_then(|content_uri| content_uri.rsplit('/').next())
         {
-            self.record_upload_usage(user_id, media_id, file_size, content_type)
-                .await;
+            self.record_upload_usage(user_id, media_id, file_size, content_type).await;
         }
 
         Ok(response)
@@ -145,13 +108,10 @@ impl MediaDomainService {
         let file_size = content.len() as i64;
         self.ensure_upload_allowed(user_id, file_size).await?;
 
-        let response = self
-            .media_service
-            .upload_media_with_id(user_id, media_id, content, content_type, filename)
-            .await?;
+        let response =
+            self.media_service.upload_media_with_id(user_id, media_id, content, content_type, filename).await?;
 
-        self.record_upload_usage(user_id, media_id, file_size, content_type)
-            .await;
+        self.record_upload_usage(user_id, media_id, file_size, content_type).await;
 
         Ok(response)
     }
@@ -166,18 +126,14 @@ impl MediaDomainService {
     ) -> Result<String, ApiError> {
         if let Some(size) = total_size {
             if size < 0 {
-                return Err(ApiError::bad_request(
-                    "total_size must not be negative".to_string(),
-                ));
+                return Err(ApiError::bad_request("total_size must not be negative".to_string()));
             }
             if size > 0 {
                 self.ensure_upload_allowed(user_id, size).await?;
             }
         }
 
-        self.chunked_upload_service
-            .start_upload(user_id, filename, content_type, total_size, total_chunks)
-            .await
+        self.chunked_upload_service.start_upload(user_id, filename, content_type, total_size, total_chunks).await
     }
 
     pub async fn upload_chunk(
@@ -185,9 +141,7 @@ impl MediaDomainService {
         request: chunked_upload::ChunkUploadRequest,
         user_id: &str,
     ) -> Result<chunked_upload::ChunkUploadResponse, ApiError> {
-        self.chunked_upload_service
-            .upload_chunk(request, user_id)
-            .await
+        self.chunked_upload_service.upload_chunk(request, user_id).await
     }
 
     pub async fn complete_chunked_upload(
@@ -195,27 +149,15 @@ impl MediaDomainService {
         upload_id: &str,
         user_id: &str,
     ) -> Result<MediaFinalizationResponse, ApiError> {
-        let completed = self
-            .chunked_upload_service
-            .load_completed_upload(upload_id, user_id)
-            .await?;
+        let completed = self.chunked_upload_service.load_completed_upload(upload_id, user_id).await?;
 
         let media_id = random_string(32);
-        let content_type = completed
-            .content_type
-            .as_deref()
-            .unwrap_or("application/octet-stream");
+        let content_type = completed.content_type.as_deref().unwrap_or("application/octet-stream");
         let size = completed.data.len() as i64;
 
         let upload_response = self
             .media_service
-            .upload_media_with_id(
-                user_id,
-                &media_id,
-                &completed.data,
-                content_type,
-                completed.filename.as_deref(),
-            )
+            .upload_media_with_id(user_id, &media_id, &completed.data, content_type, completed.filename.as_deref())
             .await?;
 
         if let Err(e) = self.chunked_upload_service.mark_upload_finalized(upload_id).await {
@@ -233,21 +175,11 @@ impl MediaDomainService {
             .ok_or_else(|| ApiError::internal("Media upload response missing content_uri"))?
             .to_string();
 
-        Ok(MediaFinalizationResponse {
-            media_id,
-            content_uri,
-            size,
-        })
+        Ok(MediaFinalizationResponse { media_id, content_uri, size })
     }
 
-    pub async fn cancel_chunked_upload(
-        &self,
-        upload_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        self.chunked_upload_service
-            .cancel_upload(upload_id, user_id)
-            .await
+    pub async fn cancel_chunked_upload(&self, upload_id: &str, user_id: &str) -> Result<(), ApiError> {
+        self.chunked_upload_service.cancel_upload(upload_id, user_id).await
     }
 
     pub async fn get_chunked_upload_progress(
@@ -264,23 +196,13 @@ impl MediaDomainService {
         response_filename: Option<&str>,
     ) -> Result<MediaResponsePayload, ApiError> {
         let content = self.media_service.download_media(server_name, media_id).await?;
-        let metadata = self
-            .media_service
-            .get_media_metadata(server_name, media_id)
-            .await
-            .unwrap_or(Value::Null);
+        let metadata = self.media_service.get_media_metadata(server_name, media_id).await.unwrap_or(Value::Null);
 
-        let stored_content_type = metadata
-            .get("content_type")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+        let stored_content_type =
+            metadata.get("content_type").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
 
-        let stored_filename = metadata
-            .get("filename")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+        let stored_filename =
+            metadata.get("filename").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let response_filename = response_filename.or(stored_filename.as_deref());
 
         let content_type = stored_content_type.unwrap_or_else(|| {
@@ -289,10 +211,7 @@ impl MediaDomainService {
 
         let headers = build_media_response_headers(content_type, content.len(), response_filename);
 
-        Ok(MediaResponsePayload {
-            content,
-            headers,
-        })
+        Ok(MediaResponsePayload { content, headers })
     }
 
     pub async fn get_thumbnail(
@@ -303,15 +222,9 @@ impl MediaDomainService {
         height: u32,
         method: &str,
     ) -> Result<MediaResponsePayload, ApiError> {
-        let content = self
-            .media_service
-            .get_thumbnail(server_name, media_id, width, height, method)
-            .await?;
+        let content = self.media_service.get_thumbnail(server_name, media_id, width, height, method).await?;
         let headers = build_media_response_headers("image/jpeg".to_string(), content.len(), None);
-        Ok(MediaResponsePayload {
-            content,
-            headers,
-        })
+        Ok(MediaResponsePayload { content, headers })
     }
 
     pub fn preview_url(&self, url: &str, ts: i64) -> Result<Value, ApiError> {
@@ -324,11 +237,7 @@ impl MediaDomainService {
         media_id: &str,
         user_id: &str,
     ) -> Result<(), ApiError> {
-        let metadata = self
-            .media_service
-            .get_media_metadata(server_name, media_id)
-            .await
-            .unwrap_or(Value::Null);
+        let metadata = self.media_service.get_media_metadata(server_name, media_id).await.unwrap_or(Value::Null);
         let media_info = self.media_service.get_media_info(server_name, media_id).await?;
 
         let uploader = metadata
@@ -339,9 +248,7 @@ impl MediaDomainService {
             .unwrap_or("");
 
         if uploader != user_id {
-            return Err(ApiError::forbidden(
-                "You can only delete your own media".to_string(),
-            ));
+            return Err(ApiError::forbidden("You can only delete your own media".to_string()));
         }
 
         let file_size = metadata
@@ -374,9 +281,7 @@ impl MediaDomainService {
         user_id: &str,
         unread_only: bool,
     ) -> Result<Vec<crate::storage::media_quota::MediaQuotaAlert>, ApiError> {
-        self.media_quota_service
-            .get_user_alerts(user_id, unread_only)
-            .await
+        self.media_quota_service.get_user_alerts(user_id, unread_only).await
     }
 }
 
@@ -441,10 +346,7 @@ fn encode_rfc5987(value: &str) -> String {
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric()
-                || matches!(
-                    c,
-                    '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
-                )
+                || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~')
             {
                 c.to_string()
             } else {
@@ -459,15 +361,8 @@ fn build_media_response_headers(
     content_length: usize,
     filename: Option<&str>,
 ) -> MediaResponseHeaders {
-    let primary_type = content_type
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    let inline_safe = SAFE_INLINE_MEDIA_TYPES
-        .iter()
-        .any(|safe| *safe == primary_type);
+    let primary_type = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let inline_safe = SAFE_INLINE_MEDIA_TYPES.iter().any(|safe| *safe == primary_type);
 
     let disposition_kind = if inline_safe { "inline" } else { "attachment" };
     let content_disposition = match filename {
@@ -477,9 +372,7 @@ fn build_media_response_headers(
                 disposition_kind.to_string()
             } else {
                 let encoded = encode_rfc5987(&safe);
-                format!(
-                    "{disposition_kind}; filename=\"{safe}\"; filename*=UTF-8''{encoded}"
-                )
+                format!("{disposition_kind}; filename=\"{safe}\"; filename*=UTF-8''{encoded}")
             }
         }
         _ => disposition_kind.to_string(),
@@ -509,24 +402,13 @@ mod tests {
         usernames: &[&str],
         max_storage_bytes: i64,
         max_file_size_bytes: i64,
-    ) -> (
-        MediaDomainService,
-        MediaService,
-        Vec<crate::storage::user::User>,
-        tempfile::TempDir,
-    ) {
-        let pool = test_utils::prepare_isolated_test_pool()
-            .await
-            .expect("failed to prepare isolated test pool");
+    ) -> (MediaDomainService, MediaService, Vec<crate::storage::user::User>, tempfile::TempDir) {
+        let pool = test_utils::prepare_isolated_test_pool().await.expect("failed to prepare isolated test pool");
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let media_path = temp_dir.path().to_str().expect("temp dir path should be valid utf-8");
 
-        let user_storage = UserStorage::new(
-            &pool,
-            Arc::new(crate::cache::CacheManager::new(
-                &crate::cache::CacheConfig::default(),
-            )),
-        );
+        let user_storage =
+            UserStorage::new(&pool, Arc::new(crate::cache::CacheManager::new(&crate::cache::CacheConfig::default())));
         let mut users = Vec::new();
         for username in usernames {
             let user_id = format!("@{username}:test.server");
@@ -537,8 +419,7 @@ mod tests {
             users.push(user);
         }
 
-        let media_service =
-            MediaService::with_pool(media_path, None, "test.server", Some(pool.clone()));
+        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone()));
         let media_quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
         let media_quota_service = Arc::new(MediaQuotaService::new(media_quota_storage));
         for user in &users {
@@ -554,69 +435,34 @@ mod tests {
                 .expect("failed to set user quota");
         }
 
-        let chunked_upload_service =
-            Arc::new(chunked_upload::ChunkedUploadService::new(pool.clone()));
-        let media_domain_service = MediaDomainService::new(
-            media_service.clone(),
-            media_quota_service,
-            chunked_upload_service,
-        );
+        let chunked_upload_service = Arc::new(chunked_upload::ChunkedUploadService::new(pool.clone()));
+        let media_domain_service =
+            MediaDomainService::new(media_service.clone(), media_quota_service, chunked_upload_service);
 
         (media_domain_service, media_service, users, temp_dir)
     }
 
     async fn setup_test_media_domain(
         username: &str,
-    ) -> (
-        MediaDomainService,
-        MediaService,
-        crate::storage::user::User,
-        tempfile::TempDir,
-    ) {
+    ) -> (MediaDomainService, MediaService, crate::storage::user::User, tempfile::TempDir) {
         let (media_domain_service, media_service, mut users, temp_dir) =
-            setup_test_media_domain_users_with_quota(
-                &[username],
-                10 * 1024 * 1024,
-                10 * 1024 * 1024,
-            )
-            .await;
-        (
-            media_domain_service,
-            media_service,
-            users.remove(0),
-            temp_dir,
-        )
+            setup_test_media_domain_users_with_quota(&[username], 10 * 1024 * 1024, 10 * 1024 * 1024).await;
+        (media_domain_service, media_service, users.remove(0), temp_dir)
     }
 
     async fn setup_test_media_domain_with_quota(
         username: &str,
         max_storage_bytes: i64,
         max_file_size_bytes: i64,
-    ) -> (
-        MediaDomainService,
-        MediaService,
-        crate::storage::user::User,
-        tempfile::TempDir,
-    ) {
+    ) -> (MediaDomainService, MediaService, crate::storage::user::User, tempfile::TempDir) {
         let (media_domain_service, media_service, mut users, temp_dir) =
-            setup_test_media_domain_users_with_quota(
-                &[username],
-                max_storage_bytes,
-                max_file_size_bytes,
-            )
-            .await;
-        (
-            media_domain_service,
-            media_service,
-            users.remove(0),
-            temp_dir,
-        )
+            setup_test_media_domain_users_with_quota(&[username], max_storage_bytes, max_file_size_bytes).await;
+        (media_domain_service, media_service, users.remove(0), temp_dir)
     }
 
     #[tokio::test]
     async fn test_chunked_complete_can_be_downloaded_via_media_service() {
-        let (media_domain_service, media_service, user, _temp_dir) =
-            setup_test_media_domain("chunk_tester").await;
+        let (media_domain_service, media_service, user, _temp_dir) = setup_test_media_domain("chunk_tester").await;
 
         let user_id = &user.user_id;
         let first_chunk = b"hello ".to_vec();
@@ -701,12 +547,7 @@ mod tests {
             setup_test_media_domain("quota_delete_tester").await;
 
         let upload = media_domain_service
-            .upload_media(
-                &user.user_id,
-                b"delete me",
-                "text/plain",
-                Some("delete-me.txt"),
-            )
+            .upload_media(&user.user_id, b"delete me", "text/plain", Some("delete-me.txt"))
             .await
             .expect("failed to upload media");
 
@@ -717,10 +558,8 @@ mod tests {
             .expect("upload response should contain media_id")
             .to_string();
 
-        let quota_after_upload = media_domain_service
-            .get_user_quota(&user.user_id)
-            .await
-            .expect("failed to load quota after upload");
+        let quota_after_upload =
+            media_domain_service.get_user_quota(&user.user_id).await.expect("failed to load quota after upload");
         assert_eq!(quota_after_upload.current_storage_bytes, 9);
         assert_eq!(quota_after_upload.current_files_count, 1);
 
@@ -729,10 +568,8 @@ mod tests {
             .await
             .expect("failed to delete uploaded media");
 
-        let quota_after_delete = media_domain_service
-            .get_user_quota(&user.user_id)
-            .await
-            .expect("failed to load quota after delete");
+        let quota_after_delete =
+            media_domain_service.get_user_quota(&user.user_id).await.expect("failed to load quota after delete");
         assert_eq!(quota_after_delete.current_storage_bytes, 0);
         assert_eq!(quota_after_delete.current_files_count, 0);
     }
@@ -743,13 +580,7 @@ mod tests {
             setup_test_media_domain_with_quota("quota_reject_tester", 4, 4).await;
 
         let error = media_domain_service
-            .start_chunked_upload(
-                &user.user_id,
-                Some("too-large.txt"),
-                Some("text/plain"),
-                Some(5),
-                1,
-            )
+            .start_chunked_upload(&user.user_id, Some("too-large.txt"), Some("text/plain"), Some(5), 1)
             .await
             .expect_err("chunked upload start should fail when quota is exceeded");
 
@@ -765,23 +596,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_media_for_other_user_returns_forbidden() {
-        let (media_domain_service, _media_service, users, _temp_dir) =
-            setup_test_media_domain_users_with_quota(
-                &["media_owner_tester", "media_intruder_tester"],
-                10 * 1024 * 1024,
-                10 * 1024 * 1024,
-            )
-            .await;
+        let (media_domain_service, _media_service, users, _temp_dir) = setup_test_media_domain_users_with_quota(
+            &["media_owner_tester", "media_intruder_tester"],
+            10 * 1024 * 1024,
+            10 * 1024 * 1024,
+        )
+        .await;
         let owner = &users[0];
         let intruder = &users[1];
 
         let upload = media_domain_service
-            .upload_media(
-                &owner.user_id,
-                b"private media",
-                "text/plain",
-                Some("private.txt"),
-            )
+            .upload_media(&owner.user_id, b"private media", "text/plain", Some("private.txt"))
             .await
             .expect("failed to upload owner media");
 

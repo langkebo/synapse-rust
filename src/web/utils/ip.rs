@@ -29,21 +29,14 @@ pub(crate) fn extract_client_ip(headers: &HeaderMap, priority: &[String]) -> Opt
         }
 
         if lower == "forwarded" {
-            if let Some(ip) = headers
-                .get("forwarded")
-                .and_then(|v| v.to_str().ok())
-                .and_then(parse_forwarded_for)
-            {
+            if let Some(ip) = headers.get("forwarded").and_then(|v| v.to_str().ok()).and_then(parse_forwarded_for) {
                 return Some(ip);
             }
             continue;
         }
 
-        if let Some(ip) = headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        if let Some(ip) =
+            headers.get(name).and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
         {
             return Some(ip);
         }

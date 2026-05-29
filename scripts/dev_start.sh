@@ -9,7 +9,7 @@ echo ""
 # 检查是否存在 .env 文件
 if [ ! -f .env ]; then
     echo "⚠️  未找到 .env 文件，正在生成..."
-    ./scripts/generate_env.sh > .env
+    ./scripts/generate_env.sh >.env
     echo "✅ .env 文件已生成"
     echo ""
     echo "⚠️  请检查并修改 .env 文件中的配置"

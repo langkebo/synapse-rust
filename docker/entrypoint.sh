@@ -113,7 +113,7 @@ main() {
     # "Rate limiter unavailable" 429 响应.
     if [ ! -f "/app/config/rate_limit.yaml" ] && [ -f "/app/config_defaults/rate_limit.yaml" ]; then
         log_info "Seeding /app/config/rate_limit.yaml from baked-in default"
-        cp /app/config_defaults/rate_limit.yaml /app/config/rate_limit.yaml 2>/dev/null || \
+        cp /app/config_defaults/rate_limit.yaml /app/config/rate_limit.yaml 2>/dev/null ||
             log_warning "Could not seed default rate_limit.yaml (read-only filesystem?)"
     fi
 

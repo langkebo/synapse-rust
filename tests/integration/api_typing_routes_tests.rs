@@ -24,19 +24,12 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -54,14 +47,10 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -69,10 +58,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn set_typing(app: &axum::Router, token: &str, room_id: &str, user_id: &str) -> StatusCode {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/typing/{}",
-            room_id, user_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/typing/{}", room_id, user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -84,10 +70,7 @@ async fn set_typing(app: &axum::Router, token: &str, room_id: &str, user_id: &st
         ))
         .unwrap();
 
-    ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap()
-        .status()
+    ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap().status()
 }
 
 #[tokio::test]
@@ -100,10 +83,7 @@ async fn test_typing_read_routes_reject_non_members() {
     let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Reads").await;
 
-    assert_eq!(
-        set_typing(&app, &owner_token, &room_id, &owner_user_id).await,
-        StatusCode::OK
-    );
+    assert_eq!(set_typing(&app, &owner_token, &room_id, &owner_user_id).await, StatusCode::OK);
 
     let room_request = Request::builder()
         .method("GET")
@@ -111,23 +91,16 @@ async fn test_typing_read_routes_reject_non_members() {
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), room_request)
-        .await
-        .unwrap();
+    let room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), room_request).await.unwrap();
     assert_eq!(room_response.status(), StatusCode::FORBIDDEN);
 
     let user_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/typing/{}",
-            room_id, owner_user_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/typing/{}", room_id, owner_user_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
-    let user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request)
-        .await
-        .unwrap();
+    let user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), user_request).await.unwrap();
     assert_eq!(user_response.status(), StatusCode::FORBIDDEN);
 
     let admin_room_request = Request::builder()
@@ -136,23 +109,16 @@ async fn test_typing_read_routes_reject_non_members() {
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_room_request)
-        .await
-        .unwrap();
+    let admin_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_room_request).await.unwrap();
     assert_eq!(admin_room_response.status(), StatusCode::FORBIDDEN);
 
     let admin_user_request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/typing/{}",
-            room_id, owner_user_id
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/typing/{}", room_id, owner_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
-    let admin_user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_user_request)
-        .await
-        .unwrap();
+    let admin_user_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), admin_user_request).await.unwrap();
     assert_eq!(admin_user_response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -166,14 +132,8 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
     let (admin_token, _) = super::get_admin_token(&app).await;
     let room_id = create_room(&app, &owner_token, "Typing Guard Writes").await;
 
-    assert_eq!(
-        set_typing(&app, &owner_token, &room_id, &owner_user_id).await,
-        StatusCode::OK
-    );
-    assert_eq!(
-        set_typing(&app, &guest_token, &room_id, &guest_user_id).await,
-        StatusCode::FORBIDDEN
-    );
+    assert_eq!(set_typing(&app, &owner_token, &room_id, &owner_user_id).await, StatusCode::OK);
+    assert_eq!(set_typing(&app, &guest_token, &room_id, &guest_user_id).await, StatusCode::FORBIDDEN);
 
     let bulk_guest_request = Request::builder()
         .method("POST")
@@ -187,15 +147,10 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
             .to_string(),
         ))
         .unwrap();
-    let bulk_guest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), bulk_guest_request)
-        .await
-        .unwrap();
+    let bulk_guest_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), bulk_guest_request).await.unwrap();
     assert_eq!(bulk_guest_response.status(), StatusCode::FORBIDDEN);
 
-    assert_eq!(
-        set_typing(&app, &admin_token, &room_id, "@admin:localhost").await,
-        StatusCode::FORBIDDEN
-    );
+    assert_eq!(set_typing(&app, &admin_token, &room_id, "@admin:localhost").await, StatusCode::FORBIDDEN);
 
     let bulk_owner_request = Request::builder()
         .method("POST")
@@ -209,14 +164,10 @@ async fn test_typing_write_and_bulk_routes_require_room_access() {
             .to_string(),
         ))
         .unwrap();
-    let bulk_owner_response = ServiceExt::<Request<Body>>::oneshot(app, bulk_owner_request)
-        .await
-        .unwrap();
+    let bulk_owner_response = ServiceExt::<Request<Body>>::oneshot(app, bulk_owner_request).await.unwrap();
     assert_eq!(bulk_owner_response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(bulk_owner_response.into_body(), 2048)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(bulk_owner_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let room_entry = json.get(&room_id).and_then(|value| value.get("typing"));
     assert!(room_entry.is_some());

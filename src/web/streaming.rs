@@ -34,10 +34,8 @@ impl StreamingResponse {
         filename: Option<String>,
         content_type: Option<&str>,
     ) -> Result<Self, StreamingError> {
-        let data =
-            tokio::fs::read(path).await.map_err(|e| StreamingError::FileReadError(e.to_string()))?;
-        let metadata =
-            tokio::fs::metadata(path).await.map_err(|e| StreamingError::MetadataError(e.to_string()))?;
+        let data = tokio::fs::read(path).await.map_err(|e| StreamingError::FileReadError(e.to_string()))?;
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| StreamingError::MetadataError(e.to_string()))?;
 
         let mut headers = HeaderMap::new();
         let content_type_value = content_type
@@ -60,48 +58,29 @@ impl StreamingResponse {
             .map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
         headers.insert(header::CONTENT_TYPE, content_type_value);
 
-        let content_length = metadata
-            .len()
-            .to_string()
-            .parse()
-            .map_err(|_| StreamingError::InvalidContentLength)?;
+        let content_length = metadata.len().to_string().parse().map_err(|_| StreamingError::InvalidContentLength)?;
         headers.insert(header::CONTENT_LENGTH, content_length);
 
         if let Some(name) = filename {
             let disposition = format!("attachment; filename=\"{name}\"")
                 .parse()
-                .map_err(|_| {
-                    StreamingError::HeaderParseError("Invalid content-disposition".to_string())
-                })?;
+                .map_err(|_| StreamingError::HeaderParseError("Invalid content-disposition".to_string()))?;
             headers.insert(header::CONTENT_DISPOSITION, disposition);
         }
 
-        Ok(Self {
-            status: StatusCode::OK,
-            headers,
-            body: Bytes::from(data),
-        })
+        Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(data) })
     }
 
     pub fn bytes(data: Vec<u8>, content_type: &str) -> Result<Self, StreamingError> {
         let mut headers = HeaderMap::new();
-        let content_type_header = content_type
-            .parse()
-            .map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
+        let content_type_header =
+            content_type.parse().map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
         headers.insert(header::CONTENT_TYPE, content_type_header);
 
-        let content_length = data
-            .len()
-            .to_string()
-            .parse()
-            .map_err(|_| StreamingError::InvalidContentLength)?;
+        let content_length = data.len().to_string().parse().map_err(|_| StreamingError::InvalidContentLength)?;
         headers.insert(header::CONTENT_LENGTH, content_length);
 
-        Ok(Self {
-            status: StatusCode::OK,
-            headers,
-            body: Bytes::from(data),
-        })
+        Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(data) })
     }
 
     pub fn sse(event_name: &str, data: &str, id: Option<u64>) -> Result<Self, StreamingError> {
@@ -121,44 +100,29 @@ impl StreamingResponse {
             .map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
         headers.insert(header::CONTENT_TYPE, content_type);
 
-        let cache_control = "no-cache"
-            .parse()
-            .map_err(|_| StreamingError::HeaderParseError("Invalid cache-control".to_string()))?;
+        let cache_control =
+            "no-cache".parse().map_err(|_| StreamingError::HeaderParseError("Invalid cache-control".to_string()))?;
         headers.insert(header::CACHE_CONTROL, cache_control);
 
-        let connection = "keep-alive"
-            .parse()
-            .map_err(|_| StreamingError::HeaderParseError("Invalid connection".to_string()))?;
+        let connection =
+            "keep-alive".parse().map_err(|_| StreamingError::HeaderParseError("Invalid connection".to_string()))?;
         headers.insert(header::CONNECTION, connection);
 
-        Ok(Self {
-            status: StatusCode::OK,
-            headers,
-            body: Bytes::from(sse_data),
-        })
+        Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(sse_data) })
     }
 
     pub fn chunked(items: &[String], content_type: &str) -> Result<Self, StreamingError> {
         let combined = items.join("\n");
 
         let mut headers = HeaderMap::new();
-        let content_type_header = content_type
-            .parse()
-            .map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
+        let content_type_header =
+            content_type.parse().map_err(|_| StreamingError::HeaderParseError("Invalid content-type".to_string()))?;
         headers.insert(header::CONTENT_TYPE, content_type_header);
 
-        let content_length = combined
-            .len()
-            .to_string()
-            .parse()
-            .map_err(|_| StreamingError::InvalidContentLength)?;
+        let content_length = combined.len().to_string().parse().map_err(|_| StreamingError::InvalidContentLength)?;
         headers.insert(header::CONTENT_LENGTH, content_length);
 
-        Ok(Self {
-            status: StatusCode::OK,
-            headers,
-            body: Bytes::from(combined),
-        })
+        Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(combined) })
     }
 }
 
@@ -176,22 +140,14 @@ pub async fn stream_file(
     StreamingResponse::file(path, filename, content_type).await
 }
 
-pub fn stream_sse(
-    event_name: &str,
-    data: &str,
-    id: Option<u64>,
-) -> Result<StreamingResponse, StreamingError> {
+pub fn stream_sse(event_name: &str, data: &str, id: Option<u64>) -> Result<StreamingResponse, StreamingError> {
     StreamingResponse::sse(event_name, data, id)
 }
 
-pub fn stream_json_chunked(
-    items: Vec<serde_json::Value>,
-) -> Result<StreamingResponse, StreamingError> {
+pub fn stream_json_chunked(items: Vec<serde_json::Value>) -> Result<StreamingResponse, StreamingError> {
     let json_strings: Vec<String> = items
         .into_iter()
-        .map(|item| {
-            serde_json::to_string(&item).map_err(|e| StreamingError::SseError(e.to_string()))
-        })
+        .map(|item| serde_json::to_string(&item).map_err(|e| StreamingError::SseError(e.to_string())))
         .collect::<Result<Vec<_>, _>>()?;
     StreamingResponse::chunked(&json_strings, "application/json")
 }
@@ -203,21 +159,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_sse_response() {
-        let response_result =
-            StreamingResponse::sse("test_event", "test data", Some(1));
+        let response_result = StreamingResponse::sse("test_event", "test data", Some(1));
         assert!(response_result.is_ok(), "SSE response should succeed");
         let response = response_result.unwrap();
 
         let (parts, _) = response.into_response().into_parts();
         assert_eq!(parts.status, StatusCode::OK);
-        assert_eq!(
-            parts.headers.get(header::CONTENT_TYPE).unwrap(),
-            "text/event-stream"
-        );
-        assert_eq!(
-            parts.headers.get(header::CACHE_CONTROL).unwrap(),
-            "no-cache"
-        );
+        assert_eq!(parts.headers.get(header::CONTENT_TYPE).unwrap(), "text/event-stream");
+        assert_eq!(parts.headers.get(header::CACHE_CONTROL).unwrap(), "no-cache");
     }
 
     #[tokio::test]
@@ -229,10 +178,7 @@ mod tests {
 
         let (parts, _) = response.into_response().into_parts();
         assert_eq!(parts.status, StatusCode::OK);
-        assert_eq!(
-            parts.headers.get(header::CONTENT_TYPE).unwrap(),
-            "text/plain"
-        );
+        assert_eq!(parts.headers.get(header::CONTENT_TYPE).unwrap(), "text/plain");
     }
 
     #[tokio::test]

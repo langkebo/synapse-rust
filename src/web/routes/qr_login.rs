@@ -11,15 +11,8 @@ use serde_json::{json, Value};
 /// Get login QR code
 /// Generates a QR code for login confirmation
 /// GET /_matrix/client/v1/login/get_qr_code
-pub async fn get_qr_code(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let transaction_id = format!(
-        "qr_{}_{}",
-        uuid::Uuid::new_v4(),
-        chrono::Utc::now().timestamp_millis()
-    );
+pub async fn get_qr_code(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+    let transaction_id = format!("qr_{}_{}", uuid::Uuid::new_v4(), chrono::Utc::now().timestamp_millis());
 
     // Generate a random challenge
     let challenge = uuid::Uuid::new_v4().to_string();
@@ -78,9 +71,7 @@ pub async fn confirm_qr_login(
 
     // Verify the user confirming matches the transaction user
     if transaction.user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Transaction does not match authenticated user".to_string(),
-        ));
+        return Err(ApiError::forbidden("Transaction does not match authenticated user".to_string()));
     }
 
     // Update status to confirmed
@@ -99,10 +90,7 @@ pub async fn confirm_qr_login(
 
 /// Start QR login (for the scanning device)
 /// POST /_matrix/client/v1/login/qr/start
-pub async fn start_qr_login(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
     let transaction_id = body
         .get("transaction_id")
         .and_then(|v| v.as_str())
@@ -161,11 +149,8 @@ pub async fn get_qr_status(
 
     // Check if expired
     let now = chrono::Utc::now().timestamp_millis();
-    let status = if now > transaction.expires_at && transaction.status == "pending" {
-        "expired"
-    } else {
-        &transaction.status
-    };
+    let status =
+        if now > transaction.expires_at && transaction.status == "pending" { "expired" } else { &transaction.status };
 
     Ok(Json(json!({
         "transaction_id": transaction.transaction_id,
@@ -198,9 +183,7 @@ pub async fn invalidate_qr_login(
 
     // Verify the user owns the transaction
     if transaction.user_id != auth_user.user_id {
-        return Err(ApiError::forbidden(
-            "Transaction does not match authenticated user".to_string(),
-        ));
+        return Err(ApiError::forbidden("Transaction does not match authenticated user".to_string()));
     }
 
     // Update status to invalidated

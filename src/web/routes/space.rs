@@ -10,9 +10,7 @@ use std::future::Future;
 use validator::Validate;
 
 use crate::common::ApiError;
-pub(super) use crate::web::routes::response_helpers::{
-    created_json_from, json_from, json_vec_from,
-};
+pub(super) use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from};
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 
 pub mod children_hierarchy;
@@ -43,12 +41,7 @@ pub(super) async fn resolve_space(
     state: &AppState,
     space_identifier: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
-    if let Some(space) = state
-        .services
-        .space_service
-        .get_space(space_identifier)
-        .await?
-    {
+    if let Some(space) = state.services.space_service.get_space(space_identifier).await? {
         return Ok(space);
     }
 
@@ -78,13 +71,7 @@ pub(super) async fn can_user_view_space(
     }
 
     match auth_user.user_id.as_deref() {
-        Some(user_id) => {
-            state
-                .services
-                .space_service
-                .check_user_can_see_space(&space.space_id, user_id)
-                .await
-        }
+        Some(user_id) => state.services.space_service.check_user_can_see_space(&space.space_id, user_id).await,
         None => Ok(false),
     }
 }
@@ -101,9 +88,7 @@ pub(super) async fn ensure_space_visible(
     if auth_user.user_id.is_some() {
         Err(ApiError::forbidden("User cannot access this space"))
     } else {
-        Err(ApiError::unauthorized(
-            "Authentication required for private spaces",
-        ))
+        Err(ApiError::unauthorized("Authentication required for private spaces"))
     }
 }
 
@@ -126,9 +111,7 @@ pub(super) fn validate_request<T>(request: &T) -> Result<(), ApiError>
 where
     T: Validate,
 {
-    request
-        .validate()
-        .map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
+    request.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
 }
 
 pub fn create_space_router(state: AppState) -> Router<AppState> {
@@ -146,11 +129,7 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-const SPACE_NEST_PREFIXES: &[&str] = &[
-    "/_matrix/client/v1",
-    "/_matrix/client/r0",
-    "/_matrix/client/v3",
-];
+const SPACE_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
 
 fn space_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -187,11 +166,7 @@ fn space_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
 }
 
 pub fn space_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes(
-        "space",
-        SPACE_NEST_PREFIXES,
-        &space_relative_routes(),
-    )
+    crate::web::routes::route_ledger::expand_under_prefixes("space", SPACE_NEST_PREFIXES, &space_relative_routes())
 }
 
 #[cfg(test)]

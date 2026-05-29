@@ -35,14 +35,14 @@ def requires_undo(path: Path) -> bool:
 
 def collect_forward_sql(path: Path) -> list[Path]:
     return sorted(
-        item
-        for item in path.glob("*.sql")
-        if not item.name.endswith(".undo.sql")
+        item for item in path.glob("*.sql") if not item.name.endswith(".undo.sql")
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate migration/deploy mirror consistency.")
+    parser = argparse.ArgumentParser(
+        description="Validate migration/deploy mirror consistency."
+    )
     parser.add_argument(
         "--json-report",
         help="Optional path where the JSON report is written.",
@@ -86,7 +86,9 @@ def main() -> int:
     for extra in sorted(deploy_names - primary_names):
         warnings.append({"type": "deploy_extra_file", "file": extra})
 
-    latest_baselines = sorted(name for name in primary_names if name.startswith("00000000_unified_schema_v"))
+    latest_baselines = sorted(
+        name for name in primary_names if name.startswith("00000000_unified_schema_v")
+    )
     if latest_baselines and latest_baselines[-1] != "00000000_unified_schema_v7.sql":
         issues.append(
             {

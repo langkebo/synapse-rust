@@ -1,6 +1,6 @@
 use super::{
-    cors_origins_regex, get_allowed_origins, is_dev_mode, is_localhost_bind, is_origin_allowed,
-    same_origin, set_config_allowed_origins_once,
+    cors_origins_regex, get_allowed_origins, is_dev_mode, is_localhost_bind, is_origin_allowed, same_origin,
+    set_config_allowed_origins_once,
 };
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode};
@@ -39,10 +39,8 @@ pub fn check_cors_security() -> CorsSecurityReport {
 
     if is_dev {
         if is_localhost_bind() {
-            warnings.push(
-                "⚠️  DEVELOPMENT MODE ENABLED - CORS allows all origins. DO NOT use in production!"
-                    .to_string(),
-            );
+            warnings
+                .push("⚠️  DEVELOPMENT MODE ENABLED - CORS allows all origins. DO NOT use in production!".to_string());
         } else {
             warnings.push(
                 "⚠️  DEVELOPMENT MODE on non-localhost address - permissive CORS is DISABLED. \
@@ -90,11 +88,7 @@ pub fn check_cors_security() -> CorsSecurityReport {
 }
 
 pub fn log_cors_security_report(report: &CorsSecurityReport) {
-    let mode = if report.is_development_mode {
-        "DEVELOPMENT"
-    } else {
-        "PRODUCTION"
-    };
+    let mode = if report.is_development_mode { "DEVELOPMENT" } else { "PRODUCTION" };
     info!("CORS Security Configuration Check: mode={}", mode);
 
     if report.is_development_mode {
@@ -144,9 +138,9 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
 
     let local_addresses = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "[::]"];
 
-    let is_local = local_addresses.iter().any(|&local| {
-        host.eq_ignore_ascii_case(local) || host.starts_with("127.") || host.starts_with("::1")
-    });
+    let is_local = local_addresses
+        .iter()
+        .any(|&local| host.eq_ignore_ascii_case(local) || host.starts_with("127.") || host.starts_with("::1"));
 
     if !is_local {
         return Err(format!(
@@ -160,11 +154,7 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
 }
 
 pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
-    let origin = request
-        .headers()
-        .get("origin")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+    let origin = request.headers().get("origin").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
 
     let is_options = request.method() == "OPTIONS";
 
@@ -175,10 +165,7 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             if same_origin(req_origin, request.headers()) {
                 Some(req_origin.as_str())
             } else {
-                tracing::warn!(
-                    "CORS origin rejected in dev mode (non-localhost bind): {}",
-                    req_origin
-                );
+                tracing::warn!("CORS origin rejected in dev mode (non-localhost bind): {}", req_origin);
                 None
             }
         } else {
@@ -201,15 +188,12 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
         let mut response = Response::new(Body::empty());
         if let Some(allowed) = allow_origin {
             if let Ok(value) = HeaderValue::from_str(allowed) {
-                response
-                    .headers_mut()
-                    .insert("Access-Control-Allow-Origin", value);
+                response.headers_mut().insert("Access-Control-Allow-Origin", value);
             }
         }
-        response.headers_mut().insert(
-            "Access-Control-Allow-Methods",
-            HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"),
-        );
+        response
+            .headers_mut()
+            .insert("Access-Control-Allow-Methods", HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"));
 
         let request_headers = request
             .headers()
@@ -218,9 +202,17 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             .map(|s| s.to_string());
 
         let allowed_header_set = [
-            "content-type", "authorization", "x-requested-with", "x-request-id",
-            "x-csrf-token", "x-matrix-auth", "accept", "origin",
-            "x-matrix", "unstable-prefix", "accept-language",
+            "content-type",
+            "authorization",
+            "x-requested-with",
+            "x-request-id",
+            "x-csrf-token",
+            "x-matrix-auth",
+            "accept",
+            "origin",
+            "x-matrix",
+            "unstable-prefix",
+            "accept-language",
         ];
 
         let allow_headers_value = if let Some(ref req_headers) = request_headers {
@@ -235,12 +227,11 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
                 filtered.join(", ")
             }
         } else {
-            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin"
+                .to_string()
         };
         if let Ok(value) = HeaderValue::from_str(&allow_headers_value) {
-            response
-                .headers_mut()
-                .insert("Access-Control-Allow-Headers", value);
+            response.headers_mut().insert("Access-Control-Allow-Headers", value);
         }
 
         response.headers_mut().insert(
@@ -250,21 +241,11 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             ),
         );
         if allow_credentials {
-            response.headers_mut().insert(
-                "Access-Control-Allow-Credentials",
-                HeaderValue::from_static("true"),
-            );
+            response.headers_mut().insert("Access-Control-Allow-Credentials", HeaderValue::from_static("true"));
         }
-        response
-            .headers_mut()
-            .insert("Vary", HeaderValue::from_static("Origin"));
-        let max_age = std::env::var("CORS_MAX_AGE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(86400);
-        response
-            .headers_mut()
-            .insert("Access-Control-Max-Age", HeaderValue::from(max_age));
+        response.headers_mut().insert("Vary", HeaderValue::from_static("Origin"));
+        let max_age = std::env::var("CORS_MAX_AGE").ok().and_then(|s| s.parse().ok()).unwrap_or(86400);
+        response.headers_mut().insert("Access-Control-Max-Age", HeaderValue::from(max_age));
         *response.status_mut() = StatusCode::NO_CONTENT;
         return response;
     }
@@ -272,16 +253,13 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     let mut response = next.run(request).await;
     if let Some(allowed) = allow_origin {
         if let Ok(value) = HeaderValue::from_str(allowed) {
-            response
-                .headers_mut()
-                .insert("Access-Control-Allow-Origin", value);
+            response.headers_mut().insert("Access-Control-Allow-Origin", value);
         }
     }
 
-    response.headers_mut().insert(
-        "Access-Control-Allow-Methods",
-        HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"),
-    );
+    response
+        .headers_mut()
+        .insert("Access-Control-Allow-Methods", HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS, PATCH"));
 
     response.headers_mut().insert(
         "Access-Control-Allow-Headers",
@@ -298,15 +276,10 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     );
 
     if allow_credentials {
-        response.headers_mut().insert(
-            "Access-Control-Allow-Credentials",
-            HeaderValue::from_static("true"),
-        );
+        response.headers_mut().insert("Access-Control-Allow-Credentials", HeaderValue::from_static("true"));
     }
 
-    response
-        .headers_mut()
-        .insert("Vary", HeaderValue::from_static("Origin"));
+    response.headers_mut().insert("Vary", HeaderValue::from_static("Origin"));
 
     response
 }
@@ -341,20 +314,11 @@ mod tests {
             let report = check_cors_security();
 
             assert!(!report.is_development_mode, "Should not be in dev mode");
-            assert!(
-                report.allows_any_origin,
-                "Should allow any origin with wildcard"
-            );
-            assert!(
-                !report.errors.is_empty(),
-                "Should have errors with wildcard in production"
-            );
+            assert!(report.allows_any_origin, "Should allow any origin with wildcard");
+            assert!(!report.errors.is_empty(), "Should have errors with wildcard in production");
 
             let validation = validate_cors_config_for_production();
-            assert!(
-                validation.is_err(),
-                "Validation should fail with wildcard origin in production: {validation:?}"
-            );
+            assert!(validation.is_err(), "Validation should fail with wildcard origin in production: {validation:?}");
         })
         .join()
         .expect("Thread panicked");
@@ -381,22 +345,15 @@ mod tests {
         let _env_lock = env_lock();
         let mut env_guard = EnvGuard::new();
         env_guard.set("RUST_ENV", "production");
-        env_guard.set(
-            "ALLOWED_ORIGINS",
-            "https://example.com,https://app.example.com",
-        );
+        env_guard.set("ALLOWED_ORIGINS", "https://example.com,https://app.example.com");
 
         let report = check_cors_security();
 
         assert!(!report.is_development_mode);
         assert!(!report.allows_any_origin);
         assert_eq!(report.allowed_origins.len(), 2);
-        assert!(report
-            .allowed_origins
-            .contains(&"https://example.com".to_string()));
-        assert!(report
-            .allowed_origins
-            .contains(&"https://app.example.com".to_string()));
+        assert!(report.allowed_origins.contains(&"https://example.com".to_string()));
+        assert!(report.allowed_origins.contains(&"https://app.example.com".to_string()));
 
         let validation = validate_cors_config_for_production();
         assert!(validation.is_ok());
@@ -423,9 +380,7 @@ mod tests {
 
         let result = validate_bind_address_for_dev_mode("192.168.1.1");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Development mode should only bind to local addresses"));
+        assert!(result.unwrap_err().contains("Development mode should only bind to local addresses"));
 
         let result = validate_bind_address_for_dev_mode("example.com");
         assert!(result.is_err());

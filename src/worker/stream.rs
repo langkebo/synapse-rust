@@ -91,12 +91,7 @@ pub struct StreamWriterManager {
 
 impl StreamWriterManager {
     pub fn new(config: StreamWriters, bus: Arc<WorkerBus>, instance_name: String) -> Self {
-        Self {
-            config,
-            bus,
-            instance_name,
-            positions: RwLock::new(HashMap::new()),
-        }
+        Self { config, bus, instance_name, positions: RwLock::new(HashMap::new()) }
     }
 
     pub fn get_writer(&self, stream_name: &str) -> Option<&str> {
@@ -120,16 +115,10 @@ impl StreamWriterManager {
 
         match writer {
             Some(writer_name) if writer_name != self.instance_name => {
-                debug!(
-                    "Forwarding {} stream data to writer: {}",
-                    stream_name, writer_name
-                );
+                debug!("Forwarding {} stream data to writer: {}", stream_name, writer_name);
 
-                let command = ReplicationCommand::Rdata {
-                    stream_name: stream_name.to_string(),
-                    token: token.to_string(),
-                    rows,
-                };
+                let command =
+                    ReplicationCommand::Rdata { stream_name: stream_name.to_string(), token: token.to_string(), rows };
 
                 self.bus.send_to_worker(writer_name, &command).await?;
                 Ok(())
@@ -156,9 +145,7 @@ impl StreamWriterManager {
             positions.insert(stream_name.to_string(), stream_position);
         }
 
-        self.bus
-            .publish_stream_position(stream_name, position)
-            .await?;
+        self.bus.publish_stream_position(stream_name, position).await?;
 
         debug!("Updated position for {}: {}", stream_name, position);
         Ok(())
@@ -171,19 +158,14 @@ impl StreamWriterManager {
 
     pub async fn get_all_positions(&self) -> HashMap<String, i64> {
         let positions = self.positions.read().await;
-        positions
-            .iter()
-            .map(|(k, v)| (k.clone(), v.position))
-            .collect()
+        positions.iter().map(|(k, v)| (k.clone(), v.position)).collect()
     }
 
     pub async fn sync_positions(&self) -> Result<(), ApiError> {
         for stream_name in Self::stream_names() {
             if self.is_local_writer(stream_name) {
                 let position = self.get_position(stream_name).await.unwrap_or(0);
-                self.bus
-                    .publish_stream_position(stream_name, position)
-                    .await?;
+                self.bus.publish_stream_position(stream_name, position).await?;
             }
         }
 
@@ -207,22 +189,14 @@ impl StreamWriterManager {
     }
 
     pub fn get_local_streams(&self) -> Vec<&'static str> {
-        Self::stream_names()
-            .iter()
-            .filter(|s| self.is_local_writer(s))
-            .copied()
-            .collect()
+        Self::stream_names().iter().filter(|s| self.is_local_writer(s)).copied().collect()
     }
 
     pub fn can_write(&self, stream_name: &str) -> bool {
         self.is_local_writer(stream_name)
     }
 
-    pub fn validate_writer(
-        &self,
-        stream_name: &str,
-        writer_instance: &str,
-    ) -> Result<(), ApiError> {
+    pub fn validate_writer(&self, stream_name: &str, writer_instance: &str) -> Result<(), ApiError> {
         match self.config.get_writer(stream_name) {
             Some(configured_writer) => {
                 if configured_writer != writer_instance {
@@ -238,10 +212,7 @@ impl StreamWriterManager {
             }
             None => {
                 if writer_instance != self.instance_name {
-                    warn!(
-                        "Unconfigured stream {} written by non-master instance {}",
-                        stream_name, writer_instance
-                    );
+                    warn!("Unconfigured stream {} written by non-master instance {}", stream_name, writer_instance);
                 }
                 Ok(())
             }
@@ -253,15 +224,8 @@ impl StreamWriterManager {
 
         StreamWriterStats {
             instance_name: self.instance_name.clone(),
-            local_streams: self
-                .get_local_streams()
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-            positions: positions
-                .iter()
-                .map(|(k, v)| (k.clone(), v.position))
-                .collect(),
+            local_streams: self.get_local_streams().iter().map(|s| s.to_string()).collect(),
+            positions: positions.iter().map(|(k, v)| (k.clone(), v.position)).collect(),
         }
     }
 
@@ -270,10 +234,7 @@ impl StreamWriterManager {
         positions.values().cloned().collect()
     }
 
-    pub async fn update_positions_bulk(
-        &self,
-        updates: HashMap<String, i64>,
-    ) -> Result<(), ApiError> {
+    pub async fn update_positions_bulk(&self, updates: HashMap<String, i64>) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
         {
@@ -304,11 +265,7 @@ impl StreamWriterManager {
         self.update_position(stream_name, 0).await
     }
 
-    pub async fn advance_position_if_greater(
-        &self,
-        stream_name: &str,
-        new_position: i64,
-    ) -> Result<bool, ApiError> {
+    pub async fn advance_position_if_greater(&self, stream_name: &str, new_position: i64) -> Result<bool, ApiError> {
         let current = self.get_position(stream_name).await.unwrap_or(0);
 
         if new_position > current {
@@ -334,11 +291,7 @@ mod tests {
 
     fn create_test_bus() -> Arc<WorkerBus> {
         let config = RedisBusConfig::default();
-        Arc::new(WorkerBus::new(
-            config,
-            "test.com".to_string(),
-            "worker1".to_string(),
-        ))
+        Arc::new(WorkerBus::new(config, "test.com".to_string(), "worker1".to_string()))
     }
 
     #[test]
@@ -350,10 +303,7 @@ mod tests {
 
     #[test]
     fn test_stream_writers_get_writer() {
-        let writers = StreamWriters {
-            events: Some("worker1".to_string()),
-            ..Default::default()
-        };
+        let writers = StreamWriters { events: Some("worker1".to_string()), ..Default::default() };
 
         assert_eq!(writers.get_writer("events"), Some("worker1"));
         assert_eq!(writers.get_writer("typing"), None);
@@ -383,10 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_stream_writer_manager_with_config() {
         let bus = create_test_bus();
-        let config = StreamWriters {
-            events: Some("worker2".to_string()),
-            ..Default::default()
-        };
+        let config = StreamWriters { events: Some("worker2".to_string()), ..Default::default() };
 
         let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
@@ -412,10 +359,7 @@ mod tests {
     #[tokio::test]
     async fn test_stream_writer_manager_local_streams() {
         let bus = create_test_bus();
-        let config = StreamWriters {
-            events: Some("worker2".to_string()),
-            ..Default::default()
-        };
+        let config = StreamWriters { events: Some("worker2".to_string()), ..Default::default() };
 
         let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 

@@ -55,11 +55,9 @@ impl MegolmSessionStorage {
             let last_used_ts: Option<i64> = row.get("last_used_ts");
             let expires_at: Option<i64> = row.get("expires_at");
 
-            let created_ts_dt =
-                chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-            let last_used_ts_dt = last_used_ts
-                .and_then(chrono::DateTime::from_timestamp_millis)
-                .unwrap_or(created_ts_dt);
+            let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+            let last_used_ts_dt =
+                last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
             let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
             MegolmSession {
@@ -97,11 +95,9 @@ impl MegolmSessionStorage {
                 let last_used_ts: Option<i64> = row.get("last_used_ts");
                 let expires_at: Option<i64> = row.get("expires_at");
 
-                let created_ts_dt =
-                    chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-                let last_used_ts_dt = last_used_ts
-                    .and_then(chrono::DateTime::from_timestamp_millis)
-                    .unwrap_or(created_ts_dt);
+                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+                let last_used_ts_dt =
+                    last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
                 let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
                 MegolmSession {
@@ -189,18 +185,9 @@ mod tests {
     fn test_megolm_session_field_validation() {
         let session = create_test_session();
 
-        assert!(
-            session.room_id.starts_with('!'),
-            "Room ID should start with !"
-        );
-        assert!(
-            session.algorithm.starts_with("m.megolm"),
-            "Algorithm should be megolm"
-        );
-        assert!(
-            session.message_index >= 0,
-            "Message index should be non-negative"
-        );
+        assert!(session.room_id.starts_with('!'), "Room ID should start with !");
+        assert!(session.algorithm.starts_with("m.megolm"), "Algorithm should be megolm");
+        assert!(session.message_index >= 0, "Message index should be non-negative");
     }
 
     #[test]
@@ -212,20 +199,14 @@ mod tests {
         assert!(session.expires_at.is_some());
         let expires = session.expires_at.unwrap();
         assert!(expires > Utc::now(), "Expiry time should be in the future");
-        assert!(
-            expires > session.created_ts,
-            "Expiry should be after creation"
-        );
+        assert!(expires > session.created_ts, "Expiry should be after creation");
     }
 
     #[test]
     fn test_megolm_session_without_expiry() {
         let session = create_test_session();
 
-        assert!(
-            session.expires_at.is_none(),
-            "Session should not have expiry by default"
-        );
+        assert!(session.expires_at.is_none(), "Session should not have expiry by default");
     }
 
     #[test]
@@ -249,10 +230,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         session.last_used_ts = Utc::now();
 
-        assert!(
-            session.last_used_ts > original_last_used,
-            "Last used should be updated"
-        );
+        assert!(session.last_used_ts > original_last_used, "Last used should be updated");
     }
 
     #[test]
@@ -272,43 +250,22 @@ mod tests {
     fn test_megolm_session_room_id_format() {
         let session = create_test_session();
 
-        assert!(
-            session.room_id.starts_with('!'),
-            "Room ID must start with !"
-        );
-        assert!(
-            session.room_id.contains(':'),
-            "Room ID must contain ':' separator"
-        );
+        assert!(session.room_id.starts_with('!'), "Room ID must start with !");
+        assert!(session.room_id.contains(':'), "Room ID must contain ':' separator");
 
         let parts: Vec<&str> = session.room_id[1..].split(':').collect();
-        assert!(
-            parts.len() >= 2,
-            "Room ID should have localpart and server name"
-        );
+        assert!(parts.len() >= 2, "Room ID should have localpart and server name");
     }
 
     #[test]
     fn test_megolm_session_key_base64_format() {
         let session = create_test_session();
 
-        assert!(
-            !session.session_key.is_empty(),
-            "Session key should not be empty"
-        );
-        assert!(
-            !session.sender_key.is_empty(),
-            "Sender key should not be empty"
-        );
+        assert!(!session.session_key.is_empty(), "Session key should not be empty");
+        assert!(!session.sender_key.is_empty(), "Sender key should not be empty");
 
-        assert!(
-            session.session_key.len() > 10,
-            "Session key should have reasonable length"
-        );
-        assert!(
-            session.sender_key.len() > 10,
-            "Sender key should have reasonable length"
-        );
+        assert!(session.session_key.len() > 10, "Session key should have reasonable length");
+        assert!(session.sender_key.len() > 10, "Sender key should have reasonable length");
     }
 
     #[test]
@@ -351,10 +308,7 @@ mod tests {
         let session2 = create_test_session();
 
         assert_ne!(session1.id, session2.id, "Session IDs should be unique");
-        assert_ne!(
-            session1.session_id, session2.session_id,
-            "Session identifiers should be unique"
-        );
+        assert_ne!(session1.session_id, session2.session_id, "Session identifiers should be unique");
     }
 
     #[test]

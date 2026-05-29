@@ -50,11 +50,7 @@ impl FilterStorage {
         Ok(filter)
     }
 
-    pub async fn get_filter(
-        &self,
-        user_id: &str,
-        filter_id: &str,
-    ) -> Result<Option<Filter>, ApiError> {
+    pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError> {
         let filter = sqlx::query_as::<_, Filter>(
             r"
             SELECT id, user_id, filter_id, content, created_ts

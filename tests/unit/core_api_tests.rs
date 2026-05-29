@@ -133,18 +133,9 @@ fn test_token_expiry_calculation() {
 // Test 15: API version detection
 #[test]
 fn test_api_version_detection() {
-    assert_eq!(
-        detect_api_version("/_matrix/client/r0/sync"),
-        Some("r0".to_string())
-    );
-    assert_eq!(
-        detect_api_version("/_matrix/client/v3/sync"),
-        Some("v3".to_string())
-    );
-    assert_eq!(
-        detect_api_version("/_matrix/client/versions"),
-        Some("v1".to_string())
-    );
+    assert_eq!(detect_api_version("/_matrix/client/r0/sync"), Some("r0".to_string()));
+    assert_eq!(detect_api_version("/_matrix/client/v3/sync"), Some("v3".to_string()));
+    assert_eq!(detect_api_version("/_matrix/client/versions"), Some("v1".to_string()));
     assert_eq!(detect_api_version("/health"), None);
 }
 
@@ -159,13 +150,8 @@ fn test_matrix_uri_parsing() {
 // Test 17: Login response format
 #[test]
 fn test_login_response_format() {
-    let response = build_login_response(
-        "access_token_value",
-        "refresh_token_value",
-        "DEVICE123",
-        "@user:localhost",
-        3600,
-    );
+    let response =
+        build_login_response("access_token_value", "refresh_token_value", "DEVICE123", "@user:localhost", 3600);
     assert!(response.get("access_token").is_some());
     assert!(response.get("refresh_token").is_some());
     assert!(response.get("device_id").is_some());
@@ -187,9 +173,7 @@ fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("user_id is required".to_string()));
     }
     if !user_id.starts_with('@') {
-        return Err(ApiError::bad_request(
-            "Invalid user_id format: must start with @".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid user_id format: must start with @".to_string()));
     }
     if user_id.len() > 255 {
         return Err(ApiError::bad_request("user_id too long".to_string()));
@@ -202,9 +186,7 @@ fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("room_id is required".to_string()));
     }
     if !room_id.starts_with('!') {
-        return Err(ApiError::bad_request(
-            "Invalid room_id format: must start with !".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid room_id format: must start with !".to_string()));
     }
     Ok(())
 }
@@ -214,9 +196,7 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("event_id is required".to_string()));
     }
     if !event_id.starts_with('$') {
-        return Err(ApiError::bad_request(
-            "Invalid event_id format: must start with $".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid event_id format: must start with $".to_string()));
     }
     Ok(())
 }

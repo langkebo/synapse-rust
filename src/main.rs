@@ -5,7 +5,8 @@ use synapse_rust::common::config::Config;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::panic::set_hook(Box::new(|panic_info| {
         let location = panic_info
-            .location().map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+            .location()
+            .map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             s.to_string()
         } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
@@ -27,12 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 2. 初始化遥测服务 (OpenTelemetry)
-    let telemetry_service = Arc::new(
-        synapse_rust::services::telemetry_service::TelemetryService::new(
-            Arc::new(config.telemetry.clone()),
-            Arc::new(config.prometheus.clone()),
-        ),
-    );
+    let telemetry_service = Arc::new(synapse_rust::services::telemetry_service::TelemetryService::new(
+        Arc::new(config.telemetry.clone()),
+        Arc::new(config.prometheus.clone()),
+    ));
 
     let tracer_provider = match telemetry_service.initialize() {
         Ok(p) => p,
@@ -43,22 +42,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 3. 初始化全局日志与追踪
-    if let Err(e) = synapse_rust::common::logging::init_logging(
-        &config.logging,
-        Some(telemetry_service.clone()),
-        tracer_provider,
-    ) {
+    if let Err(e) =
+        synapse_rust::common::logging::init_logging(&config.logging, Some(telemetry_service.clone()), tracer_provider)
+    {
         eprintln!("Failed to initialize logging: {e}");
         std::process::exit(1);
     }
 
     tracing::info!("Starting Synapse Rust Matrix Server...");
     tracing::info!("Server name: {}", config.server.name);
-    tracing::info!(
-        "Listening on: {}:{}",
-        config.server.host,
-        config.server.port
-    );
+    tracing::info!("Listening on: {}:{}", config.server.host, config.server.port);
 
     let server = synapse_rust::SynapseServer::new(config).await?;
 

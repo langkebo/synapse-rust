@@ -20,25 +20,13 @@ use serde_json::Value;
 
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/rooms/{room_id}/relations/{event_id}/{rel_type}",
-            get(get_relations),
-        )
-        .route(
-            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
-            put(send_relation),
-        )
-        .route(
-            "/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
-            get(get_aggregations),
-        )
+        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}", get(get_relations))
+        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}", put(send_relation))
+        .route("/rooms/{room_id}/aggregations/{event_id}/{rel_type}", get(get_aggregations))
 }
 
 fn create_relations_with_event_router() -> Router<AppState> {
-    create_relations_core_router().route(
-        "/rooms/{room_id}/relations/{event_id}",
-        get(get_relations_by_event),
-    )
+    create_relations_core_router().route("/rooms/{room_id}/relations/{event_id}", get(get_relations_by_event))
 }
 
 pub fn create_relations_router(state: AppState) -> Router<AppState> {
@@ -55,18 +43,9 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
 fn relations_core_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     vec![
-        (
-            Method::GET,
-            "/rooms/{room_id}/relations/{event_id}/{rel_type}",
-        ),
-        (
-            Method::PUT,
-            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
-        ),
-        (
-            Method::GET,
-            "/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
-        ),
+        (Method::GET, "/rooms/{room_id}/relations/{event_id}/{rel_type}"),
+        (Method::PUT, "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}"),
+        (Method::GET, "/rooms/{room_id}/aggregations/{event_id}/{rel_type}"),
     ]
 }
 
@@ -84,11 +63,7 @@ pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
         &["/_matrix/client/v1", "/_matrix/client/v3"],
         &relations_with_event_relative_routes(),
     );
-    out.extend(expand_under_prefixes(
-        "relations",
-        &["/_matrix/client/r0"],
-        &relations_core_relative_routes(),
-    ));
+    out.extend(expand_under_prefixes("relations", &["/_matrix/client/r0"], &relations_core_relative_routes()));
     out
 }
 
@@ -149,34 +124,17 @@ async fn get_relations_by_event(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "User is not a member of the room",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
 
     let limit = query.limit.unwrap_or(50).min(100) as i32;
     let direction = query.direction.clone();
 
-    tracing::debug!(
-        "Getting all relations for event {} in room {}",
-        event_id,
-        room_id,
-    );
+    tracing::debug!("Getting all relations for event {} in room {}", event_id, room_id,);
 
     let response = state
         .services
         .relations_service
-        .get_relations(
-            &room_id,
-            &event_id,
-            None,
-            Some(limit),
-            query.from,
-            direction,
-        )
+        .get_relations(&room_id, &event_id, None, Some(limit), query.from, direction)
         .await?;
 
     Ok(Json(RelationsResponse {
@@ -200,13 +158,7 @@ async fn get_relations(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "User is not a member of the room",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
 
     // Validate rel_type
     let valid_rel_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
@@ -221,24 +173,12 @@ async fn get_relations(
     let limit = query.limit.unwrap_or(50).min(100) as i32;
     let direction = query.direction.clone();
 
-    tracing::debug!(
-        "Getting relations for event {} in room {} with rel_type {}",
-        event_id,
-        room_id,
-        rel_type
-    );
+    tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
 
     let response = state
         .services
         .relations_service
-        .get_relations(
-            &room_id,
-            &event_id,
-            Some(&rel_type),
-            Some(limit),
-            query.from,
-            direction,
-        )
+        .get_relations(&room_id, &event_id, Some(&rel_type), Some(limit), query.from, direction)
         .await?;
 
     Ok(Json(RelationsResponse {
@@ -282,11 +222,7 @@ async fn send_relation(
 
     let result_event_id = match rel_type.as_str() {
         "m.annotation" => {
-            let key = body
-                .get("key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("👍")
-                .to_string();
+            let key = body.get("key").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
             state
                 .services
@@ -302,10 +238,7 @@ async fn send_relation(
                 .event_id
         }
         "m.reference" => {
-            let content = body
-                .get("content")
-                .cloned()
-                .unwrap_or(Value::Object(serde_json::Map::new()));
+            let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
             state
                 .services
@@ -322,10 +255,7 @@ async fn send_relation(
                 .event_id
         }
         "m.thread" => {
-            let content = body
-                .get("content")
-                .cloned()
-                .unwrap_or(Value::Object(serde_json::Map::new()));
+            let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
             state
                 .services
@@ -367,10 +297,7 @@ async fn send_relation(
     Ok(Json(RelationSendResponse {
         event_id: result_event_id,
         room_id,
-        relates_to: RelationTarget {
-            event_id: target_event_id,
-            rel_type,
-        },
+        relates_to: RelationTarget { event_id: target_event_id, rel_type },
     }))
 }
 
@@ -384,31 +311,15 @@ async fn get_aggregations(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(
-        &state,
-        &auth_user,
-        &room_id,
-        "User is not a member of the room",
-    )
-    .await?;
+    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
 
     if rel_type != "m.annotation" {
-        return Err(ApiError::bad_request(
-            "Aggregation is only supported for m.annotation rel_type".to_string(),
-        ));
+        return Err(ApiError::bad_request("Aggregation is only supported for m.annotation rel_type".to_string()));
     }
 
-    tracing::debug!(
-        "Getting aggregations for event {} in room {}",
-        event_id,
-        room_id
-    );
+    tracing::debug!("Getting aggregations for event {} in room {}", event_id, room_id);
 
-    let response = state
-        .services
-        .relations_service
-        .get_aggregations(&room_id, &event_id)
-        .await?;
+    let response = state.services.relations_service.get_aggregations(&room_id, &event_id).await?;
 
     Ok(Json(response))
 }
@@ -426,9 +337,7 @@ mod tests {
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 
-        assert!(compat_routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]
@@ -452,11 +361,7 @@ mod tests {
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 
-        assert!(supported_versions
-            .iter()
-            .all(|path| path.starts_with("/_matrix/client/")));
-        assert!(supported_versions
-            .iter()
-            .any(|path| path.starts_with("/_matrix/client/v3/")));
+        assert!(supported_versions.iter().all(|path| path.starts_with("/_matrix/client/")));
+        assert!(supported_versions.iter().any(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }

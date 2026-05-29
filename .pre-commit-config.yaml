@@ -1,0 +1,40 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-json
+      - id: pretty-format-json
+        args: [--autofix, --indent=2, --no-sort-keys]
+      - id: check-toml
+      - id: check-yaml
+        args: [--unsafe]
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: rustfmt all tracked files
+        entry: bash scripts/quality/rustfmt_all.sh --check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types_or: [python]
+
+      - id: shfmt
+        name: shfmt -w -i 4 -ci
+        entry: shfmt -w -i 4 -ci
+        language: system
+        files: \.sh$

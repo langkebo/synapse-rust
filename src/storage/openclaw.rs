@@ -10,12 +10,7 @@ pub struct ConversationCursor {
 }
 
 pub fn encode_conversation_cursor(cursor: &ConversationCursor) -> String {
-    format!(
-        "{}|{}|{}",
-        if cursor.is_pinned { 1 } else { 0 },
-        cursor.updated_ts,
-        cursor.id
-    )
+    format!("{}|{}|{}", if cursor.is_pinned { 1 } else { 0 }, cursor.updated_ts, cursor.id)
 }
 
 pub fn decode_conversation_cursor(cursor: Option<&str>) -> Option<ConversationCursor> {
@@ -27,11 +22,7 @@ pub fn decode_conversation_cursor(cursor: Option<&str>) -> Option<ConversationCu
     if parts.next().is_some() {
         return None;
     }
-    Some(ConversationCursor {
-        is_pinned,
-        updated_ts,
-        id,
-    })
+    Some(ConversationCursor { is_pinned, updated_ts, id })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,14 +242,11 @@ impl OpenClawStorage {
         .await
     }
 
-    pub async fn get_user_connections(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<OpenClawConnection>, sqlx::Error> {
+    pub async fn get_user_connections(&self, user_id: &str) -> Result<Vec<OpenClawConnection>, sqlx::Error> {
         sqlx::query_as::<_, OpenClawConnection>(
             r#"
-            SELECT * FROM openclaw_connections 
-            WHERE user_id = $1 
+            SELECT * FROM openclaw_connections
+            WHERE user_id = $1
             ORDER BY is_default DESC, created_ts DESC
             "#,
         )
@@ -267,13 +255,10 @@ impl OpenClawStorage {
         .await
     }
 
-    pub async fn get_default_connection(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<OpenClawConnection>, sqlx::Error> {
+    pub async fn get_default_connection(&self, user_id: &str) -> Result<Option<OpenClawConnection>, sqlx::Error> {
         sqlx::query_as::<_, OpenClawConnection>(
             r#"
-            SELECT * FROM openclaw_connections 
+            SELECT * FROM openclaw_connections
             WHERE user_id = $1 AND is_default = true AND is_active = true
             LIMIT 1
             "#,
@@ -437,10 +422,7 @@ impl OpenClawStorage {
             None
         };
 
-        Ok((
-            conversations.into_iter().take(limit as usize).collect(),
-            next_batch,
-        ))
+        Ok((conversations.into_iter().take(limit as usize).collect(), next_batch))
     }
 
     pub async fn update_conversation(
@@ -457,7 +439,7 @@ impl OpenClawStorage {
         let conv = sqlx::query_as::<_, AiConversation>(
             r#"
             UPDATE ai_conversations
-            SET 
+            SET
                 title = COALESCE($1, title),
                 system_prompt = COALESCE($2, system_prompt),
                 temperature = COALESCE($3, temperature),
@@ -507,7 +489,7 @@ impl OpenClawStorage {
 
         let msg = sqlx::query_as::<_, AiMessage>(
             r#"
-            INSERT INTO ai_messages 
+            INSERT INTO ai_messages
                 (conversation_id, role, content, token_count, tool_calls, tool_call_id, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
@@ -546,7 +528,7 @@ impl OpenClawStorage {
             Some(before_id) => {
                 sqlx::query_as::<_, AiMessage>(
                     r#"
-                    SELECT * FROM ai_messages 
+                    SELECT * FROM ai_messages
                     WHERE conversation_id = $1 AND id < $2
                     ORDER BY created_ts DESC
                     LIMIT $3
@@ -561,7 +543,7 @@ impl OpenClawStorage {
             None => {
                 sqlx::query_as::<_, AiMessage>(
                     r#"
-                    SELECT * FROM ai_messages 
+                    SELECT * FROM ai_messages
                     WHERE conversation_id = $1
                     ORDER BY created_ts DESC
                     LIMIT $2
@@ -610,7 +592,7 @@ impl OpenClawStorage {
 
         let gen = sqlx::query_as::<_, AiGeneration>(
             r#"
-            INSERT INTO ai_generations 
+            INSERT INTO ai_generations
                 (user_id, conversation_id, type, prompt, status, created_ts)
             VALUES ($1, $2, $3, $4, 'pending', $5)
             RETURNING *
@@ -640,7 +622,7 @@ impl OpenClawStorage {
         let gen = sqlx::query_as::<_, AiGeneration>(
             r#"
             UPDATE ai_generations
-            SET 
+            SET
                 status = $1,
                 result_url = COALESCE($2, result_url),
                 result_mxc = COALESCE($3, result_mxc),
@@ -749,19 +731,13 @@ impl OpenClawStorage {
 
         let next_batch = if generations.len() > limit as usize {
             generations.get(limit as usize).map(|generation| {
-                encode_generation_cursor(&GenerationCursor {
-                    created_ts: generation.created_ts,
-                    id: generation.id,
-                })
+                encode_generation_cursor(&GenerationCursor { created_ts: generation.created_ts, id: generation.id })
             })
         } else {
             None
         };
 
-        Ok((
-            generations.into_iter().take(limit as usize).collect(),
-            next_batch,
-        ))
+        Ok((generations.into_iter().take(limit as usize).collect(), next_batch))
     }
 
     pub async fn delete_generation(&self, id: i64) -> Result<(), sqlx::Error> {
@@ -777,10 +753,7 @@ impl OpenClawStorage {
         Ok(())
     }
 
-    pub async fn create_chat_role(
-        &self,
-        params: CreateChatRoleParams<'_>,
-    ) -> Result<AiChatRole, sqlx::Error> {
+    pub async fn create_chat_role(&self, params: CreateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
@@ -822,7 +795,7 @@ impl OpenClawStorage {
     pub async fn get_user_chat_roles(&self, user_id: &str) -> Result<Vec<AiChatRole>, sqlx::Error> {
         sqlx::query_as::<_, AiChatRole>(
             r#"
-            SELECT * FROM ai_chat_roles 
+            SELECT * FROM ai_chat_roles
             WHERE user_id = $1 OR is_public = true
             ORDER BY is_public, created_ts DESC
             "#,
@@ -832,10 +805,7 @@ impl OpenClawStorage {
         .await
     }
 
-    pub async fn update_chat_role(
-        &self,
-        params: UpdateChatRoleParams<'_>,
-    ) -> Result<AiChatRole, sqlx::Error> {
+    pub async fn update_chat_role(&self, params: UpdateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
@@ -890,27 +860,20 @@ impl OpenClawStorage {
 #[cfg(test)]
 mod cursor_tests {
     use super::{
-        decode_conversation_cursor, decode_generation_cursor, encode_conversation_cursor,
-        encode_generation_cursor, ConversationCursor, GenerationCursor,
+        decode_conversation_cursor, decode_generation_cursor, encode_conversation_cursor, encode_generation_cursor,
+        ConversationCursor, GenerationCursor,
     };
 
     #[test]
     fn conversation_cursor_round_trip() {
-        let cursor = ConversationCursor {
-            is_pinned: true,
-            updated_ts: 1_746_700_000_000,
-            id: 42,
-        };
+        let cursor = ConversationCursor { is_pinned: true, updated_ts: 1_746_700_000_000, id: 42 };
         let encoded = encode_conversation_cursor(&cursor);
         assert_eq!(decode_conversation_cursor(Some(&encoded)), Some(cursor));
     }
 
     #[test]
     fn generation_cursor_round_trip() {
-        let cursor = GenerationCursor {
-            created_ts: 1_746_700_000_000,
-            id: 42,
-        };
+        let cursor = GenerationCursor { created_ts: 1_746_700_000_000, id: 42 };
         let encoded = encode_generation_cursor(&cursor);
         assert_eq!(decode_generation_cursor(Some(&encoded)), Some(cursor));
     }

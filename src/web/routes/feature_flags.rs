@@ -30,10 +30,7 @@ mod cursor_tests {
     #[test]
     fn test_feature_flag_cursor_round_trip() {
         let cursor = encode_feature_flag_cursor(1_700_000_000_000, "my.flag");
-        assert_eq!(
-            decode_feature_flag_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "my.flag"))
-        );
+        assert_eq!(decode_feature_flag_cursor(Some(&cursor)), Some((1_700_000_000_000, "my.flag")));
     }
 
     #[test]
@@ -65,11 +62,7 @@ pub async fn create_feature_flag(
     Json(body): Json<CreateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
-    let flag = state
-        .services
-        .feature_flag_service
-        .create_flag(&admin_user.user_id, &request_id, body)
-        .await?;
+    let flag = state.services.feature_flag_service.create_flag(&admin_user.user_id, &request_id, body).await?;
     Ok(Json(flag))
 }
 
@@ -81,11 +74,8 @@ pub async fn update_feature_flag(
     Json(body): Json<UpdateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
-    let flag = state
-        .services
-        .feature_flag_service
-        .update_flag(&admin_user.user_id, &request_id, &flag_key, body)
-        .await?;
+    let flag =
+        state.services.feature_flag_service.update_flag(&admin_user.user_id, &request_id, &flag_key, body).await?;
     Ok(Json(flag))
 }
 
@@ -94,11 +84,7 @@ pub async fn get_feature_flag(
     Path(flag_key): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let flag = state
-        .services
-        .feature_flag_service
-        .get_flag(&flag_key)
-        .await?;
+    let flag = state.services.feature_flag_service.get_flag(&flag_key).await?;
     Ok(Json(flag))
 }
 
@@ -119,38 +105,21 @@ pub async fn list_feature_flags(
         cursor_updated_ts: cursor.map(|(updated_ts, _)| updated_ts),
         cursor_flag_key: cursor.map(|(_, flag_key)| flag_key.to_string()),
     };
-    let (flags, total) = state
-        .services
-        .feature_flag_service
-        .list_flags(filters)
-        .await?;
+    let (flags, total) = state.services.feature_flag_service.list_flags(filters).await?;
     let next_batch = flags
         .last()
         .map(|flag| encode_feature_flag_cursor(flag.updated_ts, &flag.flag_key))
         .filter(|_| flags.len() as i64 == query.limit.unwrap_or(50).clamp(1, 200));
-    Ok(Json(FeatureFlagListResponse {
-        flags,
-        total,
-        next_batch,
-    }))
+    Ok(Json(FeatureFlagListResponse { flags, total, next_batch }))
 }
 
 pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
     axum::Router::new()
-        .route(
-            "/_synapse/admin/v1/feature-flags",
-            post(create_feature_flag).get(list_feature_flags),
-        )
-        .route(
-            "/_synapse/admin/v1/feature-flags/{flag_key}",
-            get(get_feature_flag).patch(update_feature_flag),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route("/_synapse/admin/v1/feature-flags", post(create_feature_flag).get(list_feature_flags))
+        .route("/_synapse/admin/v1/feature-flags/{flag_key}", get(get_feature_flag).patch(update_feature_flag))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

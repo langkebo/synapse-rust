@@ -159,10 +159,7 @@ mod tests {
     fn test_x25519_key_pair_different_each_time() {
         let key_pair1 = X25519KeyPair::generate();
         let key_pair2 = X25519KeyPair::generate();
-        assert_ne!(
-            key_pair1.public_key().as_bytes(),
-            key_pair2.public_key().as_bytes()
-        );
+        assert_ne!(key_pair1.public_key().as_bytes(), key_pair2.public_key().as_bytes());
     }
 
     #[test]
@@ -219,10 +216,7 @@ mod tests {
         assert_eq!(public_bytes.len(), 32);
 
         let expected_public = X25519PublicKey::from_bytes(public_bytes);
-        let key_pair = X25519KeyPair {
-            public: expected_public,
-            secret: secret_key,
-        };
+        let key_pair = X25519KeyPair { public: expected_public, secret: secret_key };
         assert_eq!(key_pair.public_key().as_bytes(), &public_bytes);
     }
 }

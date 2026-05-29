@@ -67,11 +67,7 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     pub fn new(config: HealthCheckConfig) -> Self {
-        Self {
-            config,
-            health_status: RwLock::new(HashMap::new()),
-            callbacks: RwLock::new(Vec::new()),
-        }
+        Self { config, health_status: RwLock::new(HashMap::new()), callbacks: RwLock::new(Vec::new()) }
     }
 
     pub async fn register_worker(&self, worker_id: &str) {
@@ -103,9 +99,7 @@ impl HealthChecker {
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
-        let health_result = self
-            .update_health_status(worker_id, result, latency_ms)
-            .await;
+        let health_result = self.update_health_status(worker_id, result, latency_ms).await;
 
         self.notify_callbacks(&health_result).await;
 
@@ -184,27 +178,17 @@ impl HealthChecker {
 
     pub async fn get_healthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
-        status
-            .iter()
-            .filter(|(_, r)| r.status == HealthStatus::Healthy)
-            .map(|(id, _)| id.clone())
-            .collect()
+        status.iter().filter(|(_, r)| r.status == HealthStatus::Healthy).map(|(id, _)| id.clone()).collect()
     }
 
     pub async fn get_unhealthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
-        status
-            .iter()
-            .filter(|(_, r)| r.status == HealthStatus::Unhealthy)
-            .map(|(id, _)| id.clone())
-            .collect()
+        status.iter().filter(|(_, r)| r.status == HealthStatus::Unhealthy).map(|(id, _)| id.clone()).collect()
     }
 
     pub async fn is_healthy(&self, worker_id: &str) -> bool {
         let status = self.health_status.read().await;
-        status
-            .get(worker_id)
-            .is_some_and(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
+        status.get(worker_id).is_some_and(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
     }
 
     pub fn register_callback(&self, callback: HealthCallback) {
@@ -261,11 +245,7 @@ impl HealthChecker {
             total_latency_ms += result.latency_ms;
         }
 
-        let avg_latency_ms = if total_workers > 0 {
-            total_latency_ms / total_workers as u64
-        } else {
-            0
-        };
+        let avg_latency_ms = if total_workers > 0 { total_latency_ms / total_workers as u64 } else { 0 };
 
         HealthCheckStats {
             total_workers,

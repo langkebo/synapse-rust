@@ -9,9 +9,7 @@ pub struct RegexCache {
 
 impl RegexCache {
     pub fn new() -> Self {
-        Self {
-            cache: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { cache: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     pub fn get_or_create(&self, pattern: &str) -> Result<Regex, regex::Error> {
@@ -57,9 +55,7 @@ impl Default for RegexCache {
 
 impl Clone for RegexCache {
     fn clone(&self) -> Self {
-        Self {
-            cache: Arc::clone(&self.cache),
-        }
+        Self { cache: Arc::clone(&self.cache) }
     }
 }
 

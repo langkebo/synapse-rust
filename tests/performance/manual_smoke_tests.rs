@@ -11,14 +11,10 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
-fn with_local_connect_info(
-    mut request: hyper::Request<axum::body::Body>,
-) -> hyper::Request<axum::body::Body> {
+fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
     use std::net::SocketAddr;
-    let local_addr: SocketAddr = "127.0.0.1:65530"
-        .parse()
-        .expect("valid loopback socket addr");
+    let local_addr: SocketAddr = "127.0.0.1:65530".parse().expect("valid loopback socket addr");
     request.extensions_mut().insert(ConnectInfo(local_addr));
     request
 }
@@ -27,10 +23,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping performance manual tests: isolated schema setup failed: {}",
-                error
-            );
+            eprintln!("Skipping performance manual tests: isolated schema setup failed: {}", error);
             return None;
         }
     };
@@ -57,9 +50,7 @@ async fn create_test_user(app: &axum::Router) -> String {
         .unwrap();
 
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
@@ -72,15 +63,9 @@ async fn whoami(app: &axum::Router, token: &str) -> String {
         .body(Body::empty())
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["user_id"].as_str().unwrap().to_string()
 }
@@ -91,20 +76,12 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "name": "Beacon Performance Room" }).to_string(),
-        ))
+        .body(Body::from(json!({ "name": "Beacon Performance Room" }).to_string()))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -121,15 +98,9 @@ async fn invite_and_join_room(
         .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({ "user_id": invitee_user_id }).to_string(),
-        ))
+        .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
         .unwrap();
-    let invite_resp = app
-        .clone()
-        .oneshot(with_local_connect_info(invite_req))
-        .await
-        .unwrap();
+    let invite_resp = app.clone().oneshot(with_local_connect_info(invite_req)).await.unwrap();
     assert_eq!(invite_resp.status(), StatusCode::OK);
 
     let join_req = Request::builder()
@@ -138,26 +109,14 @@ async fn invite_and_join_room(
         .header("Authorization", format!("Bearer {}", invitee_token))
         .body(Body::empty())
         .unwrap();
-    let join_resp = app
-        .clone()
-        .oneshot(with_local_connect_info(join_req))
-        .await
-        .unwrap();
+    let join_resp = app.clone().oneshot(with_local_connect_info(join_req)).await.unwrap();
     assert_eq!(join_resp.status(), StatusCode::OK);
 }
 
-async fn put_beacon_info(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    state_key: &str,
-) -> String {
+async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_key: &str) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}",
-            room_id, state_key
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}", room_id, state_key))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -174,15 +133,9 @@ async fn put_beacon_info(
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["event_id"].as_str().unwrap().to_string()
 }
@@ -196,11 +149,7 @@ async fn send_beacon_with_ts(
 ) -> (StatusCode, u64) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/_matrix/client/v3/rooms/{}/send/m.beacon/{}",
-            room_id,
-            rand::random::<u32>()
-        ))
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.beacon/{}", room_id, rand::random::<u32>()))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -302,14 +251,8 @@ async fn sliding_sync_poc_load_smoke() {
         })
     );
 
-    assert_eq!(
-        other_count, 0,
-        "unexpected non-429 failures in sliding sync load smoke"
-    );
-    assert!(
-        ok_count > 0,
-        "expected at least one successful sliding sync response"
-    );
+    assert_eq!(other_count, 0, "unexpected non-429 failures in sliding sync load smoke");
+    assert!(ok_count > 0, "expected at least one successful sliding sync response");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -349,9 +292,7 @@ async fn beacon_hot_room_backpressure_load_smoke() {
             let beacon_info_id = beacon_info_id.clone();
             let ts = base_ts + global_idx as i64;
             global_idx += 1;
-            tokio::spawn(async move {
-                send_beacon_with_ts(app, token, room_id, beacon_info_id, ts).await
-            })
+            tokio::spawn(async move { send_beacon_with_ts(app, token, room_id, beacon_info_id, ts).await })
         });
         let results = join_all(futures).await;
         for result in results {
@@ -392,16 +333,7 @@ async fn beacon_hot_room_backpressure_load_smoke() {
         })
     );
 
-    assert_eq!(
-        other_count, 0,
-        "unexpected non-429 failures in beacon load smoke"
-    );
-    assert!(
-        ok_count > 0,
-        "expected at least one successful beacon update"
-    );
-    assert!(
-        limited_count > 0,
-        "expected at least one 429 under hotspot room beacon load"
-    );
+    assert_eq!(other_count, 0, "unexpected non-429 failures in beacon load smoke");
+    assert!(ok_count > 0, "expected at least one successful beacon update");
+    assert!(limited_count > 0, "expected at least one 429 under hotspot room beacon load");
 }

@@ -70,11 +70,7 @@ impl SchemaValidator {
         Ok(count > 0)
     }
 
-    pub async fn validate_column_exists(
-        &self,
-        table_name: &str,
-        column_name: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM information_schema.columns \
              WHERE table_name = $1 AND column_name = $2",
@@ -115,17 +111,12 @@ impl SchemaValidator {
     }
 
     pub async fn validate_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname",
-        )
-        .fetch_all(&*self.pool)
-        .await
+        sqlx::query_scalar("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname")
+            .fetch_all(&*self.pool)
+            .await
     }
 
-    pub async fn validate_required_tables(
-        &self,
-        tables: &[&str],
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
         for table in tables {
             if !self.validate_table_exists(table).await? {
@@ -135,10 +126,7 @@ impl SchemaValidator {
         Ok(missing)
     }
 
-    pub async fn validate_required_columns(
-        &self,
-        requirements: &[(&str, &str)],
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn validate_required_columns(&self, requirements: &[(&str, &str)]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
         for (table, column) in requirements {
             if !self.validate_column_exists(table, column).await? {
@@ -150,7 +138,8 @@ impl SchemaValidator {
 
     #[cfg(feature = "runtime-ddl")]
     fn is_valid_sql_identifier(s: &str) -> bool {
-        !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
+        !s.is_empty()
+            && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
     }
 
     #[cfg(feature = "runtime-ddl")]
@@ -162,19 +151,12 @@ impl SchemaValidator {
             ("rooms", "avatar_url", "TEXT"),
             ("rooms", "canonical_alias", "VARCHAR(255)"),
             ("rooms", "member_count", "BIGINT DEFAULT 0"),
-            (
-                "rooms",
-                "history_visibility",
-                "VARCHAR(50) DEFAULT 'joined'",
-            ),
+            ("rooms", "history_visibility", "VARCHAR(50) DEFAULT 'joined'"),
             ("rooms", "encryption", "VARCHAR(50)"),
         ];
         for (table, column, col_type) in columns_to_add {
             if !self.validate_column_exists(table, column).await? {
-                let sql = format!(
-                    "ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}",
-                    table, column, col_type
-                );
+                let sql = format!("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}", table, column, col_type);
                 sqlx::query(&sql).execute(&*self.pool).await?;
                 repaired.push(format!("{}.{}", table, column));
             }

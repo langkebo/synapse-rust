@@ -17,10 +17,7 @@ pub fn encode_server_notification_cursor(cursor: &ServerNotificationCursor) -> S
 pub fn decode_server_notification_cursor(cursor: Option<&str>) -> Option<ServerNotificationCursor> {
     let cursor = cursor?;
     let (created_ts, id) = cursor.split_once('|')?;
-    Some(ServerNotificationCursor {
-        created_ts: created_ts.parse::<i64>().ok()?,
-        id: id.parse::<i64>().ok()?,
-    })
+    Some(ServerNotificationCursor { created_ts: created_ts.parse::<i64>().ok()?, id: id.parse::<i64>().ok()? })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -129,17 +126,15 @@ pub struct ServerNotificationStorage {
 
 impl ServerNotificationStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self {
-            pool: (**pool).clone(),
-        }
+        Self { pool: (**pool).clone() }
     }
 
     pub async fn create_notification(
         &self,
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError> {
-        let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default())
-            .unwrap_or(serde_json::json!([]));
+        let target_user_ids =
+            serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let now = chrono::Utc::now().timestamp_millis();
 
         let notification = sqlx::query_as::<_, ServerNotification>(
@@ -177,10 +172,7 @@ impl ServerNotificationStorage {
         Ok(notification)
     }
 
-    pub async fn get_notification(
-        &self,
-        notification_id: i64,
-    ) -> Result<Option<ServerNotification>, ApiError> {
+    pub async fn get_notification(&self, notification_id: i64) -> Result<Option<ServerNotification>, ApiError> {
         let notification = sqlx::query_as::<_, ServerNotification>(
             r#"SELECT id, title, content, notification_type, priority, target_audience, target_user_ids, starts_at, expires_at, is_enabled, is_dismissable, action_url, action_text, created_by, created_ts, updated_ts FROM server_notifications WHERE id = $1"#,
         )
@@ -261,8 +253,8 @@ impl ServerNotificationStorage {
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default())
-            .unwrap_or(serde_json::json!([]));
+        let target_user_ids =
+            serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap_or(serde_json::json!([]));
 
         let notification = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -286,11 +278,7 @@ impl ServerNotificationStorage {
         )
         .bind(&request.title)
         .bind(&request.content)
-        .bind(
-            request
-                .notification_type
-                .unwrap_or_else(|| "info".to_string()),
-        )
+        .bind(request.notification_type.unwrap_or_else(|| "info".to_string()))
         .bind(request.priority.unwrap_or(0))
         .bind(request.target_audience.unwrap_or_else(|| "all".to_string()))
         .bind(&target_user_ids)
@@ -319,22 +307,16 @@ impl ServerNotificationStorage {
     }
 
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
-        let result =
-            sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1"#)
-                .bind(notification_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to deactivate notification", &e)
-                })?;
+        let result = sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1"#)
+            .bind(notification_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to deactivate notification", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn get_user_notifications(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<NotificationWithStatus>, ApiError> {
+    pub async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
@@ -409,11 +391,7 @@ impl ServerNotificationStorage {
         .map_err(|e| ApiError::internal_with_log("Failed to get notification status", &e))
     }
 
-    pub async fn mark_as_read(
-        &self,
-        user_id: &str,
-        notification_id: i64,
-    ) -> Result<bool, ApiError> {
+    pub async fn mark_as_read(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
         let exists = sqlx::query_scalar::<_, i64>(
             r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_enabled = TRUE"#,
         )
@@ -445,11 +423,7 @@ impl ServerNotificationStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn mark_as_dismissed(
-        &self,
-        user_id: &str,
-        notification_id: i64,
-    ) -> Result<bool, ApiError> {
+    pub async fn mark_as_dismissed(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
         let exists = sqlx::query_scalar::<_, i64>(
             r#"SELECT COUNT(*) FROM server_notifications WHERE id = $1 AND is_enabled = TRUE"#,
         )
@@ -509,12 +483,8 @@ impl ServerNotificationStorage {
         Ok(count)
     }
 
-    pub async fn create_template(
-        &self,
-        request: CreateTemplateRequest,
-    ) -> Result<NotificationTemplate, ApiError> {
-        let variables = serde_json::to_value(request.variables.unwrap_or_default())
-            .unwrap_or(serde_json::json!([]));
+    pub async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError> {
+        let variables = serde_json::to_value(request.variables.unwrap_or_default()).unwrap_or(serde_json::json!([]));
 
         let template = sqlx::query_as::<_, NotificationTemplate>(
             r#"
@@ -565,12 +535,11 @@ impl ServerNotificationStorage {
     }
 
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
-        let result =
-            sqlx::query(r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1"#)
-                .bind(name)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to delete template", &e))?;
+        let result = sqlx::query(r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1"#)
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete template", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -624,9 +593,7 @@ impl ServerNotificationStorage {
         Ok(scheduled)
     }
 
-    pub async fn get_pending_scheduled_notifications(
-        &self,
-    ) -> Result<Vec<ScheduledNotification>, ApiError> {
+    pub async fn get_pending_scheduled_notifications(&self) -> Result<Vec<ScheduledNotification>, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let scheduled = sqlx::query_as::<_, ScheduledNotification>(
@@ -639,38 +606,29 @@ impl ServerNotificationStorage {
         .bind(now)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to get pending scheduled notifications", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to get pending scheduled notifications", &e))?;
 
         Ok(scheduled)
     }
 
     pub async fn mark_scheduled_sent(&self, scheduled_id: i64) -> Result<bool, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query(
-            r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2"#,
-        )
-        .bind(now)
-        .bind(scheduled_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark scheduled as sent", &e))?;
+        let result = sqlx::query(r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2"#)
+            .bind(now)
+            .bind(scheduled_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to mark scheduled as sent", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn get_user_notification_setting(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<bool>, ApiError> {
-        let row = sqlx::query(
-            "SELECT enabled FROM user_notification_settings WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get notification setting", &e))?;
+    pub async fn get_user_notification_setting(&self, user_id: &str) -> Result<Option<bool>, ApiError> {
+        let row = sqlx::query("SELECT enabled FROM user_notification_settings WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get notification setting", &e))?;
 
         match row {
             Some(row) => {
@@ -681,11 +639,7 @@ impl ServerNotificationStorage {
         }
     }
 
-    pub async fn upsert_user_notification_setting(
-        &self,
-        user_id: &str,
-        enabled: bool,
-    ) -> Result<(), ApiError> {
+    pub async fn upsert_user_notification_setting(&self, user_id: &str, enabled: bool) -> Result<(), ApiError> {
         sqlx::query(
             "INSERT INTO user_notification_settings (user_id, enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET enabled = $2",
         )
@@ -698,10 +652,7 @@ impl ServerNotificationStorage {
         Ok(())
     }
 
-    pub async fn get_user_pushers(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<serde_json::Value>, ApiError> {
+    pub async fn get_user_pushers(&self, user_id: &str) -> Result<Vec<serde_json::Value>, ApiError> {
         let rows = sqlx::query(
             "SELECT pushkey, kind, app_id, app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1",
         )
@@ -730,11 +681,7 @@ impl ServerNotificationStorage {
         Ok(pusher_list)
     }
 
-    pub async fn delete_user_pusher(
-        &self,
-        user_id: &str,
-        pushkey: &str,
-    ) -> Result<bool, ApiError> {
+    pub async fn delete_user_pusher(&self, user_id: &str, pushkey: &str) -> Result<bool, ApiError> {
         let result = sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
             .bind(user_id)
             .bind(pushkey)
@@ -806,17 +753,12 @@ impl ServerNotificationStorage {
         Ok((notice_list, total, next_batch))
     }
 
-    pub async fn get_server_notice_by_id(
-        &self,
-        notice_id: i64,
-    ) -> Result<Option<serde_json::Value>, ApiError> {
-        let row = sqlx::query(
-            "SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1",
-        )
-        .bind(notice_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get server notice", &e))?;
+    pub async fn get_server_notice_by_id(&self, notice_id: i64) -> Result<Option<serde_json::Value>, ApiError> {
+        let row = sqlx::query("SELECT id, user_id, event_id, content, sent_ts FROM server_notices WHERE id = $1")
+            .bind(notice_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get server notice", &e))?;
 
         use sqlx::Row;
         match row {
@@ -850,10 +792,7 @@ impl ServerNotificationStorage {
 
         use sqlx::Row;
         match row {
-            Some(row) => Ok(Some((
-                row.get("event_id"),
-                row.get("room_id"),
-            ))),
+            Some(row) => Ok(Some((row.get("event_id"), row.get("room_id")))),
             None => Ok(None),
         }
     }
@@ -869,26 +808,10 @@ impl ServerNotificationStorage {
     }
 
     pub async fn delete_room_cascade(&self, room_id: &str) -> Result<(), ApiError> {
-        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&self.pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&self.pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&self.pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&self.pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
+        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
+        sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
         sqlx::query("DELETE FROM rooms WHERE room_id = $1")
             .bind(room_id)
             .execute(&self.pool)
@@ -922,9 +845,8 @@ impl ServerNotificationStorage {
         body: &str,
         now: i64,
     ) -> Result<i64, ApiError> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            ApiError::internal_with_log("Failed to begin transaction", &e)
-        })?;
+        let mut tx =
+            self.pool.begin().await.map_err(|e| ApiError::internal_with_log("Failed to begin transaction", &e))?;
 
         let room_result = sqlx::query(
             r#"
@@ -1112,9 +1034,7 @@ impl ServerNotificationStorage {
             return Err(ApiError::internal("Failed to persist server notice room summary member".to_string()));
         }
 
-        tx.commit().await.map_err(|e| {
-            ApiError::internal_with_log("Failed to commit server notice transaction", &e)
-        })?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit server notice transaction", &e))?;
 
         Ok(notice_id)
     }
@@ -1122,22 +1042,13 @@ impl ServerNotificationStorage {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{
-        decode_server_notification_cursor, encode_server_notification_cursor,
-        ServerNotificationCursor,
-    };
+    use super::{decode_server_notification_cursor, encode_server_notification_cursor, ServerNotificationCursor};
 
     #[test]
     fn server_notification_cursor_round_trip() {
-        let cursor = ServerNotificationCursor {
-            created_ts: 1_700_000_000_000,
-            id: 7,
-        };
+        let cursor = ServerNotificationCursor { created_ts: 1_700_000_000_000, id: 7 };
         let encoded = encode_server_notification_cursor(&cursor);
-        assert_eq!(
-            decode_server_notification_cursor(Some(&encoded)),
-            Some(cursor)
-        );
+        assert_eq!(decode_server_notification_cursor(Some(&encoded)), Some(cursor));
     }
 
     #[test]

@@ -15,19 +15,14 @@ pub fn encode_federation_blacklist_cursor(cursor: &FederationBlacklistCursor) ->
     format!("{}|{}", cursor.created_ts, cursor.server_name)
 }
 
-pub fn decode_federation_blacklist_cursor(
-    cursor: Option<&str>,
-) -> Option<FederationBlacklistCursor> {
+pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<FederationBlacklistCursor> {
     let cursor = cursor?;
     let (created_ts, server_name) = cursor.split_once('|')?;
     let created_ts = created_ts.parse::<i64>().ok()?;
     if server_name.is_empty() {
         return None;
     }
-    Some(FederationBlacklistCursor {
-        created_ts,
-        server_name: server_name.to_string(),
-    })
+    Some(FederationBlacklistCursor { created_ts, server_name: server_name.to_string() })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -142,10 +137,7 @@ impl FederationBlacklistStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn add_to_blacklist(
-        &self,
-        request: AddBlacklistRequest,
-    ) -> Result<FederationBlacklist, ApiError> {
+    pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
         let now = Utc::now().timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
@@ -181,16 +173,12 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn remove_from_blacklist(
-        &self,
-        server_name: &str,
-        performed_by: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         let now = Utc::now().timestamp_millis();
 
         sqlx::query(
             r"
-            UPDATE federation_blacklist 
+            UPDATE federation_blacklist
             SET is_enabled = false, updated_ts = $1
             WHERE server_name = $2
             ",
@@ -218,10 +206,7 @@ impl FederationBlacklistStorage {
         Ok(())
     }
 
-    pub async fn get_blacklist_entry(
-        &self,
-        server_name: &str,
-    ) -> Result<Option<FederationBlacklist>, ApiError> {
+    pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r"
             SELECT
@@ -266,7 +251,7 @@ impl FederationBlacklistStorage {
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r"
-            SELECT * FROM federation_blacklist 
+            SELECT * FROM federation_blacklist
             WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
             ",
         )
@@ -348,10 +333,7 @@ impl FederationBlacklistStorage {
         Ok((rows.into_iter().take(limit as usize).collect(), next_batch))
     }
 
-    pub async fn create_log(
-        &self,
-        request: CreateLogRequest,
-    ) -> Result<FederationBlacklistLog, ApiError> {
+    pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklistLog>(
@@ -379,15 +361,12 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn update_access_stats(
-        &self,
-        request: UpdateStatsRequest,
-    ) -> Result<FederationAccessStats, ApiError> {
+    pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationAccessStats>(
             r"
-            INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests, 
+            INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests,
                 last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
             VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
             ON CONFLICT (server_name) DO UPDATE SET
@@ -397,7 +376,7 @@ impl FederationBlacklistStorage {
                 last_request_ts = $4,
                 last_success_ts = COALESCE($5, federation_access_stats.last_success_ts),
                 last_failure_ts = COALESCE($6, federation_access_stats.last_failure_ts),
-                average_response_time_ms = CASE 
+                average_response_time_ms = CASE
                     WHEN $7 IS NOT NULL THEN (federation_access_stats.average_response_time_ms + $7) / 2
                     ELSE federation_access_stats.average_response_time_ms
                 END,
@@ -421,25 +400,18 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    pub async fn get_access_stats(
-        &self,
-        server_name: &str,
-    ) -> Result<Option<FederationAccessStats>, ApiError> {
-        let row = sqlx::query_as::<_, FederationAccessStats>(
-            "SELECT * FROM federation_access_stats WHERE server_name = $1",
-        )
-        .bind(server_name)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
+    pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
+        let row =
+            sqlx::query_as::<_, FederationAccessStats>("SELECT * FROM federation_access_stats WHERE server_name = $1")
+                .bind(server_name)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
 
         Ok(row)
     }
 
-    pub async fn create_rule(
-        &self,
-        request: CreateRuleRequest,
-    ) -> Result<FederationBlacklistRule, ApiError> {
+    pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistRule>(
@@ -469,7 +441,7 @@ impl FederationBlacklistStorage {
 
     pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         let rows = sqlx::query_as::<_, FederationBlacklistRule>(
-            "SELECT * FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC"
+            "SELECT * FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC",
         )
         .fetch_all(&*self.pool)
         .await
@@ -481,17 +453,14 @@ impl FederationBlacklistStorage {
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
         let result = sqlx::query(
-            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true"
+            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true",
         )
         .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired entries", &e))?;
 
-        info!(
-            "Cleaned up {} expired blacklist entries",
-            result.rows_affected()
-        );
+        info!("Cleaned up {} expired blacklist entries", result.rows_affected());
         Ok(result.rows_affected())
     }
 
@@ -499,42 +468,26 @@ impl FederationBlacklistStorage {
         Ok(None)
     }
 
-    pub fn get_config_as_bool(
-        &self,
-        _config_key: &str,
-        default: bool,
-    ) -> Result<bool, ApiError> {
+    pub fn get_config_as_bool(&self, _config_key: &str, default: bool) -> Result<bool, ApiError> {
         Ok(default)
     }
 
-    pub fn get_config_as_int(
-        &self,
-        _config_key: &str,
-        default: i32,
-    ) -> Result<i32, ApiError> {
+    pub fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
         Ok(default)
     }
 }
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{
-        decode_federation_blacklist_cursor, encode_federation_blacklist_cursor,
-        FederationBlacklistCursor,
-    };
+    use super::{decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, FederationBlacklistCursor};
 
     #[test]
     fn federation_blacklist_cursor_round_trip() {
-        let cursor = FederationBlacklistCursor {
-            created_ts: 1_746_700_000_000,
-            server_name: "matrix.example.com".to_string(),
-        };
+        let cursor =
+            FederationBlacklistCursor { created_ts: 1_746_700_000_000, server_name: "matrix.example.com".to_string() };
 
         let encoded = encode_federation_blacklist_cursor(&cursor);
-        assert_eq!(
-            decode_federation_blacklist_cursor(Some(&encoded)),
-            Some(cursor)
-        );
+        assert_eq!(decode_federation_blacklist_cursor(Some(&encoded)), Some(cursor));
     }
 
     #[test]

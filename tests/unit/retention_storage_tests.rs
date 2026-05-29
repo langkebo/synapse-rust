@@ -8,19 +8,14 @@ mod retention_storage_suite {
     };
 
     fn unique_suffix() -> u128 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     }
 
     async fn connect_pool() -> Option<std::sync::Arc<sqlx::PgPool>> {
         match get_test_pool_async().await {
             Ok(pool) => Some(pool),
             Err(error) => {
-                eprintln!(
-                    "Skipping retention storage tests because test database is unavailable: {error}"
-                );
+                eprintln!("Skipping retention storage tests because test database is unavailable: {error}");
                 None
             }
         }
@@ -30,21 +25,25 @@ mod retention_storage_suite {
         let creator = format!("@retentioncreator{suffix}:localhost");
         let room_id = format!("!retentionroom{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(&creator)
-            .bind(format!("retentioncreator{suffix}"))
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed creator");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(&creator)
+        .bind(format!("retentioncreator{suffix}"))
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed creator");
 
-        sqlx::query("INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING")
-            .bind(&room_id)
-            .bind(&creator)
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed room");
+        sqlx::query(
+            "INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING",
+        )
+        .bind(&room_id)
+        .bind(&creator)
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed room");
 
         (creator, room_id)
     }
@@ -118,10 +117,7 @@ mod retention_storage_suite {
         assert_eq!(updated.min_lifetime, 7_200_000);
         assert!(!updated.expire_on_clients);
 
-        let server_policy = storage
-            .get_server_policy()
-            .await
-            .expect("Failed to get server policy");
+        let server_policy = storage.get_server_policy().await.expect("Failed to get server policy");
 
         assert_eq!(server_policy.id, 1);
 
@@ -138,10 +134,7 @@ mod retention_storage_suite {
         assert_eq!(updated_server_policy.min_lifetime, 10_800_000);
         assert!(updated_server_policy.expire_on_clients);
 
-        let effective_policy = storage
-            .get_effective_policy(&room_id)
-            .await
-            .expect("Failed to get effective policy");
+        let effective_policy = storage.get_effective_policy(&room_id).await.expect("Failed to get effective policy");
 
         assert_eq!(effective_policy.max_lifetime, Some(172_800_000));
         assert_eq!(effective_policy.min_lifetime, 7_200_000);

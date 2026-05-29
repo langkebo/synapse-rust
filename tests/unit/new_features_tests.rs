@@ -21,10 +21,10 @@ mod storage_tests {
 
         // Invalid room IDs
         let invalid_room_ids = vec![
-            "room:localhost",      // Missing !
-            "!room",               // Missing colon
-            "!room:",              // Empty server name
-            "",                    // Empty
+            "room:localhost", // Missing !
+            "!room",          // Missing colon
+            "!room:",         // Empty server name
+            "",               // Empty
         ];
 
         for room_id in invalid_room_ids {
@@ -35,11 +35,7 @@ mod storage_tests {
     #[test]
     fn test_user_id_validation() {
         // Valid user IDs
-        let valid_user_ids = vec![
-            "@user:localhost",
-            "@alice:example.com",
-            "@test_user:matrix.org",
-        ];
+        let valid_user_ids = vec!["@user:localhost", "@alice:example.com", "@test_user:matrix.org"];
 
         for user_id in valid_user_ids {
             assert!(is_valid_user_id(user_id), "User ID {} should be valid", user_id);
@@ -47,10 +43,10 @@ mod storage_tests {
 
         // Invalid user IDs
         let invalid_user_ids = vec![
-            "user:localhost",     // Missing @
-            "@user",               // Missing :
-            "@user:",              // Empty server name
-            "",                    // Empty
+            "user:localhost", // Missing @
+            "@user",          // Missing :
+            "@user:",         // Empty server name
+            "",               // Empty
         ];
 
         for user_id in invalid_user_ids {
@@ -61,11 +57,7 @@ mod storage_tests {
     #[test]
     fn test_event_id_validation() {
         // Valid event IDs
-        let valid_event_ids = vec![
-            "$event:localhost",
-            "$abc123:example.com",
-            "$testevent:matrix.org",
-        ];
+        let valid_event_ids = vec!["$event:localhost", "$abc123:example.com", "$testevent:matrix.org"];
 
         for event_id in valid_event_ids {
             assert!(is_valid_event_id(event_id), "Event ID {} should be valid", event_id);
@@ -73,10 +65,10 @@ mod storage_tests {
 
         // Invalid event IDs
         let invalid_event_ids = vec![
-            "event:localhost",    // Missing $
-            "$event",             // Missing :
-            "$event:",            // Empty server name
-            "",                   // Empty
+            "event:localhost", // Missing $
+            "$event",          // Missing :
+            "$event:",         // Empty server name
+            "",                // Empty
         ];
 
         for event_id in invalid_event_ids {
@@ -107,9 +99,7 @@ mod storage_tests {
 
         // Test inserting and retrieving
         map.insert("room1".to_string(), vec!["@user1:localhost".to_string()]);
-        map.entry("room1".to_string())
-            .or_insert_with(Vec::new)
-            .push("@user2:localhost".to_string());
+        map.entry("room1".to_string()).or_insert_with(Vec::new).push("@user2:localhost".to_string());
 
         let users = map.get("room1");
         assert!(users.is_some());
@@ -149,10 +139,7 @@ mod common_tests {
     #[test]
     fn test_timestamp_conversions() {
         // Test converting SystemTime to milliseconds
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
 
         assert!(now > 0);
         assert!(now > 160_0000000000i64); // Should be after 2020
@@ -173,7 +160,7 @@ mod common_tests {
         // Test edge cases
         assert_eq!(decode_pagination_token("invalid"), None);
         assert_eq!(decode_pagination_token(""), None);
-        
+
         // Test zero
         let token = encode_pagination_token(0);
         let decoded = decode_pagination_token(&token).unwrap();
@@ -184,10 +171,10 @@ mod common_tests {
     fn test_room_alias_parsing() {
         // Test parsing room aliases
         let alias = "#room:localhost";
-        
+
         assert!(alias.starts_with('#'));
         assert!(alias.contains(':'));
-        
+
         let parts: Vec<&str> = alias.splitn(2, ':').collect();
         assert_eq!(parts[0], "#room");
         assert_eq!(parts[1], "localhost");
@@ -226,20 +213,14 @@ mod error_tests {
 
     #[test]
     fn test_error_display() {
-        let error = TestError {
-            message: "Test error message".to_string(),
-            code: 404,
-        };
+        let error = TestError { message: "Test error message".to_string(), code: 404 };
 
         assert_eq!(error.to_string(), "Test error message (code: 404)");
     }
 
     #[test]
     fn test_error_debug() {
-        let error = TestError {
-            message: "Test error".to_string(),
-            code: 500,
-        };
+        let error = TestError { message: "Test error".to_string(), code: 500 };
 
         let debug_str = format!("{:?}", error);
         assert!(debug_str.contains("TestError"));
@@ -253,23 +234,14 @@ mod config_tests {
     #[test]
     fn test_server_name_validation() {
         // Valid server names
-        let valid_names = vec![
-            "localhost",
-            "example.com",
-            "matrix.org",
-            "server.with.subdomain.example.com",
-        ];
+        let valid_names = vec!["localhost", "example.com", "matrix.org", "server.with.subdomain.example.com"];
 
         for name in valid_names {
             assert!(is_valid_server_name(name), "Server name {} should be valid", name);
         }
 
         // Invalid server names
-        let invalid_names = vec![
-            "",
-            "has spaces in.it",
-            "has:colon:init",
-        ];
+        let invalid_names = vec!["", "has spaces in.it", "has:colon:init"];
 
         for name in invalid_names {
             assert!(!is_valid_server_name(name), "Server name {} should be invalid", name);
@@ -297,7 +269,7 @@ mod config_tests {
     fn test_database_url_parsing() {
         // Test parsing database URLs
         let url = "postgresql://user:pass@localhost:5432/dbname";
-        
+
         assert!(url.starts_with("postgresql://"));
         assert!(url.contains('@'));
         assert!(url.contains(':'));
@@ -305,10 +277,7 @@ mod config_tests {
     }
 
     fn is_valid_server_name(name: &str) -> bool {
-        !name.is_empty() 
-            && !name.contains(' ')
-            && !name.contains(':')
-            && name.len() <= 253
+        !name.is_empty() && !name.contains(' ') && !name.contains(':') && name.len() <= 253
     }
 
     fn is_valid_port(port: i32) -> bool {
@@ -341,15 +310,15 @@ mod cache_tests {
     #[test]
     fn test_cache_expiry_simulation() {
         let mut cache: HashMap<String, (String, u64)> = HashMap::new();
-        
+
         let current_time = 1000u64;
-        
+
         // Insert with expiry
         cache.insert("key1".to_string(), ("value1".to_string(), current_time + 100));
-        
+
         // Check not expired
         assert!(!is_expired(&cache, "key1", current_time));
-        
+
         // Check expired
         assert!(is_expired(&cache, "key1", current_time + 200));
     }
@@ -365,7 +334,7 @@ mod cache_tests {
     #[test]
     fn test_cache_concurrent_access() {
         let cache: Arc<Mutex<HashMap<String, i32>>> = Arc::new(Mutex::new(HashMap::new()));
-        
+
         // Simulate concurrent increments
         for _ in 0..100 {
             let cache = cache.clone();
@@ -374,7 +343,7 @@ mod cache_tests {
                 *guard.entry("counter".to_string()).or_insert(0) += 1;
             });
         }
-        
+
         // Note: In real test, would need to wait for threads
         let guard = cache.lock().unwrap();
         assert!(guard.contains_key("counter"));
@@ -395,13 +364,7 @@ mod event_tests {
 
     #[test]
     fn test_membership_states() {
-        let valid_memberships = vec![
-            "join",
-            "leave",
-            "invite",
-            "ban",
-            "knock",
-        ];
+        let valid_memberships = vec!["join", "leave", "invite", "ban", "knock"];
 
         for membership in valid_memberships {
             assert!(is_valid_membership(membership), "Membership {} should be valid", membership);
@@ -410,11 +373,7 @@ mod event_tests {
 
     #[test]
     fn test_presence_states() {
-        let valid_presence = vec![
-            "online",
-            "offline",
-            "unavailable",
-        ];
+        let valid_presence = vec!["online", "offline", "unavailable"];
 
         for p in valid_presence {
             assert!(is_valid_presence(p), "Presence {} should be valid", p);

@@ -6,7 +6,9 @@ import os
 import glob
 import json
 
-MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations")
+MIGRATIONS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations"
+)
 ACTIVE_PATTERNS = [
     "00000000_unified_schema_v6.sql",
     "00000001_extensions_*.sql",
@@ -114,7 +116,7 @@ def extract_rust_structs():
 
                 # Collect sqlx(rename) and sqlx(skip) attributes before the struct body
                 block_start = m.start()
-                preceding = content[block_start:m.start()]
+                preceding = content[block_start : m.start()]
 
                 # Parse each field, tracking preceding attribute lines
                 pending_rename = None
@@ -125,8 +127,10 @@ def extract_rust_structs():
                         # Check if this is an attribute line
                         attr_fl = fl.strip()
                         if attr_fl.startswith("#["):
-                            rename_m = re.search(r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', attr_fl)
-                            skip_m = re.search(r'#\[\s*sqlx\(skip\)\]', attr_fl)
+                            rename_m = re.search(
+                                r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', attr_fl
+                            )
+                            skip_m = re.search(r"#\[\s*sqlx\(skip\)\]", attr_fl)
                             if rename_m:
                                 pending_rename = rename_m.group(1)
                             if skip_m:
@@ -134,11 +138,13 @@ def extract_rust_structs():
                         continue
 
                     # Check for sqlx attribute on this field (same line)
-                    rename_m = re.search(r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', fl)
-                    skip_m = re.search(r'#\[\s*sqlx\(skip\)\]', fl)
+                    rename_m = re.search(
+                        r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', fl
+                    )
+                    skip_m = re.search(r"#\[\s*sqlx\(skip\)\]", fl)
 
                     if skip_m or pending_skip:
-                        fm = re.search(r'pub\s+(\w+)\s*:', fl)
+                        fm = re.search(r"pub\s+(\w+)\s*:", fl)
                         if fm:
                             skip_fields.add(fm.group(1))
                         pending_skip = False
@@ -152,7 +158,7 @@ def extract_rust_structs():
                     else:
                         db_name = None
 
-                    fm = re.match(r'pub\s+(\w+)\s*:\s*(.+)', fl)
+                    fm = re.match(r"pub\s+(\w+)\s*:\s*(.+)", fl)
                     if fm:
                         fname_field = fm.group(1)
                         ftype = fm.group(2).strip()
@@ -209,7 +215,7 @@ def _extract_struct_table_mapping(rust_dir, structs):
                 sql_text = m.group(2)
                 if sname not in structs:
                     continue
-                from_m = re.search(r'\bFROM\s+(\w+)', sql_text, re.IGNORECASE)
+                from_m = re.search(r"\bFROM\s+(\w+)", sql_text, re.IGNORECASE)
                 if from_m:
                     tname = from_m.group(1)
                     if sname not in mapping:
@@ -218,21 +224,34 @@ def _extract_struct_table_mapping(rust_dir, structs):
                 # Extract AS aliases: "column_name AS alias_name" or "expr as alias_name"
                 aliases = {}
                 for alias_m in re.finditer(
-                    r'(?:COALESCE\([^)]+\)|[\w.]+)\s+[Aa][Ss]\s+(\w+)',
+                    r"(?:COALESCE\([^)]+\)|[\w.]+)\s+[Aa][Ss]\s+(\w+)",
                     sql_text,
                 ):
                     alias_name = alias_m.group(1)
                     # Find the source column
                     full_expr = alias_m.group(0)
                     # Simple case: "column_name AS alias"
-                    simple_col = re.match(r'(\w+)\s+[Aa][Ss]\s+', full_expr)
+                    simple_col = re.match(r"(\w+)\s+[Aa][Ss]\s+", full_expr)
                     if simple_col:
                         source_col = simple_col.group(1)
-                        if source_col.upper() not in ('COALESCE', 'NULLIF', 'CAST', 'CASE', 'EXTRACT', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN'):
+                        if source_col.upper() not in (
+                            "COALESCE",
+                            "NULLIF",
+                            "CAST",
+                            "CASE",
+                            "EXTRACT",
+                            "COUNT",
+                            "SUM",
+                            "AVG",
+                            "MAX",
+                            "MIN",
+                        ):
                             aliases[alias_name] = source_col
                     else:
                         # Complex expression like COALESCE(col, default) AS alias
-                        coal_m = re.search(r'COALESCE\(\s*(\w+)', full_expr, re.IGNORECASE)
+                        coal_m = re.search(
+                            r"COALESCE\(\s*(\w+)", full_expr, re.IGNORECASE
+                        )
                         if coal_m:
                             aliases[alias_name] = coal_m.group(1)
 
@@ -260,7 +279,7 @@ def rust_type_to_sql_type(rust_type):
     if "serde_json::Value" in rt or "json" in rt.lower():
         return "JSONB"
     if "Option<" in rt:
-        inner = re.sub(r'Option<(.*)>', r'\1', rt)
+        inner = re.sub(r"Option<(.*)>", r"\1", rt)
         return rust_type_to_sql_type(inner) + "_NULLABLE"
     return rt
 
@@ -272,8 +291,8 @@ def infer_table_from_struct(struct_name, sql_tables):
         struct_name.lower() + "s",
         struct_name.lower().replace("_", ""),
         struct_name.lower(),
-        re.sub(r'(?<!^)(?=[A-Z])', '_', struct_name).lower(),
-        re.sub(r'(?<!^)(?=[A-Z])', '_', struct_name).lower() + "s",
+        re.sub(r"(?<!^)(?=[A-Z])", "_", struct_name).lower(),
+        re.sub(r"(?<!^)(?=[A-Z])", "_", struct_name).lower() + "s",
     ]
     for c in candidates:
         if c in sql_tables:
@@ -303,12 +322,14 @@ def compare_schema_vs_code(sql_tables, rust_structs):
             tname = infer_table_from_struct(sname, sql_tables)
         if not tname:
             rust_orphan.discard(sname)
-            issues["info"].append({
-                "type": "NO_TABLE_MATCH",
-                "struct": sname,
-                "file": sinfo["file"],
-                "detail": f"Struct '{sname}' has no obvious matching SQL table"
-            })
+            issues["info"].append(
+                {
+                    "type": "NO_TABLE_MATCH",
+                    "struct": sname,
+                    "file": sinfo["file"],
+                    "detail": f"Struct '{sname}' has no obvious matching SQL table",
+                }
+            )
             continue
 
         rust_orphan.discard(sname)
@@ -337,44 +358,54 @@ def compare_schema_vs_code(sql_tables, rust_structs):
 
         # Check: SQL columns that have no matching Rust field
         for cname, cdef in sorted(sql_cols.items()):
-            if cname not in db_to_rust and cname not in [r[0] for r in renames.values()] and cname not in skips:
+            if (
+                cname not in db_to_rust
+                and cname not in [r[0] for r in renames.values()]
+                and cname not in skips
+            ):
                 c_upper = cdef.upper()
                 is_nullable = "NOT NULL" not in c_upper or "DEFAULT" in c_upper
                 has_default = "DEFAULT" in c_upper
 
                 if "NOT NULL" in c_upper and not has_default:
-                    issues["high"].append({
-                        "type": "SQL_COLUMN_WITHOUT_RUST_FIELD",
-                        "table": tname,
-                        "struct": sname,
-                        "column": cname,
-                        "col_def": cdef.strip(),
-                        "detail": f"SQL column '{cname}' ({cdef.strip()}) has no matching Rust field in {sname}"
-                    })
+                    issues["high"].append(
+                        {
+                            "type": "SQL_COLUMN_WITHOUT_RUST_FIELD",
+                            "table": tname,
+                            "struct": sname,
+                            "column": cname,
+                            "col_def": cdef.strip(),
+                            "detail": f"SQL column '{cname}' ({cdef.strip()}) has no matching Rust field in {sname}",
+                        }
+                    )
                 else:
-                    issues["low"].append({
-                        "type": "SQL_COLUMN_UNUSED_BY_RUST",
-                        "table": tname,
-                        "struct": sname,
-                        "column": cname,
-                        "col_def": cdef.strip(),
-                        "detail": f"SQL column '{cname}' not mapped to any Rust field (nullable/has_default)"
-                    })
+                    issues["low"].append(
+                        {
+                            "type": "SQL_COLUMN_UNUSED_BY_RUST",
+                            "table": tname,
+                            "struct": sname,
+                            "column": cname,
+                            "col_def": cdef.strip(),
+                            "detail": f"SQL column '{cname}' not mapped to any Rust field (nullable/has_default)",
+                        }
+                    )
 
         # Check: Rust fields with no matching SQL column
         for db_name, (fname, ftype) in db_to_rust.items():
             if db_name not in sql_cols:
                 is_option = "Option<" in ftype
                 target = issues["critical"] if not is_option else issues["high"]
-                target.append({
-                    "type": "RUST_FIELD_WITHOUT_SQL_COLUMN",
-                    "table": tname,
-                    "struct": sname,
-                    "field": fname,
-                    "db_name": db_name,
-                    "rust_type": ftype,
-                    "detail": f"Rust field '{fname}: {ftype}' maps to SQL column '{db_name}' which does not exist in table '{tname}'"
-                })
+                target.append(
+                    {
+                        "type": "RUST_FIELD_WITHOUT_SQL_COLUMN",
+                        "table": tname,
+                        "struct": sname,
+                        "field": fname,
+                        "db_name": db_name,
+                        "rust_type": ftype,
+                        "detail": f"Rust field '{fname}: {ftype}' maps to SQL column '{db_name}' which does not exist in table '{tname}'",
+                    }
+                )
 
         # Check type mismatches for matched columns
         for db_name, (fname, ftype) in db_to_rust.items():
@@ -388,39 +419,45 @@ def compare_schema_vs_code(sql_tables, rust_structs):
             is_rust_nullable = "Option<" in ftype
 
             if is_sql_nullable and not is_rust_nullable:
-                issues["high"].append({
-                    "type": "NULLABILITY_MISMATCH_SQL_NULLABLE_RUST_NOT",
-                    "table": tname,
-                    "struct": sname,
-                    "field": fname,
-                    "db_column": db_name,
-                    "rust_type": ftype,
-                    "sql_def": sql_cols[db_name].strip(),
-                    "detail": f"SQL column '{db_name}' is nullable but Rust field '{fname}: {ftype}' is not Option"
-                })
+                issues["high"].append(
+                    {
+                        "type": "NULLABILITY_MISMATCH_SQL_NULLABLE_RUST_NOT",
+                        "table": tname,
+                        "struct": sname,
+                        "field": fname,
+                        "db_column": db_name,
+                        "rust_type": ftype,
+                        "sql_def": sql_cols[db_name].strip(),
+                        "detail": f"SQL column '{db_name}' is nullable but Rust field '{fname}: {ftype}' is not Option",
+                    }
+                )
             elif not is_sql_nullable and is_rust_nullable:
-                issues["medium"].append({
-                    "type": "NULLABILITY_MISMATCH_SQL_NOT_NULL_RUST_OPTIONAL",
-                    "table": tname,
-                    "struct": sname,
-                    "field": fname,
-                    "db_column": db_name,
-                    "rust_type": ftype,
-                    "sql_def": sql_cols[db_name].strip(),
-                    "detail": f"SQL column '{db_name}' is NOT NULL but Rust field '{fname}: {ftype}' is Option (overly permissive)"
-                })
+                issues["medium"].append(
+                    {
+                        "type": "NULLABILITY_MISMATCH_SQL_NOT_NULL_RUST_OPTIONAL",
+                        "table": tname,
+                        "struct": sname,
+                        "field": fname,
+                        "db_column": db_name,
+                        "rust_type": ftype,
+                        "sql_def": sql_cols[db_name].strip(),
+                        "detail": f"SQL column '{db_name}' is NOT NULL but Rust field '{fname}: {ftype}' is Option (overly permissive)",
+                    }
+                )
 
     # Report orphan tables (SQL only, no Rust struct)
     for tname in sorted(sql_orphan):
         cols = sql_tables[tname]["columns"]
         src = sql_tables[tname]["source"]
-        issues["low"].append({
-            "type": "TABLE_NO_RUST_STRUCT",
-            "table": tname,
-            "source": src,
-            "columns": len(cols),
-            "detail": f"Table '{tname}' ({len(cols)} columns) has no matching Rust FromRow struct"
-        })
+        issues["low"].append(
+            {
+                "type": "TABLE_NO_RUST_STRUCT",
+                "table": tname,
+                "source": src,
+                "columns": len(cols),
+                "detail": f"Table '{tname}' ({len(cols)} columns) has no matching Rust FromRow struct",
+            }
+        )
 
     return {
         "issues": issues,
@@ -458,9 +495,15 @@ def main():
     report_lines = []
     report_lines.append("# Database Migration Full Audit Report")
     report_lines.append("")
-    report_lines.append(f"> **Date**: {__import__('datetime').date.today().isoformat()}")
-    report_lines.append(f"> **Scope**: All active migration files vs all `FromRow` Rust structs")
-    report_lines.append(f"> **SQL Tables**: {len(sql_tables)} | **Rust Structs**: {len(rust_structs)} | **Matched Pairs**: {len(result['matched_pairs'])}")
+    report_lines.append(
+        f"> **Date**: {__import__('datetime').date.today().isoformat()}"
+    )
+    report_lines.append(
+        f"> **Scope**: All active migration files vs all `FromRow` Rust structs"
+    )
+    report_lines.append(
+        f"> **SQL Tables**: {len(sql_tables)} | **Rust Structs**: {len(rust_structs)} | **Matched Pairs**: {len(result['matched_pairs'])}"
+    )
     report_lines.append("")
 
     # Summary
@@ -469,10 +512,18 @@ def main():
     report_lines.append("")
     report_lines.append(f"| Severity | Count | Description |")
     report_lines.append(f"|----------|-------|-------------|")
-    report_lines.append(f"| CRITICAL | {len(issues['critical'])} | Runtime crash (missing column / type panic) |")
-    report_lines.append(f"| HIGH | {len(issues['high'])} | Conditional runtime error (nullable mismatch, missing field) |")
-    report_lines.append(f"| MEDIUM | {len(issues['medium'])} | Naming inconsistency / overly permissive types |")
-    report_lines.append(f"| LOW | {len(issues['low'])} | Unused SQL column / no Rust struct |")
+    report_lines.append(
+        f"| CRITICAL | {len(issues['critical'])} | Runtime crash (missing column / type panic) |"
+    )
+    report_lines.append(
+        f"| HIGH | {len(issues['high'])} | Conditional runtime error (nullable mismatch, missing field) |"
+    )
+    report_lines.append(
+        f"| MEDIUM | {len(issues['medium'])} | Naming inconsistency / overly permissive types |"
+    )
+    report_lines.append(
+        f"| LOW | {len(issues['low'])} | Unused SQL column / no Rust struct |"
+    )
     report_lines.append(f"| INFO | {len(issues['info'])} | Informational only |")
     report_lines.append(f"| **Total** | **{total_issues}** | |")
     report_lines.append("")
@@ -480,8 +531,12 @@ def main():
     # Matched pairs
     report_lines.append("## Matched Table-Struct Pairs")
     report_lines.append("")
-    report_lines.append(f"| SQL Table | Rust Struct | SQL Cols | Rust Fields | Source |")
-    report_lines.append(f"|----------|-------------|----------|--------------|--------|")
+    report_lines.append(
+        f"| SQL Table | Rust Struct | SQL Cols | Rust Fields | Source |"
+    )
+    report_lines.append(
+        f"|----------|-------------|----------|--------------|--------|"
+    )
     for tname, sname in sorted(result["matched_pairs"], key=lambda x: x[0]):
         scols = len(sql_tables[tname]["columns"])
         rfields = len(rust_structs[sname]["fields"])
@@ -515,7 +570,9 @@ def main():
         report_lines.append("|-------|---------|--------|")
         for tname in result["sql_orphans"]:
             tdef = sql_tables[tname]
-            report_lines.append(f"`{tname}` | {len(tdef['columns'])} | {tdef['source']} |")
+            report_lines.append(
+                f"`{tname}` | {len(tdef['columns'])} | {tdef['source']} |"
+            )
         report_lines.append("")
 
     # Orphan structs
@@ -526,7 +583,9 @@ def main():
         report_lines.append("|--------|--------|------|")
         for sname in result["rust_orphans"]:
             sinfo = rust_structs[sname]
-            report_lines.append(f"`{sname}` | {len(sinfo['fields'])} | {sinfo['file']} |")
+            report_lines.append(
+                f"`{sname}` | {len(sinfo['fields'])} | {sinfo['file']} |"
+            )
         report_lines.append("")
 
     # Write report
@@ -553,16 +612,19 @@ def main():
         "matched_pairs": result["matched_pairs"],
         "sql_orphans": result["sql_orphans"],
         "rust_orphans": result["rust_orphans"],
-        "sql_tables": {k: {"columns": v["columns"], "source": v["source"]} for k, v in sql_tables.items()},
+        "sql_tables": {
+            k: {"columns": v["columns"], "source": v["source"]}
+            for k, v in sql_tables.items()
+        },
         "rust_structs": rust_structs,
     }
     with open(json_out, "w") as f:
         json.dump(output, f, indent=2, default=str)
 
     # Print summary to console
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("AUDIT SUMMARY")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"  SQL Tables:       {len(sql_tables)}")
     print(f"  Rust Structs:     {len(rust_structs)}")
     print(f"  Matched Pairs:    {len(result['matched_pairs'])}")
@@ -575,7 +637,7 @@ def main():
     print(f"  LOW issues:       {len(issues['low'])}")
     print(f"  INFO items:       {len(issues['info'])}")
     print(f"  TOTAL issues:     {total_issues}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
 
 if __name__ == "__main__":

@@ -9,10 +9,7 @@ pub struct ContentScanner {
 
 impl ContentScanner {
     pub fn new(config: ContentScannerConfig) -> Self {
-        Self {
-            config,
-            http_client: reqwest::Client::new(),
-        }
+        Self { config, http_client: reqwest::Client::new() }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -66,9 +63,7 @@ impl ContentScanner {
         let mut reader = BufReader::new(&stream);
         let mut writer = BufWriter::new(&stream);
 
-        writer
-            .write_all(b"zINSTREAM\0")
-            .map_err(|e| ApiError::internal_with_log("Failed to send INSTREAM", &e))?;
+        writer.write_all(b"zINSTREAM\0").map_err(|e| ApiError::internal_with_log("Failed to send INSTREAM", &e))?;
 
         let chunk_size = 1024 * 1024;
         let mut remaining = data;
@@ -80,50 +75,29 @@ impl ContentScanner {
             let mut length_buf = [0u8; 4];
             length_buf[0..4].copy_from_slice(&(to_send as u32).to_be_bytes());
 
-            writer
-                .write_all(&length_buf)
-                .map_err(|e| ApiError::internal_with_log("Failed to send length", &e))?;
-            writer
-                .write_all(chunk)
-                .map_err(|e| ApiError::internal_with_log("Failed to send chunk", &e))?;
+            writer.write_all(&length_buf).map_err(|e| ApiError::internal_with_log("Failed to send length", &e))?;
+            writer.write_all(chunk).map_err(|e| ApiError::internal_with_log("Failed to send chunk", &e))?;
 
             remaining = &remaining[to_send..];
         }
 
-        writer
-            .write_all(&[0, 0, 0, 0])
-            .map_err(|e| ApiError::internal_with_log("Failed to send terminator", &e))?;
-        writer
-            .flush()
-            .map_err(|e| ApiError::internal_with_log("Failed to flush", &e))?;
+        writer.write_all(&[0, 0, 0, 0]).map_err(|e| ApiError::internal_with_log("Failed to send terminator", &e))?;
+        writer.flush().map_err(|e| ApiError::internal_with_log("Failed to flush", &e))?;
 
         let mut response = String::new();
-        reader
-            .read_line(&mut response)
-            .map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
+        reader.read_line(&mut response).map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
 
         let is_safe = response.starts_with("stream: OK");
 
         Ok(ContentScanResult {
             safe: is_safe,
-            threat_type: if is_safe {
-                None
-            } else {
-                Some("virus".to_string())
-            },
-            threat_message: if is_safe {
-                None
-            } else {
-                Some(response.trim().to_string())
-            },
+            threat_type: if is_safe { None } else { Some("virus".to_string()) },
+            threat_message: if is_safe { None } else { Some(response.trim().to_string()) },
             scan_timestamp: chrono::Utc::now().timestamp_millis(),
         })
     }
 
-    async fn scan_with_webhook(
-        &self,
-        request: &ScanRequest,
-    ) -> Result<ContentScanResult, ApiError> {
+    async fn scan_with_webhook(&self, request: &ScanRequest) -> Result<ContentScanResult, ApiError> {
         let webhook_url = self
             .config
             .webhook_url
@@ -144,20 +118,14 @@ impl ContentScanner {
             req_builder = req_builder.header("X-Webhook-Secret", secret);
         }
 
-        let response = timeout(
-            Duration::from_millis(self.config.scan_timeout_ms),
-            req_builder.send(),
-        )
-        .await
-        .map_err(|_| ApiError::internal("Webhook request timeout".to_string()))?
-        .map_err(|e| ApiError::internal_with_log("Webhook request failed", &e))?;
+        let response = timeout(Duration::from_millis(self.config.scan_timeout_ms), req_builder.send())
+            .await
+            .map_err(|_| ApiError::internal("Webhook request timeout".to_string()))?
+            .map_err(|e| ApiError::internal_with_log("Webhook request failed", &e))?;
 
         if !response.status().is_success() {
             if self.config.block_on_scan_failure {
-                return Err(ApiError::internal_with_log(
-                    "Webhook scan failed",
-                    &response.status(),
-                ));
+                return Err(ApiError::internal_with_log("Webhook scan failed", &response.status()));
             }
             return Ok(ContentScanResult {
                 safe: true,
@@ -167,10 +135,8 @@ impl ContentScanner {
             });
         }
 
-        let scan_response: WebhookScanResponse = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse webhook response", &e))?;
+        let scan_response: WebhookScanResponse =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse webhook response", &e))?;
 
         Ok(ContentScanResult {
             safe: scan_response.safe,
@@ -180,11 +146,7 @@ impl ContentScanner {
         })
     }
 
-    pub async fn scan_text(
-        &self,
-        content_id: &str,
-        text: &str,
-    ) -> Result<ContentScanResult, ApiError> {
+    pub async fn scan_text(&self, content_id: &str, text: &str) -> Result<ContentScanResult, ApiError> {
         self.scan(ScanRequest {
             content_id: content_id.to_string(),
             content_type: ContentType::MessageText,
@@ -199,11 +161,6 @@ impl ContentScanner {
         data: Vec<u8>,
         media_type: ContentType,
     ) -> Result<ContentScanResult, ApiError> {
-        self.scan(ScanRequest {
-            content_id: content_id.to_string(),
-            content_type: media_type,
-            data,
-        })
-        .await
+        self.scan(ScanRequest { content_id: content_id.to_string(), content_type: media_type, data }).await
     }
 }

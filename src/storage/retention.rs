@@ -144,10 +144,7 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn get_room_policy(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
+    pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             "SELECT id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
         )
@@ -225,36 +222,22 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    pub async fn get_effective_policy(
-        &self,
-        room_id: &str,
-    ) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
+    pub async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
         let room_policy = self.get_room_policy(room_id).await?;
         let server_policy = self.get_server_policy().await?;
 
         Ok(EffectiveRetentionPolicy {
-            max_lifetime: room_policy
-                .as_ref()
-                .and_then(|p| p.max_lifetime)
-                .or(server_policy.max_lifetime),
-            min_lifetime: room_policy
-                .as_ref()
-                .map_or(server_policy.min_lifetime, |p| p.min_lifetime),
-            expire_on_clients: room_policy
-                .as_ref()
-                .map_or(server_policy.expire_on_clients, |p| p.expire_on_clients),
+            max_lifetime: room_policy.as_ref().and_then(|p| p.max_lifetime).or(server_policy.max_lifetime),
+            min_lifetime: room_policy.as_ref().map_or(server_policy.min_lifetime, |p| p.min_lifetime),
+            expire_on_clients: room_policy.as_ref().map_or(server_policy.expire_on_clients, |p| p.expire_on_clients),
         })
     }
 
-    pub async fn delete_events_before(
-        &self,
-        room_id: &str,
-        cutoff_ts: i64,
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r"
-            DELETE FROM events 
-            WHERE room_id = $1 
+            DELETE FROM events
+            WHERE room_id = $1
             AND origin_server_ts < $2
             AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
             AND state_key IS NULL
@@ -358,22 +341,15 @@ mod tests {
 
     #[test]
     fn test_effective_retention_policy() {
-        let policy = EffectiveRetentionPolicy {
-            max_lifetime: Some(86_400_000),
-            min_lifetime: 0,
-            expire_on_clients: true,
-        };
+        let policy =
+            EffectiveRetentionPolicy { max_lifetime: Some(86_400_000), min_lifetime: 0, expire_on_clients: true };
         assert_eq!(policy.max_lifetime, Some(86_400_000));
         assert!(policy.expire_on_clients);
     }
 
     #[test]
     fn test_effective_retention_policy_no_max_lifetime() {
-        let policy = EffectiveRetentionPolicy {
-            max_lifetime: None,
-            min_lifetime: 0,
-            expire_on_clients: false,
-        };
+        let policy = EffectiveRetentionPolicy { max_lifetime: None, min_lifetime: 0, expire_on_clients: false };
         assert!(policy.max_lifetime.is_none());
     }
 }

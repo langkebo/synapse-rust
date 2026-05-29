@@ -13,18 +13,21 @@ impl DehydratedDeviceService {
     }
 
     pub async fn get_device(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
-        let record =
-            self.storage.get_by_user(user_id).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to load dehydrated device", &e)
-            })?;
+        let record = self
+            .storage
+            .get_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device", &e))?;
 
         Ok(record.map(Self::record_to_response))
     }
 
     pub async fn get_status(&self, user_id: &str) -> Result<Value, ApiError> {
-        let record = self.storage.get_by_user(user_id).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to load dehydrated device status", &e)
-        })?;
+        let record = self
+            .storage
+            .get_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device status", &e))?;
 
         if let Some(record) = record {
             Ok(serde_json::json!({
@@ -43,10 +46,8 @@ impl DehydratedDeviceService {
     }
 
     pub async fn put_device(&self, user_id: &str, body: Value) -> Result<String, ApiError> {
-        let mut payload = body
-            .as_object()
-            .cloned()
-            .ok_or_else(|| ApiError::bad_request("Expected a JSON object body"))?;
+        let mut payload =
+            body.as_object().cloned().ok_or_else(|| ApiError::bad_request("Expected a JSON object body"))?;
         let existing_device_id = self.existing_device_id(user_id).await;
 
         let device_id = payload
@@ -83,34 +84,33 @@ impl DehydratedDeviceService {
     }
 
     async fn existing_device_id(&self, user_id: &str) -> Option<String> {
-        self.storage
-            .get_by_user(user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|record| record.device_id)
+        self.storage.get_by_user(user_id).await.ok().flatten().map(|record| record.device_id)
     }
 
     pub async fn delete_device(&self, user_id: &str) -> Result<bool, ApiError> {
-        let rows = self.storage.delete_by_user(user_id).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to delete dehydrated device", &e)
-        })?;
+        let rows = self
+            .storage
+            .delete_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete dehydrated device", &e))?;
         Ok(rows > 0)
     }
 
     pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
-        self.storage.delete_by_user(user_id).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to delete all dehydrated devices for user", &e)
-        })?;
+        self.storage
+            .delete_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete all dehydrated devices for user", &e))?;
         Ok(())
     }
 
     /// Background sweep: deletes expired dehydrated devices (and their pending
     /// to-device messages). Returns the number of devices removed.
     pub async fn sweep_expired(&self) -> Result<u64, ApiError> {
-        self.storage.sweep_expired().await.map_err(|e| {
-            ApiError::internal_with_log("Failed to sweep expired dehydrated devices", &e)
-        })
+        self.storage
+            .sweep_expired()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to sweep expired dehydrated devices", &e))
     }
 
     /// Claim a batch of to-device events addressed to a dehydrated device.
@@ -134,9 +134,7 @@ impl DehydratedDeviceService {
             .ok_or_else(|| ApiError::not_found("No dehydrated device for this user"))?;
 
         if record.device_id != device_id {
-            return Err(ApiError::not_found(
-                "Dehydrated device id does not match the stored device",
-            ));
+            return Err(ApiError::not_found("Dehydrated device id does not match the stored device"));
         }
 
         let since: i64 = next_batch
@@ -149,11 +147,8 @@ impl DehydratedDeviceService {
 
         let limit = limit.clamp(1, 100);
 
-        let (events, max_stream_id) = self
-            .storage
-            .claim_to_device_events(user_id, device_id, since, limit)
-            .await
-            .map_err(|e| {
+        let (events, max_stream_id) =
+            self.storage.claim_to_device_events(user_id, device_id, since, limit).await.map_err(|e| {
                 ApiError::internal_with_log("Failed to fetch to-device events for dehydrated device", &e)
             })?;
 
@@ -164,10 +159,7 @@ impl DehydratedDeviceService {
     }
 
     fn generate_device_id() -> String {
-        format!(
-            "DEHYDRATED{}",
-            uuid::Uuid::new_v4().simple().to_string()[..10].to_ascii_uppercase()
-        )
+        format!("DEHYDRATED{}", uuid::Uuid::new_v4().simple().to_string()[..10].to_ascii_uppercase())
     }
 
     fn record_to_response(record: DehydratedDevice) -> Value {
@@ -178,25 +170,13 @@ impl DehydratedDeviceService {
 
         match record.device_data {
             Value::Object(mut map) => {
-                Self::ensure_response_fields(
-                    &mut map,
-                    &device_id,
-                    &algorithm,
-                    account.as_ref(),
-                    expires_at,
-                );
+                Self::ensure_response_fields(&mut map, &device_id, &algorithm, account.as_ref(), expires_at);
                 Value::Object(map)
             }
             other => {
                 let mut map = Map::new();
                 map.insert("device_data".to_string(), other);
-                Self::ensure_response_fields(
-                    &mut map,
-                    &device_id,
-                    &algorithm,
-                    account.as_ref(),
-                    expires_at,
-                );
+                Self::ensure_response_fields(&mut map, &device_id, &algorithm, account.as_ref(), expires_at);
                 Value::Object(map)
             }
         }
@@ -209,19 +189,13 @@ impl DehydratedDeviceService {
         account: Option<&Value>,
         expires_at: Option<i64>,
     ) {
-        map.insert(
-            "device_id".to_string(),
-            Value::String(device_id.to_string()),
-        );
-        map.entry("algorithm".to_string())
-            .or_insert_with(|| Value::String(algorithm.to_string()));
+        map.insert("device_id".to_string(), Value::String(device_id.to_string()));
+        map.entry("algorithm".to_string()).or_insert_with(|| Value::String(algorithm.to_string()));
         if let Some(account) = account {
-            map.entry("account".to_string())
-                .or_insert_with(|| account.clone());
+            map.entry("account".to_string()).or_insert_with(|| account.clone());
         }
         if let Some(expires_at) = expires_at {
-            map.entry("expires_at".to_string())
-                .or_insert_with(|| Value::from(expires_at));
+            map.entry("expires_at".to_string()).or_insert_with(|| Value::from(expires_at));
         }
     }
 }

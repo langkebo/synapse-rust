@@ -21,12 +21,7 @@ pub struct DeviceKeyService {
 
 impl DeviceKeyService {
     pub fn new(storage: DeviceKeyStorage, cache: Arc<CacheManager>) -> Self {
-        Self {
-            storage,
-            cross_signing_storage: None,
-            dehydrated_device_storage: None,
-            cache,
-        }
+        Self { storage, cross_signing_storage: None, dehydrated_device_storage: None, cache }
     }
 
     pub fn with_cross_signing_storage(mut self, storage: Arc<CrossSigningStorage>) -> Self {
@@ -48,8 +43,7 @@ impl DeviceKeyService {
         request: KeyQueryRequest,
         local_server_name: &str,
     ) -> Result<KeyQueryResponse, ApiError> {
-        self.query_keys_internal(request, Some(local_server_name))
-            .await
+        self.query_keys_internal(request, Some(local_server_name)).await
     }
 
     async fn query_keys_internal(
@@ -69,10 +63,7 @@ impl DeviceKeyService {
                 }
 
                 let device_ids: Vec<String> = if let Some(arr) = device_ids.as_array() {
-                    let ids: Vec<String> = arr
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
+                    let ids: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
                     if ids.is_empty() {
                         vec!["*".to_string()]
                     } else {
@@ -83,29 +74,22 @@ impl DeviceKeyService {
                 };
 
                 let cache_key = format!("device_keys_bulk:{user_id}");
-                let cached_user_keys: Option<serde_json::Map<String, Value>> = match self
-                    .cache
-                    .get::<serde_json::Map<String, Value>>(&cache_key)
-                    .await
-                {
-                    Ok(Some(cached)) => {
-                        let filtered: serde_json::Map<String, Value> =
-                            if device_ids.contains(&"*".to_string()) {
+                let cached_user_keys: Option<serde_json::Map<String, Value>> =
+                    match self.cache.get::<serde_json::Map<String, Value>>(&cache_key).await {
+                        Ok(Some(cached)) => {
+                            let filtered: serde_json::Map<String, Value> = if device_ids.contains(&"*".to_string()) {
                                 cached
                             } else {
-                                cached
-                                    .into_iter()
-                                    .filter(|(k, _)| device_ids.contains(k))
-                                    .collect()
+                                cached.into_iter().filter(|(k, _)| device_ids.contains(k)).collect()
                             };
-                        if filtered.is_empty() {
-                            None
-                        } else {
-                            Some(filtered)
+                            if filtered.is_empty() {
+                                None
+                            } else {
+                                Some(filtered)
+                            }
                         }
-                    }
-                    _ => None,
-                };
+                        _ => None,
+                    };
 
                 let mut user_keys = if let Some(cached) = cached_user_keys {
                     cached
@@ -113,9 +97,7 @@ impl DeviceKeyService {
                     let keys = if device_ids.contains(&"*".to_string()) {
                         self.storage.get_all_device_keys(user_id).await?
                     } else {
-                        self.storage
-                            .get_device_keys(user_id, device_ids.as_slice())
-                            .await?
+                        self.storage.get_device_keys(user_id, device_ids.as_slice()).await?
                     };
 
                     let mut fetched = serde_json::Map::new();
@@ -161,10 +143,7 @@ impl DeviceKeyService {
         if let Some(cs_storage) = &self.cross_signing_storage {
             let user_ids: Vec<String> = device_keys.keys().cloned().collect();
             if !user_ids.is_empty() {
-                if let Ok(cs_keys_by_user) = cs_storage
-                    .get_cross_signing_keys_batch(&user_ids)
-                    .await
-                {
+                if let Ok(cs_keys_by_user) = cs_storage.get_cross_signing_keys_batch(&user_ids).await {
                     for (user_id, keys) in cs_keys_by_user {
                         for key in keys {
                             let key_value = key.key_json.clone().unwrap_or_else(|| {
@@ -217,13 +196,13 @@ impl DeviceKeyService {
             let device_id = device_keys.device_id.clone();
             record_target = Some((user_id.clone(), device_id.clone()));
 
-            let device_keys_value = serde_json::to_value(device_keys).map_err(|e| { tracing::error!("Failed to serialize device keys: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+            let device_keys_value = serde_json::to_value(device_keys).map_err(|e| {
+                tracing::error!("Failed to serialize device keys: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?;
 
             let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
-            let has_signatures = device_keys
-                .signatures
-                .as_object()
-                .is_some_and(|s| !s.is_empty());
+            let has_signatures = device_keys.signatures.as_object().is_some_and(|s| !s.is_empty());
 
             if has_keys && has_signatures {
                 match verify_device_keys_signature(&device_keys_value) {
@@ -253,8 +232,7 @@ impl DeviceKeyService {
                         },
                         key_id: key_id.clone(),
                         public_key: public_key.as_str().unwrap_or_default().to_string(),
-                        signatures: serde_json::to_value(&device_keys.signatures)
-                            .unwrap_or(serde_json::json!({})),
+                        signatures: serde_json::to_value(&device_keys.signatures).unwrap_or(serde_json::json!({})),
                         created_ts: Utc::now(),
                         updated_ts: Utc::now(),
                     };
@@ -278,11 +256,8 @@ impl DeviceKeyService {
                 record_target = Some((user_id.clone(), device_id.clone()));
             }
 
-            let device_ed25519_key = self
-                .storage
-                .get_device_key(&user_id, &device_id, "ed25519")
-                .await?
-                .map(|k| k.public_key);
+            let device_ed25519_key =
+                self.storage.get_device_key(&user_id, &device_id, "ed25519").await?.map(|k| k.public_key);
 
             if let Some(keys) = one_time_keys.as_object() {
                 for (key_id, key_data) in keys {
@@ -295,10 +270,7 @@ impl DeviceKeyService {
                     } else {
                         let algo = key_id.split(':').next().unwrap_or("signed_curve25519");
                         let pk = key_data["key"].as_str().unwrap_or_default().to_string();
-                        let sigs = key_data
-                            .get("signatures")
-                            .cloned()
-                            .unwrap_or(serde_json::json!({}));
+                        let sigs = key_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
                         (algo.to_string(), pk, sigs)
                     };
 
@@ -311,7 +283,9 @@ impl DeviceKeyService {
                                 Ok(false) => {
                                     tracing::warn!(
                                         "Invalid signature on one-time key {} for user {} device {}; storing anyway",
-                                        key_id, user_id, device_id
+                                        key_id,
+                                        user_id,
+                                        device_id
                                     );
                                 }
                                 Err(CryptoError::SignatureVerificationFailed) => {
@@ -323,7 +297,8 @@ impl DeviceKeyService {
                                 Err(e) => {
                                     tracing::warn!(
                                         "Signature verification error on one-time key {}: {}; storing anyway",
-                                        key_id, e
+                                        key_id,
+                                        e
                                     );
                                 }
                             }
@@ -353,10 +328,7 @@ impl DeviceKeyService {
             }
 
             if !user_id.is_empty() {
-                let counts = self
-                    .storage
-                    .get_one_time_keys_count_by_algorithm(&user_id, &device_id)
-                    .await?;
+                let counts = self.storage.get_one_time_keys_count_by_algorithm(&user_id, &device_id).await?;
                 for (algo, count) in counts {
                     one_time_key_counts.insert(algo, serde_json::Value::Number(count.into()));
                 }
@@ -372,15 +344,10 @@ impl DeviceKeyService {
 
             if !user_id.is_empty() && !device_id.is_empty() {
                 if let Some(keys) = fallback_keys.as_object() {
-                    self.storage
-                        .delete_fallback_keys(&user_id, &device_id)
-                        .await?;
+                    self.storage.delete_fallback_keys(&user_id, &device_id).await?;
 
-                    let device_ed25519_key = self
-                        .storage
-                        .get_device_key(&user_id, &device_id, "ed25519")
-                        .await?
-                        .map(|k| k.public_key);
+                    let device_ed25519_key =
+                        self.storage.get_device_key(&user_id, &device_id, "ed25519").await?.map(|k| k.public_key);
 
                     for (key_id, key_data) in keys {
                         let (algorithm, public_key, signatures) = if key_data.is_string() {
@@ -392,10 +359,7 @@ impl DeviceKeyService {
                         } else {
                             let algo = key_id.split(':').next().unwrap_or("signed_curve25519");
                             let pk = key_data["key"].as_str().unwrap_or_default().to_string();
-                            let sigs = key_data
-                                .get("signatures")
-                                .cloned()
-                                .unwrap_or(serde_json::json!({}));
+                            let sigs = key_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
                             (algo.to_string(), pk, sigs)
                         };
 
@@ -420,7 +384,8 @@ impl DeviceKeyService {
                                     Err(e) => {
                                         tracing::warn!(
                                             "Signature verification error on fallback key {}: {}; storing anyway",
-                                            key_id, e
+                                            key_id,
+                                            e
                                         );
                                     }
                                 }
@@ -462,24 +427,17 @@ impl DeviceKeyService {
             let single_cache_key = format!("device_keys:{user_id}:{device_id}");
             self.cache.delete(&single_cache_key).await;
 
-            self.storage
-                .record_device_list_change_best_effort(&user_id, Some(&device_id), "changed")
-                .await;
+            self.storage.record_device_list_change_best_effort(&user_id, Some(&device_id), "changed").await;
         }
 
         if one_time_key_counts.is_empty() {
-            let counts = self
-                .storage
-                .get_one_time_keys_count_by_algorithm(auth_user_id, auth_device_id)
-                .await?;
+            let counts = self.storage.get_one_time_keys_count_by_algorithm(auth_user_id, auth_device_id).await?;
             for (algo, count) in counts {
                 one_time_key_counts.insert(algo, serde_json::Value::Number(count.into()));
             }
         }
 
-        Ok(KeyUploadResponse {
-            one_time_key_counts: serde_json::Value::Object(one_time_key_counts),
-        })
+        Ok(KeyUploadResponse { one_time_key_counts: serde_json::Value::Object(one_time_key_counts) })
     }
 
     pub async fn claim_keys(&self, request: KeyClaimRequest) -> Result<KeyClaimResponse, ApiError> {
@@ -491,8 +449,7 @@ impl DeviceKeyService {
         request: KeyClaimRequest,
         local_server_name: &str,
     ) -> Result<KeyClaimResponse, ApiError> {
-        self.claim_keys_internal(request, Some(local_server_name))
-            .await
+        self.claim_keys_internal(request, Some(local_server_name)).await
     }
 
     async fn claim_keys_internal(
@@ -516,11 +473,7 @@ impl DeviceKeyService {
                 if let Some(keys) = device_keys.as_object() {
                     for (device_id, algorithm) in keys {
                         if let Some(algo_str) = algorithm.as_str() {
-                            if let Some(key) = self
-                                .storage
-                                .claim_one_time_key(user_id, device_id, algo_str)
-                                .await?
-                            {
+                            if let Some(key) = self.storage.claim_one_time_key(user_id, device_id, algo_str).await? {
                                 let key_data = serde_json::json!({
                                     "key": key.public_key,
                                     "signatures": key.signatures,
@@ -537,11 +490,7 @@ impl DeviceKeyService {
                                     }),
                                 );
 
-                                if let Ok(remaining) = self
-                                    .storage
-                                    .get_one_time_keys_count(user_id, device_id)
-                                    .await
-                                {
+                                if let Ok(remaining) = self.storage.get_one_time_keys_count(user_id, device_id).await {
                                     if remaining < 5 {
                                         tracing::warn!(
                                             "OTK stock low for {}:{} — {} remaining",
@@ -558,14 +507,10 @@ impl DeviceKeyService {
                             // one-time / fallback key pool when the regular
                             // device storage has nothing for this device.
                             if let Some(dh_storage) = &self.dehydrated_device_storage {
-                                if let Ok(Some((key_id, payload))) = dh_storage
-                                    .claim_one_time_key(user_id, device_id, algo_str)
-                                    .await
+                                if let Ok(Some((key_id, payload))) =
+                                    dh_storage.claim_one_time_key(user_id, device_id, algo_str).await
                                 {
-                                    user_keys.insert(
-                                        device_id.clone(),
-                                        serde_json::json!({ key_id: payload }),
-                                    );
+                                    user_keys.insert(device_id.clone(), serde_json::json!({ key_id: payload }));
                                 }
                             }
                         }
@@ -588,9 +533,7 @@ impl DeviceKeyService {
         let cache_key = format!("device_keys:{user_id}:{device_id}");
         self.cache.delete(&cache_key).await;
 
-        self.storage
-            .record_device_list_change_best_effort(user_id, Some(device_id), "deleted")
-            .await;
+        self.storage.record_device_list_change_best_effort(user_id, Some(device_id), "deleted").await;
 
         Ok(())
     }
@@ -604,9 +547,7 @@ impl DeviceKeyService {
         let from_ts = from.parse::<i64>().unwrap_or(0);
         let to_ts = to.parse::<i64>().unwrap_or(Utc::now().timestamp_millis());
 
-        self.storage
-            .get_key_changes_with_left(from_ts, to_ts, current_user_id)
-            .await
+        self.storage.get_key_changes_with_left(from_ts, to_ts, current_user_id).await
     }
 
     pub async fn upload_signatures(

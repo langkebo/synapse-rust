@@ -69,10 +69,7 @@ pub struct EventQueryFilter {
 
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
-        Self {
-            pool: pool.clone(),
-            server_name,
-        }
+        Self { pool: pool.clone(), server_name }
     }
 
     pub async fn create_event(
@@ -83,9 +80,9 @@ impl EventStorage {
         let query = r"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
-            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key, 
-                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at, 
-                      0::BIGINT as not_before, 'pending' as status, null as reference_image, 
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
+                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
                       'self' as origin, stream_ordering
             ";
 
@@ -119,8 +116,8 @@ impl EventStorage {
     pub async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         let event = sqlx::query_as::<_, RoomEvent>(
             r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at, 
+            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
             FROM events WHERE event_id = $1
             ",
@@ -131,11 +128,7 @@ impl EventStorage {
         Ok(event)
     }
 
-    pub async fn delete_events_before(
-        &self,
-        room_id: &str,
-        timestamp: i64,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             "DELETE FROM events WHERE room_id = $1 AND origin_server_ts < $2 AND event_type != 'm.room.create'",
         )
@@ -146,15 +139,11 @@ impl EventStorage {
         Ok(result.rows_affected())
     }
 
-    pub async fn get_room_events(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE room_id = $1
             ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
@@ -261,9 +250,9 @@ impl EventStorage {
         // First try to find an event exactly at or before the timestamp
         let event = sqlx::query_as::<_, (String, i64)>(
             r"
-            SELECT event_id, origin_server_ts 
-            FROM events 
-            WHERE room_id = $1 
+            SELECT event_id, origin_server_ts
+            FROM events
+            WHERE room_id = $1
               AND origin_server_ts IS NOT NULL
               AND origin_server_ts <= $2
             ORDER BY origin_server_ts DESC
@@ -279,8 +268,8 @@ impl EventStorage {
             // Get the full event content
             let full_event = sqlx::query_as::<_, (serde_json::Value,)>(
                 r"
-                SELECT content 
-                FROM events 
+                SELECT content
+                FROM events
                 WHERE event_id = $1
                 ",
             )
@@ -291,10 +280,7 @@ impl EventStorage {
             if let Some((content,)) = full_event {
                 let mut result = serde_json::Map::new();
                 result.insert("event_id".to_string(), serde_json::Value::String(event_id));
-                result.insert(
-                    "origin_server_ts".to_string(),
-                    serde_json::Value::Number(origin_server_ts.into()),
-                );
+                result.insert("origin_server_ts".to_string(), serde_json::Value::Number(origin_server_ts.into()));
                 // Merge content into result
                 if let serde_json::Value::Object(obj) = content {
                     for (k, v) in obj {
@@ -316,8 +302,8 @@ impl EventStorage {
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE room_id = $1 AND event_type = $2
             ORDER BY origin_server_ts DESC
@@ -332,15 +318,11 @@ impl EventStorage {
         Ok(events)
     }
 
-    pub async fn get_sender_events(
-        &self,
-        user_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    pub async fn get_sender_events(&self, user_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE COALESCE(user_id, sender) = $1
             ORDER BY origin_server_ts DESC
@@ -392,7 +374,7 @@ impl EventStorage {
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(
             r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
@@ -452,7 +434,7 @@ impl EventStorage {
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(
             r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
@@ -531,11 +513,7 @@ impl EventStorage {
         Ok(row.id)
     }
 
-    pub async fn update_event_report_score(
-        &self,
-        report_id: i64,
-        score: i32,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_event_report_score(&self, report_id: i64, score: i32) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE event_reports SET score = $1 WHERE id = $2
@@ -548,11 +526,7 @@ impl EventStorage {
         Ok(())
     }
 
-    pub async fn update_event_report_score_by_event(
-        &self,
-        event_id: &str,
-        score: i32,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_event_report_score_by_event(&self, event_id: &str, score: i32) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             UPDATE event_reports SET score = $1 WHERE event_id = $2
@@ -595,8 +569,8 @@ impl EventStorage {
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
@@ -611,15 +585,11 @@ impl EventStorage {
         Ok(events)
     }
 
-    pub async fn get_events_since(
-        &self,
-        since: i64,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    pub async fn get_events_since(&self, since: i64, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
             FROM events WHERE origin_server_ts > $1
             ORDER BY origin_server_ts ASC
@@ -638,8 +608,7 @@ impl EventStorage {
         room_ids: &[String],
         limit_per_room: i64,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, None)
-            .await
+        self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, None).await
     }
 
     pub async fn get_room_events_batch_filtered(
@@ -648,8 +617,7 @@ impl EventStorage {
         limit_per_room: i64,
         filter: &EventQueryFilter,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, Some(filter))
-            .await
+        self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, Some(filter)).await
     }
 
     pub async fn get_room_events_since_batch(
@@ -658,8 +626,7 @@ impl EventStorage {
         since: i64,
         limit_per_room: i64,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, None)
-            .await
+        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, None).await
     }
 
     pub async fn get_room_events_since_stream_batch(
@@ -668,14 +635,7 @@ impl EventStorage {
         since_stream_ordering: i64,
         limit_per_room: i64,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(
-            room_ids,
-            None,
-            Some(since_stream_ordering),
-            limit_per_room,
-            None,
-        )
-        .await
+        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, None).await
     }
 
     pub async fn get_room_events_since_batch_filtered(
@@ -685,8 +645,7 @@ impl EventStorage {
         limit_per_room: i64,
         filter: &EventQueryFilter,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, Some(filter))
-            .await
+        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, Some(filter)).await
     }
 
     pub async fn get_room_events_since_stream_batch_filtered(
@@ -696,14 +655,8 @@ impl EventStorage {
         limit_per_room: i64,
         filter: &EventQueryFilter,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(
-            room_ids,
-            None,
-            Some(since_stream_ordering),
-            limit_per_room,
-            Some(filter),
-        )
-        .await
+        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, Some(filter))
+            .await
     }
 
     async fn get_room_events_batch_inner(
@@ -776,8 +729,7 @@ impl EventStorage {
                 query.push(")");
             }
 
-            if let Some(not_senders) = Self::non_empty_filter_values(filter.not_senders.as_deref())
-            {
+            if let Some(not_senders) = Self::non_empty_filter_values(filter.not_senders.as_deref()) {
                 query.push(" AND NOT (COALESCE(user_id, sender) = ANY(");
                 query.push_bind(not_senders);
                 query.push("))");
@@ -806,8 +758,7 @@ impl EventStorage {
         &self,
         room_ids: &[String],
         since: i64,
-    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error>
-    {
+    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
@@ -833,10 +784,7 @@ impl EventStorage {
         .await?;
 
         let mut result: std::collections::HashMap<String, std::collections::HashSet<String>> =
-            room_ids
-                .iter()
-                .map(|room_id| (room_id.clone(), std::collections::HashSet::new()))
-                .collect();
+            room_ids.iter().map(|room_id| (room_id.clone(), std::collections::HashSet::new())).collect();
 
         for (room_id, state_key) in rows {
             result.entry(room_id).or_default().insert(state_key);
@@ -849,8 +797,7 @@ impl EventStorage {
         &self,
         room_ids: &[String],
         since_stream_ordering: i64,
-    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error>
-    {
+    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
@@ -876,10 +823,7 @@ impl EventStorage {
         .await?;
 
         let mut result: std::collections::HashMap<String, std::collections::HashSet<String>> =
-            room_ids
-                .iter()
-                .map(|room_id| (room_id.clone(), std::collections::HashSet::new()))
-                .collect();
+            room_ids.iter().map(|room_id| (room_id.clone(), std::collections::HashSet::new())).collect();
 
         for (room_id, state_key) in rows {
             result.entry(room_id).or_default().insert(state_key);
@@ -1059,20 +1003,17 @@ impl EventStorage {
         result
     }
 
-    pub async fn get_events_batch(
-        &self,
-        event_ids: &[String],
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    pub async fn get_events_batch(&self, event_ids: &[String]) -> Result<Vec<RoomEvent>, sqlx::Error> {
         if event_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
-            FROM events 
+            FROM events
             WHERE event_id = ANY($1)
             ",
         )
@@ -1091,10 +1032,7 @@ impl EventStorage {
 
         let events = self.get_events_batch(event_ids).await?;
 
-        Ok(events
-            .into_iter()
-            .map(|e| (e.event_id.clone(), e))
-            .collect())
+        Ok(events.into_iter().map(|e| (e.event_id.clone(), e)).collect())
     }
 
     pub async fn get_state_events_batch(
@@ -1107,7 +1045,7 @@ impl EventStorage {
 
         let events: Vec<StateEvent> = sqlx::query_as(
             r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, 
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
                    COALESCE(unsigned, '{}'::jsonb) as unsigned,
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
@@ -1143,11 +1081,7 @@ impl EventStorage {
         Ok(result)
     }
 
-    pub async fn has_room_events_since(
-        &self,
-        room_ids: &[String],
-        since: i64,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(false);
         }
@@ -1180,12 +1114,12 @@ impl EventStorage {
 
         let events: Vec<RoomEvent> = sqlx::query_as(
             r"
-            SELECT DISTINCT ON (room_id) 
-                   event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, 
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, 
-                   COALESCE(origin_server_ts, 0) as processed_at, 
+            SELECT DISTINCT ON (room_id)
+                   event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   COALESCE(origin_server_ts, 0) as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
-            FROM events 
+            FROM events
             WHERE room_id = ANY($1)
             ORDER BY room_id, origin_server_ts DESC
             ",
@@ -1208,7 +1142,7 @@ impl EventStorage {
         let rows: Vec<(String, i64)> = sqlx::query_as(
             r"
             SELECT room_id, COUNT(*) as count
-            FROM events 
+            FROM events
             WHERE room_id = ANY($1) AND event_type = 'm.room.message'
             GROUP BY room_id
             ",
@@ -1217,8 +1151,7 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut result: std::collections::HashMap<String, i64> =
-            room_ids.iter().map(|id| (id.clone(), 0)).collect();
+        let mut result: std::collections::HashMap<String, i64> = room_ids.iter().map(|id| (id.clone(), 0)).collect();
 
         for (room_id, count) in rows {
             result.insert(room_id, count);
@@ -1229,22 +1162,16 @@ impl EventStorage {
 
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =
-            sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events")
-                .fetch_optional(&*self.pool)
-                .await?;
+            sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events").fetch_optional(&*self.pool).await?;
         Ok(result.map_or(0, |r| r.0))
     }
 
-    pub async fn get_max_origin_server_ts_for_room(
-        &self,
-        room_id: &str,
-    ) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            "SELECT COALESCE(MAX(origin_server_ts), 0) FROM events WHERE room_id = $1",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        let result: Option<(i64,)> =
+            sqlx::query_as("SELECT COALESCE(MAX(origin_server_ts), 0) FROM events WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
         Ok(result.map_or(0, |r| r.0))
     }
 
@@ -1283,11 +1210,7 @@ impl EventStorage {
         limit: i64,
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let (op, order) = if direction == "b" {
-            ("<", "DESC")
-        } else {
-            (">", "ASC")
-        };
+        let (op, order) = if direction == "b" { ("<", "DESC") } else { (">", "ASC") };
         let query = format!(
             r"
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
@@ -1317,10 +1240,7 @@ impl EventStorage {
     // -----------------------------------------------------------------------
 
     /// Check whether a room has an `m.room.encryption` state event.
-    pub async fn check_room_has_encryption(
-        &self,
-        room_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let row: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1",
         )
@@ -1336,11 +1256,7 @@ impl EventStorage {
     // -----------------------------------------------------------------------
 
     /// Get pending events for a room (used by the message queue endpoint).
-    pub async fn get_pending_room_events(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    pub async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         sqlx::query_as::<_, RoomEvent>(
             r"
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
@@ -1360,18 +1276,12 @@ impl EventStorage {
     }
 
     /// Count events in a room by status (e.g. "processing", "failed").
-    pub async fn count_room_events_by_status(
-        &self,
-        room_id: &str,
-        status: &str,
-    ) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = $2",
-        )
-        .bind(room_id)
-        .bind(status)
-        .fetch_optional(&*self.pool)
-        .await?;
+    pub async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error> {
+        let result: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = $2")
+            .bind(room_id)
+            .bind(status)
+            .fetch_optional(&*self.pool)
+            .await?;
         Ok(result.map_or(0, |r| r.0))
     }
 
@@ -1415,10 +1325,7 @@ impl EventStorage {
     }
 
     /// Get all signatures for an event.
-    pub async fn get_event_signatures(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<EventSignature>, sqlx::Error> {
+    pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error> {
         sqlx::query_as::<_, EventSignature>(
             r"
             SELECT id, event_id, user_id, device_id, signature, key_id, created_ts

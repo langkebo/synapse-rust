@@ -15,11 +15,7 @@ pub struct ReplayProtectionConfig {
 
 impl Default for ReplayProtectionConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            cache_size: REPLAY_CACHE_SIZE,
-            window_secs: REPLAY_PROTECTION_WINDOW_SECS,
-        }
+        Self { enabled: true, cache_size: REPLAY_CACHE_SIZE, window_secs: REPLAY_PROTECTION_WINDOW_SECS }
     }
 }
 
@@ -56,8 +52,7 @@ impl ReplayProtectionCache {
             }
         }
 
-        self.cache
-            .insert(signature_hash.to_string(), Instant::now());
+        self.cache.insert(signature_hash.to_string(), Instant::now());
         true
     }
 
@@ -79,12 +74,7 @@ pub struct ReplayProtectionStats {
     pub capacity: usize,
 }
 
-pub fn compute_signature_hash(
-    origin: &str,
-    key_id: &str,
-    signature: &str,
-    signed_bytes: &[u8],
-) -> String {
+pub fn compute_signature_hash(origin: &str, key_id: &str, signature: &str, signed_bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(origin.as_bytes());
     hasher.update(key_id.as_bytes());
@@ -127,17 +117,12 @@ impl SecurityValidator {
         Ok(())
     }
 
-    pub fn validate_federation_timestamp(
-        signature_ts: i64,
-        tolerance_ms: i64,
-    ) -> Result<(), String> {
+    pub fn validate_federation_timestamp(signature_ts: i64, tolerance_ms: i64) -> Result<(), String> {
         let now = chrono::Utc::now().timestamp_millis();
         let diff = (signature_ts - now).abs();
 
         if diff > tolerance_ms {
-            return Err(format!(
-                "Signature timestamp out of tolerance: {diff}ms (tolerance: {tolerance_ms}ms)"
-            ));
+            return Err(format!("Signature timestamp out of tolerance: {diff}ms (tolerance: {tolerance_ms}ms)"));
         }
 
         Ok(())
@@ -175,9 +160,7 @@ impl SecurityValidator {
             return Err("Origin too long (max 253 characters)".to_string());
         }
 
-        let valid_chars = origin
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == ':' || c == '_');
+        let valid_chars = origin.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == ':' || c == '_');
 
         if !valid_chars {
             return Err("Origin contains invalid characters".to_string());
@@ -227,9 +210,7 @@ pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
 
 pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| format!("URL has no host: {url}"))?;
+    let host = parsed.host_str().ok_or_else(|| format!("URL has no host: {url}"))?;
 
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_ip_in_blacklist(&ip, blacklist) {
@@ -283,10 +264,7 @@ mod tests {
 
     #[test]
     fn test_validate_jwt_secret_valid() {
-        assert!(SecurityValidator::validate_jwt_secret(
-            "this_is_a_very_secure_secret_key_with_32_chars"
-        )
-        .is_ok());
+        assert!(SecurityValidator::validate_jwt_secret("this_is_a_very_secure_secret_key_with_32_chars").is_ok());
     }
 
     #[test]
@@ -301,9 +279,7 @@ mod tests {
 
     #[test]
     fn test_validate_jwt_secret_low_entropy() {
-        assert!(
-            SecurityValidator::validate_jwt_secret("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_err()
-        );
+        assert!(SecurityValidator::validate_jwt_secret("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_err());
     }
 
     #[test]

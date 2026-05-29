@@ -1,12 +1,11 @@
-use synapse_rust::cache::{
-    CacheEntryKey, FederationSignatureCache, KeyRotationEvent, SignatureCacheConfig,
-    SignatureCacheEntry, DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS,
-    DEFAULT_SIGNATURE_CACHE_TTL,
-};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use synapse_rust::cache::{
+    CacheEntryKey, FederationSignatureCache, KeyRotationEvent, SignatureCacheConfig, SignatureCacheEntry,
+    DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_SIGNATURE_CACHE_TTL,
+};
 
 #[test]
 fn test_default_ttl_values() {
@@ -44,10 +43,7 @@ fn test_cache_entry_key_creation() {
 fn test_cache_entry_key_to_cache_key() {
     let key = CacheEntryKey::new("matrix.org", "ed25519:key1", "hash123");
     let cache_key = key.to_cache_key();
-    assert_eq!(
-        cache_key,
-        "federation:signature_cache:matrix.org:ed25519:key1:hash123"
-    );
+    assert_eq!(cache_key, "federation:signature_cache:matrix.org:ed25519:key1:hash123");
 }
 
 #[test]
@@ -300,10 +296,7 @@ fn test_cache_stats_with_rotation() {
 
 #[test]
 fn test_cache_ttl_expiration() {
-    let config = SignatureCacheConfig {
-        signature_ttl: 1,
-        ..Default::default()
-    };
+    let config = SignatureCacheConfig { signature_ttl: 1, ..Default::default() };
     let cache = FederationSignatureCache::new(config);
 
     let key = CacheEntryKey::new("example.com", "ed25519:1", "hash1");
@@ -365,23 +358,20 @@ fn test_key_rotation_event_fields() {
 
 #[test]
 fn test_cache_config_from_config() {
-    let config =
-        SignatureCacheConfig::from_federation_config(DEFAULT_SIGNATURE_CACHE_TTL, DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS);
+    let config = SignatureCacheConfig::from_federation_config(
+        DEFAULT_SIGNATURE_CACHE_TTL,
+        DEFAULT_KEY_CACHE_TTL,
+        DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS,
+    );
 
     assert_eq!(config.signature_ttl, DEFAULT_SIGNATURE_CACHE_TTL);
     assert_eq!(config.key_ttl, DEFAULT_KEY_CACHE_TTL);
-    assert_eq!(
-        config.key_rotation_grace_period_ms,
-        DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS
-    );
+    assert_eq!(config.key_rotation_grace_period_ms, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS);
 }
 
 #[test]
 fn test_cache_with_custom_max_capacity() {
-    let config = SignatureCacheConfig {
-        max_capacity: 100,
-        ..Default::default()
-    };
+    let config = SignatureCacheConfig { max_capacity: 100, ..Default::default() };
     let cache = FederationSignatureCache::new(config);
 
     for i in 0..150 {

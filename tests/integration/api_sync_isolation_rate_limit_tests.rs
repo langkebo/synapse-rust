@@ -35,11 +35,8 @@ async fn setup_test_app_with_broken_sync_rate_limit_backend(
     let redis_pool = RedisPoolConfig::from_url("redis://127.0.0.1:1")
         .create_pool(Some(Runtime::Tokio1))
         .expect("failed to create Redis pool for broken backend test");
-    let cache = Arc::new(CacheManager::with_redis_pool_and_url(
-        redis_pool,
-        &CacheConfig::default(),
-        "redis://127.0.0.1:1",
-    ));
+    let cache =
+        Arc::new(CacheManager::with_redis_pool_and_url(redis_pool, &CacheConfig::default(), "redis://127.0.0.1:1"));
 
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     container.config.rate_limit.enabled = false;
@@ -67,32 +64,19 @@ async fn register_user_and_get_token(app: &axum::Router) -> String {
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
 async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
-    let initial = RateLimitRule {
-        per_second: 1,
-        burst_size: 1,
-    };
-    let incremental = RateLimitRule {
-        per_second: 100,
-        burst_size: 100,
-    };
+    let initial = RateLimitRule { per_second: 1, burst_size: 1 };
+    let incremental = RateLimitRule { per_second: 100, burst_size: 100 };
 
-    let Some(app) = setup_test_app_with_sync_isolation_rate_limit(initial, incremental).await
-    else {
+    let Some(app) = setup_test_app_with_sync_isolation_rate_limit(initial, incremental).await else {
         return;
     };
     let token = register_user_and_get_token(&app).await;
@@ -103,11 +87,7 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert!(response.status().is_success());
 
     let request = Request::builder()
@@ -116,21 +96,12 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 16)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_LIMIT_EXCEEDED");
-    assert!(json
-        .get("retry_after_ms")
-        .and_then(|v| v.as_u64())
-        .is_some());
+    assert!(json.get("retry_after_ms").and_then(|v| v.as_u64()).is_some());
 
     let request = Request::builder()
         .method("GET")
@@ -138,27 +109,16 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert!(response.status().is_success());
 }
 
 #[tokio::test]
 async fn test_sync_rate_limit_backend_errors_fail_open() {
-    let initial = RateLimitRule {
-        per_second: 1,
-        burst_size: 1,
-    };
-    let incremental = RateLimitRule {
-        per_second: 1,
-        burst_size: 1,
-    };
+    let initial = RateLimitRule { per_second: 1, burst_size: 1 };
+    let incremental = RateLimitRule { per_second: 1, burst_size: 1 };
 
-    let Some(app) = setup_test_app_with_broken_sync_rate_limit_backend(initial, incremental).await
-    else {
+    let Some(app) = setup_test_app_with_broken_sync_rate_limit_backend(initial, incremental).await else {
         return;
     };
     let token = register_user_and_get_token(&app).await;
@@ -169,17 +129,11 @@ async fn test_sync_rate_limit_backend_errors_fail_open() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let response = app
-        .clone()
-        .oneshot(super::with_local_connect_info(request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 64)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 64).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.get("next_batch").is_some());
 }

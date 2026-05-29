@@ -112,9 +112,8 @@ pub use self::media_quota::*;
 pub use self::membership::*;
 pub use self::moderation::*;
 pub use self::monitoring::{
-    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor,
-    DuplicateEntry, ForeignKeyViolation, NullConstraintViolation, OrphanedRecord,
-    PerformanceMetrics,
+    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
+    ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
@@ -187,16 +186,9 @@ impl Database {
     /// # 返回值
     ///
     /// 成功时返回 `Ok(Database)`，连接失败时返回 `Err(sqlx::Error)`
-    pub async fn new(
-        database_url: &str,
-        redis_pool: Option<RedisPool>,
-    ) -> Result<Self, sqlx::Error> {
+    pub async fn new(database_url: &str, redis_pool: Option<RedisPool>) -> Result<Self, sqlx::Error> {
         let pool = sqlx::PgPool::connect(database_url).await?;
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(
-            pool.clone(),
-            redis_pool,
-            10000,
-        )));
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
         Ok(Self { pool, monitor })
     }
 
@@ -212,11 +204,7 @@ impl Database {
     ///
     /// 返回使用给定连接池的 `Database` 实例
     pub fn from_pool(pool: Pool<Postgres>, redis_pool: Option<RedisPool>) -> Self {
-        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(
-            pool.clone(),
-            redis_pool,
-            10000,
-        )));
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::new(pool.clone(), redis_pool, 10000)));
         Self { pool, monitor }
     }
 
@@ -294,10 +282,7 @@ mod tests {
             Ok(p) => p,
             Err(_) => return,
         };
-        let _db = Database {
-            pool: pool.clone(),
-            monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, None, 50))),
-        };
+        let _db = Database { pool: pool.clone(), monitor: Arc::new(RwLock::new(DatabaseMonitor::new(pool, None, 50))) };
     }
 
     #[test]

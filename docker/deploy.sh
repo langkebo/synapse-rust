@@ -36,7 +36,7 @@ wait_for_health() {
         return 1
     fi
 
-    for ((i=1; i<=attempts; i++)); do
+    for ((i = 1; i <= attempts; i++)); do
         local health_status
         health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$container_id")"
         if [ "$health_status" = "healthy" ] || [ "$health_status" = "running" ]; then

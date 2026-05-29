@@ -45,7 +45,10 @@ impl ToDeviceStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.is_some())
     }
@@ -67,7 +70,10 @@ impl ToDeviceStorage {
         .bind(message_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.is_some())
     }
@@ -92,7 +98,10 @@ impl ToDeviceStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -108,16 +117,16 @@ impl ToDeviceStorage {
         .bind(cutoff)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.rows_affected())
     }
 
     pub async fn add_message(&self, msg: ToDeviceMessage<'_>) -> Result<(), ApiError> {
-        if !self
-            .device_exists(msg.recipient_user_id, msg.recipient_device_id)
-            .await?
-        {
+        if !self.device_exists(msg.recipient_user_id, msg.recipient_device_id).await? {
             ::tracing::warn!(
                 "Skipping to-device message for non-existent device: {}:{}",
                 msg.recipient_user_id,
@@ -153,16 +162,15 @@ impl ToDeviceStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn get_messages(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<Value>, ApiError> {
+    pub async fn get_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts
@@ -175,7 +183,10 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -198,11 +209,7 @@ impl ToDeviceStorage {
         Ok(messages)
     }
 
-    pub async fn get_and_delete_messages(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<Value>, ApiError> {
+    pub async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r"
             DELETE FROM to_device_messages
@@ -214,7 +221,10 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -247,17 +257,15 @@ impl ToDeviceStorage {
         .bind(ids)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
-    pub async fn delete_messages_up_to(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        stream_id: i64,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_messages_up_to(&self, user_id: &str, device_id: &str, stream_id: i64) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM to_device_messages
@@ -271,7 +279,10 @@ impl ToDeviceStorage {
         .bind(stream_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }

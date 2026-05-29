@@ -1,6 +1,5 @@
 use synapse_rust::common::security::{
-    compute_signature_hash, ConstantTimeComparison, ReplayProtectionCache, ReplayProtectionConfig,
-    SecurityValidator,
+    compute_signature_hash, ConstantTimeComparison, ReplayProtectionCache, ReplayProtectionConfig, SecurityValidator,
 };
 
 #[test]
@@ -9,7 +8,7 @@ fn test_replay_protection_basic() {
     let cache = ReplayProtectionCache::new(config);
 
     let sig = "test_signature_hash_123";
-    
+
     assert!(cache.check_and_record(sig), "First check should pass");
     assert!(!cache.check_and_record(sig), "Second check should fail (replay)");
 }
@@ -19,13 +18,7 @@ fn test_replay_protection_multiple_signatures() {
     let config = ReplayProtectionConfig::default();
     let cache = ReplayProtectionCache::new(config);
 
-    let signatures = vec![
-        "signature_a",
-        "signature_b",
-        "signature_c",
-        "signature_d",
-        "signature_e",
-    ];
+    let signatures = vec!["signature_a", "signature_b", "signature_c", "signature_d", "signature_e"];
 
     for sig in &signatures {
         assert!(cache.check_and_record(sig), "First use of {} should pass", sig);
@@ -38,15 +31,11 @@ fn test_replay_protection_multiple_signatures() {
 
 #[test]
 fn test_replay_protection_disabled() {
-    let config = ReplayProtectionConfig {
-        enabled: false,
-        cache_size: 100,
-        window_secs: 300,
-    };
+    let config = ReplayProtectionConfig { enabled: false, cache_size: 100, window_secs: 300 };
     let cache = ReplayProtectionCache::new(config);
 
     let sig = "test_signature";
-    
+
     assert!(cache.check_and_record(sig));
     assert!(cache.check_and_record(sig));
     assert!(cache.check_and_record(sig));
@@ -54,11 +43,7 @@ fn test_replay_protection_disabled() {
 
 #[test]
 fn test_replay_protection_stats() {
-    let config = ReplayProtectionConfig {
-        enabled: true,
-        cache_size: 100,
-        window_secs: 300,
-    };
+    let config = ReplayProtectionConfig { enabled: true, cache_size: 100, window_secs: 300 };
     let cache = ReplayProtectionCache::new(config);
 
     cache.check_and_record("sig1");
@@ -122,20 +107,13 @@ fn test_jwt_secret_validation_valid() {
     ];
 
     for secret in valid_secrets {
-        assert!(
-            SecurityValidator::validate_jwt_secret(secret).is_ok(),
-            "Secret '{}' should be valid",
-            secret
-        );
+        assert!(SecurityValidator::validate_jwt_secret(secret).is_ok(), "Secret '{}' should be valid", secret);
     }
 }
 
 #[test]
 fn test_jwt_secret_validation_empty() {
-    assert!(
-        SecurityValidator::validate_jwt_secret("").is_err(),
-        "Empty secret should be invalid"
-    );
+    assert!(SecurityValidator::validate_jwt_secret("").is_err(), "Empty secret should be invalid");
 }
 
 #[test]
@@ -232,42 +210,23 @@ fn test_origin_validation_valid() {
     ];
 
     for origin in valid_origins {
-        assert!(
-            SecurityValidator::validate_origin(origin).is_ok(),
-            "Origin '{}' should be valid",
-            origin
-        );
+        assert!(SecurityValidator::validate_origin(origin).is_ok(), "Origin '{}' should be valid", origin);
     }
 }
 
 #[test]
 fn test_origin_validation_invalid() {
     // Test each invalid origin individually to avoid temporary value issues
-    assert!(
-        SecurityValidator::validate_origin("").is_err(),
-        "Empty origin should be invalid"
-    );
-    
+    assert!(SecurityValidator::validate_origin("").is_err(), "Empty origin should be invalid");
+
     let long_origin = "a".repeat(300);
-    assert!(
-        SecurityValidator::validate_origin(&long_origin).is_err(),
-        "Long origin should be invalid"
-    );
-    
-    assert!(
-        SecurityValidator::validate_origin("invalid!@#").is_err(),
-        "Special chars origin should be invalid"
-    );
-    
-    assert!(
-        SecurityValidator::validate_origin("space in name").is_err(),
-        "Space in name origin should be invalid"
-    );
-    
-    assert!(
-        SecurityValidator::validate_origin("dot.at.end.").is_err(),
-        "Dot at end origin should be invalid"
-    );
+    assert!(SecurityValidator::validate_origin(&long_origin).is_err(), "Long origin should be invalid");
+
+    assert!(SecurityValidator::validate_origin("invalid!@#").is_err(), "Special chars origin should be invalid");
+
+    assert!(SecurityValidator::validate_origin("space in name").is_err(), "Space in name origin should be invalid");
+
+    assert!(SecurityValidator::validate_origin("dot.at.end.").is_err(), "Dot at end origin should be invalid");
 }
 
 #[test]
@@ -281,12 +240,7 @@ fn test_constant_time_comparison_equal() {
     ];
 
     for (a, b) in test_cases {
-        assert!(
-            ConstantTimeComparison::compare_strings(a, b),
-            "'{}' should equal '{}'",
-            a,
-            b
-        );
+        assert!(ConstantTimeComparison::compare_strings(a, b), "'{}' should equal '{}'", a, b);
     }
 }
 
@@ -301,12 +255,7 @@ fn test_constant_time_comparison_not_equal() {
     ];
 
     for (a, b) in test_cases {
-        assert!(
-            !ConstantTimeComparison::compare_strings(a, b),
-            "'{}' should not equal '{}'",
-            a,
-            b
-        );
+        assert!(!ConstantTimeComparison::compare_strings(a, b), "'{}' should not equal '{}'", a, b);
     }
 }
 
@@ -336,16 +285,16 @@ fn test_entropy_calculation_low() {
 fn test_entropy_calculation_medium() {
     let medium_entropy = "abcdefghij123456";
     let entropy = SecurityValidator::calculate_entropy(medium_entropy);
-    assert!(entropy > 2.0 && entropy < 4.0, "Medium entropy string should have entropy between 2.0 and 4.0, got {}", entropy);
+    assert!(
+        entropy > 2.0 && entropy < 4.0,
+        "Medium entropy string should have entropy between 2.0 and 4.0, got {}",
+        entropy
+    );
 }
 
 #[test]
 fn test_replay_protection_cleanup() {
-    let config = ReplayProtectionConfig {
-        enabled: true,
-        cache_size: 10,
-        window_secs: 1,
-    };
+    let config = ReplayProtectionConfig { enabled: true, cache_size: 10, window_secs: 1 };
     let cache = ReplayProtectionCache::new(config);
 
     for i in 0..10 {

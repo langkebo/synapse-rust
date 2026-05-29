@@ -1,5 +1,5 @@
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{Aes256Gcm, AeadCore, Nonce};
+use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use base64::Engine;
 
 const NONCE_SIZE: usize = 12;
@@ -10,13 +10,10 @@ const NONCE_SIZE: usize = 12;
 /// prefixed with `enc:` to indicate encryption.
 pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String> {
     let key = derive_key(master_key)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| format!("Invalid key length: {e}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher
-        .encrypt(&nonce, plaintext.as_bytes())
-        .map_err(|e| format!("Encryption failed: {e}"))?;
+    let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes()).map_err(|e| format!("Encryption failed: {e}"))?;
 
     // Concatenate nonce + ciphertext (ciphertext already includes the tag)
     let mut combined = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
@@ -32,13 +29,11 @@ pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String>
 /// Accepts both `enc:`-prefixed and raw base64 formats.
 /// Returns the original plaintext string.
 pub fn decrypt_key(ciphertext: &str, master_key: &[u8]) -> Result<String, String> {
-    let b64_data = ciphertext
-        .strip_prefix("enc:")
-        .ok_or_else(|| "Ciphertext must start with 'enc:' prefix".to_string())?;
+    let b64_data =
+        ciphertext.strip_prefix("enc:").ok_or_else(|| "Ciphertext must start with 'enc:' prefix".to_string())?;
 
-    let combined = base64::engine::general_purpose::STANDARD
-        .decode(b64_data)
-        .map_err(|e| format!("Base64 decode failed: {e}"))?;
+    let combined =
+        base64::engine::general_purpose::STANDARD.decode(b64_data).map_err(|e| format!("Base64 decode failed: {e}"))?;
 
     if combined.len() < NONCE_SIZE {
         return Err("Ciphertext too short".to_string());
@@ -48,12 +43,9 @@ pub fn decrypt_key(ciphertext: &str, master_key: &[u8]) -> Result<String, String
     let nonce = Nonce::from_slice(nonce_bytes);
 
     let key = derive_key(master_key)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| format!("Invalid key length: {e}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
-    let plaintext = cipher
-        .decrypt(nonce, encrypted_data)
-        .map_err(|e| format!("Decryption failed: {e}"))?;
+    let plaintext = cipher.decrypt(nonce, encrypted_data).map_err(|e| format!("Decryption failed: {e}"))?;
 
     String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8 in decrypted data: {e}"))
 }

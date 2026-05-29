@@ -15,17 +15,13 @@ impl AuthService {
         initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
         let start = std::time::Instant::now();
-        let result = self
-            .login_internal(username, password, device_id, initial_display_name)
-            .await;
+        let result = self.login_internal(username, password, device_id, initial_display_name).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("auth_login_duration_seconds") {
             hist.observe(duration);
         } else {
-            let hist = self
-                .metrics
-                .register_histogram("auth_login_duration_seconds".to_string());
+            let hist = self.metrics.register_histogram("auth_login_duration_seconds".to_string());
             hist.observe(duration);
         }
 
@@ -66,14 +62,13 @@ impl AuthService {
             None => false,
         };
 
-        let password_ok = self
-            .verify_user_password(password, &password_hash_owned)
-            .await?;
+        let password_ok = self.verify_user_password(password, &password_hash_owned).await?;
 
         if is_locked {
             Self::log_login_failure(username, "account_locked");
             return Err(ApiError::rate_limited(
-                "Account is temporarily locked due to too many failed login attempts. Please try again later.".to_string(),
+                "Account is temporarily locked due to too many failed login attempts. Please try again later."
+                    .to_string(),
             ));
         }
 
@@ -105,16 +100,10 @@ impl AuthService {
         self.cache.delete(&logout_marker).await;
         Self::log_login_success(&user, device_id);
 
-        let device_id = self
-            .get_or_create_device_id(device_id, &user, initial_display_name)
-            .await?;
+        let device_id = self.get_or_create_device_id(device_id, &user, initial_display_name).await?;
 
-        let access_token = self
-            .generate_access_token(&user.user_id, &device_id, user.is_admin)
-            .await?;
-        let refresh_token = self
-            .generate_refresh_token(&user.user_id, &device_id)
-            .await?;
+        let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
+        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
 
         Ok((user, access_token, refresh_token, device_id))
     }
@@ -124,9 +113,7 @@ impl AuthService {
         use std::sync::OnceLock;
         static DUMMY: OnceLock<String> = OnceLock::new();
         DUMMY
-            .get_or_init(|| {
-                hash_password_with_params("no-such-user", 65536, 3, 1).expect("argon2 dummy hash")
-            })
+            .get_or_init(|| hash_password_with_params("no-such-user", 65536, 3, 1).expect("argon2 dummy hash"))
             .as_str()
     }
 
@@ -145,33 +132,16 @@ impl AuthService {
 
     async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
         let key = format!("auth:failures:{user_id}");
-        let failures: i64 = self
-            .cache
-            .get(&key)
-            .await?
-            .unwrap_or(0i64)
-            .saturating_add(1);
+        let failures: i64 = self.cache.get(&key).await?.unwrap_or(0i64).saturating_add(1);
 
-        if let Err(e) = self
-            .cache
-            .set(&key, &failures, self.login_lockout_duration_seconds)
-            .await
-        {
+        if let Err(e) = self.cache.set(&key, &failures, self.login_lockout_duration_seconds).await {
             ::tracing::warn!("Failed to update login failure count in cache: {}", e);
         }
 
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
             let lockout_key = format!("auth:lockout:{user_id}");
-            if let Err(e) = self
-                .cache
-                .set(
-                    &lockout_key,
-                    &lockout_until,
-                    self.login_lockout_duration_seconds,
-                )
-                .await
-            {
+            if let Err(e) = self.cache.set(&lockout_key, &lockout_until, self.login_lockout_duration_seconds).await {
                 ::tracing::warn!("Failed to set login lockout in cache: {}", e);
             }
 
@@ -241,9 +211,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         {
             if existing_device.user_id != user.user_id {
-                return Err(ApiError::forbidden(
-                    "Device ID already belongs to a different user".to_string(),
-                ));
+                return Err(ApiError::forbidden("Device ID already belongs to a different user".to_string()));
             }
         } else {
             self.device_storage
@@ -267,11 +235,7 @@ impl AuthService {
     /// Verify a user's password without creating a new session or device.
     /// This is intended for UIA (User-Interactive Authentication) flows where
     /// password verification is needed without the side effects of `login()`.
-    pub async fn verify_user_credentials(
-        &self,
-        user_id: &str,
-        password: &str,
-    ) -> ApiResult<()> {
+    pub async fn verify_user_credentials(&self, user_id: &str, password: &str) -> ApiResult<()> {
         let user_opt = self
             .user_storage
             .get_user_by_identifier(user_id)
@@ -284,13 +248,9 @@ impl AuthService {
             return Err(ApiError::forbidden("Invalid credentials".to_string()));
         }
 
-        let password_hash = user
-            .password_hash
-            .ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
+        let password_hash = user.password_hash.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
 
-        let password_ok = self
-            .verify_user_password(password, &password_hash)
-            .await?;
+        let password_ok = self.verify_user_password(password, &password_hash).await?;
 
         if !password_ok {
             return Err(ApiError::forbidden("Invalid credentials".to_string()));

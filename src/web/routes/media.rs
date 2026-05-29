@@ -18,18 +18,13 @@ fn create_media_config_router() -> Router<AppState> {
 }
 
 fn create_media_preview_delete_router() -> Router<AppState> {
-    Router::new()
-        .route("/preview_url", get(preview_url))
-        .route("/delete/{server_name}/{media_id}", post(delete_media))
+    Router::new().route("/preview_url", get(preview_url)).route("/delete/{server_name}/{media_id}", post(delete_media))
 }
 
 fn create_media_legacy_download_router() -> Router<AppState> {
     Router::new()
         .route("/download/{server_name}/{media_id}", get(download_media_v1))
-        .route(
-            "/download/{server_name}/{media_id}/{filename}",
-            get(download_media_v1_with_filename),
-        )
+        .route("/download/{server_name}/{media_id}/{filename}", get(download_media_v1_with_filename))
 }
 
 fn create_media_modern_upload_router() -> Router<AppState> {
@@ -58,15 +53,9 @@ fn create_media_v3_router() -> Router<AppState> {
         .merge(create_media_modern_upload_router())
         .merge(create_media_config_router())
         .merge(create_media_preview_delete_router())
-        .route(
-            "/upload/{server_name}/{media_id}",
-            put(upload_media_with_id),
-        )
+        .route("/upload/{server_name}/{media_id}", put(upload_media_with_id))
         .route("/download/{server_name}/{media_id}", get(download_media))
-        .route(
-            "/download/{server_name}/{media_id}/{filename}",
-            get(download_media_with_filename),
-        )
+        .route("/download/{server_name}/{media_id}/{filename}", get(download_media_with_filename))
         .route("/thumbnail/{server_name}/{media_id}", get(get_thumbnail))
 }
 
@@ -83,24 +72,13 @@ fn create_media_r1_router() -> Router<AppState> {
 
 fn create_media_authenticated_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/download/{server_name}/{media_id}",
-            get(download_media_authenticated),
-        )
-        .route(
-            "/download/{server_name}/{media_id}/{filename}",
-            get(download_media_authenticated_with_filename),
-        )
-        .route(
-            "/thumbnail/{server_name}/{media_id}",
-            get(get_thumbnail_authenticated),
-        )
+        .route("/download/{server_name}/{media_id}", get(download_media_authenticated))
+        .route("/download/{server_name}/{media_id}/{filename}", get(download_media_authenticated_with_filename))
+        .route("/thumbnail/{server_name}/{media_id}", get(get_thumbnail_authenticated))
 }
 
 pub fn create_upload_provider_router() -> Router<AppState> {
-    Router::new()
-        .route("/upload/token", post(create_upload_token))
-        .route("/upload/provider", get(get_upload_provider))
+    Router::new().route("/upload/token", post(create_upload_token)).route("/upload/provider", get(get_upload_provider))
 }
 
 /// POST /_matrix/client/v3/upload/token
@@ -118,14 +96,17 @@ async fn create_upload_token(
     let token = format!("upload_{}_{}", auth_user.user_id, chrono::Utc::now().timestamp_millis());
 
     // Standard Matrix upload fallback (no external storage configured)
-    Ok((StatusCode::OK, Json(json!({
-        "upload_token": token,
-        "storage_type": "matrix",
-        "upload_url": "/_matrix/media/v3/upload",
-        "filename": filename,
-        "content_type": content_type,
-        "max_file_size": 50 * 1024 * 1024u64,
-    }))))
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "upload_token": token,
+            "storage_type": "matrix",
+            "upload_url": "/_matrix/media/v3/upload",
+            "filename": filename,
+            "content_type": content_type,
+            "max_file_size": 50 * 1024 * 1024u64,
+        })),
+    ))
 }
 
 /// GET /_matrix/client/v3/upload/provider
@@ -134,13 +115,16 @@ async fn get_upload_provider(
     State(_state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    Ok((StatusCode::OK, Json(json!({
-        "provider": "matrix",
-        "supports_chunked_upload": true,
-        "supports_resume": true,
-        "max_file_size": 50 * 1024 * 1024u64,
-        "chunk_size": 5 * 1024 * 1024,
-    }))))
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "provider": "matrix",
+            "supports_chunked_upload": true,
+            "supports_resume": true,
+            "max_file_size": 50 * 1024 * 1024u64,
+            "chunk_size": 5 * 1024 * 1024,
+        })),
+    ))
 }
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -151,10 +135,7 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .nest("/_matrix/media/v3", create_media_v3_router())
         .nest("/_matrix/media/r0", create_media_r0_router())
         .nest("/_matrix/media/r1", create_media_r1_router())
-        .nest(
-            "/_matrix/client/v1/media",
-            authenticated_media_router.merge(preview_router),
-        )
+        .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
 }
 
 // ---------------------------------------------------------------------------
@@ -229,28 +210,11 @@ fn media_authenticated_relative_routes() -> Vec<(axum::http::Method, &'static st
 
 pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
-    let mut out =
-        expand_under_prefixes("media", &["/_matrix/media/v1"], &media_v1_relative_routes());
-    out.extend(expand_under_prefixes(
-        "media",
-        &["/_matrix/media/v3"],
-        &media_v3_relative_routes(),
-    ));
-    out.extend(expand_under_prefixes(
-        "media",
-        &["/_matrix/media/r0"],
-        &media_r0_relative_routes(),
-    ));
-    out.extend(expand_under_prefixes(
-        "media",
-        &["/_matrix/media/r1"],
-        &media_r1_relative_routes(),
-    ));
-    out.extend(expand_under_prefixes(
-        "media",
-        &["/_matrix/client/v1/media"],
-        &media_authenticated_relative_routes(),
-    ));
+    let mut out = expand_under_prefixes("media", &["/_matrix/media/v1"], &media_v1_relative_routes());
+    out.extend(expand_under_prefixes("media", &["/_matrix/media/v3"], &media_v3_relative_routes()));
+    out.extend(expand_under_prefixes("media", &["/_matrix/media/r0"], &media_r0_relative_routes()));
+    out.extend(expand_under_prefixes("media", &["/_matrix/media/r1"], &media_r1_relative_routes()));
+    out.extend(expand_under_prefixes("media", &["/_matrix/client/v1/media"], &media_authenticated_relative_routes()));
     out
 }
 
@@ -265,29 +229,17 @@ async fn upload_media_common(
         .get("content_type")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            headers
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-        })
+        .or_else(|| headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()))
         .unwrap_or("application/octet-stream");
 
     let filename = params.get("filename").and_then(|v| v.as_str());
     let content_bytes = body.to_vec();
 
     if content_bytes.is_empty() {
-        return Err(ApiError::bad_request(
-            "No file content provided".to_string(),
-        ));
+        return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
-    Ok(Json(
-        state
-            .services
-            .media_domain_service
-            .upload_media(user_id, &content_bytes, content_type, filename)
-            .await?,
-    ))
+    Ok(Json(state.services.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?))
 }
 
 async fn upload_media_with_id_common(
@@ -310,20 +262,14 @@ async fn upload_media_with_id_common(
         .get("content_type")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            headers
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-        })
+        .or_else(|| headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()))
         .unwrap_or("application/octet-stream");
 
     let filename = params.get("filename").and_then(|v| v.as_str());
     let content_bytes = body.to_vec();
 
     if content_bytes.is_empty() {
-        return Err(ApiError::bad_request(
-            "No file content provided".to_string(),
-        ));
+        return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
     Ok(Json(
@@ -351,11 +297,7 @@ async fn download_media_common(
 ) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
     ensure_local_media_server_name(state, server_name)?;
 
-    state
-        .services
-        .media_domain_service
-        .download_media(server_name, media_id, response_filename)
-        .await
+    state.services.media_domain_service.download_media(server_name, media_id, response_filename).await
 }
 
 fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders) -> HeaderMap {
@@ -371,22 +313,13 @@ fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders
     if let Ok(v) = HeaderValue::from_str(&headers.content_disposition) {
         out.insert(header::CONTENT_DISPOSITION, v);
     }
-    out.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static(headers.x_content_type_options),
-    );
-    out.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(headers.content_security_policy),
-    );
+    out.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static(headers.x_content_type_options));
+    out.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(headers.content_security_policy));
     out.insert(
         axum::http::HeaderName::from_static("cross-origin-resource-policy"),
         HeaderValue::from_static(headers.cross_origin_resource_policy),
     );
-    out.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static(headers.referrer_policy),
-    );
+    out.insert(header::REFERRER_POLICY, HeaderValue::from_static(headers.referrer_policy));
     out
 }
 
@@ -398,35 +331,18 @@ fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
     }))
     .unwrap_or_else(|_| br#"{"errcode":"M_UNKNOWN","error":"Internal error"}"#.to_vec());
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("application/json"),
-    );
+    headers.insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"));
     if let Ok(v) = axum::http::HeaderValue::from_str(&error_body.len().to_string()) {
         headers.insert(header::CONTENT_LENGTH, v);
     }
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        axum::http::HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, axum::http::HeaderValue::from_static("nosniff"));
     (status, headers, error_body)
 }
 
 fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
-    let width = params
-        .get("width")
-        .and_then(|v| v.as_u64())
-        .filter(|&w| w <= 10000)
-        .unwrap_or(800) as u32;
-    let height = params
-        .get("height")
-        .and_then(|v| v.as_u64())
-        .filter(|&h| h <= 10000)
-        .unwrap_or(600) as u32;
-    let method = params
-        .get("method")
-        .and_then(|v| v.as_str())
-        .unwrap_or("scale");
+    let width = params.get("width").and_then(|v| v.as_u64()).filter(|&w| w <= 10000).unwrap_or(800) as u32;
+    let height = params.get("height").and_then(|v| v.as_u64()).filter(|&h| h <= 10000).unwrap_or(600) as u32;
+    let method = params.get("method").and_then(|v| v.as_str()).unwrap_or("scale");
 
     (width, height, method)
 }
@@ -440,11 +356,7 @@ async fn thumbnail_response_common(
     ensure_local_media_server_name(state, server_name)?;
     let (width, height, method) = thumbnail_request_params(params);
 
-    state
-        .services
-        .media_domain_service
-        .get_thumbnail(server_name, media_id, width, height, method)
-        .await
+    state.services.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await
 }
 
 async fn upload_media_v3(
@@ -463,15 +375,8 @@ pub async fn media_config(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-pub async fn check_quota(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let quota_info = state
-        .services
-        .media_domain_service
-        .get_user_quota(&auth_user.user_id)
-        .await?;
+pub async fn check_quota(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+    let quota_info = state.services.media_domain_service.get_user_quota(&auth_user.user_id).await?;
 
     let limit = quota_info.max_storage_bytes;
     let used = quota_info.current_storage_bytes;
@@ -485,20 +390,9 @@ pub async fn check_quota(
     })))
 }
 
-pub async fn quota_stats(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Value>, ApiError> {
-    let quota_info = state
-        .services
-        .media_domain_service
-        .get_user_quota(&auth_user.user_id)
-        .await?;
-    let stats = state
-        .services
-        .media_domain_service
-        .get_usage_stats(&auth_user.user_id)
-        .await?;
+pub async fn quota_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+    let quota_info = state.services.media_domain_service.get_user_quota(&auth_user.user_id).await?;
+    let stats = state.services.media_domain_service.get_usage_stats(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "user_id": auth_user.user_id,
@@ -513,11 +407,7 @@ pub async fn quota_alerts(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let alerts = state
-        .services
-        .media_domain_service
-        .get_user_alerts(&auth_user.user_id, false)
-        .await?;
+    let alerts = state.services.media_domain_service.get_user_alerts(&auth_user.user_id, false).await?;
 
     let alerts_list: Vec<Value> = alerts
         .into_iter()
@@ -548,16 +438,7 @@ async fn upload_media_with_id(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    upload_media_with_id_common(
-        &state,
-        &auth_user.user_id,
-        &server_name,
-        &media_id,
-        &params,
-        &headers,
-        body,
-    )
-    .await
+    upload_media_with_id_common(&state, &auth_user.user_id, &server_name, &media_id, &params, &headers, body).await
 }
 
 async fn download_media(
@@ -573,8 +454,7 @@ async fn download_media_with_filename(
     State(state): State<AppState>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response =
-        download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
@@ -594,8 +474,7 @@ async fn download_media_authenticated_with_filename(
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response =
-        download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
@@ -612,14 +491,9 @@ async fn get_thumbnail_authenticated(
 }
 
 #[allow(clippy::unused_async)]
-async fn _preview_url(
-    State(_state): State<AppState>,
-    Query(params): Query<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let url = params
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
+async fn _preview_url(State(_state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+    let url =
+        params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
     Ok(Json(json!({
         "url": url,
@@ -679,20 +553,15 @@ async fn preview_url(
     _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let url = params
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
+    let url =
+        params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
     let blacklist = &state.services.config.url_preview.ip_range_blacklist;
     if let Err(e) = crate::common::security::check_url_against_blacklist(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
-    let ts = params
-        .get("ts")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     match state.services.media_domain_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),
@@ -711,11 +580,7 @@ async fn delete_media(
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    state
-        .services
-        .media_domain_service
-        .delete_media_for_user(&server_name, &media_id, &auth_user.user_id)
-        .await?;
+    state.services.media_domain_service.delete_media_for_user(&server_name, &media_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "deleted": true,
@@ -737,27 +602,16 @@ async fn chunked_upload_start(
     let filename = body.get("filename").and_then(|v| v.as_str());
     let content_type = body.get("content_type").and_then(|v| v.as_str());
     let total_size = body.get("total_size").and_then(|v| v.as_i64());
-    let total_chunks = body
-        .get("total_chunks")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(1) as i32;
+    let total_chunks = body.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
 
     if total_chunks < 1 {
-        return Err(ApiError::bad_request(
-            "total_chunks must be at least 1".to_string(),
-        ));
+        return Err(ApiError::bad_request("total_chunks must be at least 1".to_string()));
     }
 
     let upload_id = state
         .services
         .media_domain_service
-        .start_chunked_upload(
-            &auth_user.user_id,
-            filename,
-            content_type,
-            total_size,
-            total_chunks,
-        )
+        .start_chunked_upload(&auth_user.user_id, filename, content_type, total_size, total_chunks)
         .await?;
 
     Ok(Json(json!({
@@ -777,19 +631,10 @@ async fn chunked_upload_chunk(
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
     let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-    let chunk_index = params
-        .get("chunk_index")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
-    let total_chunks = params
-        .get("total_chunks")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(1) as i32;
+    let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
     let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+    let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let total_size = params.get("total_size").and_then(|v| v.as_i64());
 
     let request = crate::services::media::chunked_upload::ChunkUploadRequest {
@@ -802,11 +647,7 @@ async fn chunked_upload_chunk(
         total_size,
     };
 
-    let response = state
-        .services
-        .media_domain_service
-        .upload_chunk(request, &auth_user.user_id)
-        .await?;
+    let response = state.services.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "upload_id": response.upload_id,
@@ -830,11 +671,7 @@ async fn chunked_upload_complete(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let response = state
-        .services
-        .media_domain_service
-        .complete_chunked_upload(upload_id, &auth_user.user_id)
-        .await?;
+    let response = state.services.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "content_uri": response.content_uri,
@@ -855,11 +692,7 @@ async fn chunked_upload_cancel(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    state
-        .services
-        .media_domain_service
-        .cancel_chunked_upload(upload_id, &auth_user.user_id)
-        .await?;
+    state.services.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "cancelled": true,
@@ -879,11 +712,7 @@ async fn chunked_upload_progress(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let progress = state
-        .services
-        .media_domain_service
-        .get_chunked_upload_progress(upload_id)
-        .await?;
+    let progress = state.services.media_domain_service.get_chunked_upload_progress(upload_id).await?;
 
     if progress.user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Upload does not belong to user"));
@@ -957,24 +786,16 @@ mod tests {
 
     #[test]
     fn test_media_shared_router_contains_common_paths() {
-        let shared_paths = [
-            "/config",
-            "/preview_url",
-            "/delete/{server_name}/{media_id}",
-        ];
+        let shared_paths = ["/config", "/preview_url", "/delete/{server_name}/{media_id}"];
         let modern_upload_paths = ["/upload"];
-        let legacy_download_paths = [
-            "/download/{server_name}/{media_id}",
-            "/download/{server_name}/{media_id}/{filename}",
-        ];
+        let legacy_download_paths =
+            ["/download/{server_name}/{media_id}", "/download/{server_name}/{media_id}/{filename}"];
 
         assert_eq!(shared_paths.len(), 3);
         assert_eq!(modern_upload_paths.len(), 1);
         assert_eq!(legacy_download_paths.len(), 2);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
-        assert!(legacy_download_paths
-            .iter()
-            .all(|path| path.starts_with("/download/")));
+        assert!(legacy_download_paths.iter().all(|path| path.starts_with("/download/")));
     }
 
     #[test]
@@ -987,16 +808,10 @@ mod tests {
             "/_matrix/media/v3/thumbnail/{server_name}/{media_id}",
         ];
 
-        assert!(r0_only_paths
-            .iter()
-            .all(|path| !path.contains("/preview_url")));
+        assert!(r0_only_paths.iter().all(|path| !path.contains("/preview_url")));
         assert!(r1_only_paths.iter().all(|path| !path.contains("/delete/")));
-        assert!(v1_only_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/media/v1/")));
-        assert!(v3_only_paths
-            .iter()
-            .all(|path| path.starts_with("/_matrix/media/v3/")));
+        assert!(v1_only_paths.iter().all(|path| path.starts_with("/_matrix/media/v1/")));
+        assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/media/v3/")));
     }
 
     #[test]
@@ -1018,18 +833,11 @@ mod tests {
 
     #[test]
     fn test_media_id_format() {
-        let media_ids = vec![
-            "abc123",
-            "media_id_with_underscores",
-            "media-id-with-dashes",
-            "UPPERCASE123",
-        ];
+        let media_ids = vec!["abc123", "media_id_with_underscores", "media-id-with-dashes", "UPPERCASE123"];
 
         for id in media_ids {
             assert!(!id.is_empty());
-            assert!(id
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
+            assert!(id.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'));
         }
     }
 

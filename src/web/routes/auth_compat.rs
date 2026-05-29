@@ -30,15 +30,9 @@ pub(crate) async fn register(
         let user_id = format!("@{}:{}", username, state.services.server_name);
         let device_id = format!("guest_device_{guest_num}");
 
-        let user = UserStorage::create_user(
-            &state.services.user_storage,
-            &user_id,
-            &username,
-            None,
-            false,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
+        let user = UserStorage::create_user(&state.services.user_storage, &user_id, &username, None, false)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
         sqlx::query(
             r"
@@ -50,14 +44,9 @@ pub(crate) async fn register(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
-        DeviceStorage::create_device(
-            &state.services.device_storage,
-            &device_id,
-            &user.user_id,
-            Some("Guest Device"),
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
+        DeviceStorage::create_device(&state.services.device_storage, &device_id, &user.user_id, Some("Guest Device"))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
         let access_token = state
             .services
@@ -82,19 +71,14 @@ pub(crate) async fn register(
     }
 
     let auth = body.get("auth").cloned();
-    let auth_type = auth
-        .as_ref()
-        .and_then(|a| a.get("type"))
-        .and_then(|t| t.as_str());
+    let auth_type = auth.as_ref().and_then(|a| a.get("type")).and_then(|t| t.as_str());
 
     let username = body.get("username").and_then(|v| v.as_str());
     let password = body.get("password").and_then(|v| v.as_str());
 
     if username.is_none() || password.is_none() {
         if auth_type == Some("m.login.dummy") || auth_type == Some("m.login.password") {
-            return Err(ApiError::bad_request(
-                "Username and password required".to_string(),
-            ));
+            return Err(ApiError::bad_request("Username and password required".to_string()));
         }
         // Matrix spec: User-Interactive Auth challenges MUST be returned with HTTP 401
         // (https://spec.matrix.org/latest/client-server-api/#user-interactive-authentication-api).
@@ -115,26 +99,14 @@ pub(crate) async fn register(
             .into_response());
     }
 
-    let username =
-        username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
-    let password =
-        password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
+    let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
-    state
-        .services
-        .auth_service
-        .validator
-        .validate_username(username)?;
-    state
-        .services
-        .auth_service
-        .validator
-        .validate_password(password)?;
+    state.services.auth_service.validator.validate_username(username)?;
+    state.services.auth_service.validator.validate_password(password)?;
 
     let displayname = body.get("displayname").and_then(|v| v.as_str());
-    let initial_device_display_name = body
-        .get("initial_device_display_name")
-        .and_then(|v| v.as_str());
+    let initial_device_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
 
     Ok(Json(
         state
@@ -155,12 +127,7 @@ pub(crate) async fn check_username_availability(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
-    if let Err(e) = state
-        .services
-        .auth_service
-        .validator
-        .validate_username(username)
-    {
+    if let Err(e) = state.services.auth_service.validator.validate_username(username) {
         return Err(e.into());
     }
 
@@ -204,16 +171,8 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    if state
-        .services
-        .auth_service
-        .validator
-        .validate_email(email)
-        .is_err()
-    {
-        return Err(ApiError::bad_request(
-            "Invalid email address format".to_string(),
-        ));
+    if state.services.auth_service.validator.validate_email(email).is_err() {
+        return Err(ApiError::bad_request("Invalid email address format".to_string()));
     }
 
     let client_secret = body
@@ -221,21 +180,12 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("client_secret is required".to_string()))?;
 
-    let _send_attempt = body
-        .get("send_attempt")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
 
-    let token = state
-        .services
-        .auth_service
-        .generate_email_verification_token()
-        .map_err(|e| {
-            ::tracing::error!("Failed to generate email verification token: {}", e);
-            ApiError::internal(
-                "Failed to generate verification token. Please try again later.".to_string(),
-            )
-        })?;
+    let token = state.services.auth_service.generate_email_verification_token().map_err(|e| {
+        ::tracing::error!("Failed to generate email verification token: {}", e);
+        ApiError::internal("Failed to generate verification token. Please try again later.".to_string())
+    })?;
 
     let session_data = serde_json::json!({
         "client_secret": client_secret,
@@ -249,24 +199,14 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .await
         .map_err(|e| {
             ::tracing::error!("Failed to store email verification token: {}", e);
-            ApiError::internal(
-                "Failed to store verification token. Please try again later.".to_string(),
-            )
+            ApiError::internal("Failed to store verification token. Please try again later.".to_string())
         })?;
 
     let sid = format!("{token_id}");
 
-    let submit_url = format!(
-        "{}{}",
-        state.services.config.server.get_public_baseurl(),
-        submit_path
-    );
+    let submit_url = format!("{}{}", state.services.config.server.get_public_baseurl(), submit_path);
 
-    ::tracing::info!(
-        "Email verification token created for {}: sid={}",
-        email,
-        sid
-    );
+    ::tracing::info!("Email verification token created for {}: sid={}", email, sid);
 
     Ok(Json(json!({
         "sid": sid,
@@ -302,9 +242,7 @@ pub(crate) async fn submit_email_token(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Verification token is required".to_string()))?;
 
-    let sid_int: i64 = sid
-        .parse()
-        .map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
+    let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
     let verification_token = state
         .services
@@ -315,29 +253,19 @@ pub(crate) async fn submit_email_token(
 
     let verification_token = match verification_token {
         Some(t) => t,
-        None => {
-            return Err(ApiError::bad_request(
-                "Invalid session ID or session not found".to_string(),
-            ))
-        }
+        None => return Err(ApiError::bad_request("Invalid session ID or session not found".to_string())),
     };
 
     if verification_token.used {
-        return Err(ApiError::bad_request(
-            "Verification token has already been used".to_string(),
-        ));
+        return Err(ApiError::bad_request("Verification token has already been used".to_string()));
     }
 
     if verification_token.expires_at < chrono::Utc::now() {
-        return Err(ApiError::bad_request(
-            "Verification token has expired".to_string(),
-        ));
+        return Err(ApiError::bad_request("Verification token has expired".to_string()));
     }
 
     if verification_token.token != token {
-        return Err(ApiError::bad_request(
-            "Invalid verification token".to_string(),
-        ));
+        return Err(ApiError::bad_request("Invalid verification token".to_string()));
     }
 
     if session_client_secret(verification_token.session_data.as_ref()) != Some(client_secret) {
@@ -357,10 +285,7 @@ pub(crate) async fn submit_email_token(
 }
 
 pub(crate) async fn get_login_flows(State(state): State<AppState>) -> Json<Value> {
-    let mut flows = vec![
-        json!({"type": "m.login.password"}),
-        json!({"type": "m.login.token"}),
-    ];
+    let mut flows = vec![json!({"type": "m.login.password"}), json!({"type": "m.login.token"})];
 
     let mut sso_providers = Vec::new();
 
@@ -437,9 +362,7 @@ pub(crate) async fn login(
         .ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
     if username.is_empty() || password.is_empty() {
-        return Err(ApiError::bad_request(
-            "Username and password are required".to_string(),
-        ));
+        return Err(ApiError::bad_request("Username and password are required".to_string()));
     }
 
     if username.len() > 255 {
@@ -447,9 +370,7 @@ pub(crate) async fn login(
     }
 
     if password.len() > 128 {
-        return Err(ApiError::bad_request(
-            "Password too long (max 128 characters)".to_string(),
-        ));
+        return Err(ApiError::bad_request("Password too long (max 128 characters)".to_string()));
     }
 
     let device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -458,11 +379,8 @@ pub(crate) async fn login(
 
     enforce_admin_login_mfa(&state, username, mfa_code).await?;
 
-    let (user, access_token, refresh_token, device_id) = state
-        .services
-        .auth_service
-        .login(username, password, device_id, initial_display_name)
-        .await?;
+    let (user, access_token, refresh_token, device_id) =
+        state.services.auth_service.login(username, password, device_id, initial_display_name).await?;
 
     Ok(Json(json!({
         "access_token": access_token,
@@ -482,11 +400,7 @@ pub(crate) async fn logout(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .auth_service
-        .logout(&auth_user.access_token, auth_user.device_id.as_deref())
-        .await?;
+    state.services.auth_service.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({})))
 }
@@ -495,11 +409,7 @@ pub(crate) async fn logout_all(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .auth_service
-        .logout_all(&auth_user.user_id)
-        .await?;
+    state.services.auth_service.logout_all(&auth_user.user_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -513,11 +423,7 @@ pub(crate) async fn refresh_token(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
 
-    let (new_access, new_refresh, device_id) = state
-        .services
-        .auth_service
-        .refresh_token(refresh_token)
-        .await?;
+    let (new_access, new_refresh, device_id) = state.services.auth_service.refresh_token(refresh_token).await?;
 
     Ok(Json(json!({
         "access_token": new_access,
@@ -532,11 +438,7 @@ pub(crate) async fn login_fallback_page(
 ) -> Result<axum::response::Html<String>, ApiError> {
     let flows = get_login_flows(State(state)).await;
     let empty_vec = vec![];
-    let flows_data = flows
-        .0
-        .get("flows")
-        .and_then(|f| f.as_array())
-        .unwrap_or(&empty_vec);
+    let flows_data = flows.0.get("flows").and_then(|f| f.as_array()).unwrap_or(&empty_vec);
 
     let mut flows_html = String::new();
 

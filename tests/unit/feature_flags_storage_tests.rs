@@ -5,8 +5,7 @@ use std::sync::Arc;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::storage::feature_flags::{
-    CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput,
-    UpdateFeatureFlagRequest,
+    CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -23,9 +22,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping feature flags storage tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping feature flags storage tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -141,10 +138,7 @@ fn test_create_feature_flag_request_default_targets() {
 
 #[test]
 fn test_feature_flag_target_input_serialization() {
-    let input = FeatureFlagTargetInput {
-        subject_type: "group".to_string(),
-        subject_id: "admin".to_string(),
-    };
+    let input = FeatureFlagTargetInput { subject_type: "group".to_string(), subject_id: "admin".to_string() };
     let json = serde_json::to_string(&input).unwrap();
     let parsed: FeatureFlagTargetInput = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.subject_type, "group");
@@ -164,10 +158,7 @@ fn test_feature_flag_filters_with_all_fields() {
     assert_eq!(filters.status.as_deref(), Some("active"));
     assert_eq!(filters.limit, 25);
     assert_eq!(filters.cursor_updated_ts, Some(1_700_000_000_000));
-    assert_eq!(
-        filters.cursor_flag_key.as_deref(),
-        Some("beta.rollout")
-    );
+    assert_eq!(filters.cursor_flag_key.as_deref(), Some("beta.rollout"));
 }
 
 #[tokio::test]
@@ -231,14 +222,8 @@ async fn test_create_flag_with_targets() {
                 reason: "targeted rollout".to_string(),
                 status: Some("active".to_string()),
                 targets: vec![
-                    FeatureFlagTargetInput {
-                        subject_type: "user".to_string(),
-                        subject_id: "@alice:test".to_string(),
-                    },
-                    FeatureFlagTargetInput {
-                        subject_type: "group".to_string(),
-                        subject_id: "admins".to_string(),
-                    },
+                    FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@alice:test".to_string() },
+                    FeatureFlagTargetInput { subject_type: "group".to_string(), subject_id: "admins".to_string() },
                 ],
             },
             "@creator:test",
@@ -307,14 +292,9 @@ async fn test_create_flag_duplicate_key_fails() {
         targets: vec![],
     };
 
-    storage
-        .create_flag(&request, "@admin:test", created_ts)
-        .await
-        .unwrap();
+    storage.create_flag(&request, "@admin:test", created_ts).await.unwrap();
 
-    let result = storage
-        .create_flag(&request, "@admin:test", created_ts + 1)
-        .await;
+    let result = storage.create_flag(&request, "@admin:test", created_ts + 1).await;
     assert!(result.is_err());
 }
 
@@ -381,14 +361,7 @@ async fn test_get_flag_cache_hit() {
     let flag_key = format!("test-get-cache-{uid}");
     let created_ts = 1_700_000_000_000_i64;
 
-    storage
-        .create_flag(
-            &make_create_request(&flag_key, "global"),
-            "@admin:test",
-            created_ts,
-        )
-        .await
-        .unwrap();
+    storage.create_flag(&make_create_request(&flag_key, "global"), "@admin:test", created_ts).await.unwrap();
 
     let flag1 = storage.get_flag(&flag_key).await.unwrap().unwrap();
     let flag2 = storage.get_flag(&flag_key).await.unwrap().unwrap();
@@ -427,10 +400,7 @@ async fn test_update_flag_status() {
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                status: Some("active".to_string()),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() },
             created_ts + 100,
         )
         .await
@@ -453,22 +423,12 @@ async fn test_update_flag_rollout_percent() {
     let flag_key = format!("test-update-rollout-{uid}");
     let created_ts = 1_700_000_000_000_i64;
 
-    storage
-        .create_flag(
-            &make_create_request(&flag_key, "global"),
-            "@admin:test",
-            created_ts,
-        )
-        .await
-        .unwrap();
+    storage.create_flag(&make_create_request(&flag_key, "global"), "@admin:test", created_ts).await.unwrap();
 
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                rollout_percent: Some(100),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { rollout_percent: Some(100), ..Default::default() },
             created_ts + 200,
         )
         .await
@@ -510,10 +470,7 @@ async fn test_update_flag_expires_at() {
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                expires_at: Some(1_800_000_000_000),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { expires_at: Some(1_800_000_000_000), ..Default::default() },
             created_ts + 300,
         )
         .await
@@ -534,22 +491,12 @@ async fn test_update_flag_reason() {
     let flag_key = format!("test-update-reason-{uid}");
     let created_ts = 1_700_000_000_000_i64;
 
-    storage
-        .create_flag(
-            &make_create_request(&flag_key, "global"),
-            "@admin:test",
-            created_ts,
-        )
-        .await
-        .unwrap();
+    storage.create_flag(&make_create_request(&flag_key, "global"), "@admin:test", created_ts).await.unwrap();
 
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                reason: Some("updated reason".to_string()),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { reason: Some("updated reason".to_string()), ..Default::default() },
             created_ts + 400,
         )
         .await
@@ -595,14 +542,8 @@ async fn test_update_flag_replace_targets() {
             &flag_key,
             &UpdateFeatureFlagRequest {
                 targets: Some(vec![
-                    FeatureFlagTargetInput {
-                        subject_type: "user".to_string(),
-                        subject_id: "@new1:test".to_string(),
-                    },
-                    FeatureFlagTargetInput {
-                        subject_type: "group".to_string(),
-                        subject_id: "beta".to_string(),
-                    },
+                    FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@new1:test".to_string() },
+                    FeatureFlagTargetInput { subject_type: "group".to_string(), subject_id: "beta".to_string() },
                 ]),
                 ..Default::default()
             },
@@ -630,10 +571,7 @@ async fn test_update_flag_nonexistent_returns_none() {
     let result = storage
         .update_flag(
             "nonexistent.key",
-            &UpdateFeatureFlagRequest {
-                status: Some("active".to_string()),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() },
             1_700_000_000_000,
         )
         .await
@@ -676,10 +614,7 @@ async fn test_update_flag_no_targets_preserves_existing() {
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                rollout_percent: Some(75),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { rollout_percent: Some(75), ..Default::default() },
             created_ts + 100,
         )
         .await
@@ -977,10 +912,7 @@ async fn test_list_flags_includes_targets() {
                         subject_type: "user".to_string(),
                         subject_id: "@target1:test".to_string(),
                     },
-                    FeatureFlagTargetInput {
-                        subject_type: "group".to_string(),
-                        subject_id: "group1".to_string(),
-                    },
+                    FeatureFlagTargetInput { subject_type: "group".to_string(), subject_id: "group1".to_string() },
                 ],
             },
             "@admin:test",
@@ -1135,10 +1067,7 @@ async fn test_update_flag_invalidates_list_cache() {
     storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                status: Some("active".to_string()),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() },
             created_ts + 100,
         )
         .await
@@ -1185,10 +1114,7 @@ async fn test_update_flag_invalidates_flag_cache() {
     storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                rollout_percent: Some(99),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { rollout_percent: Some(99), ..Default::default() },
             created_ts + 100,
         )
         .await
@@ -1272,14 +1198,8 @@ async fn test_update_flag_empty_targets_clears_all() {
                 reason: "test".to_string(),
                 status: Some("draft".to_string()),
                 targets: vec![
-                    FeatureFlagTargetInput {
-                        subject_type: "user".to_string(),
-                        subject_id: "@a:test".to_string(),
-                    },
-                    FeatureFlagTargetInput {
-                        subject_type: "user".to_string(),
-                        subject_id: "@b:test".to_string(),
-                    },
+                    FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@a:test".to_string() },
+                    FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@b:test".to_string() },
                 ],
             },
             "@admin:test",
@@ -1291,10 +1211,7 @@ async fn test_update_flag_empty_targets_clears_all() {
     let updated = storage
         .update_flag(
             &flag_key,
-            &UpdateFeatureFlagRequest {
-                targets: Some(vec![]),
-                ..Default::default()
-            },
+            &UpdateFeatureFlagRequest { targets: Some(vec![]), ..Default::default() },
             created_ts + 100,
         )
         .await

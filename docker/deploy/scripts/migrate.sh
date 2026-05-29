@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 compose() {
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose &>/dev/null; then
         docker-compose "$@"
     else
         docker compose "$@"
@@ -45,11 +45,11 @@ log_error() {
 # 检查数据库连接
 check_db_connection() {
     log_info "检查数据库连接..."
-    
+
     local db_user="${POSTGRES_USER:-postgres}"
     local db_name="${POSTGRES_DB:-synapse}"
-    
-    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" > /dev/null 2>&1; then
+
+    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
         log_success "数据库连接正常"
         return 0
     else
@@ -61,17 +61,17 @@ check_db_connection() {
 # 运行迁移
 run_migrations() {
     log_info "运行数据库迁移..."
-    
+
     # 使用 migrator 服务执行 migrate + validate
     compose run --rm --no-deps migrator
-    
+
     log_success "迁移完成"
 }
 
 # 检查迁移状态
 check_migration_status() {
     log_info "检查迁移状态..."
-    
+
     compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -c "SELECT * FROM schema_migrations ORDER BY version;" 2>/dev/null || true
 }
 

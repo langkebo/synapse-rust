@@ -68,14 +68,10 @@ use std::sync::Arc;
 
 static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
 
-pub fn with_local_connect_info(
-    mut request: hyper::Request<axum::body::Body>,
-) -> hyper::Request<axum::body::Body> {
+pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
     use std::net::SocketAddr;
-    let local_addr: SocketAddr = "127.0.0.1:65530"
-        .parse()
-        .expect("valid loopback socket addr");
+    let local_addr: SocketAddr = "127.0.0.1:65530".parse().expect("valid loopback socket addr");
     request.extensions_mut().insert(ConnectInfo(local_addr));
     request
 }
@@ -155,9 +151,7 @@ static FEDERATION_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust:
     tokio::sync::OnceCell::const_new();
 
 pub async fn setup_test_app() -> Option<axum::Router> {
-    let cached = DEFAULT_APP
-        .get_or_init(|| async { build_test_app(|_| {}).await })
-        .await;
+    let cached = DEFAULT_APP.get_or_init(|| async { build_test_app(|_| {}).await }).await;
     cached.as_ref().map(|(app, _)| app.clone())
 }
 
@@ -170,8 +164,7 @@ where
     build_test_app(configure).await
 }
 
-pub async fn setup_test_app_with_state(
-) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
     let cached = FEDERATION_APP
         .get_or_init(|| async {
             build_test_app(|container| {
@@ -180,14 +173,10 @@ pub async fn setup_test_app_with_state(
             .await
         })
         .await;
-    cached
-        .as_ref()
-        .map(|(app, state)| (app.clone(), state.clone()))
+    cached.as_ref().map(|(app, state)| (app.clone(), state.clone()))
 }
 
-async fn build_test_app<F>(
-    configure: F,
-) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+async fn build_test_app<F>(configure: F) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
 where
     F: FnOnce(&mut synapse_rust::services::ServiceContainer),
 {
@@ -207,9 +196,7 @@ where
 
 pub async fn setup_test_app_with_pool(
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<synapse_rust::cache::CacheManager>)> {
-    let cached = DEFAULT_APP
-        .get_or_init(|| async { build_test_app(|_| {}).await })
-        .await;
+    let cached = DEFAULT_APP.get_or_init(|| async { build_test_app(|_| {}).await }).await;
     cached.as_ref().map(|(app, state)| {
         let pool = state.services.user_storage.pool.clone();
         let cache = state.cache.clone();
@@ -233,26 +220,17 @@ async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (S
     let username = format!("admin_{}", rand::random::<u32>());
 
     // Step 1: Get nonce
-    let nonce_request = Request::builder()
-        .method("GET")
-        .uri("/_synapse/admin/v1/register/nonce")
-        .body(Body::empty())
-        .unwrap();
+    let nonce_request =
+        Request::builder().method("GET").uri("/_synapse/admin/v1/register/nonce").body(Body::empty()).unwrap();
 
-    let nonce_response = app
-        .clone()
-        .oneshot(with_local_connect_info(nonce_request))
-        .await
-        .unwrap();
-    let nonce_body = axum::body::to_bytes(nonce_response.into_body(), 1024)
-        .await
-        .unwrap();
+    let nonce_response = app.clone().oneshot(with_local_connect_info(nonce_request)).await.unwrap();
+    let nonce_body = axum::body::to_bytes(nonce_response.into_body(), 1024).await.unwrap();
     let nonce_json: serde_json::Value = serde_json::from_slice(&nonce_body).unwrap();
     let nonce = nonce_json["nonce"].as_str().unwrap();
 
     // Step 2: Calculate HMAC
-    let shared_secret = std::env::var("REGISTRATION_SHARED_SECRET")
-        .unwrap_or_else(|_| "test_shared_secret".to_string());
+    let shared_secret =
+        std::env::var("REGISTRATION_SHARED_SECRET").unwrap_or_else(|_| "test_shared_secret".to_string());
 
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
@@ -294,15 +272,9 @@ async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (S
         ))
         .unwrap();
 
-    let response = app
-        .clone()
-        .oneshot(with_local_connect_info(register_request))
-        .await
-        .unwrap();
+    let response = app.clone().oneshot(with_local_connect_info(register_request)).await.unwrap();
     let status = response.status();
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     assert_eq!(
         status,
         axum::http::StatusCode::OK,
@@ -335,9 +307,7 @@ pub async fn create_test_user(app: &axum::Router) -> String {
         .unwrap();
 
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }

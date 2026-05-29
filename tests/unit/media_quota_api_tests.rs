@@ -326,10 +326,7 @@ fn test_file_size_validation() {
 
 // Helper functions
 fn is_valid_alert_type(alert_type: &str) -> bool {
-    matches!(
-        alert_type,
-        "quota_exceeded" | "threshold_reached" | "abuse_detected" | "storage_warning"
-    )
+    matches!(alert_type, "quota_exceeded" | "threshold_reached" | "abuse_detected" | "storage_warning")
 }
 
 fn is_valid_file_size(size: i64) -> bool {

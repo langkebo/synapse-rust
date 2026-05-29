@@ -1,7 +1,6 @@
 use super::*;
 use crate::common::crypto::{
-    hash_password_with_params, is_legacy_hash, migrate_password_hash,
-    verify_password as verify_password_common,
+    hash_password_with_params, is_legacy_hash, migrate_password_hash, verify_password as verify_password_common,
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -87,10 +86,7 @@ fn test_hash_token_different_tokens() {
     let token2 = "token_two";
     let hash1 = AuthService::hash_token(token1);
     let hash2 = AuthService::hash_token(token2);
-    assert_ne!(
-        hash1, hash2,
-        "Different tokens should produce different hashes"
-    );
+    assert_ne!(hash1, hash2, "Different tokens should produce different hashes");
 }
 
 #[test]
@@ -103,11 +99,7 @@ fn test_hash_token_empty_string() {
 fn test_hash_token_format() {
     let token = "test_token";
     let hash = AuthService::hash_token(token);
-    assert_eq!(
-        hash.len(),
-        43,
-        "SHA256 base64 encoded hash should be 43 chars"
-    );
+    assert_eq!(hash.len(), 43, "SHA256 base64 encoded hash should be 43 chars");
 }
 
 #[test]
@@ -124,10 +116,7 @@ fn test_password_hash_uniqueness() {
     let password = "same_password";
     let hash1 = hash_password_with_params(password, 65536, 3, 1).unwrap();
     let hash2 = hash_password_with_params(password, 65536, 3, 1).unwrap();
-    assert_ne!(
-        hash1, hash2,
-        "Same password should produce different hashes due to salt"
-    );
+    assert_ne!(hash1, hash2, "Same password should produce different hashes due to salt");
 }
 
 #[test]
@@ -242,9 +231,7 @@ fn test_jwt_encode_decode() {
 
     let validation = Validation::new(Algorithm::HS256);
     let decoded: Claims =
-        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation)
-            .unwrap()
-            .claims;
+        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation).unwrap().claims;
 
     assert_eq!(decoded.sub, claims.sub);
     assert_eq!(decoded.user_id, claims.user_id);
@@ -273,11 +260,7 @@ fn test_jwt_decode_wrong_secret() {
     let token = encode(&header, &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();
 
     let validation = Validation::new(Algorithm::HS256);
-    let result = jsonwebtoken::decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret(wrong_secret),
-        &validation,
-    );
+    let result = jsonwebtoken::decode::<Claims>(&token, &DecodingKey::from_secret(wrong_secret), &validation);
 
     assert!(result.is_err(), "Decoding with wrong secret should fail");
 }
@@ -302,11 +285,7 @@ fn test_jwt_expired_token() {
     let token = encode(&header, &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();
 
     let validation = Validation::new(Algorithm::HS256);
-    let result = jsonwebtoken::decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret(jwt_secret),
-        &validation,
-    );
+    let result = jsonwebtoken::decode::<Claims>(&token, &DecodingKey::from_secret(jwt_secret), &validation);
 
     assert!(result.is_err(), "Expired token should fail validation");
 }
@@ -337,11 +316,7 @@ fn test_jwt_tampered_token() {
     let tampered_token: String = tampered.into_iter().collect();
 
     let validation = Validation::new(Algorithm::HS256);
-    let result = jsonwebtoken::decode::<Claims>(
-        &tampered_token,
-        &DecodingKey::from_secret(jwt_secret),
-        &validation,
-    );
+    let result = jsonwebtoken::decode::<Claims>(&tampered_token, &DecodingKey::from_secret(jwt_secret), &validation);
 
     assert!(result.is_err(), "Tampered token should fail validation");
 }
@@ -349,10 +324,7 @@ fn test_jwt_tampered_token() {
 #[test]
 fn test_auth_generate_token_uniqueness() {
     let tokens: Vec<String> = (0..100).map(|_| auth_generate_token(32)).collect();
-    let unique_count = tokens
-        .iter()
-        .collect::<std::collections::HashSet<_>>()
-        .len();
+    let unique_count = tokens.iter().collect::<std::collections::HashSet<_>>().len();
     assert_eq!(unique_count, 100, "All generated tokens should be unique");
 }
 
@@ -360,14 +332,9 @@ fn test_auth_generate_token_uniqueness() {
 fn test_auth_generate_token_charset() {
     let token = auth_generate_token(1000);
     let valid_chars: std::collections::HashSet<char> =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-            .chars()
-            .collect();
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
     for c in token.chars() {
-        assert!(
-            valid_chars.contains(&c),
-            "Token should only contain alphanumeric characters"
-        );
+        assert!(valid_chars.contains(&c), "Token should only contain alphanumeric characters");
     }
 }
 
@@ -485,9 +452,7 @@ fn test_auth_service_jwt_generation_direct() {
 
     let validation = Validation::new(Algorithm::HS256);
     let decoded: Claims =
-        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation)
-            .unwrap()
-            .claims;
+        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation).unwrap().claims;
 
     assert_eq!(decoded.sub, "@user:test.server");
     assert_eq!(decoded.user_id, "@user:test.server");
@@ -516,9 +481,7 @@ fn test_auth_service_jwt_admin_flag_direct() {
 
     let validation = Validation::new(Algorithm::HS256);
     let decoded: Claims =
-        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation)
-            .unwrap()
-            .claims;
+        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &validation).unwrap().claims;
 
     assert!(decoded.is_admin);
 }
@@ -539,20 +502,12 @@ fn test_auth_service_jwt_expiration_direct() {
         device_id: Some("DEVICE".to_string()),
     };
 
-    let token = encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret),
-    )
-    .unwrap();
+    let token = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();
 
-    let decoded: Claims = jsonwebtoken::decode(
-        &token,
-        &DecodingKey::from_secret(jwt_secret),
-        &Validation::new(Algorithm::HS256),
-    )
-    .unwrap()
-    .claims;
+    let decoded: Claims =
+        jsonwebtoken::decode(&token, &DecodingKey::from_secret(jwt_secret), &Validation::new(Algorithm::HS256))
+            .unwrap()
+            .claims;
 
     assert!(decoded.exp > now);
     assert!(decoded.exp <= now + token_expiry + 1);

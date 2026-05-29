@@ -8,10 +8,7 @@ use tower::ServiceExt;
 async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
     let (app, pool, _cache) = super::setup_test_app_with_pool().await?;
 
-    let username = format!(
-        "admin_{}",
-        &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]
-    );
+    let username = format!("admin_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
     let password = "AdminPassword123!";
 
     let reg_req = Request::builder()
@@ -31,9 +28,7 @@ async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
     let reg_res = app.clone().oneshot(reg_req).await.unwrap();
     assert_eq!(reg_res.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(reg_res.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(reg_res.into_body(), 10240).await.unwrap();
     let reg_json: Value = serde_json::from_slice(&body).unwrap();
     let user_id = reg_json["user_id"].as_str().unwrap();
 
@@ -60,9 +55,7 @@ async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
     let login_res = app.clone().oneshot(login_req).await.unwrap();
     assert_eq!(login_res.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(login_res.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(login_res.into_body(), 10240).await.unwrap();
     let login_json: Value = serde_json::from_slice(&body).unwrap();
     let token = login_json["access_token"].as_str().unwrap().to_string();
 

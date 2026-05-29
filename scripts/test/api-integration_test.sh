@@ -110,9 +110,9 @@ check_environment() {
 # 用法: destructive || skip_destructive "原因"
 destructive() {
     if [ "$TEST_ENV" = "safe" ]; then
-        return 0  # 在隔离环境中允许执行
+        return 0 # 在隔离环境中允许执行
     fi
-    return 1  # 非隔离环境跳过
+    return 1 # 非隔离环境跳过
 }
 
 skip_destructive() {
@@ -129,20 +129,20 @@ MISSING=0
 ADMIN_AUTH_AVAILABLE=1
 
 mkdir -p "$RESULTS_DIR"
-: > "$PASSED_LIST_FILE"
-: > "$FAILED_LIST_FILE"
-: > "$SKIPPED_LIST_FILE"
-: > "$MISSING_LIST_FILE"
+: >"$PASSED_LIST_FILE"
+: >"$FAILED_LIST_FILE"
+: >"$SKIPPED_LIST_FILE"
+: >"$MISSING_LIST_FILE"
 
 pass() {
     local name="$1"
     local reason="${2:-}"
     if [ -n "$reason" ]; then
         echo "✓ PASS: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$PASSED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$PASSED_LIST_FILE"
     else
         echo "✓ PASS: $name"
-        printf '%s\n' "$name" >> "$PASSED_LIST_FILE"
+        printf '%s\n' "$name" >>"$PASSED_LIST_FILE"
     fi
     ((PASSED++)) || true
 }
@@ -156,10 +156,10 @@ fail() {
     fi
     if [ -n "$reason" ]; then
         echo "✗ FAIL: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$FAILED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$FAILED_LIST_FILE"
     else
         echo "✗ FAIL: $name"
-        printf '%s\n' "$name" >> "$FAILED_LIST_FILE"
+        printf '%s\n' "$name" >>"$FAILED_LIST_FILE"
     fi
     ((FAILED++)) || true
 }
@@ -169,10 +169,10 @@ missing() {
     local reason="${2:-}"
     if [ -n "$reason" ]; then
         echo "! MISSING: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$MISSING_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$MISSING_LIST_FILE"
     else
         echo "! MISSING: $name"
-        printf '%s\n' "$name" >> "$MISSING_LIST_FILE"
+        printf '%s\n' "$name" >>"$MISSING_LIST_FILE"
     fi
     ((MISSING++)) || true
 }
@@ -282,10 +282,10 @@ skip() {
     fi
     if [ -n "$reason" ]; then
         echo "⊘ SKIP: $name - $reason"
-        printf '%s\t%s\n' "$name" "$reason" >> "$SKIPPED_LIST_FILE"
+        printf '%s\t%s\n' "$name" "$reason" >>"$SKIPPED_LIST_FILE"
     else
         echo "⊘ SKIP: $name"
-        printf '%s\n' "$name" >> "$SKIPPED_LIST_FILE"
+        printf '%s\n' "$name" >>"$SKIPPED_LIST_FILE"
     fi
     ((SKIPPED++)) || true
 }
@@ -689,56 +689,56 @@ required_role_for_case() {
         "Admin Register")
             echo ""
             ;;
-        "Admin Federation Resolve"|\
-        "Admin Federation Rewrite"|\
-        "Admin Set User Admin"|\
-        "Admin Shutdown Room"|\
-        "Admin Federation Blacklist"|\
-        "Admin Add Federation Blacklist"|\
-        "Admin Remove Federation Blacklist"|\
-        "Admin Federation Cache Clear"|\
-        "Admin User Login"|\
-        "Admin User Logout"|\
-        "Admin Delete Devices"|\
-        "Server Notices"|\
-        "Admin Room Make Admin"|\
-        "Admin Purge History"|\
-        "Admin Reset Connection"|\
-        "Admin User Deactivate"|\
-        "Admin Deactivate"|\
-        "Deactivate User"|\
-        "Admin Delete User"|\
-        "Invalidate User Session"|\
-        "Admin Session Invalidate"|\
-        "Send Server Notice"|\
-        "Admin Send Server Notice"|\
-        "Rust Synapse Version"|\
-        "Admin Create Registration Token")
+        "Admin Federation Resolve" | \
+            "Admin Federation Rewrite" | \
+            "Admin Set User Admin" | \
+            "Admin Shutdown Room" | \
+            "Admin Federation Blacklist" | \
+            "Admin Add Federation Blacklist" | \
+            "Admin Remove Federation Blacklist" | \
+            "Admin Federation Cache Clear" | \
+            "Admin User Login" | \
+            "Admin User Logout" | \
+            "Admin Delete Devices" | \
+            "Server Notices" | \
+            "Admin Room Make Admin" | \
+            "Admin Purge History" | \
+            "Admin Reset Connection" | \
+            "Admin User Deactivate" | \
+            "Admin Deactivate" | \
+            "Deactivate User" | \
+            "Admin Delete User" | \
+            "Invalidate User Session" | \
+            "Admin Session Invalidate" | \
+            "Send Server Notice" | \
+            "Admin Send Server Notice" | \
+            "Rust Synapse Version" | \
+            "Admin Create Registration Token")
             echo "super_admin"
             ;;
-        "Admin "*|\
-        "List Registration Tokens"|\
-        "Get Active Registration Tokens"|\
-        "List Pushers"|\
-        "Get Pushers"|\
-        "List Background Updates"|\
-        "List Event Reports"|\
-        "List User Sessions"|\
-        "Get All Devices"|\
-        "Get Statistics"|\
-        "Get Media Quota"|\
-        "Evict User"|\
-        "Get Rate Limit"|\
-        "Get Registration Token"|\
-        "Get Room Count"|\
-        "Get Room Shares"|\
-        "Get User Count"|\
-        "Get Pending Joins"|\
-        "Room Forward Extremities"|\
-        "Check Auth"|\
-        "Get Version Info"|\
-        "Get Feature Flags"|\
-        "List App Services")
+        "Admin "* | \
+            "List Registration Tokens" | \
+            "Get Active Registration Tokens" | \
+            "List Pushers" | \
+            "Get Pushers" | \
+            "List Background Updates" | \
+            "List Event Reports" | \
+            "List User Sessions" | \
+            "Get All Devices" | \
+            "Get Statistics" | \
+            "Get Media Quota" | \
+            "Evict User" | \
+            "Get Rate Limit" | \
+            "Get Registration Token" | \
+            "Get Room Count" | \
+            "Get Room Shares" | \
+            "Get User Count" | \
+            "Get Pending Joins" | \
+            "Room Forward Extremities" | \
+            "Check Auth" | \
+            "Get Version Info" | \
+            "Get Feature Flags" | \
+            "List App Services")
             echo "admin"
             ;;
         *)
@@ -756,7 +756,7 @@ role_satisfies_requirement() {
         admin)
             [ "$required" = "admin" ]
             ;;
-        user|normal_user|ordinary_user)
+        user | normal_user | ordinary_user)
             return 1
             ;;
         *)
@@ -775,7 +775,7 @@ is_expected_admin_denial() {
     fi
 
     case "$reason" in
-        "HTTP 401"|"HTTP 403"|*M_FORBIDDEN*|*M_UNAUTHORIZED*)
+        "HTTP 401" | "HTTP 403" | *M_FORBIDDEN* | *M_UNAUTHORIZED*)
             ;;
         *)
             return 1
@@ -798,7 +798,7 @@ print_result_file() {
             if [ -n "$line" ]; then
                 echo " - $line"
             fi
-        done < "$file_path"
+        done <"$file_path"
         echo ""
     fi
 }
@@ -813,7 +813,7 @@ print_reason_summary() {
         echo "$title"
         while IFS=$'\t' read -r reason count; do
             [ -n "$reason" ] && echo " - [$count] $reason"
-        done <<< "$reason_summary"
+        done <<<"$reason_summary"
         echo ""
     fi
 }
@@ -925,7 +925,7 @@ echo "=========================================="
 echo "1. Health & Version"
 echo "=========================================="
 echo "1. Health Check"
-curl -s -f "$SERVER_URL/health" > /dev/null 2>&1 && pass "Health endpoint" || fail "Health endpoint"
+curl -s -f "$SERVER_URL/health" >/dev/null 2>&1 && pass "Health endpoint" || fail "Health endpoint"
 
 echo ""
 echo "2. Version"
@@ -2230,7 +2230,7 @@ if [ -n "$ROOM_ID" ]; then
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "{\"event_id\":\"$THREAD_REPLY_ID\",\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"thread reply\"}}" \
-                > /dev/null
+                >/dev/null
             THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
             http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"
             if [[ "$HTTP_STATUS" == 2* ]]; then
@@ -3248,9 +3248,9 @@ if admin_ready; then
 
     echo ""
     echo "257. Admin List User Tokens"
-http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/tokens" "$ADMIN_TOKEN"
-ADMIN_TOKENS_RESP="$HTTP_BODY"
-assert_success_json "Admin List User Tokens" "$ADMIN_TOKENS_RESP" "$HTTP_STATUS" "tokens"
+    http_json GET "$SERVER_URL/_synapse/admin/v1/users/$ADMIN_USER_ID_ENC/tokens" "$ADMIN_TOKEN"
+    ADMIN_TOKENS_RESP="$HTTP_BODY"
+    assert_success_json "Admin List User Tokens" "$ADMIN_TOKENS_RESP" "$HTTP_STATUS" "tokens"
 else
     skip "Admin List Users" "admin authentication unavailable"
     skip "Admin Get User" "admin authentication unavailable"

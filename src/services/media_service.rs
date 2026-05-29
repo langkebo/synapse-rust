@@ -38,12 +38,7 @@ pub type ThumbnailConfig = ThumbnailSettings;
 
 impl Default for ThumbnailSettings {
     fn default() -> Self {
-        Self {
-            width: 800,
-            height: 600,
-            method: ThumbnailMethod::Scale,
-            quality: 80,
-        }
+        Self { width: 800, height: 600, method: ThumbnailMethod::Scale, quality: 80 }
     }
 }
 
@@ -65,26 +60,16 @@ impl MediaService {
     /// '..', NUL, control bytes) is rejected.
     fn validate_media_id(media_id: &str) -> Result<(), ApiError> {
         if media_id.is_empty() || media_id.len() > 255 {
-            return Err(ApiError::bad_request(
-                "media_id must be 1..=255 chars".to_string(),
-            ));
+            return Err(ApiError::bad_request("media_id must be 1..=255 chars".to_string()));
         }
-        let ok = media_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'='));
+        let ok = media_id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'='));
         if !ok {
-            return Err(ApiError::bad_request(
-                "media_id contains illegal characters".to_string(),
-            ));
+            return Err(ApiError::bad_request("media_id contains illegal characters".to_string()));
         }
         Ok(())
     }
 
-    pub fn new(
-        media_path: &str,
-        task_queue: Option<Arc<RedisTaskQueue>>,
-        server_name: &str,
-    ) -> Self {
+    pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>, server_name: &str) -> Self {
         Self::with_pool(media_path, task_queue, server_name, None)
     }
 
@@ -111,45 +96,16 @@ impl MediaService {
 
         if !thumbnail_path.exists() {
             if let Err(e) = std::fs::create_dir_all(&thumbnail_path) {
-                ::tracing::error!(
-                    "Failed to create thumbnail directory {}: {}",
-                    thumbnail_path.display(),
-                    e
-                );
+                ::tracing::error!("Failed to create thumbnail directory {}: {}", thumbnail_path.display(), e);
             }
         }
 
         let default_thumbnail_configs = vec![
-            ThumbnailSettings {
-                width: 32,
-                height: 32,
-                method: ThumbnailMethod::Crop,
-                quality: 70,
-            },
-            ThumbnailSettings {
-                width: 96,
-                height: 96,
-                method: ThumbnailMethod::Crop,
-                quality: 70,
-            },
-            ThumbnailSettings {
-                width: 320,
-                height: 240,
-                method: ThumbnailMethod::Scale,
-                quality: 80,
-            },
-            ThumbnailSettings {
-                width: 640,
-                height: 480,
-                method: ThumbnailMethod::Scale,
-                quality: 80,
-            },
-            ThumbnailSettings {
-                width: 800,
-                height: 600,
-                method: ThumbnailMethod::Scale,
-                quality: 80,
-            },
+            ThumbnailSettings { width: 32, height: 32, method: ThumbnailMethod::Crop, quality: 70 },
+            ThumbnailSettings { width: 96, height: 96, method: ThumbnailMethod::Crop, quality: 70 },
+            ThumbnailSettings { width: 320, height: 240, method: ThumbnailMethod::Scale, quality: 80 },
+            ThumbnailSettings { width: 640, height: 480, method: ThumbnailMethod::Scale, quality: 80 },
+            ThumbnailSettings { width: 800, height: 600, method: ThumbnailMethod::Scale, quality: 80 },
         ];
 
         Self {
@@ -170,8 +126,7 @@ impl MediaService {
         filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let media_id = random_string(32);
-        self.store_media_with_id(user_id, &media_id, content, content_type, filename)
-            .await
+        self.store_media_with_id(user_id, &media_id, content, content_type, filename).await
     }
 
     pub async fn upload_media_with_id(
@@ -183,8 +138,7 @@ impl MediaService {
         filename: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         Self::validate_media_id(media_id)?;
-        self.store_media_with_id(user_id, media_id, content, content_type, filename)
-            .await
+        self.store_media_with_id(user_id, media_id, content, content_type, filename).await
     }
 
     async fn store_media_with_id(
@@ -213,17 +167,10 @@ impl MediaService {
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
 
-        ::tracing::info!(
-            "Uploading media: {} bytes to {}",
-            content.len(),
-            file_path.display()
-        );
+        ::tracing::info!("Uploading media: {} bytes to {}", content.len(), file_path.display());
 
         if !self.media_path.exists() {
-            ::tracing::warn!(
-                "Media path does not exist, attempting to create: {}",
-                self.media_path.display()
-            );
+            ::tracing::warn!("Media path does not exist, attempting to create: {}", self.media_path.display());
             if let Err(e) = std::fs::create_dir_all(&self.media_path) {
                 ::tracing::error!("Failed to create media directory: {}", e);
                 return Err(ApiError::internal("An internal error occurred".to_string()));
@@ -231,16 +178,13 @@ impl MediaService {
         }
 
         if self.find_media_file_name(media_id).await?.is_some() {
-            return Err(ApiError::conflict(format!(
-                "Media ID already exists: {media_id}"
-            )));
+            return Err(ApiError::conflict(format!("Media ID already exists: {media_id}")));
         }
 
         let content_vec = content.to_vec();
-        let write_result =
-            tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
+        let write_result = tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
 
         if let Err(e) = write_result {
             ::tracing::error!("Failed to save media file - Error: {}", e);
@@ -254,9 +198,7 @@ impl MediaService {
                 std::io::ErrorKind::NotFound => {
                     format!("Media directory not found: {media_path_display}")
                 }
-                std::io::ErrorKind::StorageFull => {
-                    "Storage full. Please free up disk space.".to_string()
-                }
+                std::io::ErrorKind::StorageFull => "Storage full. Please free up disk space.".to_string(),
                 _ => format!("Failed to save media: {e}"),
             };
 
@@ -289,15 +231,9 @@ impl MediaService {
         }
 
         if let Some(queue) = &self.task_queue {
-            let job = BackgroundJob::ProcessMedia {
-                file_id: file_name.clone(),
-            };
+            let job = BackgroundJob::ProcessMedia { file_id: file_name.clone() };
             if let Err(e) = queue.submit(job).await {
-                ::tracing::warn!(
-                    "Failed to submit media processing task for {}: {}",
-                    file_name,
-                    e
-                );
+                ::tracing::warn!("Failed to submit media processing task for {}: {}", file_name, e);
             } else {
                 ::tracing::info!("Submitted media processing task for {}", file_name);
             }
@@ -352,15 +288,9 @@ impl MediaService {
         .unwrap_or(None)
     }
 
-    pub async fn download_media(
-        &self,
-        _server_name: &str,
-        media_id: &str,
-    ) -> Result<Vec<u8>, ApiError> {
+    pub async fn download_media(&self, _server_name: &str, media_id: &str) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
-        self.get_media(_server_name, media_id)
-            .await
-            .ok_or(ApiError::not_found("Media not found".to_string()))
+        self.get_media(_server_name, media_id).await.ok_or(ApiError::not_found("Media not found".to_string()))
     }
 
     pub async fn get_thumbnail(
@@ -383,11 +313,10 @@ impl MediaService {
 
         let original_content = self.download_media(_server_name, media_id).await?;
 
-        let thumbnail =
-            match Self::generate_thumbnail(&original_content, width, height, thumbnail_method) {
-                Ok(t) => t,
-                Err(_) => return Ok(original_content),
-            };
+        let thumbnail = match Self::generate_thumbnail(&original_content, width, height, thumbnail_method) {
+            Ok(t) => t,
+            Err(_) => return Ok(original_content),
+        };
 
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
             ::tracing::warn!("Failed to cache thumbnail {}: {}", thumbnail_filename, e);
@@ -411,8 +340,8 @@ impl MediaService {
         let thumbnail = match method {
             ThumbnailMethod::Crop => {
                 let (orig_width, orig_height) = (img.width(), img.height());
-                let aspect_ratio = (orig_width as f32 / target_width as f32)
-                    .max(orig_height as f32 / target_height as f32);
+                let aspect_ratio =
+                    (orig_width as f32 / target_width as f32).max(orig_height as f32 / target_height as f32);
 
                 let crop_width = (target_width as f32 * aspect_ratio) as u32;
                 let crop_height = (target_height as f32 * aspect_ratio) as u32;
@@ -420,12 +349,7 @@ impl MediaService {
                 let x = (orig_width.saturating_sub(crop_width)) / 2;
                 let y = (orig_height.saturating_sub(crop_height)) / 2;
 
-                let cropped = img.crop(
-                    x,
-                    y,
-                    crop_width.min(orig_width),
-                    crop_height.min(orig_height),
-                );
+                let cropped = img.crop(x, y, crop_width.min(orig_width), crop_height.min(orig_height));
                 cropped.resize_exact(target_width, target_height, FilterType::Lanczos3)
             }
             ThumbnailMethod::Scale => img.resize(target_width, target_height, FilterType::Lanczos3),
@@ -445,21 +369,13 @@ impl MediaService {
         let mut generated = Vec::new();
 
         for config in &self.default_thumbnail_configs {
-            let thumbnail = Self::generate_thumbnail(
-                &original_content,
-                config.width,
-                config.height,
-                config.method,
-            )?;
+            let thumbnail = Self::generate_thumbnail(&original_content, config.width, config.height, config.method)?;
 
             let method_str = match config.method {
                 ThumbnailMethod::Crop => "crop",
                 ThumbnailMethod::Scale => "scale",
             };
-            let thumbnail_filename = format!(
-                "{}_{}x{}_{}.jpg",
-                media_id, config.width, config.height, method_str
-            );
+            let thumbnail_filename = format!("{}_{}x{}_{}.jpg", media_id, config.width, config.height, method_str);
             let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
             if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
@@ -508,25 +424,19 @@ impl MediaService {
         Ok(result)
     }
 
-    pub async fn get_media_metadata(
-        &self,
-        _server_name: &str,
-        media_id: &str,
-    ) -> Option<serde_json::Value> {
+    pub async fn get_media_metadata(&self, _server_name: &str, media_id: &str) -> Option<serde_json::Value> {
         if Self::validate_media_id(media_id).is_err() {
             return None;
         }
 
         if let Some(pool) = &self.pool {
-            if let Ok(Some((content_type, file_name, size, uploader_user_id))) = sqlx::query_as::<
-                _,
-                (String, Option<String>, i64, Option<String>),
-            >(
-                r"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1",
-            )
-            .bind(media_id)
-            .fetch_optional(pool.as_ref())
-            .await
+            if let Ok(Some((content_type, file_name, size, uploader_user_id))) =
+                sqlx::query_as::<_, (String, Option<String>, i64, Option<String>)>(
+                    r"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1",
+                )
+                .bind(media_id)
+                .fetch_optional(pool.as_ref())
+                .await
             {
                 return Some(serde_json::json!({
                     "media_id": media_id,
@@ -587,11 +497,7 @@ impl MediaService {
         }))
     }
 
-    pub async fn get_media_info(
-        &self,
-        server_name: &str,
-        media_id: &str,
-    ) -> ApiResult<serde_json::Value> {
+    pub async fn get_media_info(&self, server_name: &str, media_id: &str) -> ApiResult<serde_json::Value> {
         Self::validate_media_id(media_id)?;
         let media_path = self.media_path.clone();
         let server_name = server_name.to_string();
@@ -605,10 +511,7 @@ impl MediaService {
                             if let Ok(metadata) = entry.metadata() {
                                 let parts: Vec<&str> = file_name.split('.').collect();
                                 let uploader = if parts.len() >= 3 {
-                                    parts[1]
-                                        .replace("_at_", "@")
-                                        .replace("_col_", ":")
-                                        .replace("_dot_", ".")
+                                    parts[1].replace("_at_", "@").replace("_col_", ":").replace("_dot_", ".")
                                 } else {
                                     String::new()
                                 };
@@ -653,11 +556,7 @@ impl MediaService {
                             if let Err(e) = std::fs::remove_file(&path) {
                                 return Err(format!("Failed to delete media file: {e}"));
                             }
-                            ::tracing::info!(
-                                "Deleted media: {} from server {}",
-                                file_name,
-                                server_name
-                            );
+                            ::tracing::info!("Deleted media: {} from server {}", file_name, server_name);
                             return Ok(());
                         }
                     }
@@ -674,8 +573,7 @@ impl MediaService {
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
         let media_path = self.media_path.clone();
         let thumbnail_path = self.thumbnail_path.clone();
-        let before_time =
-            std::time::UNIX_EPOCH + std::time::Duration::from_millis(before_ts as u64);
+        let before_time = std::time::UNIX_EPOCH + std::time::Duration::from_millis(before_ts as u64);
         let mut deleted_count = 0u64;
 
         let media_deleted = tokio::task::spawn_blocking(move || {
@@ -725,19 +623,13 @@ impl MediaService {
         .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         deleted_count += thumb_deleted;
-        ::tracing::info!(
-            "Purged {} media files older than timestamp {}",
-            deleted_count,
-            before_ts
-        );
+        ::tracing::info!("Purged {} media files older than timestamp {}", deleted_count, before_ts);
         Ok(deleted_count)
     }
 }
 
 fn media_file_matches_id(file_name: &str, media_id: &str) -> bool {
-    file_name
-        .strip_prefix(media_id)
-        .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('_'))
+    file_name.strip_prefix(media_id).is_some_and(|rest| rest.starts_with('.') || rest.starts_with('_'))
 }
 
 #[cfg(test)]
@@ -746,22 +638,10 @@ mod tests {
 
     #[test]
     fn test_thumbnail_method_from_str() {
-        assert_eq!(
-            ThumbnailMethod::from_str("crop").unwrap(),
-            ThumbnailMethod::Crop
-        );
-        assert_eq!(
-            ThumbnailMethod::from_str("CROP").unwrap(),
-            ThumbnailMethod::Crop
-        );
-        assert_eq!(
-            ThumbnailMethod::from_str("scale").unwrap(),
-            ThumbnailMethod::Scale
-        );
-        assert_eq!(
-            ThumbnailMethod::from_str("SCALE").unwrap(),
-            ThumbnailMethod::Scale
-        );
+        assert_eq!(ThumbnailMethod::from_str("crop").unwrap(), ThumbnailMethod::Crop);
+        assert_eq!(ThumbnailMethod::from_str("CROP").unwrap(), ThumbnailMethod::Crop);
+        assert_eq!(ThumbnailMethod::from_str("scale").unwrap(), ThumbnailMethod::Scale);
+        assert_eq!(ThumbnailMethod::from_str("SCALE").unwrap(), ThumbnailMethod::Scale);
         assert!(ThumbnailMethod::from_str("invalid").is_err());
     }
 
@@ -812,15 +692,9 @@ mod tests {
         assert_eq!(MediaService::get_extension_from_content_type("image/jpeg"), "jpg");
         assert_eq!(MediaService::get_extension_from_content_type("image/png"), "png");
         assert_eq!(MediaService::get_extension_from_content_type("image/gif"), "gif");
-        assert_eq!(
-            MediaService::get_extension_from_content_type("application/pdf"),
-            "pdf"
-        );
+        assert_eq!(MediaService::get_extension_from_content_type("application/pdf"), "pdf");
         assert_eq!(MediaService::get_extension_from_content_type("text/plain"), "txt");
-        assert_eq!(
-            MediaService::get_extension_from_content_type("unknown/type"),
-            "bin"
-        );
+        assert_eq!(MediaService::get_extension_from_content_type("unknown/type"), "bin");
         assert_eq!(MediaService::get_extension_from_content_type(""), "bin");
     }
 
@@ -836,12 +710,7 @@ mod tests {
 
     #[test]
     fn test_thumbnail_config_custom() {
-        let config = ThumbnailSettings {
-            width: 1024,
-            height: 768,
-            method: ThumbnailMethod::Crop,
-            quality: 90,
-        };
+        let config = ThumbnailSettings { width: 1024, height: 768, method: ThumbnailMethod::Crop, quality: 90 };
 
         assert_eq!(config.width, 1024);
         assert_eq!(config.height, 768);
@@ -885,33 +754,19 @@ mod tests {
     fn test_thumbnail_config_quality_range() {
         let valid_qualities: Vec<u8> = vec![1, 50, 80, 100];
         for quality in valid_qualities {
-            let config = ThumbnailSettings {
-                width: 100,
-                height: 100,
-                method: ThumbnailMethod::Scale,
-                quality,
-            };
+            let config = ThumbnailSettings { width: 100, height: 100, method: ThumbnailMethod::Scale, quality };
             assert!(config.quality > 0);
         }
     }
 
     #[test]
     fn test_thumbnail_config_dimension_boundaries() {
-        let config = ThumbnailSettings {
-            width: 1,
-            height: 1,
-            method: ThumbnailMethod::Scale,
-            quality: 80,
-        };
+        let config = ThumbnailSettings { width: 1, height: 1, method: ThumbnailMethod::Scale, quality: 80 };
         assert_eq!(config.width, 1);
         assert_eq!(config.height, 1);
 
-        let config_large = ThumbnailSettings {
-            width: 10000,
-            height: 10000,
-            method: ThumbnailMethod::Crop,
-            quality: 80,
-        };
+        let config_large =
+            ThumbnailSettings { width: 10000, height: 10000, method: ThumbnailMethod::Crop, quality: 80 };
         assert_eq!(config_large.width, 10000);
         assert_eq!(config_large.height, 10000);
     }
@@ -944,10 +799,7 @@ mod tests {
 
         for (content_type, expected_ext) in test_cases {
             let ext = MediaService::get_extension_from_content_type(content_type);
-            assert_eq!(
-                ext, expected_ext,
-                "Failed for content type: {content_type}"
-            );
+            assert_eq!(ext, expected_ext, "Failed for content type: {content_type}");
         }
     }
 
@@ -959,19 +811,13 @@ mod tests {
 
         let content = b"test content";
 
-        let result_jpeg = service
-            .upload_media("@user:example.com", content, "image/jpeg", None)
-            .await;
+        let result_jpeg = service.upload_media("@user:example.com", content, "image/jpeg", None).await;
         assert!(result_jpeg.is_ok());
 
-        let result_png = service
-            .upload_media("@user:example.com", content, "image/png", None)
-            .await;
+        let result_png = service.upload_media("@user:example.com", content, "image/png", None).await;
         assert!(result_png.is_ok());
 
-        let result_pdf = service
-            .upload_media("@user:example.com", content, "application/pdf", None)
-            .await;
+        let result_pdf = service.upload_media("@user:example.com", content, "application/pdf", None).await;
         assert!(result_pdf.is_ok());
     }
 

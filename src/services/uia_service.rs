@@ -34,50 +34,33 @@ pub struct UiaService {
 
 impl UiaService {
     pub fn new(cache: Arc<CacheManager>, session_timeout_secs: i64) -> Self {
-        Self {
-            cache,
-            session_timeout_secs,
-        }
+        Self { cache, session_timeout_secs }
     }
 
     pub fn get_default_flows() -> Vec<UiaFlow> {
         vec![
-            UiaFlow {
-                stages: vec!["m.login.password".to_string()],
-            },
-            UiaFlow {
-                stages: vec!["m.login.token".to_string()],
-            },
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.token".to_string()] },
         ]
     }
 
     pub fn get_password_change_flows() -> Vec<UiaFlow> {
         vec![
-            UiaFlow {
-                stages: vec!["m.login.password".to_string()],
-            },
-            UiaFlow {
-                stages: vec!["m.login.email.identity".to_string()],
-            },
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
         ]
     }
 
     pub fn get_delete_device_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        }]
+        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
     }
 
     pub fn get_deactivate_account_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        }]
+        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
     }
 
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow {
-            stages: vec!["m.login.password".to_string()],
-        }]
+        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
     }
 
     pub async fn create_session(&self, user_id: &str, flows: Vec<UiaFlow>) -> UiaSession {
@@ -90,10 +73,7 @@ impl UiaService {
             flows,
         };
         let key = format!("uia:session:{session_id}");
-        let _ = self
-            .cache
-            .set(&key, &session, self.session_timeout_secs as u64)
-            .await;
+        let _ = self.cache.set(&key, &session, self.session_timeout_secs as u64).await;
         session
     }
 
@@ -110,10 +90,7 @@ impl UiaService {
             session.completed.push(stage.to_string());
         }
 
-        let _ = self
-            .cache
-            .set(&key, &session, self.session_timeout_secs as u64)
-            .await;
+        let _ = self.cache.set(&key, &session, self.session_timeout_secs as u64).await;
         Some(session)
     }
 
@@ -124,11 +101,7 @@ impl UiaService {
 
     pub fn is_session_complete(&self, session: &UiaSession) -> bool {
         for flow in &session.flows {
-            if flow
-                .stages
-                .iter()
-                .all(|stage| session.completed.contains(stage))
-            {
+            if flow.stages.iter().all(|stage| session.completed.contains(stage)) {
                 return true;
             }
         }
@@ -136,11 +109,7 @@ impl UiaService {
     }
 
     pub fn build_uia_response(&self, session: &UiaSession, errcode: &str, error: &str) -> Value {
-        let flows: Vec<Value> = session
-            .flows
-            .iter()
-            .map(|f| json!({ "stages": f.stages }))
-            .collect();
+        let flows: Vec<Value> = session.flows.iter().map(|f| json!({ "stages": f.stages })).collect();
 
         json!({
             "errcode": errcode,
@@ -175,11 +144,7 @@ impl UiaService {
                 }
                 None => {
                     let new_session = self.create_session(user_id, flows).await;
-                    return Err(self.build_uia_response(
-                        &new_session,
-                        "M_UNKNOWN",
-                        "Unknown or expired session",
-                    ));
+                    return Err(self.build_uia_response(&new_session, "M_UNKNOWN", "Unknown or expired session"));
                 }
             }
         } else {
@@ -202,11 +167,7 @@ impl UiaService {
             }
         };
 
-        let valid_stages: Vec<String> = session
-            .flows
-            .iter()
-            .flat_map(|f| f.stages.iter().cloned())
-            .collect();
+        let valid_stages: Vec<String> = session.flows.iter().flat_map(|f| f.stages.iter().cloned()).collect();
 
         if !valid_stages.contains(&stage) {
             return Err(self.build_uia_response(
@@ -233,10 +194,7 @@ impl UiaService {
             ));
         }
 
-        session = self
-            .complete_stage(&session.session_id, &stage)
-            .await
-            .unwrap_or(session);
+        session = self.complete_stage(&session.session_id, &stage).await.unwrap_or(session);
 
         if self.is_session_complete(&session) {
             self.remove_session(&session.session_id).await;
@@ -248,11 +206,7 @@ impl UiaService {
             });
         }
 
-        Err(self.build_uia_response(
-            &session,
-            "M_UIA_REQUIRED",
-            "Additional authentication stages required",
-        ))
+        Err(self.build_uia_response(&session, "M_UIA_REQUIRED", "Additional authentication stages required"))
     }
 
     pub async fn verify_password_stage(
@@ -264,9 +218,7 @@ impl UiaService {
         let password = auth
             .get("password")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ApiError::bad_request("Password required for m.login.password".to_string())
-            })?;
+            .ok_or_else(|| ApiError::bad_request("Password required for m.login.password".to_string()))?;
 
         let identifier_user = auth
             .get("identifier")
@@ -283,10 +235,7 @@ impl UiaService {
             identifier_user.to_string()
         } else {
             // Extract server_name from the authenticated user_id
-            let server_name = user_id
-                .rsplit_once(':')
-                .map(|(_, s)| s)
-                .unwrap_or("localhost");
+            let server_name = user_id.rsplit_once(':').map(|(_, s)| s).unwrap_or("localhost");
             format!("@{}:{}", identifier_user, server_name)
         };
 

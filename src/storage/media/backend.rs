@@ -36,23 +36,17 @@ impl MediaStorageBackendFactory {
         match config.backend_type {
             StorageBackendType::Filesystem => {
                 let fs_config = config.filesystem.clone().unwrap_or_default();
-                Ok(Box::new(
-                    crate::storage::media::filesystem::FilesystemBackend::new(&fs_config)?,
-                ))
+                Ok(Box::new(crate::storage::media::filesystem::FilesystemBackend::new(&fs_config)?))
             }
             StorageBackendType::S3 => {
-                let s3_config = config.s3.clone().ok_or_else(|| {
-                    ApiError::internal("S3 configuration required for S3 backend".to_string())
-                })?;
-                Ok(Box::new(crate::storage::media::s3::S3Backend::new(
-                    s3_config,
-                )))
+                let s3_config = config
+                    .s3
+                    .clone()
+                    .ok_or_else(|| ApiError::internal("S3 configuration required for S3 backend".to_string()))?;
+                Ok(Box::new(crate::storage::media::s3::S3Backend::new(s3_config)))
             }
             StorageBackendType::Memory => Ok(Box::new(MemoryBackend::new())),
-            _ => Err(ApiError::internal_with_log(
-                "Unsupported storage backend",
-                &format!("{:?}", config.backend_type),
-            )),
+            _ => Err(ApiError::internal_with_log("Unsupported storage backend", &format!("{:?}", config.backend_type))),
         }
     }
 }
@@ -65,12 +59,8 @@ pub struct MemoryBackend {
 impl MemoryBackend {
     pub fn new() -> Self {
         Self {
-            storage: std::sync::Arc::new(
-                tokio::sync::RwLock::new(std::collections::HashMap::new()),
-            ),
-            thumbnails: std::sync::Arc::new(tokio::sync::RwLock::new(
-                std::collections::HashMap::new(),
-            )),
+            storage: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            thumbnails: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -81,12 +71,7 @@ impl MemoryBackend {
 
 #[async_trait]
 impl MediaStorageBackend for MemoryBackend {
-    async fn store(
-        &self,
-        media_id: &str,
-        data: &[u8],
-        _content_type: &str,
-    ) -> Result<(), ApiError> {
+    async fn store(&self, media_id: &str, data: &[u8], _content_type: &str) -> Result<(), ApiError> {
         let mut storage = self.storage.write().await;
         storage.insert(media_id.to_string(), data.to_vec());
         Ok(())
@@ -140,11 +125,7 @@ impl MediaStorageBackend for MemoryBackend {
 
     async fn delete_thumbnails(&self, media_id: &str) -> Result<u64, ApiError> {
         let mut thumbnails = self.thumbnails.write().await;
-        let keys_to_remove: Vec<String> = thumbnails
-            .keys()
-            .filter(|k| k.starts_with(media_id))
-            .cloned()
-            .collect();
+        let keys_to_remove: Vec<String> = thumbnails.keys().filter(|k| k.starts_with(media_id)).cloned().collect();
         let count = keys_to_remove.len() as u64;
         for key in keys_to_remove {
             thumbnails.remove(&key);

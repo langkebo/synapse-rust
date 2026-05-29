@@ -41,13 +41,8 @@ where
     Some((app, state))
 }
 
-async fn setup_federation_ingress_app(
-    server_name: &str,
-    key_id: &str,
-    signing_key_b64: &str,
-) -> Option<axum::Router> {
-    let (app, _) =
-        setup_federation_ingress_app_with(server_name, key_id, signing_key_b64, |_| {}).await?;
+async fn setup_federation_ingress_app(server_name: &str, key_id: &str, signing_key_b64: &str) -> Option<axum::Router> {
+    let (app, _) = setup_federation_ingress_app_with(server_name, key_id, signing_key_b64, |_| {}).await?;
     Some(app)
 }
 
@@ -59,28 +54,20 @@ fn signed_request(
     signing_key: &ed25519_dalek::SigningKey,
     content: Option<&Value>,
 ) -> Request<Body> {
-    let signed_bytes =
-        canonical_federation_request_bytes(method, uri, server_name, server_name, content);
+    let signed_bytes = canonical_federation_request_bytes(method, uri, server_name, server_name, content);
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
-    let mut builder = Request::builder().method(method).uri(uri).header(
-        "Authorization",
-        format!(
-            "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
-            server_name, key_id, sig_b64
-        ),
-    );
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Authorization", format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", server_name, key_id, sig_b64));
 
     if content.is_some() {
         builder = builder.header("Content-Type", "application/json");
     }
 
-    builder
-        .body(Body::from(
-            content.map(Value::to_string).unwrap_or_default(),
-        ))
-        .unwrap()
+    builder.body(Body::from(content.map(Value::to_string).unwrap_or_default())).unwrap()
 }
 
 fn signed_request_with_destination_header(
@@ -92,8 +79,7 @@ fn signed_request_with_destination_header(
     signing_key: &ed25519_dalek::SigningKey,
     content: Option<&Value>,
 ) -> Request<Body> {
-    let signed_bytes =
-        canonical_federation_request_bytes(method, uri, origin, destination, content);
+    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, destination, content);
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
@@ -109,11 +95,7 @@ fn signed_request_with_destination_header(
         builder = builder.header("Content-Type", "application/json");
     }
 
-    builder
-        .body(Body::from(
-            content.map(Value::to_string).unwrap_or_default(),
-        ))
-        .unwrap()
+    builder.body(Body::from(content.map(Value::to_string).unwrap_or_default())).unwrap()
 }
 
 async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, joined_ts: i64) {
@@ -131,18 +113,8 @@ async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, 
     .unwrap();
 }
 
-async fn upload_test_device_keys(
-    state: &AppState,
-    user_id: &str,
-    device_id: &str,
-    include_one_time_key: bool,
-) {
-    state
-        .services
-        .device_storage
-        .create_device(device_id, user_id, Some("Federation test device"))
-        .await
-        .unwrap();
+async fn upload_test_device_keys(state: &AppState, user_id: &str, device_id: &str, include_one_time_key: bool) {
+    state.services.device_storage.create_device(device_id, user_id, Some("Federation test device")).await.unwrap();
 
     state
         .services
@@ -181,18 +153,8 @@ async fn upload_test_device_keys(
         .unwrap();
 }
 
-async fn create_shared_room_for_users(
-    state: &AppState,
-    room_id: &str,
-    creator_user_id: &str,
-    other_user_id: &str,
-) {
-    state
-        .services
-        .room_storage
-        .create_room(room_id, creator_user_id, "public", "10", false)
-        .await
-        .unwrap();
+async fn create_shared_room_for_users(state: &AppState, room_id: &str, creator_user_id: &str, other_user_id: &str) {
+    state.services.room_storage.create_room(room_id, creator_user_id, "public", "10", false).await.unwrap();
 
     let joined_ts = chrono::Utc::now().timestamp_millis();
     insert_join_membership(state, room_id, creator_user_id, joined_ts).await;
@@ -201,11 +163,10 @@ async fn create_shared_room_for_users(
 
 fn tiny_png() -> Vec<u8> {
     vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
-        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8,
-        0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00,
-        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+        0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9,
+        0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ]
 }
 
@@ -218,26 +179,19 @@ async fn test_federation_destination_accepts_configured_server_name_alias() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, _state)) = setup_federation_ingress_app_with(
-        public_server_name,
-        key_id,
-        &signing_key_b64,
-        |container| {
+    let Some((app, _state)) =
+        setup_federation_ingress_app_with(public_server_name, key_id, &signing_key_b64, |container| {
             container.config.server.name = internal_server_name.to_string();
             container.config.server.server_name = Some(public_server_name.to_string());
             container.config.federation.server_name = public_server_name.to_string();
             container.server_name = public_server_name.to_string();
-        },
-    )
-    .await
+        })
+        .await
     else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}",
-        public_server_name
-    );
+    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}", public_server_name);
     let content = json!({ "invite": { "display_name": "test" } });
     let request = signed_request_with_destination_header(
         "PUT",
@@ -260,15 +214,11 @@ async fn test_federation_protected_route_rejects_missing_signature() {
     let signing_key_seed = [7u8; 32];
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}",
-        server_name
-    );
+    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}", server_name);
     let body = json!({ "invite": { "display_name": "test" } }).to_string();
 
     let request = Request::builder()
@@ -281,9 +231,7 @@ async fn test_federation_protected_route_rejects_missing_signature() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNAUTHORIZED");
 }
@@ -295,15 +243,11 @@ async fn test_federation_protected_route_rejects_invalid_signature() {
     let signing_key_seed = [7u8; 32];
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}",
-        server_name
-    );
+    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}", server_name);
     let body = json!({ "invite": { "display_name": "test" } }).to_string();
 
     let request = Request::builder()
@@ -311,10 +255,7 @@ async fn test_federation_protected_route_rejects_invalid_signature() {
         .uri(&uri)
         .header(
             "Authorization",
-            format!(
-                "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
-                server_name, key_id, "invalid"
-            ),
+            format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", server_name, key_id, "invalid"),
         )
         .header("Content-Type", "application/json")
         .body(Body::from(body))
@@ -323,9 +264,7 @@ async fn test_federation_protected_route_rejects_invalid_signature() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNAUTHORIZED");
 }
@@ -338,31 +277,18 @@ async fn test_federation_protected_route_allows_valid_signature_and_reaches_hand
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}",
-        server_name
-    );
+    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/!testroom:{}", server_name);
     let content = json!({ "invite": { "display_name": "test" } });
-    let request = signed_request(
-        "PUT",
-        &uri,
-        server_name,
-        key_id,
-        &signing_key,
-        Some(&content),
-    );
+    let request = signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&content));
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -375,31 +301,17 @@ async fn test_federation_exchange_third_party_invite_rejects_sender_domain_misma
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let room_id = format!("!thirdparty:{}", server_name);
     let creator = "@creator:test.example.com".to_string();
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/exchange_third_party_invite/{}",
-        room_id
-    );
+    let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/{}", room_id);
     let body = json!({
         "event_id": format!("$invite:{}", server_name),
         "room_id": room_id,
@@ -410,22 +322,11 @@ async fn test_federation_exchange_third_party_invite_rejects_sender_domain_misma
             "membership": "invite"
         }
     });
-    let response = app
-        .oneshot(signed_request(
-            "PUT",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&body),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&body))).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -438,26 +339,15 @@ async fn test_federation_thirdparty_invite_rejects_sender_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let room_id = format!("!thirdpartyinvite:{}", server_name);
     let creator = "@creator:test.example.com".to_string();
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
 
     let uri = "/_matrix/federation/v1/thirdparty/invite";
     let body = json!({
@@ -465,22 +355,11 @@ async fn test_federation_thirdparty_invite_rejects_sender_domain_mismatch() {
         "invitee": "@alice:target.example",
         "sender": "@mallory:evil.example"
     });
-    let response = app
-        .oneshot(signed_request(
-            "POST",
-            uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&body),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("POST", uri, server_name, key_id, &signing_key, Some(&body))).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -493,31 +372,15 @@ async fn test_federation_make_join_rejects_user_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/make_join/!joincheck:{}/@mallory:evil.example",
-        server_name
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/make_join/!joincheck:{}/@mallory:evil.example", server_name);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -530,31 +393,15 @@ async fn test_federation_make_leave_rejects_user_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
-    let uri = format!(
-        "/_matrix/federation/v1/make_leave/!leavecheck:{}/@mallory:evil.example",
-        server_name
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/make_leave/!leavecheck:{}/@mallory:evil.example", server_name);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -567,8 +414,7 @@ async fn test_federation_knock_rejects_user_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -585,22 +431,11 @@ async fn test_federation_knock_rejects_user_domain_mismatch() {
             "membership": "knock"
         }
     });
-    let response = app
-        .oneshot(signed_request(
-            "PUT",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&content),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -613,8 +448,7 @@ async fn test_federation_invite_v2_rejects_sender_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -632,22 +466,11 @@ async fn test_federation_invite_v2_rejects_sender_domain_mismatch() {
             "membership": "invite"
         }
     });
-    let response = app
-        .oneshot(signed_request(
-            "PUT",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&content),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -660,8 +483,7 @@ async fn test_federation_get_state_rejects_server_without_joined_member() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -669,42 +491,15 @@ async fn test_federation_get_state_rejects_server_without_joined_member() {
     let room_id = format!("!statecheck:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -717,8 +512,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -727,62 +521,17 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     let creator = "@creator:local.example".to_string();
     let remote_member = format!("@member:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&remote_member, "member", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
 
     for (event_id, event_type, content, ts) in [
-        (
-            "$power-shape",
-            "m.room.power_levels",
-            json!({ "users_default": 0 }),
-            200_i64,
-        ),
-        (
-            "$a-name-shape",
-            "m.room.name",
-            json!({ "name": "Alpha" }),
-            100_i64,
-        ),
-        (
-            "$z-topic-shape",
-            "m.room.topic",
-            json!({ "topic": "Zulu" }),
-            100_i64,
-        ),
-        (
-            "$avatar-latest-shape",
-            "m.room.avatar",
-            json!({ "url": "mxc://test.example.com/latest-avatar" }),
-            400_i64,
-        ),
+        ("$power-shape", "m.room.power_levels", json!({ "users_default": 0 }), 200_i64),
+        ("$a-name-shape", "m.room.name", json!({ "name": "Alpha" }), 100_i64),
+        ("$z-topic-shape", "m.room.topic", json!({ "topic": "Zulu" }), 100_i64),
+        ("$avatar-latest-shape", "m.room.avatar", json!({ "url": "mxc://test.example.com/latest-avatar" }), 400_i64),
     ] {
         state
             .services
@@ -842,9 +591,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .await
         .unwrap();
     assert_eq!(get_state_response.status(), StatusCode::OK);
-    let get_state_body = axum::body::to_bytes(get_state_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let get_state_body = axum::body::to_bytes(get_state_response.into_body(), usize::MAX).await.unwrap();
     let get_state_json: Value = serde_json::from_slice(&get_state_body).unwrap();
     let state_pdus = get_state_json["pdus"].as_array().unwrap();
     let auth_chain = get_state_json["auth_chain"].as_array().unwrap();
@@ -865,10 +612,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .clone()
         .oneshot(signed_request(
             "GET",
-            &format!(
-                "/_matrix/federation/v1/state/{}?event_id=$power-shape",
-                room_id
-            ),
+            &format!("/_matrix/federation/v1/state/{}?event_id=$power-shape", room_id),
             server_name,
             key_id,
             &signing_key,
@@ -878,9 +622,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .unwrap();
     assert_eq!(get_state_at_event_response.status(), StatusCode::OK);
     let get_state_at_event_body =
-        axum::body::to_bytes(get_state_at_event_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        axum::body::to_bytes(get_state_at_event_response.into_body(), usize::MAX).await.unwrap();
     let get_state_at_event_json: Value = serde_json::from_slice(&get_state_at_event_body).unwrap();
     let state_at_event_pdus = get_state_at_event_json["pdus"].as_array().unwrap();
     assert_eq!(state_at_event_pdus.len(), 3);
@@ -901,9 +643,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .await
         .unwrap();
     assert_eq!(get_state_ids_response.status(), StatusCode::OK);
-    let get_state_ids_body = axum::body::to_bytes(get_state_ids_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let get_state_ids_body = axum::body::to_bytes(get_state_ids_response.into_body(), usize::MAX).await.unwrap();
     let get_state_ids_json: Value = serde_json::from_slice(&get_state_ids_body).unwrap();
     let pdu_ids = get_state_ids_json["pdu_ids"].as_array().unwrap();
     let auth_chain_ids = get_state_ids_json["auth_chain_ids"].as_array().unwrap();
@@ -922,10 +662,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .clone()
         .oneshot(signed_request(
             "GET",
-            &format!(
-                "/_matrix/federation/v1/state_ids/{}?event_id=$power-shape",
-                room_id
-            ),
+            &format!("/_matrix/federation/v1/state_ids/{}?event_id=$power-shape", room_id),
             server_name,
             key_id,
             &signing_key,
@@ -935,11 +672,8 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .unwrap();
     assert_eq!(get_state_ids_at_event_response.status(), StatusCode::OK);
     let get_state_ids_at_event_body =
-        axum::body::to_bytes(get_state_ids_at_event_response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-    let get_state_ids_at_event_json: Value =
-        serde_json::from_slice(&get_state_ids_at_event_body).unwrap();
+        axum::body::to_bytes(get_state_ids_at_event_response.into_body(), usize::MAX).await.unwrap();
+    let get_state_ids_at_event_json: Value = serde_json::from_slice(&get_state_ids_at_event_body).unwrap();
     let pdu_ids_at_event = get_state_ids_at_event_json["pdu_ids"].as_array().unwrap();
     assert_eq!(pdu_ids_at_event.len(), 3);
     assert_eq!(pdu_ids_at_event[0], "$power-shape");
@@ -950,10 +684,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .clone()
         .oneshot(signed_request(
             "GET",
-            &format!(
-                "/_matrix/federation/v1/get_event_auth/{}/{}",
-                room_id, "$power-shape"
-            ),
+            &format!("/_matrix/federation/v1/get_event_auth/{}/{}", room_id, "$power-shape"),
             server_name,
             key_id,
             &signing_key,
@@ -962,9 +693,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .await
         .unwrap();
     assert_eq!(get_event_auth_response.status(), StatusCode::OK);
-    let get_event_auth_body = axum::body::to_bytes(get_event_auth_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let get_event_auth_body = axum::body::to_bytes(get_event_auth_response.into_body(), usize::MAX).await.unwrap();
     let get_event_auth_json: Value = serde_json::from_slice(&get_event_auth_body).unwrap();
     let get_event_auth_chain = get_event_auth_json["auth_chain"].as_array().unwrap();
     assert_eq!(get_event_auth_chain.len(), 3);
@@ -975,10 +704,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     let backfill_response = app
         .oneshot(signed_request(
             "GET",
-            &format!(
-                "/_matrix/federation/v1/backfill/{}?v=$seed-shape&limit=2",
-                room_id
-            ),
+            &format!("/_matrix/federation/v1/backfill/{}?v=$seed-shape&limit=2", room_id),
             server_name,
             key_id,
             &signing_key,
@@ -987,9 +713,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
         .await
         .unwrap();
     assert_eq!(backfill_response.status(), StatusCode::OK);
-    let backfill_body = axum::body::to_bytes(backfill_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let backfill_body = axum::body::to_bytes(backfill_response.into_body(), usize::MAX).await.unwrap();
     let backfill_json: Value = serde_json::from_slice(&backfill_body).unwrap();
     let backfill_pdus = backfill_json["pdus"].as_array().unwrap();
     let backfill_auth_chain = backfill_json["auth_chain"].as_array().unwrap();
@@ -997,21 +721,11 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     assert_eq!(backfill_json["origin"], server_name);
     assert!(backfill_json["origin_server_ts"].as_i64().is_some());
     assert_eq!(backfill_pdus.len(), 2);
-    assert!(backfill_pdus
-        .iter()
-        .all(|event| event["origin_server_ts"].as_i64().unwrap_or(i64::MAX) < 250));
-    assert!(backfill_pdus
-        .iter()
-        .all(|event| event["event_id"] != "$seed-shape"));
-    assert!(backfill_pdus
-        .iter()
-        .all(|event| event["event_id"] != "$a-message-shape"));
-    assert!(backfill_pdus
-        .iter()
-        .all(|event| event["event_id"] != "$b-message-shape"));
-    assert!(backfill_pdus
-        .iter()
-        .all(|event| event["event_id"] != "$avatar-latest-shape"));
+    assert!(backfill_pdus.iter().all(|event| event["origin_server_ts"].as_i64().unwrap_or(i64::MAX) < 250));
+    assert!(backfill_pdus.iter().all(|event| event["event_id"] != "$seed-shape"));
+    assert!(backfill_pdus.iter().all(|event| event["event_id"] != "$a-message-shape"));
+    assert!(backfill_pdus.iter().all(|event| event["event_id"] != "$b-message-shape"));
+    assert!(backfill_pdus.iter().all(|event| event["event_id"] != "$avatar-latest-shape"));
     assert_eq!(backfill_auth_chain.len(), 3);
     assert!(backfill_json.get("limit").is_none());
     assert!(backfill_pdus[0].get("prev_events").is_none());
@@ -1025,8 +739,7 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1037,26 +750,11 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
     let remote_member = format!("@member:{}", server_name);
 
     for user_id in [&creator, &remote_member] {
-        state
-            .services
-            .user_storage
-            .create_user(user_id, user_id, None, false)
-            .await
-            .unwrap();
+        state.services.user_storage.create_user(user_id, user_id, None, false).await.unwrap();
     }
 
-    state
-        .services
-        .room_storage
-        .create_room(&target_room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&target_room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.room_storage.create_room(&target_room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&target_room_id, &creator, "join", None, None, None, None).await.unwrap();
     state
         .services
         .member_storage
@@ -1064,18 +762,8 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
         .await
         .unwrap();
 
-    state
-        .services
-        .room_storage
-        .create_room(&other_room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&other_room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.room_storage.create_room(&other_room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&other_room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     state
         .services
@@ -1096,47 +784,23 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
         .unwrap();
 
     for uri in [
-        format!(
-            "/_matrix/federation/v1/state/{}?event_id=$other-room-event",
-            target_room_id
-        ),
-        format!(
-            "/_matrix/federation/v1/state_ids/{}?event_id=$other-room-event",
-            target_room_id
-        ),
+        format!("/_matrix/federation/v1/state/{}?event_id=$other-room-event", target_room_id),
+        format!("/_matrix/federation/v1/state_ids/{}?event_id=$other-room-event", target_room_id),
     ] {
-        let response = app
-            .clone()
-            .oneshot(signed_request(
-                "GET",
-                &uri,
-                server_name,
-                key_id,
-                &signing_key,
-                None,
-            ))
-            .await
-            .unwrap();
+        let response =
+            app.clone().oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["errcode"], "M_BAD_JSON");
-        assert!(json["error"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("Event does not belong to this room"));
+        assert!(json["error"].as_str().unwrap_or_default().contains("Event does not belong to this room"));
     }
 
     let backfill_response = app
         .oneshot(signed_request(
             "GET",
-            &format!(
-                "/_matrix/federation/v1/backfill/{}?v=$other-room-event&limit=10",
-                target_room_id
-            ),
+            &format!("/_matrix/federation/v1/backfill/{}?v=$other-room-event&limit=10", target_room_id),
             server_name,
             key_id,
             &signing_key,
@@ -1155,56 +819,23 @@ async fn test_federation_get_user_devices_omits_sensitive_metadata() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@alice:{}", server_name);
     let room_id = format!("!device-share:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "alice", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .device_storage
-        .create_device("ALICEDEVICE", &user_id, Some("Alice device"))
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &user_id, "private", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &user_id, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
+    state.services.device_storage.create_device("ALICEDEVICE", &user_id, Some("Alice device")).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &user_id, "private", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/user/devices/{}", user_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let devices = json["devices"].as_array().unwrap();
     assert_eq!(devices.len(), 1);
@@ -1221,43 +852,20 @@ async fn test_federation_get_user_devices_rejects_server_without_shared_room() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@device-target:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "device-target", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .device_storage
-        .create_device("TARGETDEVICE", &user_id, Some("Target device"))
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "device-target", None, false).await.unwrap();
+    state.services.device_storage.create_device("TARGETDEVICE", &user_id, Some("Target device")).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/user/devices/{}", user_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1270,8 +878,7 @@ async fn test_federation_keys_query_filters_local_users_without_shared_rooms() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1280,30 +887,10 @@ async fn test_federation_keys_query_filters_local_users_without_shared_rooms() {
     let isolated_user_id = format!("@query-isolated:{}", server_name);
     let room_id = format!("!keys-query-share:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&shared_user_id, "query-shared", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&isolated_user_id, "query-isolated", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &shared_user_id, "private", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&shared_user_id, "query-shared", None, false).await.unwrap();
+    state.services.user_storage.create_user(&isolated_user_id, "query-isolated", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &shared_user_id, "join", None, None, None, None).await.unwrap();
 
     upload_test_device_keys(&state, &shared_user_id, "SHAREDQUERY", false).await;
     upload_test_device_keys(&state, &isolated_user_id, "ISOLATEDQUERY", false).await;
@@ -1327,9 +914,7 @@ async fn test_federation_keys_query_filters_local_users_without_shared_rooms() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json["device_keys"].get(&shared_user_id).is_some());
@@ -1344,8 +929,7 @@ async fn test_federation_keys_claim_filters_local_users_without_shared_rooms() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1354,30 +938,10 @@ async fn test_federation_keys_claim_filters_local_users_without_shared_rooms() {
     let isolated_user_id = format!("@claim-isolated:{}", server_name);
     let room_id = format!("!keys-claim-share:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&shared_user_id, "claim-shared", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&isolated_user_id, "claim-isolated", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &shared_user_id, "private", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&shared_user_id, "claim-shared", None, false).await.unwrap();
+    state.services.user_storage.create_user(&isolated_user_id, "claim-isolated", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &shared_user_id, "join", None, None, None, None).await.unwrap();
 
     upload_test_device_keys(&state, &shared_user_id, "SHAREDCLAIM", true).await;
     upload_test_device_keys(&state, &isolated_user_id, "ISOLATEDCLAIM", true).await;
@@ -1405,9 +969,7 @@ async fn test_federation_keys_claim_filters_local_users_without_shared_rooms() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json["one_time_keys"].get(&shared_user_id).is_some());
@@ -1422,8 +984,7 @@ async fn test_federation_get_room_members_rejects_server_without_joined_member()
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1431,42 +992,15 @@ async fn test_federation_get_room_members_rejects_server_without_joined_member()
     let room_id = format!("!memberscheck:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/members/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1479,8 +1013,7 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1489,24 +1022,9 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
     let creator = "@creator:local.example".to_string();
     let event_id = "$topic-check";
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
     state
         .services
         .event_storage
@@ -1526,22 +1044,10 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
         .unwrap();
 
     let uri = format!("/_matrix/federation/v1/room/{}/{}", room_id, event_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1554,8 +1060,7 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1565,36 +1070,11 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
     let creator = format!("@owner:{}", server_name);
     let remote_member = format!("@member:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "owner", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&remote_member, "member", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "owner", None, false).await.unwrap();
+    state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
     state
         .services
         .event_storage
@@ -1626,9 +1106,7 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
         .await
         .unwrap();
     assert_eq!(get_event_response.status(), StatusCode::OK);
-    let get_event_body = axum::body::to_bytes(get_event_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let get_event_body = axum::body::to_bytes(get_event_response.into_body(), usize::MAX).await.unwrap();
     let get_event_json: Value = serde_json::from_slice(&get_event_body).unwrap();
     let get_event_pdus = get_event_json["pdus"].as_array().unwrap();
     assert_eq!(get_event_json["origin"], server_name);
@@ -1650,9 +1128,7 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
         .await
         .unwrap();
     assert_eq!(get_room_event_response.status(), StatusCode::OK);
-    let get_room_event_body = axum::body::to_bytes(get_room_event_response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let get_room_event_body = axum::body::to_bytes(get_room_event_response.into_body(), usize::MAX).await.unwrap();
     let get_room_event_json: Value = serde_json::from_slice(&get_room_event_body).unwrap();
     let get_room_event_pdus = get_room_event_json["pdus"].as_array().unwrap();
     assert_eq!(get_room_event_json["origin"], server_name);
@@ -1670,8 +1146,7 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1679,24 +1154,9 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
     let room_id = format!("!missingcheck:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/get_missing_events/{}", room_id);
     let content = json!({
@@ -1704,22 +1164,11 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
         "latest_events": [],
         "limit": 10
     });
-    let response = app
-        .oneshot(signed_request(
-            "POST",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&content),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("POST", &uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1732,8 +1181,7 @@ async fn test_federation_timestamp_to_event_rejects_server_without_joined_member
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1741,45 +1189,15 @@ async fn test_federation_timestamp_to_event_rejects_server_without_joined_member
     let room_id = format!("!timestampcheck:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/timestamp_to_event/{}?ts=1717171717000",
-        room_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/timestamp_to_event/{}?ts=1717171717000", room_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1792,8 +1210,7 @@ async fn test_federation_get_joining_rules_rejects_unjoined_server_for_invite_ro
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1801,42 +1218,15 @@ async fn test_federation_get_joining_rules_rejects_unjoined_server_for_invite_ro
     let room_id = format!("!joinrulesprivate:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/get_joining_rules/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -1849,8 +1239,7 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1859,36 +1248,11 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
     let creator = "@creator:local.example".to_string();
     let remote_member = format!("@member:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&remote_member, "member", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &remote_member, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
     state
         .services
         .event_storage
@@ -1916,28 +1280,13 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
         .unwrap();
 
     let uri = format!("/_matrix/federation/v1/get_joining_rules/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["join_rule"], "restricted");
-    assert_eq!(
-        json["allow"][0]["room_id"],
-        Value::String("!space:example.com".to_string())
-    );
+    assert_eq!(json["allow"][0]["room_id"], Value::String("!space:example.com".to_string()));
 }
 
 #[tokio::test]
@@ -1947,25 +1296,18 @@ async fn test_federation_hierarchy_rejects_missing_signature() {
     let signing_key_seed = [31u8; 32];
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
     let room_id = format!("!hierarchy:{}", server_name);
     let uri = format!("/_matrix/federation/v1/hierarchy/{}", room_id);
-    let request = Request::builder()
-        .method("GET")
-        .uri(&uri)
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().method("GET").uri(&uri).body(Body::empty()).unwrap();
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNAUTHORIZED");
 }
@@ -1978,8 +1320,7 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -1988,24 +1329,9 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
     let root_room_id = format!("!federation-space-root:{}", server_name);
     let child_room_id = format!("!federation-space-child:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "spaceadmin", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&root_room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&child_room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "spaceadmin", None, false).await.unwrap();
+    state.services.room_storage.create_room(&root_room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.room_storage.create_room(&child_room_id, &creator, "public", "1", true).await.unwrap();
     state
         .services
         .space_storage
@@ -2022,13 +1348,7 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
         })
         .await
         .unwrap();
-    let root_space = state
-        .services
-        .space_service
-        .get_space_by_room(&root_room_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let root_space = state.services.space_service.get_space_by_room(&root_room_id).await.unwrap().unwrap();
     state
         .services
         .space_storage
@@ -2042,26 +1362,11 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
         .await
         .unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/hierarchy/{}?max_depth=3&limit=10",
-        root_room_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/hierarchy/{}?max_depth=3&limit=10", root_room_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let rooms = json["rooms"].as_array().unwrap();
     assert_eq!(rooms.len(), 1);
@@ -2078,8 +1383,7 @@ async fn test_federation_room_directory_query_rejects_unjoined_server_for_privat
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2087,42 +1391,15 @@ async fn test_federation_room_directory_query_rejects_unjoined_server_for_privat
     let room_id = format!("!dirprivate:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/directory/room/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -2135,8 +1412,7 @@ async fn test_federation_state_rejects_unjoined_server_for_private_room() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2144,42 +1420,15 @@ async fn test_federation_state_rejects_unjoined_server_for_private_room() {
     let room_id = format!("!backfillprivate:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2192,8 +1441,7 @@ async fn test_federation_state_ids_rejects_unjoined_server_for_private_room() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2201,42 +1449,15 @@ async fn test_federation_state_ids_rejects_unjoined_server_for_private_room() {
     let room_id = format!("!stateidsprivate:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state_ids/{}", room_id);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2249,8 +1470,7 @@ async fn test_federation_backfill_rejects_unjoined_server_for_private_room() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2258,45 +1478,15 @@ async fn test_federation_backfill_rejects_unjoined_server_for_private_room() {
     let room_id = format!("!backfillprivate:{}", server_name);
     let creator = "@creator:local.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/backfill/{}?v=$seed:test.example.com&limit=10",
-        room_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/backfill/{}?v=$seed:test.example.com&limit=10", room_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2309,8 +1499,7 @@ async fn test_federation_query_directory_rejects_unjoined_server_for_private_ali
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2319,51 +1508,16 @@ async fn test_federation_query_directory_rejects_unjoined_server_for_private_ali
     let creator = "@creator:local.example".to_string();
     let room_alias = format!("#private-alias:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_service
-        .set_room_alias(&room_id, &room_alias, &creator)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.room_service.set_room_alias(&room_id, &room_alias, &creator).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/query/directory?room_alias={}",
-        urlencoding::encode(&room_alias)
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/query/directory?room_alias={}", urlencoding::encode(&room_alias));
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -2376,8 +1530,7 @@ async fn test_federation_query_directory_rejects_non_local_alias() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2386,51 +1539,16 @@ async fn test_federation_query_directory_rejects_non_local_alias() {
     let creator = "@creator:local.example".to_string();
     let remote_alias = "#spoofed:evil.example".to_string();
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_service
-        .set_room_alias(&room_id, &remote_alias, &creator)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.room_service.set_room_alias(&room_id, &remote_alias, &creator).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/query/directory?room_alias={}",
-        urlencoding::encode(&remote_alias)
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/query/directory?room_alias={}", urlencoding::encode(&remote_alias));
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2443,8 +1561,7 @@ async fn test_federation_media_download_rejects_non_local_server_name() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -2457,26 +1574,11 @@ async fn test_federation_media_download_rejects_non_local_server_name() {
         .unwrap();
     let media_id = upload["media_id"].as_str().unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/media/download/{}/{}",
-        "evil.example", media_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/media/download/{}/{}", "evil.example", media_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2489,8 +1591,7 @@ async fn test_federation_media_thumbnail_rejects_oversized_dimensions() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -2498,27 +1599,13 @@ async fn test_federation_media_thumbnail_rejects_oversized_dimensions() {
         "/_matrix/federation/v1/media/thumbnail/{}/deadbeef?width=100000&height=100000&method=scale",
         server_name
     );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(
-        json["error"]
-            .as_str()
-            .is_some_and(|message| message.contains("Thumbnail dimensions must be between 1")),
+        json["error"].as_str().is_some_and(|message| message.contains("Thumbnail dimensions must be between 1")),
         "Unexpected error payload: {json}"
     );
 }
@@ -2531,37 +1618,19 @@ async fn test_federation_profile_query_rejects_non_local_user() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let remote_user = "@alice:evil.example".to_string();
-    state
-        .services
-        .user_storage
-        .create_user(&remote_user, "alice", None, false)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&remote_user, "alice", None, false).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/profile/{}", remote_user);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2574,30 +1643,17 @@ async fn test_federation_profile_query_rejects_missing_local_user() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, _state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, _state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let missing_user = format!("@ghost:{}", server_name);
     let uri = format!("/_matrix/federation/v1/query/profile/{}", missing_user);
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2610,63 +1666,27 @@ async fn test_federation_profile_query_honors_field_filter_without_leaking_user_
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@alice:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "alice", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .registration_service
-        .set_displayname(&user_id, "Alice Federation")
-        .await
-        .unwrap();
-    state
-        .services
-        .registration_service
-        .set_avatar_url(&user_id, "mxc://test.example.com/alice")
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
+    state.services.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
+    state.services.registration_service.set_avatar_url(&user_id, "mxc://test.example.com/alice").await.unwrap();
 
     let remote_user = "@mallory:evil.example";
-    state
-        .services
-        .user_storage
-        .create_user(remote_user, "mallory", None, false)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(remote_user, "mallory", None, false).await.unwrap();
 
     let room_id = format!("!profile-share:{}", server_name);
     create_shared_room_for_users(&state, &room_id, &user_id, remote_user).await;
 
-    let uri = format!(
-        "/_matrix/federation/v1/query/profile?user_id={}&field=displayname",
-        user_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/query/profile?user_id={}&field=displayname", user_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["displayname"], "Alice Federation");
     assert!(json.get("avatar_url").is_none());
@@ -2681,46 +1701,20 @@ async fn test_federation_profile_query_requires_shared_room_with_origin() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@alice:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "alice", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .registration_service
-        .set_displayname(&user_id, "Alice Federation")
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
+    state.services.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/query/profile?user_id={}&field=displayname",
-        user_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/query/profile?user_id={}&field=displayname", user_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -2733,40 +1727,19 @@ async fn test_federation_profile_query_rejects_invalid_field() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@alice:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "alice", None, false)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/query/profile/{}?field=blurhash",
-        user_id
-    );
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let uri = format!("/_matrix/federation/v1/query/profile/{}?field=blurhash", user_id);
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_BAD_JSON");
 }
@@ -2778,19 +1751,13 @@ async fn test_federation_openid_userinfo_rejects_deactivated_user_token() {
     let signing_key_seed = [37u8; 32];
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
 
     let user_id = format!("@openid-deactivated:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&user_id, "openid-deactivated", None, false)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&user_id, "openid-deactivated", None, false).await.unwrap();
 
     let openid_storage = OpenIdTokenStorage::new(&state.services.user_storage.pool);
     let token_value = "stale_openid_token".to_string();
@@ -2804,20 +1771,12 @@ async fn test_federation_openid_userinfo_rejects_deactivated_user_token() {
         .await
         .unwrap();
 
-    state
-        .services
-        .user_storage
-        .deactivate_user(&user_id)
-        .await
-        .unwrap();
+    state.services.user_storage.deactivate_user(&user_id).await.unwrap();
 
     let response = app
         .oneshot(
             Request::builder()
-                .uri(format!(
-                    "/_matrix/federation/v1/openid/userinfo?access_token={}",
-                    token_value
-                ))
+                .uri(format!("/_matrix/federation/v1/openid/userinfo?access_token={}", token_value))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2825,9 +1784,7 @@ async fn test_federation_openid_userinfo_rejects_deactivated_user_token() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNAUTHORIZED");
 }
@@ -2840,27 +1797,17 @@ async fn test_federation_query_auth_returns_minimal_success_payload() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
     let response = app
-        .oneshot(signed_request(
-            "GET",
-            "/_matrix/federation/v1/query/auth",
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
+        .oneshot(signed_request("GET", "/_matrix/federation/v1/query/auth", server_name, key_id, &signing_key, None))
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["auth_chain"].is_array());
 }
@@ -2873,27 +1820,17 @@ async fn test_federation_event_auth_returns_not_found_instead_of_placeholder_suc
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
     let response = app
-        .oneshot(signed_request(
-            "GET",
-            "/_matrix/federation/v1/event_auth",
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
+        .oneshot(signed_request("GET", "/_matrix/federation/v1/event_auth", server_name, key_id, &signing_key, None))
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 }
@@ -2906,8 +1843,7 @@ async fn test_federation_keys_upload_returns_unrecognized_with_migration_hint() 
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -2924,15 +1860,10 @@ async fn test_federation_keys_upload_returns_unrecognized_with_migration_hint() 
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("user/keys endpoints"));
+    assert!(json["error"].as_str().unwrap_or_default().contains("user/keys endpoints"));
 }
 
 #[tokio::test]
@@ -2943,8 +1874,7 @@ async fn test_federation_legacy_keys_claim_returns_unrecognized_with_supported_p
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -2961,15 +1891,10 @@ async fn test_federation_legacy_keys_claim_returns_unrecognized_with_supported_p
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("/_matrix/federation/v1/user/keys/claim"));
+    assert!(json["error"].as_str().unwrap_or_default().contains("/_matrix/federation/v1/user/keys/claim"));
 }
 
 #[tokio::test]
@@ -2980,8 +1905,7 @@ async fn test_federation_legacy_keys_query_returns_unrecognized_with_supported_p
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -2998,15 +1922,10 @@ async fn test_federation_legacy_keys_query_returns_unrecognized_with_supported_p
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("/_matrix/federation/v1/user/keys/query"));
+    assert!(json["error"].as_str().unwrap_or_default().contains("/_matrix/federation/v1/user/keys/query"));
 }
 
 #[tokio::test]
@@ -3017,8 +1936,7 @@ async fn test_federation_send_join_v2_rejects_sender_domain_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -3036,21 +1954,12 @@ async fn test_federation_send_join_v2_rejects_sender_domain_mismatch() {
             "membership": "join"
         }
     });
-    let request = signed_request(
-        "PUT",
-        &uri,
-        server_name,
-        key_id,
-        &signing_key,
-        Some(&content),
-    );
+    let request = signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&content));
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN");
 }
@@ -3063,8 +1972,7 @@ async fn test_federation_send_join_v2_persists_join_event() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -3073,24 +1981,9 @@ async fn test_federation_send_join_v2_persists_join_event() {
     let creator = format!("@creator:{}", server_name);
     let existing_member = format!("@member:{}", server_name);
     let joiner = format!("@joiner:{}", server_name);
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&existing_member, "member", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&joiner, "joiner", None, false)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.user_storage.create_user(&existing_member, "member", None, false).await.unwrap();
+    state.services.user_storage.create_user(&joiner, "joiner", None, false).await.unwrap();
     create_shared_room_for_users(&state, &room_id, &creator, &existing_member).await;
 
     let event_id = "$joinpersist";
@@ -3122,20 +2015,13 @@ async fn test_federation_send_join_v2_persists_join_event() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["event_id"], event_id);
     assert_eq!(json["room_id"], room_id);
 
-    let stored_event = state
-        .services
-        .event_storage
-        .get_event(event_id)
-        .await
-        .unwrap()
-        .expect("join event should be persisted");
+    let stored_event =
+        state.services.event_storage.get_event(event_id).await.unwrap().expect("join event should be persisted");
     assert_eq!(stored_event.room_id, room_id);
     assert_eq!(stored_event.user_id, joiner);
     assert_eq!(stored_event.origin_server_ts, origin_server_ts);
@@ -3149,10 +2035,7 @@ async fn test_federation_send_join_v2_persists_join_event() {
         .unwrap()
         .expect("joined member should be recorded");
     assert_eq!(stored_member.membership, "join");
-    assert_eq!(
-        stored_member.display_name.as_deref(),
-        Some("Federated Joiner")
-    );
+    assert_eq!(stored_member.display_name.as_deref(), Some("Federated Joiner"));
 }
 
 #[tokio::test]
@@ -3163,8 +2046,7 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -3173,30 +2055,10 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
     let creator = format!("@creator:{}", server_name);
     let invitee = format!("@remotejoiner:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&invitee, "remotejoiner", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "invite", "1", false)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.user_storage.create_user(&invitee, "remotejoiner", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let event_id_v1 = "$invite-only-v1";
     let content_v1 = json!({
@@ -3217,10 +2079,7 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
         .clone()
         .oneshot(signed_request(
             "PUT",
-            &format!(
-                "/_matrix/federation/v1/send_join/{}/{}",
-                room_id, event_id_v1
-            ),
+            &format!("/_matrix/federation/v1/send_join/{}/{}", room_id, event_id_v1),
             server_name,
             key_id,
             &signing_key,
@@ -3245,10 +2104,7 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
     let response_v2 = app
         .oneshot(signed_request(
             "PUT",
-            &format!(
-                "/_matrix/federation/v2/send_join/{}/{}",
-                room_id, event_id_v2
-            ),
+            &format!("/_matrix/federation/v2/send_join/{}/{}", room_id, event_id_v2),
             server_name,
             key_id,
             &signing_key,
@@ -3258,18 +2114,8 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
         .unwrap();
     assert_eq!(response_v2.status(), StatusCode::FORBIDDEN);
 
-    let stored_v1 = state
-        .services
-        .event_storage
-        .get_event(event_id_v1)
-        .await
-        .unwrap();
-    let stored_v2 = state
-        .services
-        .event_storage
-        .get_event(event_id_v2)
-        .await
-        .unwrap();
+    let stored_v1 = state.services.event_storage.get_event(event_id_v1).await.unwrap();
+    let stored_v2 = state.services.event_storage.get_event(event_id_v2).await.unwrap();
     assert!(stored_v1.is_none());
     assert!(stored_v2.is_none());
 }
@@ -3282,8 +2128,7 @@ async fn test_federation_send_leave_rejects_event_path_mismatch() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await
-    else {
+    let Some(app) = setup_federation_ingress_app(server_name, key_id, &signing_key_b64).await else {
         return;
     };
 
@@ -3303,21 +2148,12 @@ async fn test_federation_send_leave_rejects_event_path_mismatch() {
             }
         }
     });
-    let request = signed_request(
-        "PUT",
-        &uri,
-        server_name,
-        key_id,
-        &signing_key,
-        Some(&content),
-    );
+    let request = signed_request("PUT", &uri, server_name, key_id, &signing_key, Some(&content));
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_BAD_JSON");
 }
@@ -3330,12 +2166,11 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |container| {
-            container.config.federation.process_inbound_edus = true;
-            container.config.federation.process_inbound_presence_edus = true;
-        })
-        .await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |container| {
+        container.config.federation.process_inbound_edus = true;
+        container.config.federation.process_inbound_presence_edus = true;
+    })
+    .await
     else {
         return;
     };
@@ -3344,12 +2179,7 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
     state
         .services
         .user_storage
-        .create_user(
-            &user_id,
-            &format!("presence_{}", rand::random::<u32>()),
-            None,
-            false,
-        )
+        .create_user(&user_id, &format!("presence_{}", rand::random::<u32>()), None, false)
         .await
         .unwrap();
 
@@ -3373,35 +2203,15 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
         ]
     });
 
-    let response = app
-        .oneshot(signed_request(
-            "PUT",
-            uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&content),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("PUT", uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let presence = state
-        .services
-        .presence_storage
-        .get_presence(&user_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let presence = state.services.presence_storage.get_presence(&user_id).await.unwrap().unwrap();
     assert_eq!(presence.0, "online");
     assert_eq!(presence.1.as_deref(), Some("ready"));
 
-    let processed = state
-        .services
-        .metrics
-        .get_counter("federation_inbound_presence_processed_total")
-        .unwrap()
-        .get();
+    let processed = state.services.metrics.get_counter("federation_inbound_presence_processed_total").unwrap().get();
     assert_eq!(processed, 1);
 }
 
@@ -3413,8 +2223,7 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
     else {
         return;
     };
@@ -3423,36 +2232,11 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
     let creator = format!("@creator:{}", server_name);
     let member = format!("@member:{}", server_name);
 
-    state
-        .services
-        .user_storage
-        .create_user(&creator, "creator", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .user_storage
-        .create_user(&member, "member", None, false)
-        .await
-        .unwrap();
-    state
-        .services
-        .room_storage
-        .create_room(&room_id, &creator, "public", "1", true)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &creator, "join", None, None, None, None)
-        .await
-        .unwrap();
-    state
-        .services
-        .member_storage
-        .add_member(&room_id, &member, "join", None, None, None, None)
-        .await
-        .unwrap();
+    state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
+    state.services.user_storage.create_user(&member, "member", None, false).await.unwrap();
+    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.member_storage.add_member(&room_id, &member, "join", None, None, None, None).await.unwrap();
 
     let uri = "/_matrix/federation/v1/send/txn-state-default";
     let event_id = "$txn-topic";
@@ -3474,32 +2258,16 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
         ]
     });
 
-    let response = app
-        .oneshot(signed_request(
-            "PUT",
-            uri,
-            server_name,
-            key_id,
-            &signing_key,
-            Some(&content),
-        ))
-        .await
-        .unwrap();
+    let response =
+        app.oneshot(signed_request("PUT", uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["results"][0]["event_id"], event_id);
     assert!(json["results"][0]["error"].as_str().is_some());
 
-    let stored = state
-        .services
-        .event_storage
-        .get_event(event_id)
-        .await
-        .unwrap();
+    let stored = state.services.event_storage.get_event(event_id).await.unwrap();
     assert!(stored.is_none());
 }
 
@@ -3511,48 +2279,24 @@ async fn test_federation_make_join_returns_429_when_join_lane_is_saturated() {
     let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
 
-    let Some((app, state)) =
-        setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |container| {
-            container.config.federation.join_max_concurrency = 1;
-            container.config.federation.join_acquire_timeout_ms = 1;
-        })
-        .await
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |container| {
+        container.config.federation.join_max_concurrency = 1;
+        container.config.federation.join_acquire_timeout_ms = 1;
+    })
+    .await
     else {
         return;
     };
 
-    let permit = state
-        .federation_join_semaphore
-        .clone()
-        .acquire_owned()
-        .await
-        .unwrap();
+    let permit = state.federation_join_semaphore.clone().acquire_owned().await.unwrap();
 
-    let uri = format!(
-        "/_matrix/federation/v1/make_join/!room:{} /@alice:{}",
-        server_name, server_name
-    )
-    .replace(" ", "");
+    let uri =
+        format!("/_matrix/federation/v1/make_join/!room:{} /@alice:{}", server_name, server_name).replace(" ", "");
 
-    let response = app
-        .oneshot(signed_request(
-            "GET",
-            &uri,
-            server_name,
-            key_id,
-            &signing_key,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
     drop(permit);
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    let limited = state
-        .services
-        .metrics
-        .get_counter("federation_join_429_total")
-        .unwrap()
-        .get();
+    let limited = state.services.metrics.get_counter("federation_join_429_total").unwrap().get();
     assert!(limited >= 1);
 }

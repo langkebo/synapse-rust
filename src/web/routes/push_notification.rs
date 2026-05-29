@@ -1,8 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::push_notification_service::SendNotificationRequest;
-use crate::storage::push_notification::{
-    CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest,
-};
+use crate::storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -131,11 +129,7 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device = state
-        .services
-        .push_notification_service
-        .register_device(request)
-        .await?;
+    let device = state.services.push_notification_service.register_device(request).await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -145,11 +139,7 @@ pub async fn unregister_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .push_notification_service
-        .unregister_device(&auth_user.user_id, &device_id)
-        .await?;
+    state.services.push_notification_service.unregister_device(&auth_user.user_id, &device_id).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Device unregistered"
@@ -160,11 +150,7 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices = state
-        .services
-        .push_notification_service
-        .get_user_devices(&auth_user.user_id)
-        .await?;
+    let devices = state.services.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -188,11 +174,7 @@ pub async fn send_notification(
         priority: body.priority,
     };
 
-    state
-        .services
-        .push_notification_service
-        .send_notification(request)
-        .await?;
+    state.services.push_notification_service.send_notification(request).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Notification queued"
@@ -215,11 +197,7 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule = state
-        .services
-        .push_notification_service
-        .create_push_rule(request)
-        .await?;
+    let rule = state.services.push_notification_service.create_push_rule(request).await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -228,11 +206,7 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules = state
-        .services
-        .push_notification_service
-        .get_push_rules(&auth_user.user_id)
-        .await?;
+    let rules = state.services.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 
@@ -262,11 +236,7 @@ pub async fn process_queue(
 ) -> Result<impl IntoResponse, ApiError> {
     let batch_size = query.batch_size.unwrap_or(100).clamp(1, 500);
 
-    let processed = state
-        .services
-        .push_notification_service
-        .process_pending_notifications(batch_size)
-        .await?;
+    let processed = state.services.push_notification_service.process_pending_notifications(batch_size).await?;
 
     Ok(Json(serde_json::json!({
         "processed": processed,
@@ -281,11 +251,7 @@ pub async fn cleanup_logs(
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.days.unwrap_or(30).clamp(1, 200);
 
-    let cleaned = state
-        .services
-        .push_notification_service
-        .cleanup_old_logs(days)
-        .await?;
+    let cleaned = state.services.push_notification_service.cleanup_old_logs(days).await?;
 
     Ok(Json(serde_json::json!({
         "cleaned": cleaned,
@@ -299,17 +265,11 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
     let public_routes = axum::Router::new()
         .route("/_matrix/client/r0/push/devices", get(get_devices))
         .route("/_matrix/client/r0/push/devices", post(register_device))
-        .route(
-            "/_matrix/client/r0/push/devices/{device_id}",
-            delete(unregister_device),
-        )
+        .route("/_matrix/client/r0/push/devices/{device_id}", delete(unregister_device))
         .route("/_matrix/client/r0/push/send", post(send_notification))
         .route("/_matrix/client/r0/push/rules", get(get_rules))
         .route("/_matrix/client/r0/push/rules", post(create_rule))
-        .route(
-            "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
-            delete(delete_rule),
-        );
+        .route("/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", delete(delete_rule));
 
     let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/push/process", post(process_queue))
@@ -328,17 +288,11 @@ pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledge
     [
         (Method::GET, "/_matrix/client/r0/push/devices"),
         (Method::POST, "/_matrix/client/r0/push/devices"),
-        (
-            Method::DELETE,
-            "/_matrix/client/r0/push/devices/{device_id}",
-        ),
+        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
         (Method::POST, "/_matrix/client/r0/push/send"),
         (Method::GET, "/_matrix/client/r0/push/rules"),
         (Method::POST, "/_matrix/client/r0/push/rules"),
-        (
-            Method::DELETE,
-            "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
-        ),
+        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}"),
         (Method::POST, "/_synapse/admin/v1/push/process"),
         (Method::POST, "/_synapse/admin/v1/push/cleanup"),
     ]

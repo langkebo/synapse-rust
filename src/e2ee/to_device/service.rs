@@ -13,10 +13,7 @@ pub struct ToDeviceService {
 
 impl ToDeviceService {
     pub fn new(storage: ToDeviceStorage) -> Self {
-        Self {
-            storage,
-            user_storage: None,
-        }
+        Self { storage, user_storage: None }
     }
 
     pub fn with_user_storage(mut self, user_storage: UserStorage) -> Self {
@@ -33,42 +30,24 @@ impl ToDeviceService {
         messages: &Value,
     ) -> Result<(), ApiError> {
         if let Some(mid) = message_id {
-            if self
-                .storage
-                .is_duplicate_transaction(sender_user_id, sender_device_id, mid)
-                .await?
-            {
-                tracing::debug!(
-                    "Duplicate to-device transaction {} from {}:{}",
-                    mid,
-                    sender_user_id,
-                    sender_device_id
-                );
+            if self.storage.is_duplicate_transaction(sender_user_id, sender_device_id, mid).await? {
+                tracing::debug!("Duplicate to-device transaction {} from {}:{}", mid, sender_user_id, sender_device_id);
                 return Ok(());
             }
 
-            self.storage
-                .record_transaction(sender_user_id, sender_device_id, mid)
-                .await?;
+            self.storage.record_transaction(sender_user_id, sender_device_id, mid).await?;
 
-            let _ = self
-                .storage
-                .cleanup_old_transactions(TRANSACTION_MAX_AGE_MS)
-                .await;
+            let _ = self.storage.cleanup_old_transactions(TRANSACTION_MAX_AGE_MS).await;
         }
 
         if let Some(msg_map) = messages.as_object() {
             for (user_id, devices) in msg_map {
                 if let Some(user_storage) = &self.user_storage {
-                    if !user_storage
-                        .user_exists(user_id)
-                        .await
-                        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?
-                    {
-                        tracing::warn!(
-                            "Skipping to-device message for non-existent user: {}",
-                            user_id
-                        );
+                    if !user_storage.user_exists(user_id).await.map_err(|e| {
+                        tracing::error!("Database error: {e}");
+                        ApiError::database("A database error occurred".to_string())
+                    })? {
+                        tracing::warn!("Skipping to-device message for non-existent user: {}", user_id);
                         continue;
                     }
                 }
@@ -93,14 +72,8 @@ impl ToDeviceService {
         Ok(())
     }
 
-    pub async fn get_messages_for_sync(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<Value>, ApiError> {
-        self.storage
-            .get_and_delete_messages(user_id, device_id)
-            .await
+    pub async fn get_messages_for_sync(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
+        self.storage.get_and_delete_messages(user_id, device_id).await
     }
 }
 

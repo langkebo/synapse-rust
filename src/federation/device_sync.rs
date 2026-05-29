@@ -45,13 +45,10 @@ impl DeviceSyncManager {
         cache_manager: Option<Arc<CacheManager>>,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
-        let http_client = Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!("Failed to build HTTP client, using default: {}", e);
-                Client::new()
-            });
+        let http_client = Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_else(|e| {
+            tracing::warn!("Failed to build HTTP client, using default: {}", e);
+            Client::new()
+        });
 
         Self {
             pool: pool.clone(),
@@ -75,10 +72,7 @@ impl DeviceSyncManager {
         }
 
         if let Some((devices, expiry)) = self.local_cache.read().await.get(&cache_key) {
-            let current_time = std::time::SystemTime::UNIX_EPOCH
-                .elapsed()
-                .map(|d| d.as_millis())
-                .unwrap_or(u128::MAX);
+            let current_time = std::time::SystemTime::UNIX_EPOCH.elapsed().map(|d| d.as_millis()).unwrap_or(u128::MAX);
 
             if *expiry > current_time {
                 tracing::debug!("Local cache hit for remote devices: {}@{}", user_id, origin);
@@ -91,17 +85,12 @@ impl DeviceSyncManager {
 
     async fn cache_devices(&self, origin: &str, user_id: &str, devices: &[DeviceInfo]) {
         let cache_key = format!("remote_devices:{origin}:{user_id}");
-        let expiry = std::time::SystemTime::UNIX_EPOCH
-            .elapsed()
-            .map(|d| d.as_millis())
-            .unwrap_or(u128::MAX)
+        let expiry = std::time::SystemTime::UNIX_EPOCH.elapsed().map(|d| d.as_millis()).unwrap_or(u128::MAX)
             + DEVICE_SYNC_CACHE_TTL as u128 * 1000;
 
         if let Some(cache) = &self.cache_manager {
             if let Ok(devices_json) = serde_json::to_string(devices) {
-                let _ = cache
-                    .set(&cache_key, devices_json, DEVICE_SYNC_CACHE_TTL)
-                    .await;
+                let _ = cache.set(&cache_key, devices_json, DEVICE_SYNC_CACHE_TTL).await;
             }
         }
 
@@ -109,19 +98,12 @@ impl DeviceSyncManager {
         local.insert(cache_key, (devices.to_vec(), expiry));
     }
 
-    pub async fn sync_devices_from_remote(
-        &self,
-        origin: &str,
-        user_id: &str,
-    ) -> Result<Vec<DeviceInfo>, ApiError> {
+    pub async fn sync_devices_from_remote(&self, origin: &str, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         if let Some(devices) = self.get_cached_devices(origin, user_id).await {
             return Ok(devices);
         }
 
-        let urls = vec![format!(
-            "https://{}/_matrix/federation/v1/user/devices/{}",
-            origin, user_id
-        )];
+        let urls = vec![format!("https://{}/_matrix/federation/v1/user/devices/{}", origin, user_id)];
 
         for url in urls {
             match self.fetch_devices_from_url(&url).await {
@@ -136,9 +118,7 @@ impl DeviceSyncManager {
             }
         }
 
-        Err(ApiError::not_found(format!(
-            "Failed to fetch devices for user {user_id} from {origin}"
-        )))
+        Err(ApiError::not_found(format!("Failed to fetch devices for user {user_id} from {origin}")))
     }
 
     async fn fetch_devices_from_url(&self, url: &str) -> Result<Vec<DeviceInfo>, ApiError> {
@@ -154,16 +134,11 @@ impl DeviceSyncManager {
         }
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log(
-                "Remote server returned error",
-                &response.status(),
-            ));
+            return Err(ApiError::internal_with_log("Remote server returned error", &response.status()));
         }
 
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+        let body: Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
 
         let devices_json = body
             .get("devices")
@@ -173,16 +148,8 @@ impl DeviceSyncManager {
         let devices: Vec<DeviceInfo> = devices_json
             .iter()
             .map(|d| DeviceInfo {
-                device_id: d
-                    .get("device_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                user_id: d
-                    .get("user_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                device_id: d.get("device_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                user_id: d.get("user_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 keys: d.get("keys").cloned(),
                 // Federation user/devices responses should only be used for key material.
                 // Ignore local-only metadata even if a remote server sends extra fields.
@@ -198,12 +165,7 @@ impl DeviceSyncManager {
         Ok(devices)
     }
 
-    pub async fn notify_device_revocation(
-        &self,
-        origin: &str,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn notify_device_revocation(&self, origin: &str, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         // If we have a task queue, offload this to the worker
         if let Some(queue) = &self.task_queue {
             // To properly handle the revocation payload, we should probably serialize it into a Generic job
@@ -219,21 +181,14 @@ impl DeviceSyncManager {
                 "destination": origin
             });
 
-            let job = BackgroundJob::Generic {
-                name: "notify_device_revocation".to_string(),
-                payload,
-            };
+            let job = BackgroundJob::Generic { name: "notify_device_revocation".to_string(), payload };
 
             if let Err(e) = queue.submit(job).await {
                 tracing::warn!("Failed to submit revocation task: {}", e);
                 // Fallback to sync execution if queue fails? Or just log error.
                 // For robustness, let's fall through to the sync implementation below if queue fails.
             } else {
-                tracing::info!(
-                    "Submitted device revocation task for {} to {}",
-                    device_id,
-                    origin
-                );
+                tracing::info!("Submitted device revocation task for {} to {}", device_id, origin);
                 return Ok(());
             }
         }
@@ -247,11 +202,7 @@ impl DeviceSyncManager {
             }
         });
 
-        let urls = vec![format!(
-            "https://{}/_matrix/federation/v1/send/{}",
-            origin,
-            uuid::Uuid::new_v4()
-        )];
+        let urls = vec![format!("https://{}/_matrix/federation/v1/send/{}", origin, uuid::Uuid::new_v4())];
 
         for url in urls {
             match self.http_client.put(&url).json(&payload).send().await {
@@ -268,15 +219,13 @@ impl DeviceSyncManager {
             }
         }
 
-        Err(ApiError::internal(
-            "Failed to notify device revocation to remote server".to_string(),
-        ))
+        Err(ApiError::internal("Failed to notify device revocation to remote server".to_string()))
     }
 
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let devices: Vec<DeviceRow> = sqlx::query_as(
             r"
-            SELECT device_id, user_id, display_name as device_display_name, 
+            SELECT device_id, user_id, display_name as device_display_name,
                    device_key as keys, last_seen_ts, last_seen_ip,
                    FALSE as is_blocked, FALSE as verified
             FROM devices WHERE user_id = $1
@@ -302,11 +251,7 @@ impl DeviceSyncManager {
             .collect())
     }
 
-    pub fn verify_device_keys_signature(
-        &self,
-        origin: &str,
-        device: &DeviceInfo,
-    ) -> Result<bool, ApiError> {
+    pub fn verify_device_keys_signature(&self, origin: &str, device: &DeviceInfo) -> Result<bool, ApiError> {
         if let Some(ref keys) = device.keys {
             if let Some(user_signatures) = keys.get("user_signatures") {
                 if let Some(sigs) = user_signatures.as_object() {
@@ -322,10 +267,7 @@ impl DeviceSyncManager {
 
     pub fn is_device_key_expired(&self, device: &DeviceInfo) -> bool {
         if let Some(last_seen) = device.last_seen_ts {
-            let last_seen_time = Utc
-                .timestamp_millis_opt(last_seen)
-                .earliest()
-                .unwrap_or(Utc::now());
+            let last_seen_time = Utc.timestamp_millis_opt(last_seen).earliest().unwrap_or(Utc::now());
             let expiry_date = last_seen_time + Duration::days(DEVICE_KEY_EXPIRY_DAYS);
             expiry_date < Utc::now()
         } else if device.keys.is_some() {
@@ -341,8 +283,8 @@ impl DeviceSyncManager {
 
         let result = sqlx::query(
             r"
-            DELETE FROM devices 
-            WHERE user_id = $1 
+            DELETE FROM devices
+            WHERE user_id = $1
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
             ",
         )
@@ -354,11 +296,7 @@ impl DeviceSyncManager {
 
         let deleted_count = result.rows_affected();
         if deleted_count > 0 {
-            tracing::info!(
-                "Cleaned up {} expired devices for user {}",
-                deleted_count,
-                user_id
-            );
+            tracing::info!("Cleaned up {} expired devices for user {}", deleted_count, user_id);
             self.invalidate_user_devices_cache(user_id).await;
         }
 
@@ -373,10 +311,8 @@ impl DeviceSyncManager {
         let devices = self.sync_devices_from_remote(origin, user_id).await?;
         let original_count = devices.len();
 
-        let valid_devices: Vec<DeviceInfo> = devices
-            .into_iter()
-            .filter(|device| !self.is_device_key_expired(device))
-            .collect();
+        let valid_devices: Vec<DeviceInfo> =
+            devices.into_iter().filter(|device| !self.is_device_key_expired(device)).collect();
 
         if valid_devices.len() != original_count {
             tracing::debug!(
@@ -393,7 +329,7 @@ impl DeviceSyncManager {
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            UPDATE devices SET 
+            UPDATE devices SET
                 device_key = NULL,
                 last_seen_ts = NULL
             WHERE device_id = $1 AND user_id = $2
@@ -618,9 +554,7 @@ mod tests {
     #[tokio::test]
     async fn test_is_device_key_expired_with_last_seen() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -643,9 +577,7 @@ mod tests {
     #[tokio::test]
     async fn test_is_device_key_expired_old_device() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -668,9 +600,7 @@ mod tests {
     #[tokio::test]
     async fn test_is_device_key_expired_no_last_seen() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -692,9 +622,7 @@ mod tests {
     #[tokio::test]
     async fn test_is_device_key_not_expired_for_federation_shape() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -717,9 +645,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_device_keys_signature_valid() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -747,9 +673,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_device_keys_signature_no_keys() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -771,9 +695,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_device_keys_signature_wrong_origin() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -801,9 +723,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_device_keys_signature_no_user_signatures() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -827,9 +747,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_sync_manager_new() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
         let manager = DeviceSyncManager::new(&pool, None, None);
 
@@ -840,9 +758,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_sync_manager_with_cache_manager() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
 
         // Should not panic when creating with None cache manager
@@ -853,9 +769,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_sync_manager_with_task_queue() {
         let pool = Arc::new(
-            sqlx::postgres::PgPoolOptions::new()
-                .connect_lazy(&crate::test_config::test_database_url())
-                .unwrap(),
+            sqlx::postgres::PgPoolOptions::new().connect_lazy(&crate::test_config::test_database_url()).unwrap(),
         );
 
         // Should not panic when creating with None task queue

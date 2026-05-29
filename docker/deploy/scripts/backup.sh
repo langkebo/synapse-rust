@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 compose() {
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose &>/dev/null; then
         docker-compose "$@"
     else
         docker compose "$@"
@@ -57,7 +57,7 @@ backup_database() {
     log_info "备份数据库..."
 
     if compose ps --status running postgres | grep -q postgres; then
-        compose exec -T postgres pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-synapse}" > "$BACKUP_DIR/$BACKUP_NAME/database.sql"
+        compose exec -T postgres pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-synapse}" >"$BACKUP_DIR/$BACKUP_NAME/database.sql"
     else
         log_warning "PostgreSQL 容器未运行，跳过数据库备份"
     fi
@@ -101,10 +101,10 @@ backup_config() {
 # 创建压缩包
 create_archive() {
     log_info "创建压缩包..."
-    
+
     tar czf "$BACKUP_DIR/$BACKUP_NAME.tar.gz" -C "$BACKUP_DIR" "$BACKUP_NAME"
     rm -rf "$BACKUP_DIR/$BACKUP_NAME"
-    
+
     log_success "压缩包创建完成: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
 }
 

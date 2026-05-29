@@ -68,10 +68,7 @@ impl OpenTelemetryConfig {
         let mut attrs = self.resource_attributes.clone().unwrap_or_default();
         attrs.insert("service.name".to_string(), self.service_name.clone());
         attrs.insert("service.version".to_string(), self.service_version.clone());
-        attrs.insert(
-            "service.namespace".to_string(),
-            self.service_namespace.clone(),
-        );
+        attrs.insert("service.namespace".to_string(), self.service_namespace.clone());
         attrs
     }
 }
@@ -86,11 +83,6 @@ pub struct PrometheusConfig {
 
 impl Default for PrometheusConfig {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            port: 9090,
-            path: "/metrics".to_string(),
-            include_namespace: true,
-        }
+        Self { enabled: false, port: 9090, path: "/metrics".to_string(), include_namespace: true }
     }
 }

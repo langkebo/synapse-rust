@@ -6,9 +6,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig,
-    FederationConfig, LivekitConfig, RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig,
-    ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig, FederationConfig, LivekitConfig,
+    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
@@ -193,17 +192,13 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .ok()?;
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.ok()?;
 
     if response.status() != StatusCode::OK {
         return None;
     }
 
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .ok()?;
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.ok()?;
     let json: Value = serde_json::from_slice(&body).ok()?;
     json.get("access_token")?.as_str().map(|s| s.to_string())
 }
@@ -215,9 +210,7 @@ async fn test_trusted_private_chat_transaction() {
         return;
     };
 
-    let Some(alice_token) =
-        register_user(&app, &format!("alice_tx_{}", rand::random::<u32>())).await
-    else {
+    let Some(alice_token) = register_user(&app, &format!("alice_tx_{}", rand::random::<u32>())).await else {
         eprintln!("Skipping test: failed to register alice");
         return;
     };
@@ -236,20 +229,14 @@ async fn test_trusted_private_chat_transaction() {
         ))
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     if response.status() != StatusCode::OK {
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
         panic!("Create room failed: {:?}", String::from_utf8_lossy(&body));
     }
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let room_id = json["room_id"].as_str().unwrap().to_string();
 
@@ -259,53 +246,33 @@ async fn test_trusted_private_chat_transaction() {
         .body(Body::empty())
         .unwrap();
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 
     if response.status() != StatusCode::OK {
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
-        panic!(
-            "Get room state failed: {:?}",
-            String::from_utf8_lossy(&body)
-        );
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        panic!("Get room state failed: {:?}", String::from_utf8_lossy(&body));
     }
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 10240)
-        .await
-        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let state_events = match json.get("events").and_then(|v| v.as_array()) {
         Some(events) => events,
         None => match json.get("state").and_then(|v| v.as_array()) {
-        Some(state) => state,
+            Some(state) => state,
             None => json.as_array().expect("Expected state array"),
         },
     };
 
-    let history_vis = state_events.iter().find(|e| {
-        e["type"] == "m.room.history_visibility" && e["content"]["history_visibility"] == "invited"
-    });
-    assert!(
-        history_vis.is_some(),
-        "Should have history_visibility = invited"
-    );
-
-    let guest_access = state_events.iter().find(|e| {
-        e["type"] == "m.room.guest_access" && e["content"]["guest_access"] == "forbidden"
-    });
-    assert!(
-        guest_access.is_some(),
-        "Should have guest_access = forbidden"
-    );
-
-    let privacy = state_events
+    let history_vis = state_events
         .iter()
-        .find(|e| e["type"] == "com.hula.privacy" && e["content"]["action"] == "block_screenshot");
-    assert!(
-        privacy.is_some(),
-        "Should have com.hula.privacy = block_screenshot"
-    );
+        .find(|e| e["type"] == "m.room.history_visibility" && e["content"]["history_visibility"] == "invited");
+    assert!(history_vis.is_some(), "Should have history_visibility = invited");
+
+    let guest_access =
+        state_events.iter().find(|e| e["type"] == "m.room.guest_access" && e["content"]["guest_access"] == "forbidden");
+    assert!(guest_access.is_some(), "Should have guest_access = forbidden");
+
+    let privacy =
+        state_events.iter().find(|e| e["type"] == "com.hula.privacy" && e["content"]["action"] == "block_screenshot");
+    assert!(privacy.is_some(), "Should have com.hula.privacy = block_screenshot");
 }

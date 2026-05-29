@@ -48,10 +48,8 @@ mod tests {
 
     #[test]
     fn test_unbinding_request_serialization() {
-        let request = UnbindingRequest {
-            id_server: "vector.im".to_string(),
-            id_access_token: "test_token".to_string(),
-        };
+        let request =
+            UnbindingRequest { id_server: "vector.im".to_string(), id_access_token: "test_token".to_string() };
 
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("vector.im"));
@@ -89,10 +87,7 @@ mod tests {
 
     #[test]
     fn test_invitation_response_empty() {
-        let response = InvitationResponse {
-            user_id: None,
-            signed: None,
-        };
+        let response = InvitationResponse { user_id: None, signed: None };
 
         assert!(response.user_id.is_none());
         assert!(response.signed.is_none());
@@ -100,10 +95,7 @@ mod tests {
 
     #[test]
     fn test_lookup_request_structure() {
-        let request = LookupRequest {
-            medium: "email".to_string(),
-            address: "test@example.com".to_string(),
-        };
+        let request = LookupRequest { medium: "email".to_string(), address: "test@example.com".to_string() };
 
         assert_eq!(request.medium, "email");
         assert_eq!(request.address, "test@example.com");
@@ -124,9 +116,8 @@ mod tests {
 
     #[test]
     fn test_hash_lookup_response_structure() {
-        let response = HashLookupResponse {
-            chunk: vec![serde_json::json!({"address": "test@example.com", "medium": "email"})],
-        };
+        let response =
+            HashLookupResponse { chunk: vec![serde_json::json!({"address": "test@example.com", "medium": "email"})] };
 
         assert_eq!(response.chunk.len(), 1);
     }
@@ -175,89 +166,63 @@ mod tests {
 
     #[test]
     fn test_identity_validate_id_server_empty() {
-        let result =
-            validate_id_server_standalone("", &["vector.im".to_string(), "matrix.org".to_string()]);
+        let result = validate_id_server_standalone("", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_with_path() {
-        let result = validate_id_server_standalone(
-            "vector.im/evil",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result =
+            validate_id_server_standalone("vector.im/evil", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_private_ip() {
-        let result = validate_id_server_standalone(
-            "127.0.0.1",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("127.0.0.1", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_localhost() {
-        let result = validate_id_server_standalone(
-            "localhost",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("localhost", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_private_10() {
-        let result = validate_id_server_standalone(
-            "10.0.0.1",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("10.0.0.1", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_private_192_168() {
-        let result = validate_id_server_standalone(
-            "192.168.1.1",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("192.168.1.1", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_link_local() {
-        let result = validate_id_server_standalone(
-            "169.254.1.1",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("169.254.1.1", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_untrusted() {
-        let result = validate_id_server_standalone(
-            "evil.example.com",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result =
+            validate_id_server_standalone("evil.example.com", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_identity_validate_id_server_trusted() {
-        let result = validate_id_server_standalone(
-            "vector.im",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("vector.im", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_identity_validate_id_server_trusted_matrix_org() {
-        let result = validate_id_server_standalone(
-            "matrix.org",
-            &["vector.im".to_string(), "matrix.org".to_string()],
-        );
+        let result = validate_id_server_standalone("matrix.org", &["vector.im".to_string(), "matrix.org".to_string()]);
         assert!(result.is_ok());
     }
 
@@ -291,10 +256,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    fn validate_id_server_standalone(
-        id_server: &str,
-        trusted_servers: &[String],
-    ) -> Result<(), String> {
+    fn validate_id_server_standalone(id_server: &str, trusted_servers: &[String]) -> Result<(), String> {
         if id_server.is_empty() {
             return Err("id_server cannot be empty".to_string());
         }
@@ -326,9 +288,7 @@ mod tests {
         }
 
         if !trusted_servers.is_empty() && !trusted_servers.iter().any(|s| s == id_server) {
-            return Err(format!(
-                "id_server '{id_server}' is not in the trusted servers list"
-            ));
+            return Err(format!("id_server '{id_server}' is not in the trusted servers list"));
         }
 
         Ok(())

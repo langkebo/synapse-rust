@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use synapse_rust::worker::bus::{BusMessage, RedisConfig, WorkerBus};
+use synapse_rust::worker::bus::{BusMessage, RedisBusConfig, WorkerBus};
 use synapse_rust::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
 use synapse_rust::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
 use synapse_rust::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
@@ -16,9 +16,7 @@ use synapse_rust::worker::types::*;
 
 #[test]
 fn test_replication_command_name() {
-    let cmd = ReplicationCommand::Name {
-        name: "worker1".to_string(),
-    };
+    let cmd = ReplicationCommand::Name { name: "worker1".to_string() };
     assert_eq!(cmd.to_string(), "NAME worker1");
 }
 
@@ -34,67 +32,44 @@ fn test_replication_command_replicate() {
 
 #[test]
 fn test_replication_command_rdata() {
-    let cmd = ReplicationCommand::Rdata {
-        stream_name: "events".to_string(),
-        token: "100".to_string(),
-        rows: vec![],
-    };
+    let cmd = ReplicationCommand::Rdata { stream_name: "events".to_string(), token: "100".to_string(), rows: vec![] };
     assert_eq!(cmd.to_string(), "RDATA events 100");
 }
 
 #[test]
 fn test_replication_command_sync() {
-    let cmd = ReplicationCommand::Sync {
-        stream_name: "events".to_string(),
-        position: 100,
-    };
+    let cmd = ReplicationCommand::Sync { stream_name: "events".to_string(), position: 100 };
     assert_eq!(cmd.to_string(), "SYNC events 100");
 }
 
 #[test]
 fn test_replication_command_user_sync_online() {
-    let cmd = ReplicationCommand::UserSync {
-        user_id: "@user:example.com".to_string(),
-        state: UserSyncState::Online,
-    };
+    let cmd = ReplicationCommand::UserSync { user_id: "@user:example.com".to_string(), state: UserSyncState::Online };
     assert_eq!(cmd.to_string(), "USER_SYNC @user:example.com Online");
 }
 
 #[test]
 fn test_replication_command_user_sync_offline() {
-    let cmd = ReplicationCommand::UserSync {
-        user_id: "@user:example.com".to_string(),
-        state: UserSyncState::Offline,
-    };
+    let cmd = ReplicationCommand::UserSync { user_id: "@user:example.com".to_string(), state: UserSyncState::Offline };
     assert_eq!(cmd.to_string(), "USER_SYNC @user:example.com Offline");
 }
 
 #[test]
 fn test_replication_command_federation_ack() {
-    let cmd = ReplicationCommand::FederationAck {
-        origin: "example.com".to_string(),
-    };
+    let cmd = ReplicationCommand::FederationAck { origin: "example.com".to_string() };
     assert_eq!(cmd.to_string(), "FEDERATION_ACK example.com");
 }
 
 #[test]
 fn test_replication_command_remove_pushers() {
-    let cmd = ReplicationCommand::RemovePushers {
-        app_id: "app_id".to_string(),
-        push_key: "push_key".to_string(),
-    };
+    let cmd = ReplicationCommand::RemovePushers { app_id: "app_id".to_string(), push_key: "push_key".to_string() };
     assert_eq!(cmd.to_string(), "REMOVE_PUSHERS app_id push_key");
 }
 
 #[test]
 fn test_parse_name() {
     let cmd = ReplicationCommand::parse("NAME worker1").unwrap();
-    assert_eq!(
-        cmd,
-        ReplicationCommand::Name {
-            name: "worker1".to_string()
-        }
-    );
+    assert_eq!(cmd, ReplicationCommand::Name { name: "worker1".to_string() });
 }
 
 #[test]
@@ -115,24 +90,14 @@ fn test_parse_rdata() {
     let cmd = ReplicationCommand::parse("RDATA events 100").unwrap();
     assert_eq!(
         cmd,
-        ReplicationCommand::Rdata {
-            stream_name: "events".to_string(),
-            token: "100".to_string(),
-            rows: vec![]
-        }
+        ReplicationCommand::Rdata { stream_name: "events".to_string(), token: "100".to_string(), rows: vec![] }
     );
 }
 
 #[test]
 fn test_parse_sync() {
     let cmd = ReplicationCommand::parse("SYNC events 100").unwrap();
-    assert_eq!(
-        cmd,
-        ReplicationCommand::Sync {
-            stream_name: "events".to_string(),
-            position: 100
-        }
-    );
+    assert_eq!(cmd, ReplicationCommand::Sync { stream_name: "events".to_string(), position: 100 });
 }
 
 // Note: USER_SYNC, FEDERATION_ACK, and REMOVE_PUSHERS don't have parse implementations
@@ -140,29 +105,21 @@ fn test_parse_sync() {
 
 #[test]
 fn test_user_sync_serialization() {
-    let cmd = ReplicationCommand::UserSync {
-        user_id: "@user:example.com".to_string(),
-        state: UserSyncState::Online,
-    };
+    let cmd = ReplicationCommand::UserSync { user_id: "@user:example.com".to_string(), state: UserSyncState::Online };
     let json = serde_json::to_string(&cmd).unwrap();
     assert!(json.contains("user_sync"));
 }
 
 #[test]
 fn test_federation_ack_serialization() {
-    let cmd = ReplicationCommand::FederationAck {
-        origin: "example.com".to_string(),
-    };
+    let cmd = ReplicationCommand::FederationAck { origin: "example.com".to_string() };
     let json = serde_json::to_string(&cmd).unwrap();
     assert!(json.contains("federation_ack"));
 }
 
 #[test]
 fn test_remove_pushers_serialization() {
-    let cmd = ReplicationCommand::RemovePushers {
-        app_id: "app_id".to_string(),
-        push_key: "push_key".to_string(),
-    };
+    let cmd = ReplicationCommand::RemovePushers { app_id: "app_id".to_string(), push_key: "push_key".to_string() };
     let json = serde_json::to_string(&cmd).unwrap();
     assert!(json.contains("remove_pushers"));
 }
@@ -209,11 +166,7 @@ fn test_replication_event_events() {
 
 #[test]
 fn test_replication_event_federation() {
-    let event = ReplicationEvent::Federation {
-        stream_id: 1,
-        origin: "example.com".to_string(),
-        events: vec![],
-    };
+    let event = ReplicationEvent::Federation { stream_id: 1, origin: "example.com".to_string(), events: vec![] };
 
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("federation"));
@@ -352,11 +305,7 @@ fn test_replication_event_tags() {
 
 #[test]
 fn test_replication_event_backfill() {
-    let event = ReplicationEvent::Backfill {
-        stream_id: 1,
-        room_id: "!room:example.com".to_string(),
-        events: vec![],
-    };
+    let event = ReplicationEvent::Backfill { stream_id: 1, room_id: "!room:example.com".to_string(), events: vec![] };
 
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("backfill"));
@@ -366,12 +315,7 @@ fn test_replication_event_backfill() {
 
 #[test]
 fn test_presence_state_serialization() {
-    let states = vec![
-        PresenceState::Online,
-        PresenceState::Unavailable,
-        PresenceState::Offline,
-        PresenceState::Busy,
-    ];
+    let states = vec![PresenceState::Online, PresenceState::Unavailable, PresenceState::Offline, PresenceState::Busy];
 
     for state in states {
         let json = serde_json::to_string(&state).unwrap();
@@ -481,7 +425,7 @@ fn test_worker_capabilities_default() {
 
 #[test]
 fn test_worker_config_custom() {
-    let config = WorkerConfig {
+    let config = WorkerRuntimeConfig {
         worker_id: "test-worker".to_string(),
         worker_name: "Test Worker".to_string(),
         worker_type: WorkerType::Frontend,
@@ -600,10 +544,7 @@ fn test_worker_task_assignment() {
 
 #[test]
 fn test_stream_position() {
-    let pos = StreamPosition {
-        stream_name: "events".to_string(),
-        position: 1000,
-    };
+    let pos = StreamPosition { stream_name: "events".to_string(), position: 1000 };
 
     assert_eq!(pos.stream_name, "events");
     assert_eq!(pos.position, 1000);
@@ -632,10 +573,7 @@ fn test_rdata_event() {
 
 #[test]
 fn test_rdata_position() {
-    let pos = RdataPosition {
-        stream_name: "events".to_string(),
-        position: 1000,
-    };
+    let pos = RdataPosition { stream_name: "events".to_string(), position: 1000 };
 
     assert_eq!(pos.stream_name, "events");
     assert_eq!(pos.position, 1000);
@@ -822,12 +760,7 @@ fn test_bus_message_full() {
 
 #[test]
 fn test_health_status_all() {
-    let statuses = vec![
-        HealthStatus::Healthy,
-        HealthStatus::Unhealthy,
-        HealthStatus::Degraded,
-        HealthStatus::Unknown,
-    ];
+    let statuses = vec![HealthStatus::Healthy, HealthStatus::Unhealthy, HealthStatus::Degraded, HealthStatus::Unknown];
 
     for status in statuses {
         let json = serde_json::to_string(&status).unwrap();
@@ -918,10 +851,7 @@ fn test_stream_writers_unknown_stream() {
 
 #[test]
 fn test_replication_row() {
-    let row = ReplicationRow {
-        stream_id: 100,
-        data: serde_json::json!({"key": "value"}),
-    };
+    let row = ReplicationRow { stream_id: 100, data: serde_json::json!({"key": "value"}) };
 
     assert_eq!(row.stream_id, 100);
     assert!(row.data.get("key").is_some());
@@ -933,10 +863,7 @@ fn test_replication_row() {
 fn test_create_sync_command() {
     let cmd = ReplicationProtocol::create_sync("events", 100);
     match cmd {
-        ReplicationCommand::Sync {
-            stream_name,
-            position,
-        } => {
+        ReplicationCommand::Sync { stream_name, position } => {
             assert_eq!(stream_name, "events");
             assert_eq!(position, 100);
         }
@@ -966,7 +893,7 @@ fn test_event_data() {
 
 #[tokio::test]
 async fn test_worker_bus_publish_after_connect() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -980,7 +907,7 @@ async fn test_worker_bus_publish_after_connect() {
 
 #[tokio::test]
 async fn test_worker_bus_subscribe_after_connect() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -994,7 +921,7 @@ async fn test_worker_bus_subscribe_after_connect() {
 
 #[tokio::test]
 async fn test_worker_bus_broadcast_command() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1010,7 +937,7 @@ async fn test_worker_bus_broadcast_command() {
 
 #[tokio::test]
 async fn test_worker_bus_send_to_worker() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1026,15 +953,12 @@ async fn test_worker_bus_send_to_worker() {
 
 #[tokio::test]
 async fn test_worker_bus_send_to_stream_writer() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
 
-    let cmd = ReplicationCommand::Position {
-        stream_name: "events".to_string(),
-        position: 100,
-    };
+    let cmd = ReplicationCommand::Position { stream_name: "events".to_string(), position: 100 };
     let result = bus.send_to_stream_writer("events", &cmd).await;
 
     // May fail due to no actual Redis, but tests the flow
@@ -1045,7 +969,7 @@ async fn test_worker_bus_send_to_stream_writer() {
 
 #[tokio::test]
 async fn test_worker_bus_get_stats() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1059,7 +983,7 @@ async fn test_worker_bus_get_stats() {
 
 #[tokio::test]
 async fn test_worker_bus_publish_stream_position() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1074,7 +998,7 @@ async fn test_worker_bus_publish_stream_position() {
 
 #[tokio::test]
 async fn test_worker_bus_publish_user_sync() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1089,7 +1013,7 @@ async fn test_worker_bus_publish_user_sync() {
 
 #[tokio::test]
 async fn test_worker_bus_publish_federation_ack() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1104,7 +1028,7 @@ async fn test_worker_bus_publish_federation_ack() {
 
 #[tokio::test]
 async fn test_worker_bus_publish_remove_pushers() {
-    let config = RedisConfig::default();
+    let config = RedisBusConfig::default();
     let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
     bus.connect().await.unwrap();
@@ -1273,16 +1197,9 @@ async fn test_load_balancer_set_strategy() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_forward_to_writer_not_local() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
-    let config = StreamWriters {
-        events: Some("worker2".to_string()),
-        ..Default::default()
-    };
+    let config = StreamWriters { events: Some("worker2".to_string()), ..Default::default() };
 
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
@@ -1293,11 +1210,7 @@ async fn test_stream_writer_manager_forward_to_writer_not_local() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_get_all_positions() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
@@ -1311,11 +1224,7 @@ async fn test_stream_writer_manager_get_all_positions() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_update_positions_bulk() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
@@ -1332,11 +1241,7 @@ async fn test_stream_writer_manager_update_positions_bulk() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_reset_position() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
@@ -1350,11 +1255,7 @@ async fn test_stream_writer_manager_reset_position() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_advance_position_if_greater() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
@@ -1366,11 +1267,7 @@ async fn test_stream_writer_manager_advance_position_if_greater() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_can_write() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters::default();
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
@@ -1382,16 +1279,9 @@ async fn test_stream_writer_manager_can_write() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_validate_writer() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
-    let config = StreamWriters {
-        events: Some("worker1".to_string()),
-        ..Default::default()
-    };
+    let config = StreamWriters { events: Some("worker1".to_string()), ..Default::default() };
 
     let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
@@ -1406,11 +1296,7 @@ async fn test_stream_writer_manager_validate_writer() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_get_stream_config() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     let config = StreamWriters {
         events: Some("worker1".to_string()),
@@ -1426,11 +1312,7 @@ async fn test_stream_writer_manager_get_stream_config() {
 
 #[tokio::test]
 async fn test_stream_writer_manager_sync_positions() {
-    let bus = Arc::new(WorkerBus::new(
-        RedisConfig::default(),
-        "test.com".to_string(),
-        "worker1".to_string(),
-    ));
+    let bus = Arc::new(WorkerBus::new(RedisBusConfig::default(), "test.com".to_string(), "worker1".to_string()));
 
     bus.connect().await.unwrap();
 

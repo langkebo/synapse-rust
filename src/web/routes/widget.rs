@@ -1,11 +1,9 @@
 use crate::common::error::ApiError;
 use crate::services::widget_service::{
-    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse,
-    SetPermissionRequest, UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
+    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
+    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };
-use crate::web::routes::{
-    ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},
@@ -79,58 +77,22 @@ pub fn create_widget_router() -> Router<AppState> {
         .route("/_matrix/client/v3/widgets/create", post(create_widget))
         .route("/_matrix/client/v1/widgets/{widget_id}", get(get_widget))
         .route("/_matrix/client/v1/widgets/{widget_id}", put(update_widget))
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}",
-            delete(delete_widget),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/config",
-            get(get_widget_config),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/widgets",
-            get(get_room_widgets),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config",
-            get(get_jitsi_config),
-        )
+        .route("/_matrix/client/v1/widgets/{widget_id}", delete(delete_widget))
+        .route("/_matrix/client/v1/widgets/{widget_id}/config", get(get_widget_config))
+        .route("/_matrix/client/v1/rooms/{room_id}/widgets", get(get_room_widgets))
+        .route("/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config", get(get_jitsi_config))
         .route(
             "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
             get(get_room_widget_capabilities).put(set_room_widget_capabilities),
         )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
-            post(send_room_widget_message),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/permissions",
-            post(set_widget_permission),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/permissions",
-            get(get_widget_permissions),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}",
-            delete(delete_widget_permission),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/sessions",
-            post(create_widget_session),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/{widget_id}/sessions",
-            get(get_widget_sessions),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/sessions/{session_id}",
-            get(get_widget_session),
-        )
-        .route(
-            "/_matrix/client/v1/widgets/sessions/{session_id}",
-            delete(terminate_widget_session),
-        )
+        .route("/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send", post(send_room_widget_message))
+        .route("/_matrix/client/v1/widgets/{widget_id}/permissions", post(set_widget_permission))
+        .route("/_matrix/client/v1/widgets/{widget_id}/permissions", get(get_widget_permissions))
+        .route("/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}", delete(delete_widget_permission))
+        .route("/_matrix/client/v1/widgets/{widget_id}/sessions", post(create_widget_session))
+        .route("/_matrix/client/v1/widgets/{widget_id}/sessions", get(get_widget_sessions))
+        .route("/_matrix/client/v1/widgets/sessions/{session_id}", get(get_widget_session))
+        .route("/_matrix/client/v1/widgets/sessions/{session_id}", delete(terminate_widget_session))
 }
 
 pub fn widget_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -145,50 +107,17 @@ pub fn widget_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::DELETE, "/_matrix/client/v1/widgets/{widget_id}"),
         (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"),
         (Method::GET, "/_matrix/client/v1/rooms/{room_id}/widgets"),
-        (
-            Method::GET,
-            "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
-        ),
-        (
-            Method::PUT,
-            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/widgets/{widget_id}/permissions",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v1/widgets/{widget_id}/permissions",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}",
-        ),
-        (
-            Method::POST,
-            "/_matrix/client/v1/widgets/{widget_id}/sessions",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v1/widgets/{widget_id}/sessions",
-        ),
-        (
-            Method::GET,
-            "/_matrix/client/v1/widgets/sessions/{session_id}",
-        ),
-        (
-            Method::DELETE,
-            "/_matrix/client/v1/widgets/sessions/{session_id}",
-        ),
+        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config"),
+        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities"),
+        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities"),
+        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send"),
+        (Method::POST, "/_matrix/client/v1/widgets/{widget_id}/permissions"),
+        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/permissions"),
+        (Method::DELETE, "/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}"),
+        (Method::POST, "/_matrix/client/v1/widgets/{widget_id}/sessions"),
+        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/sessions"),
+        (Method::GET, "/_matrix/client/v1/widgets/sessions/{session_id}"),
+        (Method::DELETE, "/_matrix/client/v1/widgets/sessions/{session_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "widget"))
@@ -223,11 +152,7 @@ async fn create_widget(
         data: body.data,
     };
 
-    let widget = state
-        .services
-        .widget_service
-        .create_widget(&auth_user.user_id, request)
-        .await?;
+    let widget = state.services.widget_service.create_widget(&auth_user.user_id, request).await?;
 
     Ok(Json(WidgetResponse { widget }))
 }
@@ -249,11 +174,7 @@ async fn update_widget(
     Json(body): Json<UpdateWidgetBody>,
 ) -> Result<Json<WidgetResponse>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let request = UpdateWidgetRequest {
-        url: body.url,
-        name: body.name,
-        data: body.data,
-    };
+    let request = UpdateWidgetRequest { url: body.url, name: body.name, data: body.data };
 
     let widget = state
         .services
@@ -271,11 +192,7 @@ async fn delete_widget(
     Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let deleted = state
-        .services
-        .widget_service
-        .delete_widget(&widget_id)
-        .await?;
+    let deleted = state.services.widget_service.delete_widget(&widget_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Widget not found"));
@@ -290,16 +207,9 @@ async fn get_room_widgets(
     Path(room_id): Path<String>,
 ) -> Result<Json<WidgetListResponse>, ApiError> {
     ensure_room_widget_access(&state, &auth_user, &room_id).await?;
-    let widgets = state
-        .services
-        .widget_service
-        .get_room_widgets(&room_id)
-        .await?;
+    let widgets = state.services.widget_service.get_room_widgets(&room_id).await?;
 
-    Ok(Json(WidgetListResponse {
-        total: widgets.len(),
-        widgets,
-    }))
+    Ok(Json(WidgetListResponse { total: widgets.len(), widgets }))
 }
 
 async fn get_widget_config(
@@ -342,20 +252,11 @@ async fn set_widget_permission(
     Json(body): Json<SetPermissionBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let request = SetPermissionRequest {
-        user_id: body.user_id,
-        permissions: body.permissions,
-    };
+    let request = SetPermissionRequest { user_id: body.user_id, permissions: body.permissions };
 
-    let permission = state
-        .services
-        .widget_service
-        .set_permission(&widget_id, request)
-        .await?;
+    let permission = state.services.widget_service.set_permission(&widget_id, request).await?;
 
-    Ok(Json(
-        json!({"success": true, "permission_id": permission.id}),
-    ))
+    Ok(Json(json!({"success": true, "permission_id": permission.id})))
 }
 
 async fn get_widget_permissions(
@@ -364,11 +265,7 @@ async fn get_widget_permissions(
     Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "read").await?;
-    let permissions = state
-        .services
-        .widget_service
-        .get_permissions(&widget_id)
-        .await?;
+    let permissions = state.services.widget_service.get_permissions(&widget_id).await?;
 
     Ok(Json(json!({"permissions": permissions})))
 }
@@ -379,11 +276,7 @@ async fn delete_widget_permission(
     Path((widget_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let deleted = state
-        .services
-        .widget_service
-        .delete_permission(&widget_id, &user_id)
-        .await?;
+    let deleted = state.services.widget_service.delete_permission(&widget_id, &user_id).await?;
 
     Ok(Json(json!({"deleted": deleted})))
 }
@@ -397,22 +290,12 @@ async fn create_widget_session(
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "read").await?;
     if let Some(body_widget_id) = body.widget_id.as_deref() {
         if body_widget_id != widget_id {
-            return Err(ApiError::bad_request(
-                "Widget ID in path and body must match".to_string(),
-            ));
+            return Err(ApiError::bad_request("Widget ID in path and body must match".to_string()));
         }
     }
-    let request = CreateSessionRequest {
-        widget_id,
-        device_id: body.device_id,
-        expires_in_ms: body.expires_in_ms,
-    };
+    let request = CreateSessionRequest { widget_id, device_id: body.device_id, expires_in_ms: body.expires_in_ms };
 
-    let session = state
-        .services
-        .widget_service
-        .create_session(&auth_user.user_id, request)
-        .await?;
+    let session = state.services.widget_service.create_session(&auth_user.user_id, request).await?;
 
     Ok(Json(SessionResponse { session }))
 }
@@ -439,16 +322,9 @@ async fn get_widget_sessions(
     Path(widget_id): Path<String>,
 ) -> Result<Json<SessionListResponse>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let sessions = state
-        .services
-        .widget_service
-        .get_widget_sessions(&widget_id)
-        .await?;
+    let sessions = state.services.widget_service.get_widget_sessions(&widget_id).await?;
 
-    Ok(Json(SessionListResponse {
-        total: sessions.len(),
-        sessions,
-    }))
+    Ok(Json(SessionListResponse { total: sessions.len(), sessions }))
 }
 
 async fn terminate_widget_session(
@@ -463,11 +339,7 @@ async fn terminate_widget_session(
         .await?
         .ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&state, &auth_user, &session).await?;
-    let terminated = state
-        .services
-        .widget_service
-        .terminate_session(&session_id)
-        .await?;
+    let terminated = state.services.widget_service.terminate_session(&session_id).await?;
 
     Ok(Json(json!({"terminated": terminated})))
 }
@@ -477,13 +349,7 @@ async fn ensure_room_widget_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to access widgets",
-    )
-    .await
+    ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to access widgets").await
 }
 
 async fn ensure_room_widget_manage_access(
@@ -491,39 +357,22 @@ async fn ensure_room_widget_manage_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to manage room widgets",
-    )
-    .await?;
+    ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage room widgets")
+        .await?;
 
-    let is_moderator = state
-        .services
-        .auth_service
-        .verify_room_moderator(room_id, &auth_user.user_id)
-        .await
-        .is_ok();
+    let is_moderator = state.services.auth_service.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
 
     if is_moderator {
         return Ok(());
     }
 
-    let is_creator = state
-        .services
-        .room_service
-        .is_room_creator(room_id, &auth_user.user_id)
-        .await
-        .unwrap_or(false);
+    let is_creator = state.services.room_service.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
 
     if is_creator {
         return Ok(());
     }
 
-    Err(ApiError::forbidden(
-        "You must be a moderator or room creator to manage widgets".to_string(),
-    ))
+    Err(ApiError::forbidden("You must be a moderator or room creator to manage widgets".to_string()))
 }
 
 async fn get_widget_with_access(
@@ -532,12 +381,8 @@ async fn get_widget_with_access(
     widget_id: &str,
     required_permission: &str,
 ) -> Result<crate::storage::widget::Widget, ApiError> {
-    let widget = state
-        .services
-        .widget_service
-        .get_widget(widget_id)
-        .await?
-        .ok_or(ApiError::not_found("Widget not found"))?;
+    let widget =
+        state.services.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.user_id == auth_user.user_id {
         return Ok(widget);
@@ -550,29 +395,17 @@ async fn get_widget_with_access(
         }
     }
 
-    let has_direct_permission = state
-        .services
-        .widget_service
-        .check_permission(widget_id, &auth_user.user_id, required_permission)
-        .await?;
-    let has_wildcard_permission = state
-        .services
-        .widget_service
-        .check_permission(widget_id, &auth_user.user_id, "*")
-        .await?;
+    let has_direct_permission =
+        state.services.widget_service.check_permission(widget_id, &auth_user.user_id, required_permission).await?;
+    let has_wildcard_permission =
+        state.services.widget_service.check_permission(widget_id, &auth_user.user_id, "*").await?;
     let has_write_permission = required_permission == "read"
-        && state
-            .services
-            .widget_service
-            .check_permission(widget_id, &auth_user.user_id, "write")
-            .await?;
+        && state.services.widget_service.check_permission(widget_id, &auth_user.user_id, "write").await?;
 
     if has_direct_permission || has_wildcard_permission || has_write_permission {
         Ok(widget)
     } else {
-        Err(ApiError::forbidden(
-            "You do not have permission to access this widget".to_string(),
-        ))
+        Err(ApiError::forbidden("You do not have permission to access this widget".to_string()))
     }
 }
 
@@ -607,17 +440,11 @@ async fn get_room_widget_capabilities(
     )
     .await?;
 
-    let widget = state
-        .services
-        .widget_service
-        .get_widget(&widget_id)
-        .await?
-        .ok_or(ApiError::not_found("Widget not found"))?;
+    let widget =
+        state.services.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
-        return Err(ApiError::bad_request(
-            "Widget does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
     Ok(Json(json!({
@@ -643,25 +470,15 @@ async fn set_room_widget_capabilities(
     let widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
-        return Err(ApiError::bad_request(
-            "Widget does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
     let mut data = widget.data.clone();
     data["capabilities"] = json!(body.capabilities);
 
-    let update_request = UpdateWidgetRequest {
-        url: None,
-        name: None,
-        data: Some(data),
-    };
+    let update_request = UpdateWidgetRequest { url: None, name: None, data: Some(data) };
 
-    state
-        .services
-        .widget_service
-        .update_widget(&widget_id, update_request)
-        .await?;
+    state.services.widget_service.update_widget(&widget_id, update_request).await?;
 
     Ok(Json(json!({
         "capabilities": body.capabilities,
@@ -691,24 +508,14 @@ async fn send_room_widget_message(
     )
     .await?;
 
-    let widget = state
-        .services
-        .widget_service
-        .get_widget(&widget_id)
-        .await?
-        .ok_or(ApiError::not_found("Widget not found"))?;
+    let widget =
+        state.services.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
-        return Err(ApiError::bad_request(
-            "Widget does not belong to this room".to_string(),
-        ));
+        return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
-    let event_id = format!(
-        "${}_{}",
-        uuid::Uuid::new_v4(),
-        chrono::Utc::now().timestamp_millis()
-    );
+    let event_id = format!("${}_{}", uuid::Uuid::new_v4(), chrono::Utc::now().timestamp_millis());
 
     Ok(Json(json!({
         "event_id": event_id,

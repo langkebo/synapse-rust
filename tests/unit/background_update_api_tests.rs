@@ -211,10 +211,7 @@ fn test_update_completion() {
 
 // Helper functions
 fn is_valid_status(status: &str) -> bool {
-    matches!(
-        status,
-        "pending" | "running" | "completed" | "failed" | "cancelled"
-    )
+    matches!(status, "pending" | "running" | "completed" | "failed" | "cancelled")
 }
 
 fn is_valid_job_type(job_type: &str) -> bool {

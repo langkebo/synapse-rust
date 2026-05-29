@@ -415,11 +415,7 @@ pub async fn create_module(
         config: body.config,
     };
 
-    let module = state
-        .services
-        .module_service
-        .register_module(request)
-        .await?;
+    let module = state.services.module_service.register_module(request).await?;
 
     Ok((StatusCode::CREATED, Json(ModuleResponse::from(module))))
 }
@@ -444,11 +440,7 @@ pub async fn get_modules_by_type(
     _auth_user: AdminUser,
     Path(module_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let modules = state
-        .services
-        .module_service
-        .get_modules_by_type(&module_type)
-        .await?;
+    let modules = state.services.module_service.get_modules_by_type(&module_type).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -462,11 +454,7 @@ pub async fn get_all_modules(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (modules, next_batch) = state
-        .services
-        .module_service
-        .get_all_modules(limit, query.from)
-        .await?;
+    let (modules, next_batch) = state.services.module_service.get_all_modules(limit, query.from).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -482,11 +470,7 @@ pub async fn update_module_config(
     Path(module_name): Path<String>,
     Json(body): Json<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state
-        .services
-        .module_service
-        .update_module_config(&module_name, body.config)
-        .await?;
+    let module = state.services.module_service.update_module_config(&module_name, body.config).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
@@ -497,11 +481,7 @@ pub async fn enable_module(
     Path(module_name): Path<String>,
     Json(body): Json<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state
-        .services
-        .module_service
-        .enable_module(&module_name, body.is_enabled)
-        .await?;
+    let module = state.services.module_service.enable_module(&module_name, body.is_enabled).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
@@ -511,11 +491,7 @@ pub async fn delete_module(
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .module_service
-        .delete_module(&module_name)
-        .await?;
+    state.services.module_service.delete_module(&module_name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -552,11 +528,7 @@ pub async fn check_third_party_rule(
         state_events: body.state_events,
     };
 
-    let result = state
-        .services
-        .module_service
-        .check_third_party_rules(&context)
-        .await?;
+    let result = state.services.module_service.check_third_party_rules(&context).await?;
 
     Ok(Json(result))
 }
@@ -584,16 +556,9 @@ pub async fn get_spam_check_results_by_sender(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let results = state
-        .services
-        .module_service
-        .get_spam_check_results_by_sender(&sender, limit)
-        .await?;
+    let results = state.services.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
 
-    let responses: Vec<SpamCheckResultResponse> = results
-        .into_iter()
-        .map(SpamCheckResultResponse::from)
-        .collect();
+    let responses: Vec<SpamCheckResultResponse> = results.into_iter().map(SpamCheckResultResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -603,16 +568,10 @@ pub async fn get_third_party_rule_results(
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let results = state
-        .services
-        .module_service
-        .get_third_party_rule_results(&event_id)
-        .await?;
+    let results = state.services.module_service.get_third_party_rule_results(&event_id).await?;
 
-    let responses: Vec<ThirdPartyRuleResultResponse> = results
-        .into_iter()
-        .map(ThirdPartyRuleResultResponse::from)
-        .collect();
+    let responses: Vec<ThirdPartyRuleResultResponse> =
+        results.into_iter().map(ThirdPartyRuleResultResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -625,11 +584,7 @@ pub async fn get_execution_logs(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let logs = state
-        .services
-        .module_service
-        .get_execution_logs(&module_name, limit)
-        .await?;
+    let logs = state.services.module_service.get_execution_logs(&module_name, limit).await?;
 
     Ok(Json(logs))
 }
@@ -647,16 +602,9 @@ pub async fn create_account_validity(
         is_valid: body.is_valid,
     };
 
-    let validity = state
-        .services
-        .account_validity_service
-        .create_validity(request)
-        .await?;
+    let validity = state.services.account_validity_service.create_validity(request).await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(AccountValidityResponse::from(validity)),
-    ))
+    Ok((StatusCode::CREATED, Json(AccountValidityResponse::from(validity))))
 }
 
 pub async fn get_account_validity(
@@ -682,13 +630,7 @@ pub async fn renew_account(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    if state
-        .services
-        .account_validity_service
-        .get_validity(&user_id)
-        .await?
-        .is_none()
-    {
+    if state.services.account_validity_service.get_validity(&user_id).await?.is_none() {
         return Err(ApiError::not_found("Account validity not found"));
     }
 
@@ -719,14 +661,9 @@ pub async fn create_password_auth_provider(
         .module_storage
         .create_password_auth_provider(request)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to create password auth provider", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create password auth provider", &e))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(PasswordAuthProviderResponse::from(provider)),
-    ))
+    Ok((StatusCode::CREATED, Json(PasswordAuthProviderResponse::from(provider))))
 }
 
 pub async fn get_password_auth_providers(
@@ -740,10 +677,8 @@ pub async fn get_password_auth_providers(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get password auth providers", &e))?;
 
-    let responses: Vec<PasswordAuthProviderResponse> = providers
-        .into_iter()
-        .map(PasswordAuthProviderResponse::from)
-        .collect();
+    let responses: Vec<PasswordAuthProviderResponse> =
+        providers.into_iter().map(PasswordAuthProviderResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -768,10 +703,7 @@ pub async fn create_presence_route(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create presence route", &e))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(PresenceRouteResponse::from(route)),
-    ))
+    Ok((StatusCode::CREATED, Json(PresenceRouteResponse::from(route))))
 }
 
 pub async fn get_presence_routes(
@@ -785,10 +717,7 @@ pub async fn get_presence_routes(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get presence routes", &e))?;
 
-    let responses: Vec<PresenceRouteResponse> = routes
-        .into_iter()
-        .map(PresenceRouteResponse::from)
-        .collect();
+    let responses: Vec<PresenceRouteResponse> = routes.into_iter().map(PresenceRouteResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -816,10 +745,7 @@ pub async fn create_media_callback(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create media callback", &e))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(MediaCallbackResponse::from(callback)),
-    ))
+    Ok((StatusCode::CREATED, Json(MediaCallbackResponse::from(callback))))
 }
 
 pub async fn get_media_callbacks(
@@ -834,10 +760,7 @@ pub async fn get_media_callbacks(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
 
-    let responses: Vec<MediaCallbackResponse> = callbacks
-        .into_iter()
-        .map(MediaCallbackResponse::from)
-        .collect();
+    let responses: Vec<MediaCallbackResponse> = callbacks.into_iter().map(MediaCallbackResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -853,10 +776,7 @@ pub async fn get_all_media_callbacks(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
 
-    let responses: Vec<MediaCallbackResponse> = callbacks
-        .into_iter()
-        .map(MediaCallbackResponse::from)
-        .collect();
+    let responses: Vec<MediaCallbackResponse> = callbacks.into_iter().map(MediaCallbackResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -881,10 +801,7 @@ pub async fn create_rate_limit_callback(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create rate limit callback", &e))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(RateLimitCallbackResponse::from(callback)),
-    ))
+    Ok((StatusCode::CREATED, Json(RateLimitCallbackResponse::from(callback))))
 }
 
 pub async fn get_rate_limit_callbacks(
@@ -898,10 +815,8 @@ pub async fn get_rate_limit_callbacks(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get rate limit callbacks", &e))?;
 
-    let responses: Vec<RateLimitCallbackResponse> = callbacks
-        .into_iter()
-        .map(RateLimitCallbackResponse::from)
-        .collect();
+    let responses: Vec<RateLimitCallbackResponse> =
+        callbacks.into_iter().map(RateLimitCallbackResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -924,14 +839,9 @@ pub async fn create_account_data_callback(
         .module_storage
         .create_account_data_callback(request)
         .await
-        .map_err(|e| {
-            ApiError::internal_with_log("Failed to create account data callback", &e)
-        })?;
+        .map_err(|e| ApiError::internal_with_log("Failed to create account data callback", &e))?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(AccountDataCallbackResponse::from(callback)),
-    ))
+    Ok((StatusCode::CREATED, Json(AccountDataCallbackResponse::from(callback))))
 }
 
 pub async fn get_account_data_callbacks(
@@ -945,10 +855,8 @@ pub async fn get_account_data_callbacks(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get account data callbacks", &e))?;
 
-    let responses: Vec<AccountDataCallbackResponse> = callbacks
-        .into_iter()
-        .map(AccountDataCallbackResponse::from)
-        .collect();
+    let responses: Vec<AccountDataCallbackResponse> =
+        callbacks.into_iter().map(AccountDataCallbackResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -957,104 +865,32 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/modules", post(create_module))
         .route("/_synapse/admin/v1/modules", get(get_all_modules))
-        .route(
-            "/_synapse/admin/v1/modules/type/{module_type}",
-            get(get_modules_by_type),
-        )
+        .route("/_synapse/admin/v1/modules/type/{module_type}", get(get_modules_by_type))
         .route("/_synapse/admin/v1/modules/{module_name}", get(get_module))
-        .route(
-            "/_synapse/admin/v1/modules/{module_name}/config",
-            put(update_module_config),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/{module_name}/enable",
-            post(enable_module),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/{module_name}",
-            delete(delete_module),
-        )
+        .route("/_synapse/admin/v1/modules/{module_name}/config", put(update_module_config))
+        .route("/_synapse/admin/v1/modules/{module_name}/enable", post(enable_module))
+        .route("/_synapse/admin/v1/modules/{module_name}", delete(delete_module))
         .route("/_synapse/admin/v1/modules/check_spam", post(check_spam))
-        .route(
-            "/_synapse/admin/v1/modules/check_third_party_rule",
-            post(check_third_party_rule),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/spam_check/{event_id}",
-            get(get_spam_check_result),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/spam_check/sender/{sender}",
-            get(get_spam_check_results_by_sender),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/third_party_rule/{event_id}",
-            get(get_third_party_rule_results),
-        )
-        .route(
-            "/_synapse/admin/v1/modules/logs/{module_name}",
-            get(get_execution_logs),
-        )
-        .route(
-            "/_synapse/admin/v1/account_validity",
-            post(create_account_validity),
-        )
-        .route(
-            "/_synapse/admin/v1/account_validity/{user_id}",
-            get(get_account_validity),
-        )
-        .route(
-            "/_synapse/admin/v1/account_validity/{user_id}/renew",
-            post(renew_account),
-        )
-        .route(
-            "/_synapse/admin/v1/password_auth_providers",
-            post(create_password_auth_provider),
-        )
-        .route(
-            "/_synapse/admin/v1/password_auth_providers",
-            get(get_password_auth_providers),
-        )
-        .route(
-            "/_synapse/admin/v1/presence_routes",
-            post(create_presence_route),
-        )
-        .route(
-            "/_synapse/admin/v1/presence_routes",
-            get(get_presence_routes),
-        )
-        .route(
-            "/_synapse/admin/v1/media_callbacks",
-            post(create_media_callback),
-        )
-        .route(
-            "/_synapse/admin/v1/media_callbacks",
-            get(get_all_media_callbacks),
-        )
-        .route(
-            "/_synapse/admin/v1/media_callbacks/{callback_type}",
-            get(get_media_callbacks),
-        )
-        .route(
-            "/_synapse/admin/v1/rate_limit_callbacks",
-            post(create_rate_limit_callback),
-        )
-        .route(
-            "/_synapse/admin/v1/rate_limit_callbacks",
-            get(get_rate_limit_callbacks),
-        )
-        .route(
-            "/_synapse/admin/v1/account_data_callbacks",
-            post(create_account_data_callback),
-        )
-        .route(
-            "/_synapse/admin/v1/account_data_callbacks",
-            get(get_account_data_callbacks),
-        )
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ))
+        .route("/_synapse/admin/v1/modules/check_third_party_rule", post(check_third_party_rule))
+        .route("/_synapse/admin/v1/modules/spam_check/{event_id}", get(get_spam_check_result))
+        .route("/_synapse/admin/v1/modules/spam_check/sender/{sender}", get(get_spam_check_results_by_sender))
+        .route("/_synapse/admin/v1/modules/third_party_rule/{event_id}", get(get_third_party_rule_results))
+        .route("/_synapse/admin/v1/modules/logs/{module_name}", get(get_execution_logs))
+        .route("/_synapse/admin/v1/account_validity", post(create_account_validity))
+        .route("/_synapse/admin/v1/account_validity/{user_id}", get(get_account_validity))
+        .route("/_synapse/admin/v1/account_validity/{user_id}/renew", post(renew_account))
+        .route("/_synapse/admin/v1/password_auth_providers", post(create_password_auth_provider))
+        .route("/_synapse/admin/v1/password_auth_providers", get(get_password_auth_providers))
+        .route("/_synapse/admin/v1/presence_routes", post(create_presence_route))
+        .route("/_synapse/admin/v1/presence_routes", get(get_presence_routes))
+        .route("/_synapse/admin/v1/media_callbacks", post(create_media_callback))
+        .route("/_synapse/admin/v1/media_callbacks", get(get_all_media_callbacks))
+        .route("/_synapse/admin/v1/media_callbacks/{callback_type}", get(get_media_callbacks))
+        .route("/_synapse/admin/v1/rate_limit_callbacks", post(create_rate_limit_callback))
+        .route("/_synapse/admin/v1/rate_limit_callbacks", get(get_rate_limit_callbacks))
+        .route("/_synapse/admin/v1/account_data_callbacks", post(create_account_data_callback))
+        .route("/_synapse/admin/v1/account_data_callbacks", get(get_account_data_callbacks))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 
@@ -1066,49 +902,25 @@ pub fn module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_synapse/admin/v1/modules"),
         (Method::GET, "/_synapse/admin/v1/modules/type/{module_type}"),
         (Method::GET, "/_synapse/admin/v1/modules/{module_name}"),
-        (
-            Method::PUT,
-            "/_synapse/admin/v1/modules/{module_name}/config",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/modules/{module_name}/enable",
-        ),
+        (Method::PUT, "/_synapse/admin/v1/modules/{module_name}/config"),
+        (Method::POST, "/_synapse/admin/v1/modules/{module_name}/enable"),
         (Method::DELETE, "/_synapse/admin/v1/modules/{module_name}"),
         (Method::POST, "/_synapse/admin/v1/modules/check_spam"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/modules/check_third_party_rule",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/modules/spam_check/{event_id}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/modules/spam_check/sender/{sender}",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/modules/third_party_rule/{event_id}",
-        ),
+        (Method::POST, "/_synapse/admin/v1/modules/check_third_party_rule"),
+        (Method::GET, "/_synapse/admin/v1/modules/spam_check/{event_id}"),
+        (Method::GET, "/_synapse/admin/v1/modules/spam_check/sender/{sender}"),
+        (Method::GET, "/_synapse/admin/v1/modules/third_party_rule/{event_id}"),
         (Method::GET, "/_synapse/admin/v1/modules/logs/{module_name}"),
         (Method::POST, "/_synapse/admin/v1/account_validity"),
         (Method::GET, "/_synapse/admin/v1/account_validity/{user_id}"),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/account_validity/{user_id}/renew",
-        ),
+        (Method::POST, "/_synapse/admin/v1/account_validity/{user_id}/renew"),
         (Method::POST, "/_synapse/admin/v1/password_auth_providers"),
         (Method::GET, "/_synapse/admin/v1/password_auth_providers"),
         (Method::POST, "/_synapse/admin/v1/presence_routes"),
         (Method::GET, "/_synapse/admin/v1/presence_routes"),
         (Method::POST, "/_synapse/admin/v1/media_callbacks"),
         (Method::GET, "/_synapse/admin/v1/media_callbacks"),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/media_callbacks/{callback_type}",
-        ),
+        (Method::GET, "/_synapse/admin/v1/media_callbacks/{callback_type}"),
         (Method::POST, "/_synapse/admin/v1/rate_limit_callbacks"),
         (Method::GET, "/_synapse/admin/v1/rate_limit_callbacks"),
         (Method::POST, "/_synapse/admin/v1/account_data_callbacks"),

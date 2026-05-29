@@ -48,9 +48,7 @@ impl Serialize for Aes256GcmNonce {
 impl<'de> Deserialize<'de> for Aes256GcmNonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&s)
-            .map_err(serde::de::Error::custom)?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
         Self::from_bytes(&bytes).map_err(serde::de::Error::custom)
     }
 }
@@ -91,9 +89,7 @@ impl Serialize for XChaCha20Poly1305Nonce {
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&s)
-            .map_err(serde::de::Error::custom)?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
         Self::from_bytes(&bytes).map_err(serde::de::Error::custom)
     }
 }
@@ -131,10 +127,7 @@ impl Serialize for Aes256GcmCiphertext {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("Aes256GcmCiphertext", 2)?;
         state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field(
-            "ciphertext",
-            &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext),
-        )?;
+        state.serialize_field("ciphertext", &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext))?;
         state.end()
     }
 }
@@ -142,20 +135,14 @@ impl Serialize for Aes256GcmCiphertext {
 impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let nonce: Aes256GcmNonce = serde_json::from_value(
-            value
-                .get("nonce")
-                .ok_or_else(|| serde::de::Error::missing_field("nonce"))?
-                .clone(),
-        )
-        .map_err(serde::de::Error::custom)?;
+        let nonce: Aes256GcmNonce =
+            serde_json::from_value(value.get("nonce").ok_or_else(|| serde::de::Error::missing_field("nonce"))?.clone())
+                .map_err(serde::de::Error::custom)?;
         let ct_str = value
             .get("ciphertext")
             .and_then(|v| v.as_str())
             .ok_or_else(|| serde::de::Error::missing_field("ciphertext"))?;
-        let ciphertext = base64::engine::general_purpose::STANDARD
-            .decode(ct_str)
-            .map_err(serde::de::Error::custom)?;
+        let ciphertext = base64::engine::general_purpose::STANDARD.decode(ct_str).map_err(serde::de::Error::custom)?;
         Ok(Self::new(nonce, ciphertext))
     }
 }
@@ -191,10 +178,7 @@ impl Serialize for XChaCha20Poly1305Ciphertext {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("XChaCha20Poly1305Ciphertext", 2)?;
         state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field(
-            "ciphertext",
-            &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext),
-        )?;
+        state.serialize_field("ciphertext", &base64::engine::general_purpose::STANDARD.encode(&self.ciphertext))?;
         state.end()
     }
 }
@@ -202,20 +186,14 @@ impl Serialize for XChaCha20Poly1305Ciphertext {
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let nonce: XChaCha20Poly1305Nonce = serde_json::from_value(
-            value
-                .get("nonce")
-                .ok_or_else(|| serde::de::Error::missing_field("nonce"))?
-                .clone(),
-        )
-        .map_err(serde::de::Error::custom)?;
+        let nonce: XChaCha20Poly1305Nonce =
+            serde_json::from_value(value.get("nonce").ok_or_else(|| serde::de::Error::missing_field("nonce"))?.clone())
+                .map_err(serde::de::Error::custom)?;
         let ct_str = value
             .get("ciphertext")
             .and_then(|v| v.as_str())
             .ok_or_else(|| serde::de::Error::missing_field("ciphertext"))?;
-        let ciphertext = base64::engine::general_purpose::STANDARD
-            .decode(ct_str)
-            .map_err(serde::de::Error::custom)?;
+        let ciphertext = base64::engine::general_purpose::STANDARD.decode(ct_str).map_err(serde::de::Error::custom)?;
         Ok(Self::new(nonce, ciphertext))
     }
 }
@@ -249,19 +227,11 @@ pub struct NonceTracker {
 
 impl NonceTracker {
     pub fn new() -> Self {
-        Self {
-            used_nonces: DashSet::new(),
-            counter: AtomicU64::new(0),
-            max_history_size: NONCE_HISTORY_SIZE,
-        }
+        Self { used_nonces: DashSet::new(), counter: AtomicU64::new(0), max_history_size: NONCE_HISTORY_SIZE }
     }
 
     pub fn with_history_size(max_history_size: usize) -> Self {
-        Self {
-            used_nonces: DashSet::new(),
-            counter: AtomicU64::new(0),
-            max_history_size,
-        }
+        Self { used_nonces: DashSet::new(), counter: AtomicU64::new(0), max_history_size }
     }
 
     pub fn check_and_record(&self, nonce: &[u8]) -> Result<(), CryptoError> {
@@ -283,12 +253,8 @@ impl NonceTracker {
         if current_size > self.max_history_size / 2 {
             let to_remove = current_size - self.max_history_size / 2;
             let mut removed = 0;
-            let keys_to_remove: Vec<Vec<u8>> = self
-                .used_nonces
-                .iter()
-                .take(to_remove)
-                .map(|entry| entry.clone())
-                .collect();
+            let keys_to_remove: Vec<Vec<u8>> =
+                self.used_nonces.iter().take(to_remove).map(|entry| entry.clone()).collect();
             for key in keys_to_remove {
                 self.used_nonces.remove(&key);
                 removed += 1;
@@ -327,10 +293,7 @@ pub struct SecureNonceGenerator {
 
 impl SecureNonceGenerator {
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
-        Self {
-            counter: AtomicU64::new(0),
-            tracker,
-        }
+        Self { counter: AtomicU64::new(0), tracker }
     }
 
     pub fn generate_aes_gcm_nonce(&self) -> Result<Aes256GcmNonce, CryptoError> {
@@ -381,16 +344,12 @@ pub struct Aes256GcmCipher {
 
 impl Aes256GcmCipher {
     pub fn new() -> Self {
-        Self {
-            nonce_generator: None,
-        }
+        Self { nonce_generator: None }
     }
 
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
-        Self {
-            nonce_generator: Some(nonce_generator),
-        }
+        Self { nonce_generator: Some(nonce_generator) }
     }
 
     pub fn encrypt(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
@@ -414,10 +373,7 @@ impl Aes256GcmCipher {
         Ok(result)
     }
 
-    pub fn encrypt_with_nonce(
-        key: &Aes256GcmKey,
-        plaintext: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_with_nonce(key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = Aes256GcmNonce::generate();
         let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
         let cipher = Aes256Gcm::new(cipher_key);
@@ -433,18 +389,13 @@ impl Aes256GcmCipher {
         Ok(result)
     }
 
-    pub fn decrypt(
-        key: &Aes256GcmKey,
-        nonce: &Aes256GcmNonce,
-        encrypted: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
         let cipher = Aes256Gcm::new(cipher_key);
         let nonce_bytes = Nonce::from_slice(nonce.as_bytes());
 
-        let plaintext = cipher
-            .decrypt(nonce_bytes, encrypted)
-            .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+        let plaintext =
+            cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
     }
@@ -463,16 +414,12 @@ pub struct XChaCha20Poly1305Cipher {
 
 impl XChaCha20Poly1305Cipher {
     pub fn new() -> Self {
-        Self {
-            nonce_generator: None,
-        }
+        Self { nonce_generator: None }
     }
 
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
-        Self {
-            nonce_generator: Some(nonce_generator),
-        }
+        Self { nonce_generator: Some(nonce_generator) }
     }
 
     pub fn encrypt(&self, key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
@@ -485,9 +432,9 @@ impl XChaCha20Poly1305Cipher {
         let cipher = XChaCha20Poly1305::new(key.into());
         let nonce_bytes = XNonce::from_slice(nonce.as_bytes());
 
-        let ciphertext = cipher.encrypt(nonce_bytes, plaintext).map_err(
-            |e: chacha20poly1305::aead::Error| CryptoError::EncryptionError(e.to_string()),
-        )?;
+        let ciphertext = cipher
+            .encrypt(nonce_bytes, plaintext)
+            .map_err(|e: chacha20poly1305::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
         let mut result = Vec::with_capacity(nonce.as_bytes().len() + ciphertext.len());
         result.extend_from_slice(nonce.as_bytes());
@@ -495,17 +442,12 @@ impl XChaCha20Poly1305Cipher {
         Ok(result)
     }
 
-    pub fn decrypt(
-        key: &[u8; 32],
-        nonce: &XChaCha20Poly1305Nonce,
-        encrypted: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn decrypt(key: &[u8; 32], nonce: &XChaCha20Poly1305Nonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher = XChaCha20Poly1305::new(key.into());
         let nonce_bytes = XNonce::from_slice(nonce.as_bytes());
 
-        let plaintext = cipher
-            .decrypt(nonce_bytes, encrypted)
-            .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+        let plaintext =
+            cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
     }
@@ -528,34 +470,20 @@ impl E2eeCryptoProvider {
     pub fn new() -> Self {
         let nonce_tracker = Arc::new(NonceTracker::new());
         let aes_cipher = Aes256GcmCipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
-        let xchacha_cipher =
-            XChaCha20Poly1305Cipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
+        let xchacha_cipher = XChaCha20Poly1305Cipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
 
-        Self {
-            aes_cipher,
-            xchacha_cipher,
-            nonce_tracker,
-        }
+        Self { aes_cipher, xchacha_cipher, nonce_tracker }
     }
 
     pub fn with_history_size(max_history_size: usize) -> Self {
         let nonce_tracker = Arc::new(NonceTracker::with_history_size(max_history_size));
         let aes_cipher = Aes256GcmCipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
-        let xchacha_cipher =
-            XChaCha20Poly1305Cipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
+        let xchacha_cipher = XChaCha20Poly1305Cipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
 
-        Self {
-            aes_cipher,
-            xchacha_cipher,
-            nonce_tracker,
-        }
+        Self { aes_cipher, xchacha_cipher, nonce_tracker }
     }
 
-    pub fn encrypt_aes(
-        &self,
-        key: &Aes256GcmKey,
-        plaintext: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_aes(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         self.aes_cipher.encrypt(key, plaintext)
     }
 
@@ -568,11 +496,7 @@ impl E2eeCryptoProvider {
         Aes256GcmCipher::decrypt(key, nonce, encrypted)
     }
 
-    pub fn encrypt_xchacha(
-        &self,
-        key: &[u8; 32],
-        plaintext: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_xchacha(&self, key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         self.xchacha_cipher.encrypt(key, plaintext)
     }
 
@@ -673,9 +597,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Hello, World! This is a secret message.";
 
-        let encrypted = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
         assert!(encrypted.len() > 12);
 
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
@@ -690,12 +612,8 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Test message";
 
-        let encrypted1 = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
-        let encrypted2 = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted1 = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted2 = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
 
         assert_ne!(encrypted1[0..12], encrypted2[0..12]);
         assert_ne!(encrypted1[12..], encrypted2[12..]);
@@ -707,9 +625,7 @@ mod tests {
         let key2 = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::new()
-            .encrypt(&key1, plaintext.as_ref())
-            .unwrap();
+        let encrypted = Aes256GcmCipher::new().encrypt(&key1, plaintext.as_ref()).unwrap();
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
         let ciphertext = &encrypted[12..];
 
@@ -722,9 +638,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
         let ciphertext = &encrypted[12..];
 
         let wrong_nonce = Aes256GcmNonce::generate();
@@ -737,9 +651,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let mut encrypted = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let mut encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
         encrypted[12] ^= 0xff;
 
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
@@ -754,9 +666,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"";
 
-        let encrypted = Aes256GcmCipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
         assert_eq!(encrypted.len(), 28);
 
         let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
@@ -806,9 +716,7 @@ mod tests {
         let key = [0x42u8; 32];
         let plaintext = b"Hello, XChaCha20-Poly1305!";
 
-        let encrypted = XChaCha20Poly1305Cipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted = XChaCha20Poly1305Cipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
         assert!(encrypted.len() > 24);
 
         let nonce = XChaCha20Poly1305Nonce::from_bytes(&encrypted[0..24]).unwrap();
@@ -823,12 +731,8 @@ mod tests {
         let key = [0x42u8; 32];
         let plaintext = b"Test message";
 
-        let encrypted1 = XChaCha20Poly1305Cipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
-        let encrypted2 = XChaCha20Poly1305Cipher::new()
-            .encrypt(&key, plaintext.as_ref())
-            .unwrap();
+        let encrypted1 = XChaCha20Poly1305Cipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted2 = XChaCha20Poly1305Cipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
 
         assert_ne!(encrypted1[0..24], encrypted2[0..24]);
         assert_ne!(encrypted1[24..], encrypted2[24..]);
@@ -841,10 +745,7 @@ mod tests {
 
         assert!(tracker.check_and_record(&nonce).is_ok());
         assert!(tracker.check_and_record(&nonce).is_err());
-        assert_eq!(
-            tracker.check_and_record(&nonce).unwrap_err(),
-            CryptoError::NonceReuseDetected
-        );
+        assert_eq!(tracker.check_and_record(&nonce).unwrap_err(), CryptoError::NonceReuseDetected);
     }
 
     #[test]
@@ -1021,19 +922,11 @@ mod tests {
             }));
         }
 
-        let all_nonces: Vec<Vec<u8>> = handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap())
-            .collect();
-        let unique_nonces: std::collections::HashSet<Vec<u8>> =
-            all_nonces.iter().cloned().collect();
+        let all_nonces: Vec<Vec<u8>> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+        let unique_nonces: std::collections::HashSet<Vec<u8>> = all_nonces.iter().cloned().collect();
 
         assert_eq!(all_nonces.len(), 100);
-        assert_eq!(
-            unique_nonces.len(),
-            100,
-            "Duplicate nonces detected in concurrent test!"
-        );
+        assert_eq!(unique_nonces.len(), 100, "Duplicate nonces detected in concurrent test!");
     }
 
     #[test]

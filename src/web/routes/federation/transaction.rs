@@ -1,9 +1,7 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
-use axum::{
-    extract::{Extension, Json, Path, State},
-};
+use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -26,8 +24,7 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        let already_processed: Option<bool> =
-            state.services.cache.get(&dedup_key).await.unwrap_or(None);
+        let already_processed: Option<bool> = state.services.cache.get(&dedup_key).await.unwrap_or(None);
         if already_processed.unwrap_or(false) {
             ::tracing::debug!(
                 "Dedup: transaction {} from {} already processed, returning empty result",
@@ -45,17 +42,9 @@ pub(super) async fn send_transaction(
         .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
     let edus = body.get("edus").and_then(|v| v.as_array());
     let process_inbound_edus = state.services.config.federation.process_inbound_edus;
-    let process_inbound_presence_edus = state
-        .services
-        .config
-        .federation
-        .process_inbound_presence_edus;
+    let process_inbound_presence_edus = state.services.config.federation.process_inbound_presence_edus;
     let inbound_edus_max_per_txn = state.services.config.federation.inbound_edus_max_per_txn;
-    let inbound_presence_updates_max_per_txn = state
-        .services
-        .config
-        .federation
-        .inbound_presence_updates_max_per_txn;
+    let inbound_presence_updates_max_per_txn = state.services.config.federation.inbound_presence_updates_max_per_txn;
 
     if process_inbound_edus {
         if let Some(edus) = edus {
@@ -68,11 +57,7 @@ pub(super) async fn send_transaction(
             let edu_processing = async {
                 let (_global_permit, wait_ms) = super::acquire_with_timeout(
                     state.federation_inbound_edu_semaphore.clone(),
-                    state
-                        .services
-                        .config
-                        .federation
-                        .inbound_edu_acquire_timeout_ms,
+                    state.services.config.federation.inbound_edu_acquire_timeout_ms,
                 )
                 .await?;
                 super::observe_histogram(&state, "federation_inbound_edu_wait_ms", wait_ms as f64);
@@ -100,8 +85,7 @@ pub(super) async fn send_transaction(
                         break;
                     }
 
-                    let remaining =
-                        inbound_presence_updates_max_per_txn - processed_presence_updates;
+                    let remaining = inbound_presence_updates_max_per_txn - processed_presence_updates;
                     let (processed, dropped, errored) =
                         process_inbound_presence_edu(&state, origin, edu, remaining).await;
                     processed_presence_updates += processed;
@@ -120,12 +104,7 @@ pub(super) async fn send_transaction(
                     super::increment_counter(&state, "federation_inbound_edu_limited_total");
                 } else {
                     super::increment_counter(&state, "federation_inbound_edu_error_total");
-                    ::tracing::warn!(
-                        "Failed to process inbound EDUs for txn {} from {}: {}",
-                        txn_id,
-                        origin,
-                        error
-                    );
+                    ::tracing::warn!("Failed to process inbound EDUs for txn {} from {}: {}", txn_id, origin, error);
                 }
             }
 
@@ -216,30 +195,23 @@ pub(super) async fn send_transaction(
             continue;
         }
 
-        let (room_id, user_id, event_type, state_key) =
-            match validate_inbound_transaction_pdu(&auth.origin, pdu) {
-                Ok(validated) => validated,
-                Err(error) => {
-                    super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
-                    results.push(json!({
-                        "event_id": event_id,
-                        "error": error.to_string()
-                    }));
-                    continue;
-                }
-            };
+        let (room_id, user_id, event_type, state_key) = match validate_inbound_transaction_pdu(&auth.origin, pdu) {
+            Ok(validated) => validated,
+            Err(error) => {
+                super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+                results.push(json!({
+                    "event_id": event_id,
+                    "error": error.to_string()
+                }));
+                continue;
+            }
+        };
         let content = pdu.get("content").cloned().unwrap_or(json!({}));
-        let origin_server_ts = pdu
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let origin_server_ts = pdu.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
         if origin != state.services.config.server.name {
-            if let Ok(create_events) = state
-                .services
-                .event_storage
-                .get_state_events_by_type(room_id, "m.room.create")
-                .await
+            if let Ok(create_events) =
+                state.services.event_storage.get_state_events_by_type(room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
                     if !crate::federation::signing::check_event_federate(&create_event.content) {
@@ -283,11 +255,7 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) = state
-                .services
-                .auth_service
-                .verify_state_event_write(room_id, user_id, event_type)
-                .await
+            if let Err(error) = state.services.auth_service.verify_state_event_write(room_id, user_id, event_type).await
             {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
@@ -308,12 +276,7 @@ pub(super) async fn send_transaction(
             origin_server_ts,
         };
 
-        match state
-            .services
-            .event_storage
-            .create_event(params, None)
-            .await
-        {
+        match state.services.event_storage.create_event(params, None).await {
             Ok(_) => {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({
@@ -332,12 +295,7 @@ pub(super) async fn send_transaction(
         }
     }
 
-    ::tracing::info!(
-        "Processed transaction {} from {} with {} PDUs",
-        txn_id,
-        origin,
-        pdus.len()
-    );
+    ::tracing::info!("Processed transaction {} from {} with {} PDUs", txn_id, origin, pdus.len());
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
@@ -353,10 +311,7 @@ pub(super) async fn send_transaction(
 
 type PduValidationResult<'a> = Result<(&'a str, &'a str, &'a str, Option<&'a str>), ApiError>;
 
-fn validate_inbound_transaction_pdu<'a>(
-    authenticated_origin: &str,
-    pdu: &'a Value,
-) -> PduValidationResult<'a> {
+fn validate_inbound_transaction_pdu<'a>(authenticated_origin: &str, pdu: &'a Value) -> PduValidationResult<'a> {
     let room_id = pdu
         .get("room_id")
         .and_then(|v| v.as_str())
@@ -372,9 +327,7 @@ fn validate_inbound_transaction_pdu<'a>(
     let state_key = pdu.get("state_key").and_then(|v| v.as_str());
 
     if super::sender_server_name(sender) != Some(authenticated_origin) {
-        return Err(ApiError::forbidden(
-            "Federation PDU sender does not match authenticated origin".to_string(),
-        ));
+        return Err(ApiError::forbidden("Federation PDU sender does not match authenticated origin".to_string()));
     }
 
     if let Some(event_origin) = pdu.get("origin").and_then(|v| v.as_str()) {
@@ -385,17 +338,12 @@ fn validate_inbound_transaction_pdu<'a>(
 }
 
 async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<(), String> {
-    let sender = pdu
-        .get("sender")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing sender on PDU".to_string())?;
+    let sender = pdu.get("sender").and_then(|v| v.as_str()).ok_or_else(|| "Missing sender on PDU".to_string())?;
     let sender_server =
         super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;
 
-    let signatures = pdu
-        .get("signatures")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| "PDU missing signatures field".to_string())?;
+    let signatures =
+        pdu.get("signatures").and_then(|v| v.as_object()).ok_or_else(|| "PDU missing signatures field".to_string())?;
     let server_sigs = signatures
         .get(sender_server)
         .and_then(|v| v.as_object())
@@ -409,8 +357,7 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
         obj.remove("signatures");
         obj.remove("unsigned");
     }
-    let signed_bytes =
-        crate::federation::signing::canonical_json_string(&signing_payload).into_bytes();
+    let signed_bytes = crate::federation::signing::canonical_json_string(&signing_payload).into_bytes();
 
     let mut last_error: Option<String> = None;
     for (key_id, sig_value) in server_sigs {
@@ -441,10 +388,7 @@ async fn process_inbound_presence_edu(
     edu: &Value,
     remaining_updates: usize,
 ) -> (usize, usize, usize) {
-    let Some(push) = edu
-        .get("content")
-        .and_then(|content| content.get("push"))
-        .and_then(|value| value.as_array())
+    let Some(push) = edu.get("content").and_then(|content| content.get("push")).and_then(|value| value.as_array())
     else {
         super::increment_counter(state, "federation_inbound_presence_dropped_total");
         return (0, 0, 0);
@@ -465,21 +409,13 @@ async fn process_inbound_presence_edu(
             continue;
         }
 
-        let presence = update
-            .get("presence")
-            .and_then(|value| value.as_str())
-            .unwrap_or("online");
+        let presence = update.get("presence").and_then(|value| value.as_str()).unwrap_or("online");
         let status_msg = update.get("status_msg").and_then(|value| value.as_str());
 
         let exists = match state.services.user_storage.user_exists(user_id).await {
             Ok(exists) => exists,
             Err(error) => {
-                ::tracing::warn!(
-                    "Failed to validate presence user {} from {}: {}",
-                    user_id,
-                    origin,
-                    error
-                );
+                ::tracing::warn!("Failed to validate presence user {} from {}: {}", user_id, origin, error);
                 errored += 1;
                 set_presence_backoff(state, origin).await;
                 break;
@@ -491,18 +427,8 @@ async fn process_inbound_presence_edu(
             continue;
         }
 
-        if let Err(error) = state
-            .services
-            .presence_storage
-            .set_presence(user_id, presence, status_msg)
-            .await
-        {
-            ::tracing::warn!(
-                "Failed to persist presence update for {} from {}: {}",
-                user_id,
-                origin,
-                error
-            );
+        if let Err(error) = state.services.presence_storage.set_presence(user_id, presence, status_msg).await {
+            ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
             errored += 1;
             set_presence_backoff(state, origin).await;
             break;
@@ -512,57 +438,26 @@ async fn process_inbound_presence_edu(
     }
 
     if processed > 0 {
-        super::increment_counter_by(
-            state,
-            "federation_inbound_presence_processed_total",
-            processed as u64,
-        );
+        super::increment_counter_by(state, "federation_inbound_presence_processed_total", processed as u64);
     }
     if dropped > 0 {
-        super::increment_counter_by(
-            state,
-            "federation_inbound_presence_dropped_total",
-            dropped as u64,
-        );
+        super::increment_counter_by(state, "federation_inbound_presence_dropped_total", dropped as u64);
     }
     if errored > 0 {
-        super::increment_counter_by(
-            state,
-            "federation_inbound_presence_error_total",
-            errored as u64,
-        );
+        super::increment_counter_by(state, "federation_inbound_presence_error_total", errored as u64);
     }
 
     (processed, dropped, errored)
 }
 
-async fn acquire_origin_edu_permit(
-    state: &AppState,
-    origin: &str,
-) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
-    let per_origin_limit = state
-        .services
-        .config
-        .federation
-        .inbound_edu_per_origin_max_concurrency
-        .max(1);
+async fn acquire_origin_edu_permit(state: &AppState, origin: &str) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
+    let per_origin_limit = state.services.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
     let semaphore = {
         let mut guard = state.federation_inbound_edu_origin_semaphores.lock().await;
-        guard
-            .entry(origin.to_string())
-            .or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit)))
-            .clone()
+        guard.entry(origin.to_string()).or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit))).clone()
     };
 
-    super::acquire_with_timeout(
-        semaphore,
-        state
-            .services
-            .config
-            .federation
-            .inbound_edu_acquire_timeout_ms,
-    )
-    .await
+    super::acquire_with_timeout(semaphore, state.services.config.federation.inbound_edu_acquire_timeout_ms).await
 }
 
 async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Option<u64> {
@@ -573,8 +468,8 @@ async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Op
 }
 
 async fn set_presence_backoff(state: &AppState, origin: &str) {
-    let until = chrono::Utc::now().timestamp_millis()
-        + state.services.config.federation.inbound_presence_backoff_ms as i64;
+    let until =
+        chrono::Utc::now().timestamp_millis() + state.services.config.federation.inbound_presence_backoff_ms as i64;
     let mut guard = state.federation_presence_backoff_until.write().await;
     guard.insert(origin.to_string(), until);
 }

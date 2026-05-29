@@ -13,14 +13,8 @@ impl EventReportService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_report(
-        &self,
-        request: CreateEventReportRequest,
-    ) -> Result<EventReport, ApiError> {
-        info!(
-            "Creating event report for event: {} in room: {}",
-            request.event_id, request.room_id
-        );
+    pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, ApiError> {
+        info!("Creating event report for event: {} in room: {}", request.event_id, request.room_id);
 
         let rate_check = self
             .storage
@@ -30,9 +24,7 @@ impl EventReportService {
 
         if !rate_check.is_allowed {
             return Err(ApiError::bad_request(
-                rate_check
-                    .block_reason
-                    .unwrap_or_else(|| "Rate limit exceeded".to_string()),
+                rate_check.block_reason.unwrap_or_else(|| "Rate limit exceeded".to_string()),
             ));
         }
 
@@ -67,11 +59,8 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn get_report(&self, id: i64) -> Result<Option<EventReport>, ApiError> {
-        let report = self
-            .storage
-            .get_report(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get report", &e))?;
+        let report =
+            self.storage.get_report(id).await.map_err(|e| ApiError::internal_with_log("Failed to get report", &e))?;
 
         Ok(report)
     }
@@ -189,10 +178,7 @@ impl EventReportService {
             )
             .ok();
 
-        info!(
-            "Updated event report: {} to status: {:?}",
-            id, request.status
-        );
+        info!("Updated event report: {} to status: {:?}", id, request.status);
 
         Ok(updated_report)
     }
@@ -215,12 +201,7 @@ impl EventReportService {
     }
 
     #[instrument(skip(self))]
-    pub async fn dismiss_report(
-        &self,
-        id: i64,
-        dismissed_by: &str,
-        reason: &str,
-    ) -> Result<EventReport, ApiError> {
+    pub async fn dismiss_report(&self, id: i64, dismissed_by: &str, reason: &str) -> Result<EventReport, ApiError> {
         let request = UpdateEventReportRequest {
             status: Some("dismissed".to_string()),
             score: None,
@@ -233,10 +214,7 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn delete_report(&self, id: i64) -> Result<(), ApiError> {
-        self.storage
-            .delete_report(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete report", &e))?;
+        self.storage.delete_report(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete report", &e))?;
 
         info!("Deleted event report: {}", id);
 
@@ -244,10 +222,7 @@ impl EventReportService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_report_history(
-        &self,
-        report_id: i64,
-    ) -> Result<Vec<EventReportHistory>, ApiError> {
+    pub async fn get_report_history(&self, report_id: i64) -> Result<Vec<EventReportHistory>, ApiError> {
         let history = self
             .storage
             .get_report_history(report_id)
@@ -268,21 +243,13 @@ impl EventReportService {
     }
 
     #[instrument(skip(self))]
-    pub async fn block_user_reports(
-        &self,
-        user_id: &str,
-        blocked_until: i64,
-        reason: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn block_user_reports(&self, user_id: &str, blocked_until: i64, reason: &str) -> Result<(), ApiError> {
         self.storage
             .block_user_reports(user_id, blocked_until, reason)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to block user", &e))?;
 
-        info!(
-            "Blocked user {} from reporting until {}",
-            user_id, blocked_until
-        );
+        info!("Blocked user {} from reporting until {}", user_id, blocked_until);
 
         Ok(())
     }
@@ -301,10 +268,7 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, ApiError> {
-        let stats = self
-            .storage
-            .get_stats(days)
-            .map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
+        let stats = self.storage.get_stats(days).map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
 
         Ok(stats)
     }
@@ -338,16 +302,11 @@ impl EventReportService {
         since_ts: Option<i64>,
         since_id: Option<i64>,
     ) -> Result<Vec<EventReport>, ApiError> {
-        self.get_reports_by_status("open", limit, None, since_ts, since_id)
-            .await
+        self.get_reports_by_status("open", limit, None, since_ts, since_id).await
     }
 
     #[instrument(skip(self))]
-    pub async fn escalate_report(
-        &self,
-        id: i64,
-        actor_user_id: &str,
-    ) -> Result<EventReport, ApiError> {
+    pub async fn escalate_report(&self, id: i64, actor_user_id: &str) -> Result<EventReport, ApiError> {
         let old_report = self
             .storage
             .get_report(id)
@@ -524,8 +483,7 @@ mod tests {
     fn test_event_report_stats() {
         let stats = crate::storage::event_report::EventReportStats {
             id: 1,
-            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13)
-                .expect("test date should be valid"),
+            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13).expect("test date should be valid"),
             total_reports: 100,
             open_reports: 20,
             resolved_reports: 70,

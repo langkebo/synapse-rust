@@ -6,4 +6,3 @@ ALTER TABLE push_rules
 
 ALTER TABLE push_rules
     ADD CONSTRAINT uq_push_rules_user_scope_rule UNIQUE (user_id, scope, rule_id);
-

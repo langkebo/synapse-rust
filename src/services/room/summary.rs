@@ -17,18 +17,11 @@ impl RoomSummaryService {
         event_storage: Arc<EventStorage>,
         member_storage: Option<Arc<RoomMemberStorage>>,
     ) -> Self {
-        Self {
-            storage,
-            event_storage,
-            member_storage,
-        }
+        Self { storage, event_storage, member_storage }
     }
 
     #[instrument(skip(self))]
-    pub async fn get_summary(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomSummaryResponse>, ApiError> {
+    pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
         let summary = self
             .storage
             .get_summary(room_id)
@@ -44,10 +37,7 @@ impl RoomSummaryService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_summaries_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<RoomSummaryResponse>, ApiError> {
+    pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
         let summaries = self
             .storage
             .get_summaries_for_user(user_id)
@@ -74,10 +64,7 @@ impl RoomSummaryService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_summary(
-        &self,
-        request: CreateRoomSummaryRequest,
-    ) -> Result<RoomSummaryResponse, ApiError> {
+    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummaryResponse, ApiError> {
         info!("Creating room summary for: {}", request.room_id);
 
         let room_id = request.room_id.clone();
@@ -108,9 +95,7 @@ impl RoomSummaryService {
             .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
-    fn create_request_to_update_request(
-        request: &CreateRoomSummaryRequest,
-    ) -> UpdateRoomSummaryRequest {
+    fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
         UpdateRoomSummaryRequest {
             name: request.name.clone(),
             topic: request.topic.clone(),
@@ -150,16 +135,12 @@ impl RoomSummaryService {
             let join_members = member_storage
                 .get_room_members(room_id, "join")
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get room join members", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to get room join members", &e))?;
 
             let invite_members = member_storage
                 .get_room_members(room_id, "invite")
                 .await
-                .map_err(|e| {
-                    ApiError::internal_with_log("Failed to get room invite members", &e)
-                })?;
+                .map_err(|e| ApiError::internal_with_log("Failed to get room invite members", &e))?;
 
             let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
 
@@ -222,14 +203,8 @@ impl RoomSummaryService {
     }
 
     #[instrument(skip(self))]
-    pub async fn add_member(
-        &self,
-        request: CreateSummaryMemberRequest,
-    ) -> Result<RoomSummaryMember, ApiError> {
-        debug!(
-            "Adding member {} to room {}",
-            request.user_id, request.room_id
-        );
+    pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, ApiError> {
+        debug!("Adding member {} to room {}", request.user_id, request.room_id);
 
         let member = self
             .storage
@@ -294,8 +269,7 @@ impl RoomSummaryService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update state", &e))?;
 
-        self.update_summary_from_state(room_id, Some(event_type), state_key, &state.content)
-            .await?;
+        self.update_summary_from_state(room_id, Some(event_type), state_key, &state.content).await?;
 
         Ok(state)
     }
@@ -309,21 +283,11 @@ impl RoomSummaryService {
     ) -> Result<(), ApiError> {
         if event_type == Some("m.room.member") {
             if !state_key.is_empty() {
-                let membership = content
-                    .get("membership")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("join")
-                    .to_string();
+                let membership = content.get("membership").and_then(|v| v.as_str()).unwrap_or("join").to_string();
 
-                let display_name = content
-                    .get("displayname")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let display_name = content.get("displayname").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-                let avatar_url = content
-                    .get("avatar_url")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let avatar_url = content.get("avatar_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 let request = CreateSummaryMemberRequest {
                     room_id: room_id.to_string(),
@@ -346,50 +310,31 @@ impl RoomSummaryService {
 
         match event_type {
             Some("m.room.name") => {
-                request.name = content
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.name = content.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.topic") => {
-                request.topic = content
-                    .get("topic")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.topic = content.get("topic").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.avatar") => {
-                request.avatar_url = content
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.avatar_url = content.get("url").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.canonical_alias") => {
                 let canonical_alias = content.get("alias").and_then(|v| v.as_str());
                 self.storage
                     .set_canonical_alias(room_id, canonical_alias)
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to update canonical alias", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to update canonical alias", &e))?;
                 return Ok(());
             }
             Some("m.room.join_rules") => {
-                request.join_rule = content
-                    .get("join_rule")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.join_rule = content.get("join_rule").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.history_visibility") => {
-                request.history_visibility = content
-                    .get("history_visibility")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.history_visibility =
+                    content.get("history_visibility").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.guest_access") => {
-                request.guest_access = content
-                    .get("guest_access")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                request.guest_access = content.get("guest_access").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
             Some("m.room.encryption") => {
                 request.is_encrypted = Some(true);
@@ -452,10 +397,7 @@ impl RoomSummaryService {
 
         let total_events = events.len() as i64;
         let total_state_events = events.iter().filter(|e| e.state_key.is_some()).count() as i64;
-        let total_messages = events
-            .iter()
-            .filter(|e| e.event_type == "m.room.message")
-            .count() as i64;
+        let total_messages = events.iter().filter(|e| e.event_type == "m.room.message").count() as i64;
         let total_media = events
             .iter()
             .filter(|e| {
@@ -463,25 +405,13 @@ impl RoomSummaryService {
                     && e.content
                         .get("msgtype")
                         .and_then(|v| v.as_str())
-                        .is_some_and(|t| {
-                            t == "m.image"
-                                || t == "m.video"
-                                || t == "m.file"
-                                || t == "m.audio"
-                        })
+                        .is_some_and(|t| t == "m.image" || t == "m.video" || t == "m.file" || t == "m.audio")
             })
             .count() as i64;
 
         let stats = self
             .storage
-            .update_stats(
-                room_id,
-                total_events,
-                total_state_events,
-                total_messages,
-                total_media,
-                0,
-            )
+            .update_stats(room_id, total_events, total_state_events, total_messages, total_media, 0)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update stats", &e))?;
 
@@ -496,11 +426,7 @@ impl RoomSummaryService {
         event_type: &str,
         state_key: Option<&str>,
     ) -> Result<(), ApiError> {
-        let priority = if event_type.starts_with("m.room.") {
-            10
-        } else {
-            0
-        };
+        let priority = if event_type.starts_with("m.room.") { 10 } else { 0 };
 
         self.storage
             .queue_update(room_id, event_id, event_type, state_key, priority)
@@ -528,11 +454,7 @@ impl RoomSummaryService {
                     processed += 1;
                 }
                 Err(e) => {
-                    if let Err(err) = self
-                        .storage
-                        .mark_update_failed(update.id, &e.to_string())
-                        .await
-                    {
+                    if let Err(err) = self.storage.mark_update_failed(update.id, &e.to_string()).await {
                         warn!("Failed to mark update failed: {}", err);
                     }
                 }
@@ -563,11 +485,7 @@ impl RoomSummaryService {
             let request = UpdateRoomSummaryRequest {
                 last_event_id: Some(event.event_id.clone()),
                 last_event_ts: Some(event.origin_server_ts),
-                last_message_ts: if event.event_type == "m.room.message" {
-                    Some(event.origin_server_ts)
-                } else {
-                    None
-                },
+                last_message_ts: if event.event_type == "m.room.message" { Some(event.origin_server_ts) } else { None },
                 ..Default::default()
             };
 
@@ -618,10 +536,7 @@ impl RoomSummaryService {
         let hero_users = serde_json::to_value(&hero_ids)
             .map_err(|e| ApiError::internal_with_log("Failed to serialize heroes", &e))?;
 
-        let request = UpdateRoomSummaryRequest {
-            hero_users: Some(hero_users),
-            ..Default::default()
-        };
+        let request = UpdateRoomSummaryRequest { hero_users: Some(hero_users), ..Default::default() };
 
         self.storage
             .update_summary(room_id, request)
@@ -634,10 +549,11 @@ impl RoomSummaryService {
     pub async fn sync_from_room(&self, room_id: &str) -> Result<RoomSummaryResponse, ApiError> {
         info!("Syncing room summary from room: {}", room_id);
 
-        let existing =
-            self.storage.get_summary(room_id).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to check existing summary", &e)
-            })?;
+        let existing = self
+            .storage
+            .get_summary(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check existing summary", &e))?;
 
         if existing.is_none() {
             let request = CreateRoomSummaryRequest {
@@ -666,10 +582,7 @@ impl RoomSummaryService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_summaries_by_ids(
-        &self,
-        room_ids: &[String],
-    ) -> Result<Vec<RoomSummaryResponse>, ApiError> {
+    pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummaryResponse>, ApiError> {
         if room_ids.is_empty() {
             return Ok(Vec::new());
         }

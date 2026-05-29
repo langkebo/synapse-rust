@@ -19,19 +19,13 @@ fn derive_activity(presence: &str, last_active_ts: Option<i64>) -> (Option<i64>,
     let now = chrono::Utc::now().timestamp_millis();
     let last_active_ago = last_active_ts.map(|ts| (now - ts).max(0));
     let currently_active = match presence {
-        "online" => Some(
-            last_active_ts
-                .is_some_and(|ts| (now - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS),
-        ),
+        "online" => Some(last_active_ts.is_some_and(|ts| (now - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS)),
         _ => Some(false),
     };
     (last_active_ago, currently_active)
 }
 
-fn ensure_presence_access(
-    auth_user: &AuthenticatedUser,
-    target_user_id: &str,
-) -> Result<(), ApiError> {
+fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -> Result<(), ApiError> {
     if auth_user.user_id != target_user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
@@ -62,21 +56,11 @@ async fn ensure_presence_access_or_shared_room(
     Ok(())
 }
 
-async fn filter_visible_presence_targets(
-    state: &AppState,
-    current_user_id: &str,
-    targets: &[String],
-) -> Vec<String> {
-    let allowed: HashSet<String> = filter_users_with_shared_rooms(state, current_user_id, targets)
-        .await
-        .into_iter()
-        .collect();
+async fn filter_visible_presence_targets(state: &AppState, current_user_id: &str, targets: &[String]) -> Vec<String> {
+    let allowed: HashSet<String> =
+        filter_users_with_shared_rooms(state, current_user_id, targets).await.into_iter().collect();
 
-    targets
-        .iter()
-        .filter(|target_id| allowed.contains(*target_id))
-        .cloned()
-        .collect()
+    targets.iter().filter(|target_id| allowed.contains(*target_id)).cloned().collect()
 }
 
 pub(crate) async fn get_presence(
@@ -176,16 +160,10 @@ pub(crate) async fn presence_list(
             }
         }
 
-        let visible_targets =
-            filter_visible_presence_targets(&state, user_id, &requested_targets).await;
+        let visible_targets = filter_visible_presence_targets(&state, user_id, &requested_targets).await;
 
         for target_id in visible_targets {
-            if let Err(e) = state
-                .services
-                .presence_storage
-                .add_subscription(user_id, &target_id)
-                .await
-            {
+            if let Err(e) = state.services.presence_storage.add_subscription(user_id, &target_id).await {
                 ::tracing::warn!("Failed to add presence subscription: {}", e);
             }
         }
@@ -196,12 +174,7 @@ pub(crate) async fn presence_list(
             if let Some(target_id) = target.as_str() {
                 validate_user_id(target_id)?;
 
-                if let Err(e) = state
-                    .services
-                    .presence_storage
-                    .remove_subscription(user_id, target_id)
-                    .await
-                {
+                if let Err(e) = state.services.presence_storage.remove_subscription(user_id, target_id).await {
                     ::tracing::warn!("Failed to remove presence subscription: {}", e);
                 }
             }

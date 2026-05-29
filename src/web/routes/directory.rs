@@ -1,6 +1,4 @@
-use crate::web::routes::{
-    ensure_room_member, validate_room_alias, ApiError, AppState, AuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member, validate_room_alias, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -42,13 +40,7 @@ async fn ensure_room_alias_write_allowed(
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(
-        state,
-        auth_user,
-        room_id,
-        "You must be a member of this room to manage aliases",
-    )
-    .await?;
+    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
 
     let is_creator = state
         .services
@@ -58,9 +50,7 @@ async fn ensure_room_alias_write_allowed(
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
 
     if !is_creator {
-        return Err(ApiError::forbidden(
-            "Only room admins can manage aliases".to_string(),
-        ));
+        return Err(ApiError::forbidden("Only room admins can manage aliases".to_string()));
     }
 
     Ok(())
@@ -189,9 +179,7 @@ pub async fn get_public_rooms_handler(
     State(state): State<AppState>,
     Query(query): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    query
-        .validate()
-        .map_err(|e| ApiError::bad_request(format!("Invalid query: {e}")))?;
+    query.validate().map_err(|e| ApiError::bad_request(format!("Invalid query: {e}")))?;
 
     let limit = query.limit as i64;
     let cursor = decode_public_rooms_cursor(query.since.as_deref());
@@ -201,11 +189,7 @@ pub async fn get_public_rooms_handler(
             state
                 .services
                 .room_storage
-                .get_public_rooms_paginated(
-                    limit,
-                    cursor.map(|(ts, _)| ts),
-                    cursor.map(|(_, room_id)| room_id),
-                )
+                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
@@ -220,9 +204,7 @@ pub async fn get_public_rooms_handler(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms
-            .last()
-            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
     };
@@ -272,11 +254,7 @@ pub async fn search_public_rooms(
             state
                 .services
                 .room_storage
-                .get_public_rooms_paginated(
-                    limit,
-                    cursor.map(|(ts, _)| ts),
-                    cursor.map(|(_, room_id)| room_id),
-                )
+                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
@@ -291,9 +269,7 @@ pub async fn search_public_rooms(
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
-        rooms
-            .last()
-            .map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None
     };
@@ -327,10 +303,7 @@ mod cursor_tests {
     #[test]
     fn test_public_rooms_cursor_round_trip() {
         let cursor = encode_public_rooms_cursor(1_700_000_000_000, "!room:example.com");
-        assert_eq!(
-            decode_public_rooms_cursor(Some(&cursor)),
-            Some((1_700_000_000_000, "!room:example.com"))
-        );
+        assert_eq!(decode_public_rooms_cursor(Some(&cursor)), Some((1_700_000_000_000, "!room:example.com")));
     }
 
     #[test]
@@ -341,9 +314,6 @@ mod cursor_tests {
 
     #[test]
     fn test_public_rooms_cursor_rejects_invalid_timestamp() {
-        assert_eq!(
-            decode_public_rooms_cursor(Some("abc|!room:example.com")),
-            None
-        );
+        assert_eq!(decode_public_rooms_cursor(Some("abc|!room:example.com")), None);
     }
 }

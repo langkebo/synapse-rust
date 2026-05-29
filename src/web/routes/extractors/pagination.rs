@@ -22,10 +22,7 @@ fn default_limit() -> Option<i64> {
 
 impl Pagination {
     pub fn new(limit: Option<i64>) -> Self {
-        Self {
-            limit,
-            ..Default::default()
-        }
+        Self { limit, ..Default::default() }
     }
 
     pub fn with_direction(mut self, dir: String) -> Self {
@@ -38,9 +35,7 @@ impl Pagination {
     }
 
     pub fn effective_limit(&self) -> i64 {
-        self.limit
-            .unwrap_or(DEFAULT_PAGE_LIMIT)
-            .clamp(1, MAX_PAGE_LIMIT)
+        self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT)
     }
 }
 
@@ -59,9 +54,7 @@ fn default_offset_limit() -> Option<i64> {
 
 impl OffsetPagination {
     pub fn effective_limit(&self) -> i64 {
-        self.limit
-            .unwrap_or(DEFAULT_PAGE_LIMIT)
-            .clamp(1, MAX_PAGE_LIMIT)
+        self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT)
     }
 
     pub fn effective_offset(&self) -> i64 {

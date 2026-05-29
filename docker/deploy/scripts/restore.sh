@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 compose() {
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose &>/dev/null; then
         docker-compose "$@"
     else
         docker compose "$@"
@@ -67,40 +67,40 @@ fi
 # 解压备份
 extract_backup() {
     log_info "解压备份文件..."
-    
+
     BACKUP_DIR=$(dirname "$BACKUP_FILE")
     BACKUP_NAME=$(basename "$BACKUP_FILE" .tar.gz)
-    
+
     tar xzf "$BACKUP_FILE" -C "$BACKUP_DIR"
-    
+
     echo "$BACKUP_DIR/$BACKUP_NAME"
 }
 
 # 恢复数据库
 restore_database() {
     local backup_dir="$1"
-    
+
     log_info "恢复数据库..."
-    
+
     # 停止应用
     compose stop synapse
-    
+
     # 恢复数据库
     if [ -f "$backup_dir/database.sql" ]; then
-        compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" < "$backup_dir/database.sql"
+        compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" <"$backup_dir/database.sql"
     else
         log_warning "数据库备份文件不存在，跳过数据库恢复"
     fi
-    
+
     log_success "数据库恢复完成"
 }
 
 # 恢复媒体文件
 restore_media() {
     local backup_dir="$1"
-    
+
     log_info "恢复媒体文件..."
-    
+
     mkdir -p media
     rm -rf media/*
     if [ -f "$backup_dir/media.tar.gz" ]; then
@@ -108,14 +108,14 @@ restore_media() {
     else
         log_warning "媒体备份文件不存在，跳过媒体恢复"
     fi
-    
+
     log_success "媒体文件恢复完成"
 }
 
 # 恢复配置
 restore_config() {
     local backup_dir="$1"
-    
+
     log_info "恢复配置文件..."
 
     [ -f "$backup_dir/.env" ] && cp "$backup_dir/.env" .env
@@ -123,27 +123,27 @@ restore_config() {
     [ -d "$backup_dir/nginx" ] && rm -rf nginx && cp -r "$backup_dir/nginx" ./
     [ -d "$backup_dir/scripts" ] && rm -rf scripts && cp -r "$backup_dir/scripts" ./
     [ -f "$backup_dir/docker-compose.yml" ] && cp "$backup_dir/docker-compose.yml" ./
-    
+
     log_success "配置文件恢复完成"
 }
 
 # 主函数
 main() {
     log_info "开始恢复..."
-    
+
     backup_dir=$(extract_backup)
-    
+
     restore_database "$backup_dir"
     restore_media "$backup_dir"
     restore_config "$backup_dir"
-    
+
     # 清理
     rm -rf "$backup_dir"
-    
+
     # 重启服务
     log_info "重启服务..."
     compose up -d
-    
+
     log_success "恢复完成!"
 }
 

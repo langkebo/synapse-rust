@@ -1,6 +1,5 @@
 use super::models::{
-    OlmAccountData, OlmAccountInfo, OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageType,
-    OneTimeKey,
+    OlmAccountData, OlmAccountInfo, OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageType, OneTimeKey,
 };
 use super::session::OlmSessionManager;
 use super::storage::OlmStorage;
@@ -32,9 +31,7 @@ pub fn get_pickle_key() -> &'static [u8; 32] {
                     generate_random_pickle_key()
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "OLM_PICKLE_KEY is not valid hex: {}. Generating random key.", e
-                    );
+                    tracing::error!("OLM_PICKLE_KEY is not valid hex: {}. Generating random key.", e);
                     generate_random_pickle_key()
                 }
             }
@@ -88,11 +85,12 @@ impl OlmService {
         }
 
         if let Some(account_data) = self.storage.load_account(user_id, device_id).await? {
-            let pickle = vodozemac::olm::AccountPickle::from_encrypted(
-                &account_data.serialized_account,
-                get_pickle_key(),
-            )
-            .map_err(|e| { tracing::error!("Failed to decode account pickle: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+            let pickle =
+                vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, get_pickle_key())
+                    .map_err(|e| {
+                        tracing::error!("Failed to decode account pickle: {e}");
+                        ApiError::database("A database error occurred".to_string())
+                    })?;
             let account = Account::from_pickle(pickle);
 
             {
@@ -101,11 +99,8 @@ impl OlmService {
             }
         }
 
-        let session_manager = Arc::new(OlmSessionManager::new(
-            self.storage.clone(),
-            user_id.to_string(),
-            device_id.to_string(),
-        ));
+        let session_manager =
+            Arc::new(OlmSessionManager::new(self.storage.clone(), user_id.to_string(), device_id.to_string()));
         session_manager.load_sessions().await?;
 
         {
@@ -132,8 +127,7 @@ impl OlmService {
             let pickle = account.pickle();
             let serialized = pickle.encrypt(get_pickle_key());
 
-            let account_data =
-                OlmAccountData::new(uid, did, identity_keys.curve25519.to_base64(), serialized);
+            let account_data = OlmAccountData::new(uid, did, identity_keys.curve25519.to_base64(), serialized);
 
             self.storage.save_account(&account_data).await?;
         }
@@ -166,23 +160,14 @@ impl OlmService {
                 })
                 .collect();
 
-            let fallback_key = account.fallback_key().iter().next().map(
-                |(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| {
+            let fallback_key =
+                account.fallback_key().iter().next().map(|(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| {
                     format!("{}:{}", id.to_base64(), k.to_base64())
-                },
-            );
+                });
 
-            OlmAccountInfo {
-                identity_key: identity_keys.curve25519.to_base64(),
-                one_time_keys,
-                fallback_key,
-            }
+            OlmAccountInfo { identity_key: identity_keys.curve25519.to_base64(), one_time_keys, fallback_key }
         } else {
-            OlmAccountInfo {
-                identity_key: String::new(),
-                one_time_keys: Vec::new(),
-                fallback_key: None,
-            }
+            OlmAccountInfo { identity_key: String::new(), one_time_keys: Vec::new(), fallback_key: None }
         }
     }
 
@@ -193,12 +178,10 @@ impl OlmService {
             account
                 .one_time_keys()
                 .iter()
-                .map(
-                    |(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| OneTimeKey {
-                        key_id: id.to_base64(),
-                        public_key: k.to_base64(),
-                    },
-                )
+                .map(|(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| OneTimeKey {
+                    key_id: id.to_base64(),
+                    public_key: k.to_base64(),
+                })
                 .collect()
         } else {
             Vec::new()
@@ -209,12 +192,10 @@ impl OlmService {
         let account = self.account.read().await;
 
         if let Some(ref account) = *account {
-            account.fallback_key().iter().next().map(
-                |(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| OneTimeKey {
-                    key_id: id.to_base64(),
-                    public_key: k.to_base64(),
-                },
-            )
+            account.fallback_key().iter().next().map(|(id, k): (&KeyId, &vodozemac::Curve25519PublicKey)| OneTimeKey {
+                key_id: id.to_base64(),
+                public_key: k.to_base64(),
+            })
         } else {
             None
         }
@@ -227,9 +208,7 @@ impl OlmService {
             let signature = account.sign(message);
             Ok(signature.to_base64())
         } else {
-            Err(ApiError::internal(
-                "Olm account not initialized - cannot sign",
-            ))
+            Err(ApiError::internal("Olm account not initialized - cannot sign"))
         }
     }
 
@@ -241,8 +220,7 @@ impl OlmService {
     }
 
     pub fn parse_identity_key(key_base64: &str) -> Result<vodozemac::Curve25519PublicKey, String> {
-        vodozemac::Curve25519PublicKey::from_base64(key_base64)
-            .map_err(|e| format!("Invalid identity key: {e}"))
+        vodozemac::Curve25519PublicKey::from_base64(key_base64).map_err(|e| format!("Invalid identity key: {e}"))
     }
 
     pub async fn create_outbound_session(
@@ -251,9 +229,7 @@ impl OlmService {
         their_one_time_key: &str,
     ) -> Result<OlmEncryptedMessage, ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         let identity_key = vodozemac::Curve25519PublicKey::from_base64(their_identity_key)
             .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {e}")))?;
@@ -264,9 +240,7 @@ impl OlmService {
         let mut account = self.account.write().await;
 
         if let Some(ref mut account) = *account {
-            session_manager
-                .create_outbound_session(account, identity_key, one_time_key)
-                .await
+            session_manager.create_outbound_session(account, identity_key, one_time_key).await
         } else {
             Err(ApiError::internal("Account not initialized"))
         }
@@ -278,9 +252,7 @@ impl OlmService {
         message: &str,
     ) -> Result<OlmDecryptedMessage, ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         let identity_key = vodozemac::Curve25519PublicKey::from_base64(their_identity_key)
             .map_err(|e| ApiError::bad_request(format!("Invalid identity key: {e}")))?;
@@ -288,23 +260,15 @@ impl OlmService {
         let mut account = self.account.write().await;
 
         if let Some(ref mut account) = *account {
-            session_manager
-                .create_inbound_session(account, identity_key, message)
-                .await
+            session_manager.create_inbound_session(account, identity_key, message).await
         } else {
             Err(ApiError::internal("Account not initialized"))
         }
     }
 
-    pub async fn encrypt(
-        &self,
-        session_id: &str,
-        plaintext: &str,
-    ) -> Result<OlmEncryptedMessage, ApiError> {
+    pub async fn encrypt(&self, session_id: &str, plaintext: &str) -> Result<OlmEncryptedMessage, ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         session_manager.encrypt(session_id, plaintext).await
     }
@@ -316,13 +280,9 @@ impl OlmService {
         ciphertext: &str,
     ) -> Result<OlmDecryptedMessage, ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
-        session_manager
-            .decrypt(session_id, message_type, ciphertext)
-            .await
+        session_manager.decrypt(session_id, message_type, ciphertext).await
     }
 
     pub async fn get_session_for_sender(&self, sender_key: &str) -> Option<String> {
@@ -345,9 +305,7 @@ impl OlmService {
 
     pub async fn remove_session(&self, session_id: &str) -> Result<(), ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         session_manager.remove_session(session_id).await
     }
@@ -372,9 +330,7 @@ impl OlmService {
 
     pub async fn clear_expired_sessions(&self) -> Result<u64, ApiError> {
         let sm = self.session_manager.read().await;
-        let session_manager = sm
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
+        let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
 
         session_manager.clear_expired_sessions().await
     }
@@ -439,10 +395,7 @@ mod tests {
 
     #[test]
     fn test_one_time_key_structure() {
-        let key = OneTimeKey {
-            key_id: "key_123".to_string(),
-            public_key: "public_key_data".to_string(),
-        };
+        let key = OneTimeKey { key_id: "key_123".to_string(), public_key: "public_key_data".to_string() };
 
         assert_eq!(key.key_id, "key_123");
         assert_eq!(key.public_key, "public_key_data");

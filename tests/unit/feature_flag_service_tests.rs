@@ -9,8 +9,7 @@ use synapse_rust::services::admin_audit_service::AdminAuditService;
 use synapse_rust::services::feature_flag_service::FeatureFlagService;
 use synapse_rust::storage::audit::AuditEventStorage;
 use synapse_rust::storage::feature_flags::{
-    CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput,
-    UpdateFeatureFlagRequest,
+    CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -27,9 +26,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping feature flag service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping feature flag service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -495,10 +492,7 @@ async fn test_create_flag_empty_target_subject_id() {
         expires_at: None,
         reason: "test".to_string(),
         status: Some("draft".to_string()),
-        targets: vec![FeatureFlagTargetInput {
-            subject_type: "user".to_string(),
-            subject_id: "".to_string(),
-        }],
+        targets: vec![FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "".to_string() }],
     };
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
@@ -522,14 +516,8 @@ async fn test_create_flag_duplicate_targets() {
         reason: "test".to_string(),
         status: Some("draft".to_string()),
         targets: vec![
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@alice:test".to_string(),
-            },
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@alice:test".to_string(),
-            },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@alice:test".to_string() },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@alice:test".to_string() },
         ],
     };
     let result = service.create_flag("@admin:test", "req-1", request).await;
@@ -559,7 +547,9 @@ async fn test_create_flag_expired_expiration() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("expires_at must be greater than current timestamp")));
+    assert!(
+        matches!(err, ApiError::BadRequest(msg) if msg.contains("expires_at must be greater than current timestamp"))
+    );
 }
 
 #[tokio::test]
@@ -649,18 +639,9 @@ async fn test_create_flag_with_targets_success() {
         reason: "targeted rollout".to_string(),
         status: Some("active".to_string()),
         targets: vec![
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@alice:test".to_string(),
-            },
-            FeatureFlagTargetInput {
-                subject_type: "room".to_string(),
-                subject_id: "!room1:test".to_string(),
-            },
-            FeatureFlagTargetInput {
-                subject_type: "tenant".to_string(),
-                subject_id: "tenant-1".to_string(),
-            },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@alice:test".to_string() },
+            FeatureFlagTargetInput { subject_type: "room".to_string(), subject_id: "!room1:test".to_string() },
+            FeatureFlagTargetInput { subject_type: "tenant".to_string(), subject_id: "tenant-1".to_string() },
         ],
     };
     let result = service.create_flag("@admin:test", "req-1", request).await;
@@ -679,10 +660,7 @@ async fn test_create_flag_duplicate_key_returns_conflict() {
     let uid = unique_id();
     let flag_key = format!("test-dup-key-{uid}");
     let request = make_create_request(&flag_key, "global");
-    service
-        .create_flag("@admin:test", "req-1", request.clone())
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", request.clone()).await.unwrap();
     let result = service.create_flag("@admin:test", "req-2", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -731,10 +709,7 @@ async fn test_get_flag_success() {
         expires_at: None,
         reason: "get test".to_string(),
         status: Some("active".to_string()),
-        targets: vec![FeatureFlagTargetInput {
-            subject_type: "user".to_string(),
-            subject_id: "@bob:test".to_string(),
-        }],
+        targets: vec![FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@bob:test".to_string() }],
     };
     service.create_flag("@admin:test", "req-1", request).await.unwrap();
     let flag = service.get_flag(&flag_key).await.unwrap();
@@ -751,10 +726,7 @@ async fn test_update_flag_empty_key() {
         None => return,
     };
     let service = create_service(&pool);
-    let request = UpdateFeatureFlagRequest {
-        status: Some("active".to_string()),
-        ..Default::default()
-    };
+    let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -768,10 +740,7 @@ async fn test_update_flag_invalid_key_chars() {
         None => return,
     };
     let service = create_service(&pool);
-    let request = UpdateFeatureFlagRequest {
-        status: Some("active".to_string()),
-        ..Default::default()
-    };
+    let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "INVALID KEY!", request).await;
     assert!(result.is_err());
 }
@@ -785,14 +754,8 @@ async fn test_update_flag_invalid_status() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-status-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
-    let request = UpdateFeatureFlagRequest {
-        status: Some("bad_status".to_string()),
-        ..Default::default()
-    };
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
+    let request = UpdateFeatureFlagRequest { status: Some("bad_status".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -808,14 +771,8 @@ async fn test_update_flag_rollout_out_of_range() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-rollout-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
-    let request = UpdateFeatureFlagRequest {
-        rollout_percent: Some(200),
-        ..Default::default()
-    };
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
+    let request = UpdateFeatureFlagRequest { rollout_percent: Some(200), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
 }
@@ -829,14 +786,8 @@ async fn test_update_flag_empty_reason() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-reason-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
-    let request = UpdateFeatureFlagRequest {
-        reason: Some("   ".to_string()),
-        ..Default::default()
-    };
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
+    let request = UpdateFeatureFlagRequest { reason: Some("   ".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
 }
@@ -850,10 +801,7 @@ async fn test_update_flag_invalid_targets() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-targets-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         targets: Some(vec![FeatureFlagTargetInput {
             subject_type: "bad_type".to_string(),
@@ -874,15 +822,9 @@ async fn test_update_flag_expired_expiration() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-exp-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let past_ts = chrono::Utc::now().timestamp_millis() - 10000;
-    let request = UpdateFeatureFlagRequest {
-        expires_at: Some(past_ts),
-        ..Default::default()
-    };
+    let request = UpdateFeatureFlagRequest { expires_at: Some(past_ts), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
 }
@@ -894,10 +836,7 @@ async fn test_update_flag_not_found() {
         None => return,
     };
     let service = create_service(&pool);
-    let request = UpdateFeatureFlagRequest {
-        status: Some("active".to_string()),
-        ..Default::default()
-    };
+    let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "nonexistent.key", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -913,19 +852,13 @@ async fn test_update_flag_success() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-ok-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         status: Some("active".to_string()),
         rollout_percent: Some(80),
         ..Default::default()
     };
-    let updated = service
-        .update_flag("@admin:test", "req-2", &flag_key, request)
-        .await
-        .unwrap();
+    let updated = service.update_flag("@admin:test", "req-2", &flag_key, request).await.unwrap();
     assert_eq!(updated.flag_key, flag_key);
     assert_eq!(updated.status, "active");
     assert_eq!(updated.rollout_percent, 80);
@@ -947,32 +880,17 @@ async fn test_update_flag_replace_targets() {
         expires_at: None,
         reason: "test".to_string(),
         status: Some("draft".to_string()),
-        targets: vec![FeatureFlagTargetInput {
-            subject_type: "user".to_string(),
-            subject_id: "@old:test".to_string(),
-        }],
+        targets: vec![FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@old:test".to_string() }],
     };
-    service
-        .create_flag("@admin:test", "req-1", create_req)
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", create_req).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         targets: Some(vec![
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@new1:test".to_string(),
-            },
-            FeatureFlagTargetInput {
-                subject_type: "room".to_string(),
-                subject_id: "!room1:test".to_string(),
-            },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@new1:test".to_string() },
+            FeatureFlagTargetInput { subject_type: "room".to_string(), subject_id: "!room1:test".to_string() },
         ]),
         ..Default::default()
     };
-    let updated = service
-        .update_flag("@admin:test", "req-2", &flag_key, request)
-        .await
-        .unwrap();
+    let updated = service.update_flag("@admin:test", "req-2", &flag_key, request).await.unwrap();
     assert_eq!(updated.targets.len(), 2);
     let subject_ids: Vec<&str> = updated.targets.iter().map(|t| t.subject_id.as_str()).collect();
     assert!(subject_ids.contains(&"@new1:test"));
@@ -990,10 +908,7 @@ async fn test_update_flag_multiple_fields() {
     let uid = unique_id();
     let flag_key = format!("test-upd-multi-{uid}");
     let future_ts = chrono::Utc::now().timestamp_millis() + 7200000;
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         rollout_percent: Some(100),
         reason: Some("full rollout".to_string()),
@@ -1001,10 +916,7 @@ async fn test_update_flag_multiple_fields() {
         expires_at: Some(future_ts),
         ..Default::default()
     };
-    let updated = service
-        .update_flag("@admin:test", "req-2", &flag_key, request)
-        .await
-        .unwrap();
+    let updated = service.update_flag("@admin:test", "req-2", &flag_key, request).await.unwrap();
     assert_eq!(updated.rollout_percent, 100);
     assert_eq!(updated.reason, "full rollout");
     assert_eq!(updated.status, "fully_enabled");
@@ -1060,10 +972,7 @@ async fn test_list_flags_no_filters() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-list-nofilter-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let filters = FeatureFlagFilters {
         target_scope: None,
         status: None,
@@ -1171,10 +1080,7 @@ async fn test_create_flag_audit_event_created() {
         status: Some("draft".to_string()),
         targets: vec![],
     };
-    service
-        .create_flag("@admin:test", "req-audit-1", request)
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-audit-1", request).await.unwrap();
 
     let audit_storage = AuditEventStorage::new(&pool);
     let filters = synapse_rust::storage::audit::AuditEventFilters {
@@ -1201,22 +1107,9 @@ async fn test_update_flag_audit_event_created() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-audit-update-{uid}");
-    service
-        .create_flag(
-            "@admin:test",
-            "req-audit-create",
-            make_create_request(&flag_key, "global"),
-        )
-        .await
-        .unwrap();
-    let request = UpdateFeatureFlagRequest {
-        status: Some("active".to_string()),
-        ..Default::default()
-    };
-    service
-        .update_flag("@admin:test", "req-audit-update", &flag_key, request)
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-audit-create", make_create_request(&flag_key, "global")).await.unwrap();
+    let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
+    service.update_flag("@admin:test", "req-audit-update", &flag_key, request).await.unwrap();
 
     let audit_storage = AuditEventStorage::new(&pool);
     let filters = synapse_rust::storage::audit::AuditEventFilters {
@@ -1269,20 +1162,11 @@ async fn test_update_flag_duplicate_targets_rejected() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-dup-targets-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         targets: Some(vec![
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@dup:test".to_string(),
-            },
-            FeatureFlagTargetInput {
-                subject_type: "user".to_string(),
-                subject_id: "@dup:test".to_string(),
-            },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@dup:test".to_string() },
+            FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "@dup:test".to_string() },
         ]),
         ..Default::default()
     };
@@ -1299,15 +1183,9 @@ async fn test_update_flag_empty_target_subject_id_rejected() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-empty-sid-{uid}");
-    service
-        .create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global"))
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
-        targets: Some(vec![FeatureFlagTargetInput {
-            subject_type: "user".to_string(),
-            subject_id: "  ".to_string(),
-        }]),
+        targets: Some(vec![FeatureFlagTargetInput { subject_type: "user".to_string(), subject_id: "  ".to_string() }]),
         ..Default::default()
     };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
@@ -1335,18 +1213,9 @@ async fn test_update_flag_preserves_unupdated_fields() {
             subject_id: "@keep:test".to_string(),
         }],
     };
-    service
-        .create_flag("@admin:test", "req-1", create_req)
-        .await
-        .unwrap();
-    let request = UpdateFeatureFlagRequest {
-        rollout_percent: Some(75),
-        ..Default::default()
-    };
-    let updated = service
-        .update_flag("@admin:test", "req-2", &flag_key, request)
-        .await
-        .unwrap();
+    service.create_flag("@admin:test", "req-1", create_req).await.unwrap();
+    let request = UpdateFeatureFlagRequest { rollout_percent: Some(75), ..Default::default() };
+    let updated = service.update_flag("@admin:test", "req-2", &flag_key, request).await.unwrap();
     assert_eq!(updated.rollout_percent, 75);
     assert_eq!(updated.reason, "original reason");
     assert_eq!(updated.status, "draft");

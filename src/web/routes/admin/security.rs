@@ -13,70 +13,28 @@ use sqlx::Row;
 
 pub fn create_security_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
-            post(shadow_ban_user),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
-            delete(unshadow_ban_user),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/rate_limit",
-            get(get_user_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/rate_limit",
-            put(set_user_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/rate_limit",
-            delete(delete_user_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-            get(get_user_override_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-            post(set_user_override_rate_limit),
-        )
-        .route(
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-            delete(delete_user_override_rate_limit),
-        )
+        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
+        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", delete(unshadow_ban_user))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", get(get_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", put(set_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", delete(delete_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", get(get_user_override_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", post(set_user_override_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", delete(delete_user_override_rate_limit))
 }
 
 pub fn admin_security_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
-        (
-            Method::POST,
-            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/shadow_ban",
-        ),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/shadow_ban"),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/shadow_ban"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
         (Method::PUT, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/rate_limit",
-        ),
-        (
-            Method::GET,
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-        ),
-        (
-            Method::POST,
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-        ),
-        (
-            Method::DELETE,
-            "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-        ),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
+        (Method::GET, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
+        (Method::POST, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
+        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::security"))
@@ -121,12 +79,7 @@ pub async fn shadow_ban_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state
-        .services
-        .auth_service
-        .cache
-        .delete(&format!("user:shadow_banned:{user_id}"))
-        .await;
+    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{user_id}")).await;
 
     record_audit_event(
         &state,
@@ -159,12 +112,7 @@ pub async fn unshadow_ban_user(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state
-        .services
-        .auth_service
-        .cache
-        .delete(&format!("user:shadow_banned:{user_id}"))
-        .await;
+    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{user_id}")).await;
 
     record_audit_event(
         &state,
@@ -188,12 +136,11 @@ pub async fn get_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let limit =
-        sqlx::query("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1")
-            .bind(&user_id)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let limit = sqlx::query("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match limit {
         Some(row) => Ok(Json(json!({

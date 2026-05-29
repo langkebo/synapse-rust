@@ -21,10 +21,7 @@ async fn test_admin_registration_nonce_rejects_remote_forwarded_ip() {
         .body(Body::empty())
         .unwrap();
 
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request))
-            .await
-            .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -40,10 +37,7 @@ async fn test_admin_registration_nonce_allows_local_forwarded_ip() {
         .body(Body::empty())
         .unwrap();
 
-    let response =
-        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request))
-            .await
-            .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -68,9 +62,7 @@ async fn test_admin_input_validation() {
             .to_string(),
         ))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert!(
         response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND,
         "Expected 400 or 404 for IP block validation, got: {}",
@@ -85,9 +77,7 @@ async fn test_admin_input_validation() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({"admin": true}).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert!(
         response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::FORBIDDEN,
         "Expected NOT_FOUND or FORBIDDEN for non-existent user admin set, got: {}",
@@ -100,13 +90,9 @@ async fn test_admin_input_validation() {
         .uri("/_synapse/admin/v1/shutdown_room")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({"room_id": "!nonexistent:localhost"}).to_string(),
-        ))
+        .body(Body::from(json!({"room_id": "!nonexistent:localhost"}).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert!(
         response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::FORBIDDEN,
         "Expected NOT_FOUND or FORBIDDEN for shutdown_room, got: {}",
@@ -136,9 +122,7 @@ async fn test_client_input_validation() {
             .to_string(),
         ))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // 2. Create room with too long name
@@ -155,9 +139,7 @@ async fn test_client_input_validation() {
             .to_string(),
         ))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     // 3. Invite non-existent user (need a valid room first)
@@ -169,12 +151,8 @@ async fn test_client_input_validation() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({}).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
-    let body = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     let room_id = json["room_id"].as_str().unwrap();
 
@@ -183,13 +161,9 @@ async fn test_client_input_validation() {
         .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({"user_id": "@nonexistent:localhost"}).to_string(),
-        ))
+        .body(Body::from(json!({"user_id": "@nonexistent:localhost"}).to_string()))
         .unwrap();
-    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
-        .await
-        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     // The implementation currently succeeds with 200 when inviting non-existent user
     // (implementation bug - should return 404). Accepting both for test to pass.
     assert!(

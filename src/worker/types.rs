@@ -34,17 +34,11 @@ impl WorkerType {
     }
 
     pub fn can_handle_http(&self) -> bool {
-        matches!(
-            self,
-            Self::Master | Self::Frontend | Self::Synchrotron
-        )
+        matches!(self, Self::Master | Self::Frontend | Self::Synchrotron)
     }
 
     pub fn can_handle_federation(&self) -> bool {
-        matches!(
-            self,
-            Self::Master | Self::FederationSender | Self::FederationReader
-        )
+        matches!(self, Self::Master | Self::FederationSender | Self::FederationReader)
     }
 
     pub fn can_persist_events(&self) -> bool {
@@ -127,9 +121,6 @@ pub struct WorkerRuntimeConfig {
     pub command_timeout_ms: Option<u64>,
     pub extra_config: HashMap<String, serde_json::Value>,
 }
-
-#[deprecated(since = "0.1.0", note = "Use WorkerRuntimeConfig instead to avoid confusion with config::WorkerConfig")]
-pub type WorkerConfig = WorkerRuntimeConfig;
 
 impl Default for WorkerRuntimeConfig {
     fn default() -> Self {

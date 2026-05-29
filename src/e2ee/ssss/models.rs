@@ -153,10 +153,6 @@ pub struct SecretStorageSessionKey {
 
 impl SecretStorageSessionKey {
     pub fn from_key_parts(key: &str, iv: &str, mac: &str) -> Self {
-        Self {
-            key: key.to_string(),
-            iv: iv.to_string(),
-            mac: mac.to_string(),
-        }
+        Self { key: key.to_string(), iv: iv.to_string(), mac: mac.to_string() }
     }
 }

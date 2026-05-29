@@ -141,7 +141,7 @@ parse_args() {
                 USE_REMOTE_IMAGE=true
                 SKIP_BUILD=true
                 ;;
-            --help|-h)
+            --help | -h)
                 show_usage
                 exit 0
                 ;;
@@ -284,7 +284,10 @@ select_individual_features() {
         ENABLED_EXTENSIONS="none"
         log_info "未选择有效扩展，使用核心模式"
     else
-        ENABLED_EXTENSIONS="$(IFS=,; echo "${selected[*]}")"
+        ENABLED_EXTENSIONS="$(
+            IFS=,
+            echo "${selected[*]}"
+        )"
         log_info "已选择扩展: $ENABLED_EXTENSIONS"
     fi
 }
@@ -315,12 +318,12 @@ setup_logging() {
 
     if mkfifo "$LOG_PIPE"; then
         exec 3>&1 4>&2
-        tee -a "$LOG_FILE" < "$LOG_PIPE" >&3 2>&4 &
+        tee -a "$LOG_FILE" <"$LOG_PIPE" >&3 2>&4 &
         LOG_TEE_PID="$!"
-        exec > "$LOG_PIPE" 2>&1
+        exec >"$LOG_PIPE" 2>&1
     else
         echo "无法创建日志管道，回退为仅写入日志文件: $LOG_FILE"
-        exec >> "$LOG_FILE" 2>&1
+        exec >>"$LOG_FILE" 2>&1
     fi
 }
 
@@ -388,7 +391,7 @@ load_env() {
         line="${line%$'\r'}"
 
         case "$line" in
-            ''|\#*)
+            '' | \#*)
                 continue
                 ;;
         esac
@@ -413,7 +416,7 @@ load_env() {
         fi
 
         export "$key=$value"
-    done < .env
+    done <.env
 
     ROLLBACK_ENABLED="${ROLLBACK_ON_FAILURE:-true}"
     # CLI args take precedence over .env value
@@ -665,11 +668,11 @@ wait_for_container_health() {
     while [ "$attempt" -le "$max_retries" ]; do
         status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
         case "$status" in
-            healthy|running)
+            healthy | running)
                 log_success "$container_name 状态正常: $status"
                 return 0
                 ;;
-            unhealthy|exited|dead)
+            unhealthy | exited | dead)
                 log_error "$container_name 状态异常: $status"
                 docker logs "$container_name" --tail 200 || true
                 return 1
@@ -738,13 +741,13 @@ verify_logs_clean() {
     local log_dump
     log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
     local errors
-    errors="$(echo "$log_dump" | grep -Ei '\b(ERROR)\b' \
-        | grep -v 'no usable system locales' \
-        | grep -v 'enabling "trust" authentication' \
-        | grep -v 'Missing indexes' \
-        | grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' \
-        | grep -v 'forcibly turning on oci-mediatype' \
-        || true)"
+    errors="$(echo "$log_dump" | grep -Ei '\b(ERROR)\b' |
+        grep -v 'no usable system locales' |
+        grep -v 'enabling "trust" authentication' |
+        grep -v 'Missing indexes' |
+        grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' |
+        grep -v 'forcibly turning on oci-mediatype' ||
+        true)"
     if [ -n "$errors" ]; then
         log_error "检测到 ERROR 日志:"
         echo "$errors"
@@ -752,13 +755,13 @@ verify_logs_clean() {
     fi
 
     local warnings
-    warnings="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' \
-        | grep -v 'no usable system locales' \
-        | grep -v 'enabling "trust" authentication' \
-        | grep -v 'Missing indexes' \
-        | grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' \
-        | grep -v 'forcibly turning on oci-mediatype' \
-        || true)"
+    warnings="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' |
+        grep -v 'no usable system locales' |
+        grep -v 'enabling "trust" authentication' |
+        grep -v 'Missing indexes' |
+        grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' |
+        grep -v 'forcibly turning on oci-mediatype' ||
+        true)"
     if [ -n "$warnings" ]; then
         log_warning "检测到 WARNING 日志（不阻断部署）:"
         echo "$warnings"

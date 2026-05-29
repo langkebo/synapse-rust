@@ -71,10 +71,7 @@ struct ElasticsearchSearchCursor {
 }
 
 fn encode_postgres_search_cursor(cursor: &PostgresSearchCursor) -> String {
-    let raw = format!(
-        "{}|{}|{}",
-        cursor.rank, cursor.origin_server_ts, cursor.event_id
-    );
+    let raw = format!("{}|{}|{}", cursor.rank, cursor.origin_server_ts, cursor.event_id);
     URL_SAFE_NO_PAD.encode(raw.as_bytes())
 }
 
@@ -107,10 +104,7 @@ fn decode_elasticsearch_search_cursor(cursor: Option<&str>) -> Option<Elasticsea
     if event_id.is_empty() {
         return None;
     }
-    Some(ElasticsearchSearchCursor {
-        origin_server_ts: origin_server_ts.parse().ok()?,
-        event_id: event_id.to_string(),
-    })
+    Some(ElasticsearchSearchCursor { origin_server_ts: origin_server_ts.parse().ok()?, event_id: event_id.to_string() })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,30 +248,17 @@ impl SearchService {
         .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
         let has_more = rows.len() > limit as usize;
-        let visible_rows = if has_more {
-            &rows[..limit as usize]
-        } else {
-            &rows[..]
-        };
+        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
         let mut results = Vec::new();
         for row in visible_rows {
-            let content: serde_json::Value = row
-                .try_get::<serde_json::Value, _>("content")
-                .unwrap_or(serde_json::Value::Null);
+            let content: serde_json::Value =
+                row.try_get::<serde_json::Value, _>("content").unwrap_or(serde_json::Value::Null);
 
             results.push(SearchResultItem {
-                event_id: row
-                    .try_get::<String, _>("event_id")
-                    .map_err(|e| ApiError::internal(e.to_string()))?,
-                room_id: row
-                    .try_get::<String, _>("room_id")
-                    .map_err(|e| ApiError::internal(e.to_string()))?,
-                sender: row
-                    .try_get::<String, _>("sender")
-                    .map_err(|e| ApiError::internal(e.to_string()))?,
-                event_type: row
-                    .try_get::<String, _>("event_type")
-                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                event_id: row.try_get::<String, _>("event_id").map_err(|e| ApiError::internal(e.to_string()))?,
+                room_id: row.try_get::<String, _>("room_id").map_err(|e| ApiError::internal(e.to_string()))?,
+                sender: row.try_get::<String, _>("sender").map_err(|e| ApiError::internal(e.to_string()))?,
+                event_type: row.try_get::<String, _>("event_type").map_err(|e| ApiError::internal(e.to_string()))?,
                 content: content.as_str().unwrap_or("").to_string(),
                 origin_server_ts: row
                     .try_get::<i64, _>("origin_server_ts")
@@ -292,9 +273,7 @@ impl SearchService {
             visible_rows.last().map(|row| {
                 encode_postgres_search_cursor(&PostgresSearchCursor {
                     rank: row.try_get::<f64, _>("rank").unwrap_or_default(),
-                    origin_server_ts: row
-                        .try_get::<i64, _>("origin_server_ts")
-                        .unwrap_or_default(),
+                    origin_server_ts: row.try_get::<i64, _>("origin_server_ts").unwrap_or_default(),
                     event_id: row.try_get::<String, _>("event_id").unwrap_or_default(),
                 })
             })
@@ -302,24 +281,18 @@ impl SearchService {
             None
         };
 
-        Ok(SearchResult {
-            results,
-            total_count,
-            next_batch,
-        })
+        Ok(SearchResult { results, total_count, next_batch })
     }
 
     /// 创建 PostgreSQL 全文搜索索引
     pub async fn create_fts_index(&self) -> ApiResult<()> {
-        let pool = self
-            .postgres_pool
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
+        let pool =
+            self.postgres_pool.as_ref().ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
 
         // 创建 GIN 索引（如果不存在）
         let sql = r"
-            CREATE INDEX IF NOT EXISTS events_fts_idx 
-            ON events 
+            CREATE INDEX IF NOT EXISTS events_fts_idx
+            ON events
             USING GIN (to_tsvector('english', content))
             WHERE event_type = 'm.room.message' AND stream_ordering > 0
         ";
@@ -402,10 +375,7 @@ impl SearchService {
             "keys": event.keys
         });
 
-        let url = format!(
-            "{}/{}/_doc/{}",
-            self.base_url, self.index_name, event.event_id
-        );
+        let url = format!("{}/{}/_doc/{}", self.base_url, self.index_name, event.event_id);
         let response = self
             .client
             .put(&url)
@@ -511,11 +481,7 @@ impl SearchService {
     }
 
     fn extract_keys(content: &str) -> Vec<String> {
-        content
-            .split_whitespace()
-            .take(10)
-            .map(|s| s.to_lowercase())
-            .collect()
+        content.split_whitespace().take(10).map(|s| s.to_lowercase()).collect()
     }
 
     pub async fn search_messages(
@@ -527,9 +493,7 @@ impl SearchService {
     ) -> ApiResult<SearchResult> {
         // 优先使用 PostgreSQL 全文搜索
         if self.is_postgres_enabled() {
-            return self
-                .search_postgres(user_id, query, limit, next_batch)
-                .await;
+            return self.search_postgres(user_id, query, limit, next_batch).await;
         }
 
         // 回退到 Elasticsearch
@@ -628,10 +592,8 @@ impl SearchService {
             .await
             .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
-        let response_json: Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to parse search response", &e))?;
+        let response_json: Value =
+            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse search response", &e))?;
 
         let hits_array = response_json
             .get("hits")
@@ -648,11 +610,7 @@ impl SearchService {
             .unwrap_or(0) as usize;
 
         let has_more = hits_array.len() > options.limit as usize;
-        let visible_hits = if has_more {
-            &hits_array[..options.limit as usize]
-        } else {
-            &hits_array[..]
-        };
+        let visible_hits = if has_more { &hits_array[..options.limit as usize] } else { &hits_array[..] };
 
         let results: Vec<SearchResultItem> = visible_hits
             .iter()
@@ -661,43 +619,16 @@ impl SearchService {
                 let highlight = hit.get("highlight").and_then(|h| h.as_object());
 
                 SearchResultItem {
-                    event_id: source
-                        .get("event_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    room_id: source
-                        .get("room_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    sender: source
-                        .get("sender")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    content: source
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    event_type: source
-                        .get("event_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    origin_server_ts: source
-                        .get("origin_server_ts")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0),
+                    event_id: source.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    room_id: source.get("room_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    sender: source.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    content: source.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    event_type: source.get("event_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    origin_server_ts: source.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
                     highlights: highlight
                         .and_then(|h| h.get("content"))
                         .and_then(|c| c.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        }),
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
                     room_name: None,
                 }
             })
@@ -708,22 +639,13 @@ impl SearchService {
                 let sort = hit.get("sort")?.as_array()?;
                 let origin_server_ts = sort.first()?.as_i64()?;
                 let event_id = sort.get(1)?.as_str()?.to_string();
-                Some(encode_elasticsearch_search_cursor(
-                    &ElasticsearchSearchCursor {
-                        origin_server_ts,
-                        event_id,
-                    },
-                ))
+                Some(encode_elasticsearch_search_cursor(&ElasticsearchSearchCursor { origin_server_ts, event_id }))
             })
         } else {
             None
         };
 
-        Ok(SearchResult {
-            results,
-            total_count,
-            next_batch,
-        })
+        Ok(SearchResult { results, total_count, next_batch })
     }
 
     pub async fn delete_room_index(&self, room_id: &str) -> ApiResult<()> {
@@ -974,10 +896,7 @@ mod tests {
     fn test_advanced_search_options_with_filters() {
         let options = AdvancedSearchOptions {
             query: "search query".to_string(),
-            filters: SearchFilters {
-                room_id: Some("!room:server.com".to_string()),
-                ..Default::default()
-            },
+            filters: SearchFilters { room_id: Some("!room:server.com".to_string()), ..Default::default() },
             limit: 50,
             offset: 10,
             highlight: false,
@@ -985,10 +904,7 @@ mod tests {
         };
 
         assert_eq!(options.query, "search query");
-        assert_eq!(
-            options.filters.room_id,
-            Some("!room:server.com".to_string())
-        );
+        assert_eq!(options.filters.room_id, Some("!room:server.com".to_string()));
         assert_eq!(options.limit, 50);
         assert_eq!(options.offset, 10);
         assert!(!options.highlight);
@@ -1014,11 +930,7 @@ mod tests {
 
     #[test]
     fn test_search_result_empty_results() {
-        let result = SearchResult {
-            results: vec![],
-            total_count: 0,
-            next_batch: None,
-        };
+        let result = SearchResult { results: vec![], total_count: 0, next_batch: None };
 
         assert!(result.results.is_empty());
         assert_eq!(result.total_count, 0);
@@ -1049,10 +961,7 @@ mod tests {
             event_id: "$event:example.com".to_string(),
         };
         let encoded = encode_elasticsearch_search_cursor(&cursor);
-        assert_eq!(
-            decode_elasticsearch_search_cursor(Some(&encoded)),
-            Some(cursor)
-        );
+        assert_eq!(decode_elasticsearch_search_cursor(Some(&encoded)), Some(cursor));
     }
 
     #[test]

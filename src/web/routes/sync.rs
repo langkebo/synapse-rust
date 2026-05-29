@@ -6,9 +6,7 @@ use crate::web::routes::{
 use axum::{routing::get, Router};
 
 fn create_sync_compat_router() -> Router<AppState> {
-    Router::new()
-        .route("/sync", get(sync))
-        .route("/events", get(get_events))
+    Router::new().route("/sync", get(sync)).route("/events", get(get_events))
 }
 
 fn create_sync_r0_router() -> Router<AppState> {
@@ -16,9 +14,7 @@ fn create_sync_r0_router() -> Router<AppState> {
 }
 
 fn create_sync_v3_router() -> Router<AppState> {
-    create_sync_compat_router()
-        .route("/joined_rooms", get(get_joined_rooms))
-        .route("/my_rooms", get(get_my_rooms))
+    create_sync_compat_router().route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
 }
 
 pub fn create_sync_router() -> Router<AppState> {
@@ -41,21 +37,12 @@ pub fn sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     out.extend(expand_under_prefixes(
         MODULE,
         &["/_matrix/client/r0"],
-        &[
-            (Method::GET, "/sync"),
-            (Method::GET, "/events"),
-            (Method::GET, "/joined_rooms"),
-        ],
+        &[(Method::GET, "/sync"), (Method::GET, "/events"), (Method::GET, "/joined_rooms")],
     ));
     out.extend(expand_under_prefixes(
         MODULE,
         &["/_matrix/client/v3"],
-        &[
-            (Method::GET, "/sync"),
-            (Method::GET, "/events"),
-            (Method::GET, "/joined_rooms"),
-            (Method::GET, "/my_rooms"),
-        ],
+        &[(Method::GET, "/sync"), (Method::GET, "/events"), (Method::GET, "/joined_rooms"), (Method::GET, "/my_rooms")],
     ));
     out
 }
@@ -74,20 +61,13 @@ mod tests {
             "/_matrix/client/v3/my_rooms",
         ];
 
-        assert!(routes
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/")));
+        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
     #[test]
     fn test_sync_router_version_boundaries() {
-        let v3_only = [
-            "/_matrix/client/v3/joined_rooms",
-            "/_matrix/client/v3/my_rooms",
-        ];
+        let v3_only = ["/_matrix/client/v3/joined_rooms", "/_matrix/client/v3/my_rooms"];
 
-        assert!(v3_only
-            .iter()
-            .all(|route| route.starts_with("/_matrix/client/v3/")));
+        assert!(v3_only.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 }

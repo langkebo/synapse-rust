@@ -9,16 +9,10 @@ mod tests {
         let service = DirectoryService::new();
 
         // Set room alias
-        service
-            .set_room_alias("!room:example.com", "#test:example.com")
-            .await
-            .unwrap();
+        service.set_room_alias("!room:example.com", "#test:example.com").await.unwrap();
 
         // Get room ID by alias
-        let room_id = service
-            .get_room_id_by_alias("#test:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#test:example.com").await.unwrap();
         assert_eq!(room_id, Some("!room:example.com".to_string()));
     }
 
@@ -26,10 +20,7 @@ mod tests {
     async fn test_get_nonexistent_alias() {
         let service = DirectoryService::new();
 
-        let room_id = service
-            .get_room_id_by_alias("#nonexistent:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#nonexistent:example.com").await.unwrap();
         assert_eq!(room_id, None);
     }
 
@@ -38,22 +29,13 @@ mod tests {
         let service = DirectoryService::new();
 
         // Set alias
-        service
-            .set_room_alias("!room:example.com", "#test:example.com")
-            .await
-            .unwrap();
+        service.set_room_alias("!room:example.com", "#test:example.com").await.unwrap();
 
         // Remove alias
-        service
-            .remove_room_alias("#test:example.com")
-            .await
-            .unwrap();
+        service.remove_room_alias("#test:example.com").await.unwrap();
 
         // Should not exist anymore
-        let room_id = service
-            .get_room_id_by_alias("#test:example.com")
-            .await
-            .unwrap();
+        let room_id = service.get_room_id_by_alias("#test:example.com").await.unwrap();
         assert_eq!(room_id, None);
     }
 

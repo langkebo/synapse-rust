@@ -25,11 +25,7 @@ pub(crate) async fn authorize_admin_request(
     state: &AppState,
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
-    let (user_id, device_id, is_admin, _, _) = state
-        .services
-        .auth_service
-        .validate_token(&access_token)
-        .await?;
+    let (user_id, device_id, is_admin, _, _) = state.services.auth_service.validate_token(&access_token).await?;
 
     if !is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));
@@ -44,9 +40,7 @@ pub(crate) async fn authorize_admin_request(
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
-        return Err(ApiError::forbidden(
-            "Admin access has been revoked".to_string(),
-        ));
+        return Err(ApiError::forbidden("Admin access has been revoked".to_string()));
     }
 
     let normalized_path = normalize_admin_path(path);
@@ -68,22 +62,14 @@ pub(crate) async fn authorize_admin_request(
     );
 
     // 记录审计日志
-    let request_id = headers
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
 
     let audit_request = CreateAuditEventRequest {
         actor_id: user_id.clone(),
         action: format!("admin.{}", method.as_str().to_lowercase()),
         resource_type: "admin_api".to_string(),
         resource_id: normalized_path.clone(),
-        result: if rbac_allowed {
-            "success".to_string()
-        } else {
-            "denied".to_string()
-        },
+        result: if rbac_allowed { "success".to_string() } else { "denied".to_string() },
         request_id,
         details: Some(json!({
             "role": role,
@@ -92,19 +78,12 @@ pub(crate) async fn authorize_admin_request(
         })),
     };
 
-    if let Err(e) = state
-        .services
-        .admin_audit_service
-        .create_event(audit_request)
-        .await
-    {
+    if let Err(e) = state.services.admin_audit_service.create_event(audit_request).await {
         ::tracing::error!(target: "security_audit", "Failed to create audit event: {}", e);
     }
 
     if !rbac_allowed {
-        return Err(ApiError::forbidden(format!(
-            "Admin role '{role}' is not allowed to access this resource"
-        )));
+        return Err(ApiError::forbidden(format!("Admin role '{role}' is not allowed to access this resource")));
     }
 
     if should_require_admin_mfa(&state.services.config.security, method, &normalized_path) {
@@ -113,19 +92,12 @@ pub(crate) async fn authorize_admin_request(
             .and_then(|value| value.to_str().ok())
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                ApiError::forbidden("Sensitive admin operation requires MFA code".to_string())
-            })?;
+            .ok_or_else(|| ApiError::forbidden("Sensitive admin operation requires MFA code".to_string()))?;
 
         verify_totp_code(&state.services.config.security, mfa_code, Some(&user))?;
     }
 
-    Ok(AuthorizedAdmin {
-        user_id,
-        device_id,
-        access_token,
-        role,
-    })
+    Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
 }
 
 fn normalize_admin_path(path: &str) -> String {
@@ -187,21 +159,14 @@ pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {
     }
 }
 
-pub(crate) fn should_require_admin_mfa(
-    security: &SecurityConfig,
-    method: &Method,
-    path: &str,
-) -> bool {
+pub(crate) fn should_require_admin_mfa(security: &SecurityConfig, method: &Method, path: &str) -> bool {
     security.admin_mfa_required
         && !security.admin_mfa_shared_secret.trim().is_empty()
         && is_sensitive_admin_request(method, path)
 }
 
 fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
-    let is_write = matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    );
+    let is_write = matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE);
 
     // Setting another user's admin status
     if path.ends_with("/admin") && is_write {
@@ -384,10 +349,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 }
 
 fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
-    if matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    ) {
+    if matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE) {
         return true;
     }
 
@@ -396,26 +358,18 @@ fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
         || path.starts_with("/_synapse/admin/v1/media/quarantine")
 }
 
-fn verify_totp_code(
-    security: &SecurityConfig,
-    provided_code: &str,
-    user: Option<&User>,
-) -> Result<(), ApiError> {
+fn verify_totp_code(security: &SecurityConfig, provided_code: &str, user: Option<&User>) -> Result<(), ApiError> {
     if !security.admin_mfa_required {
         return Ok(());
     }
 
     let secret = decode_secret(&security.admin_mfa_shared_secret).ok_or_else(|| {
-        ApiError::forbidden(
-            "Admin MFA is enabled but no valid TOTP secret is configured".to_string(),
-        )
+        ApiError::forbidden("Admin MFA is enabled but no valid TOTP secret is configured".to_string())
     })?;
 
     let provided_code = provided_code.trim();
     if provided_code.len() != 6 || !provided_code.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(ApiError::forbidden(
-            "Invalid admin MFA code format".to_string(),
-        ));
+        return Err(ApiError::forbidden("Invalid admin MFA code format".to_string()));
     }
 
     let now = SystemTime::now()
@@ -435,8 +389,7 @@ fn verify_totp_code(
         }
     }
 
-    let user_id = user
-        .map_or("unknown", |value| value.user_id.as_str());
+    let user_id = user.map_or("unknown", |value| value.user_id.as_str());
     tracing::warn!(target: "admin_auth", user_id, "Admin MFA verification failed");
     Err(ApiError::forbidden("Invalid admin MFA code".to_string()))
 }
@@ -501,109 +454,37 @@ mod tests {
     #[test]
     fn admin_role_restricted_endpoints_denied() {
         // Super admin only endpoints should be denied for admin role
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::PUT,
-            "/_synapse/admin/v1/users/@u:localhost/admin"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/registration_tokens"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/info"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/batch"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/delete_devices"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/rooms/!room:localhost/purge"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::PUT,
-            "/_synapse/admin/v1/rooms/!room:localhost/retention"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/rooms/!room:localhost/make_admin"
-        ));
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/send_server_notice"
-        ));
+        assert!(!is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/users/@u:localhost/admin"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/registration_tokens"));
+        assert!(!is_role_allowed("admin", &Method::GET, "/_synapse/admin/info"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/batch"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/delete_devices"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/purge"));
+        assert!(!is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/rooms/!room:localhost/retention"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/make_admin"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/send_server_notice"));
     }
 
     #[test]
     fn admin_role_allowed_management_endpoints() {
         // Admin should be able to deactivate users
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/deactivate"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/deactivate"));
         // Admin should be able to login as user
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/login"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/login"));
         // Admin should be able to logout user
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/logout"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/logout"));
         // Admin should be able to resolve federation
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/resolve"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/resolve"));
         // Admin should be able to manage federation blacklist
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/blacklist/server.example.com"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/blacklist/server.example.com"));
         // Admin should be able to clear federation cache
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/cache/clear"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/cache/clear"));
         // Admin should be able to shutdown rooms
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/shutdown_room"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/shutdown_room"));
         // Admin should be able to delete rooms
-        assert!(is_role_allowed(
-            "admin",
-            &Method::DELETE,
-            "/_synapse/admin/v1/rooms/!room:localhost"
-        ));
+        assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/rooms/!room:localhost"));
         // Admin should be able to reset user password
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/password"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/password"));
         // Admin should be able to reset federation connection
         assert!(is_role_allowed(
             "admin",
@@ -615,157 +496,61 @@ mod tests {
     #[test]
     fn admin_role_allowed_endpoints() {
         // Admin should be able to read registration tokens
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/registration_tokens"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/federation/destinations"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/users"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/rooms"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/registration_tokens"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/federation/destinations"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/users"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/rooms"));
         // Admin should be able to access statistics
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/statistics"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/stats/users"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/statistics"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/stats/users"));
         // Admin should be able to access spaces
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/spaces"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/spaces"));
         // Admin should be able to access event reports
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/event_reports"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/event_reports"));
         // Admin should be able to block/unblock rooms
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/rooms/!room:localhost/block"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/block"));
     }
 
     #[test]
     fn admin_role_non_sensitive_read_allowed() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/users"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/rooms"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/users"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/rooms"));
     }
 
     #[test]
     fn super_admin_always_allowed() {
-        assert!(is_role_allowed(
-            "super_admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@u:localhost/deactivate"
-        ));
-        assert!(is_role_allowed(
-            "super_admin",
-            &Method::POST,
-            "/_synapse/admin/v1/federation/cache/clear"
-        ));
-        assert!(is_role_allowed(
-            "super_admin",
-            &Method::POST,
-            "/_synapse/admin/v1/registration_tokens"
-        ));
-        assert!(is_role_allowed(
-            "super_admin",
-            &Method::POST,
-            "/_synapse/admin/v1/shutdown_room"
-        ));
+        assert!(is_role_allowed("super_admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/deactivate"));
+        assert!(is_role_allowed("super_admin", &Method::POST, "/_synapse/admin/v1/federation/cache/clear"));
+        assert!(is_role_allowed("super_admin", &Method::POST, "/_synapse/admin/v1/registration_tokens"));
+        assert!(is_role_allowed("super_admin", &Method::POST, "/_synapse/admin/v1/shutdown_room"));
     }
 
     #[test]
     fn admin_role_shadow_ban_allowed() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@user:localhost/shadow_ban"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::DELETE,
-            "/_synapse/admin/v1/users/@user:localhost/shadow_ban"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@user:localhost/shadow_ban"));
+        assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/users/@user:localhost/shadow_ban"));
     }
 
     #[test]
     fn admin_role_delete_single_device_allowed() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::DELETE,
-            "/_synapse/admin/v1/users/@user:localhost/devices/DEVICEID"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/users/@user:localhost/devices"
-        ));
+        assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/users/@user:localhost/devices/DEVICEID"));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/users/@user:localhost/devices"));
     }
 
     #[test]
     fn admin_role_batch_delete_devices_denied() {
-        assert!(!is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@user:localhost/delete_devices"
-        ));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@user:localhost/delete_devices"));
     }
 
     #[test]
     fn admin_role_evict_user_allowed() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::POST,
-            "/_synapse/admin/v1/users/@user:localhost/evict"
-        ));
+        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@user:localhost/evict"));
     }
 
     #[test]
     fn admin_role_rate_limit_allowed() {
-        assert!(is_role_allowed(
-            "admin",
-            &Method::GET,
-            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::PUT,
-            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
-        ));
-        assert!(is_role_allowed(
-            "admin",
-            &Method::DELETE,
-            "/_synapse/admin/v1/users/@user:localhost/rate_limit"
-        ));
+        assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
+        assert!(is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
+        assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
     }
 }

@@ -14,10 +14,7 @@ impl BackgroundUpdateService {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_update(
-        &self,
-        request: CreateBackgroundUpdateRequest,
-    ) -> Result<BackgroundUpdate, ApiError> {
+    pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, ApiError> {
         info!("Creating background update: {}", request.job_name);
 
         if self
@@ -111,9 +108,7 @@ impl BackgroundUpdateService {
             .map_err(|e| ApiError::internal_with_log("Failed to acquire lock", &e))?;
 
         if !locked {
-            return Err(ApiError::bad_request(
-                "Failed to acquire lock, job may be locked by another process",
-            ));
+            return Err(ApiError::bad_request("Failed to acquire lock, job may be locked by another process"));
         }
 
         let update = self
@@ -139,9 +134,7 @@ impl BackgroundUpdateService {
             .map_err(|e| ApiError::internal_with_log("Failed to update progress", &e))?;
 
         let progress_value = update.progress.as_i64().unwrap_or(0);
-        if progress_value >= 100
-            || (update.total_items > 0 && update.processed_items >= update.total_items)
-        {
+        if progress_value >= 100 || (update.total_items > 0 && update.processed_items >= update.total_items) {
             self.complete_update(job_name).await?;
         }
 
@@ -160,24 +153,14 @@ impl BackgroundUpdateService {
 
         self.storage.release_lock(job_name).await.ok();
 
-        self.storage
-            .add_history(job_name, "completed", update.processed_items, None, None)
-            .await
-            .ok();
+        self.storage.add_history(job_name, "completed", update.processed_items, None, None).await.ok();
 
         Ok(update)
     }
 
     #[instrument(skip(self))]
-    pub async fn fail_update(
-        &self,
-        job_name: &str,
-        error_message: &str,
-    ) -> Result<BackgroundUpdate, ApiError> {
-        warn!(
-            "Failing background update: {} - {}",
-            job_name, error_message
-        );
+    pub async fn fail_update(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, ApiError> {
+        warn!("Failing background update: {} - {}", job_name, error_message);
 
         let update = self
             .storage
@@ -187,16 +170,7 @@ impl BackgroundUpdateService {
 
         self.storage.release_lock(job_name).await.ok();
 
-        self.storage
-            .add_history(
-                job_name,
-                "failed",
-                update.processed_items,
-                Some(error_message),
-                None,
-            )
-            .await
-            .ok();
+        self.storage.add_history(job_name, "failed", update.processed_items, Some(error_message), None).await.ok();
 
         Ok(update)
     }
@@ -259,11 +233,7 @@ impl BackgroundUpdateService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_history(
-        &self,
-        job_name: &str,
-        limit: i64,
-    ) -> Result<Vec<BackgroundUpdateHistory>, ApiError> {
+    pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, ApiError> {
         let history = self
             .storage
             .get_history(job_name, limit)
@@ -286,22 +256,16 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn count_all(&self) -> Result<i64, ApiError> {
-        let count = self
-            .storage
-            .count_all()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to count updates", &e))?;
+        let count =
+            self.storage.count_all().await.map_err(|e| ApiError::internal_with_log("Failed to count updates", &e))?;
 
         Ok(count)
     }
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<BackgroundUpdateStats>, ApiError> {
-        let stats = self
-            .storage
-            .get_stats(days)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
+        let stats =
+            self.storage.get_stats(days).await.map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
 
         Ok(stats)
     }
@@ -326,10 +290,11 @@ impl BackgroundUpdateService {
                 if let Some(deps) = depends_on.as_array() {
                     for dep_value in deps {
                         if let Some(dep) = dep_value.as_str() {
-                            if let Some(dep_update) =
-                                self.storage.get_update(dep).await.map_err(|e| {
-                                    ApiError::internal_with_log("Failed to check dependency", &e)
-                                })?
+                            if let Some(dep_update) = self
+                                .storage
+                                .get_update(dep)
+                                .await
+                                .map_err(|e| ApiError::internal_with_log("Failed to check dependency", &e))?
                             {
                                 if dep_update.status != "completed" {
                                     all_completed = false;

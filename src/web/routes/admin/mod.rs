@@ -34,9 +34,7 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
     admin: &crate::web::routes::AdminUser,
 ) -> Result<(), crate::common::ApiError> {
     if admin.role != "super_admin" {
-        return Err(crate::common::ApiError::forbidden(
-            "Only super_admin can perform this operation".to_string(),
-        ));
+        return Err(crate::common::ApiError::forbidden("Only super_admin can perform this operation".to_string()));
     }
     Ok(())
 }
@@ -57,18 +55,10 @@ pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
         .merge(create_media_router(state.clone()))
         .merge(create_report_router(state.clone()))
         .merge(create_retention_router(state.clone()))
-        .route(
-            "/_synapse/admin/info",
-            axum::routing::get(server::get_admin_info),
-        )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ));
+        .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
+        .route_layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware));
 
-    Router::new()
-        .merge(protected)
-        .merge(create_register_router(state))
+    Router::new().merge(protected).merge(create_register_router(state))
 }
 
 pub fn admin_module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {

@@ -392,15 +392,7 @@ fn test_priority_validation() {
 
 // Helper functions
 fn is_valid_module_type(module_type: &str) -> bool {
-    matches!(
-        module_type,
-        "spam_checker"
-            | "third_party_rule"
-            | "presence"
-            | "rate_limiter"
-            | "account_data"
-            | "media"
-    )
+    matches!(module_type, "spam_checker" | "third_party_rule" | "presence" | "rate_limiter" | "account_data" | "media")
 }
 
 fn is_valid_priority(priority: i32) -> bool {

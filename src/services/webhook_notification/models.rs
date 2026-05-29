@@ -68,11 +68,7 @@ impl Default for WebhookConfig {
             timeout_ms: 5000,
             retry_count: 3,
             retry_delay_ms: 1000,
-            events: vec![
-                WebhookEventType::UserLogin,
-                WebhookEventType::UserLogout,
-                WebhookEventType::UserFailedLogin,
-            ],
+            events: vec![WebhookEventType::UserLogin, WebhookEventType::UserLogout, WebhookEventType::UserFailedLogin],
         }
     }
 }

@@ -52,14 +52,8 @@ pub fn ai_connection_route_manifest() -> Vec<crate::web::routes::route_ledger::R
     .collect()
 }
 
-async fn get_connections(
-    State(state): State<AppState>,
-    user: AuthenticatedUser,
-) -> ApiResult<Json<Vec<AiConnection>>> {
-    let connections = state
-        .matrix_ai_connection_service
-        .get_user_connections(&user.user_id)
-        .await?;
+async fn get_connections(State(state): State<AppState>, user: AuthenticatedUser) -> ApiResult<Json<Vec<AiConnection>>> {
+    let connections = state.matrix_ai_connection_service.get_user_connections(&user.user_id).await?;
     Ok(Json(connections))
 }
 
@@ -68,10 +62,7 @@ async fn create_connection(
     user: AuthenticatedUser,
     Json(req): Json<CreateConnectionRequest>,
 ) -> ApiResult<Json<AiConnection>> {
-    let conn = state
-        .matrix_ai_connection_service
-        .create_connection(&user.user_id, req)
-        .await?;
+    let conn = state.matrix_ai_connection_service.create_connection(&user.user_id, req).await?;
     Ok(Json(conn))
 }
 
@@ -93,10 +84,7 @@ async fn delete_connection(
     user: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> ApiResult<Json<()>> {
-    state
-        .matrix_ai_connection_service
-        .delete_connection(&id, &user.user_id)
-        .await?;
+    state.matrix_ai_connection_service.delete_connection(&id, &user.user_id).await?;
     Ok(Json(()))
 }
 
@@ -106,10 +94,7 @@ async fn list_tools(
     user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<McpToolListQuery>,
 ) -> ApiResult<Json<Value>> {
-    let result = state
-        .matrix_ai_connection_service
-        .list_mcp_tools(&user.user_id, &params.provider)
-        .await?;
+    let result = state.matrix_ai_connection_service.list_mcp_tools(&user.user_id, &params.provider).await?;
     Ok(Json(result))
 }
 
@@ -118,9 +103,6 @@ async fn call_tool(
     user: AuthenticatedUser,
     Json(req): Json<McpToolCallRequest>,
 ) -> ApiResult<Json<Value>> {
-    let result = state
-        .matrix_ai_connection_service
-        .call_mcp_tool(&user.user_id, req)
-        .await?;
+    let result = state.matrix_ai_connection_service.call_mcp_tool(&user.user_id, req).await?;
     Ok(Json(result))
 }

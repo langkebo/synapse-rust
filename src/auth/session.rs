@@ -24,11 +24,7 @@ impl AuthService {
                 .map_err(|e| ApiError::internal_with_log("Failed to delete device tokens", &e))?;
 
             if let Some(c) = claims.as_ref() {
-                if let Err(e) = self
-                    .refresh_token_storage
-                    .revoke_device_tokens(&c.sub, d_id, "user_logout")
-                    .await
-                {
+                if let Err(e) = self.refresh_token_storage.revoke_device_tokens(&c.sub, d_id, "user_logout").await {
                     ::tracing::error!(
                         target: "security_audit",
                         event = "refresh_token_revoke_failed_after_logout",
@@ -61,10 +57,8 @@ impl AuthService {
             .map_err(|e| ApiError::internal_with_log("Failed to get user tokens", &e))?;
 
         for token in &tokens {
-            if let Err(e) = self
-                .token_storage
-                .add_hash_to_blacklist(&token.token_hash, user_id, Some("Logout all devices"))
-                .await
+            if let Err(e) =
+                self.token_storage.add_hash_to_blacklist(&token.token_hash, user_id, Some("Logout all devices")).await
             {
                 ::tracing::warn!("Failed to add token to blacklist during logout_all: {}", e);
             }
@@ -87,9 +81,7 @@ impl AuthService {
 
         let logout_marker = format!("user:logout_all:{user_id}");
         let now = Utc::now().timestamp();
-        self.cache
-            .set_raw(&logout_marker, &now.to_string(), super::TOKEN_CACHE_TTL_SECS)
-            .await;
+        self.cache.set_raw(&logout_marker, &now.to_string(), super::TOKEN_CACHE_TTL_SECS).await;
 
         Ok(())
     }
@@ -122,10 +114,8 @@ impl AuthService {
         };
         let t = token_data;
         if t.is_revoked {
-            if let Err(e) = self
-                .refresh_token_storage
-                .revoke_all_user_tokens(&t.user_id, "refresh_token_reuse_detected")
-                .await
+            if let Err(e) =
+                self.refresh_token_storage.revoke_all_user_tokens(&t.user_id, "refresh_token_reuse_detected").await
             {
                 ::tracing::warn!(
                     target: "security_audit",
@@ -141,9 +131,7 @@ impl AuthService {
                 user_id = t.user_id.as_str(),
                 "Revoked refresh token replayed; revoking all user refresh tokens"
             );
-            return Err(ApiError::unauthorized(
-                "Refresh token has been revoked".to_string(),
-            ));
+            return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
         }
 
         if let Some(expires_at) = t.expires_at {
@@ -161,18 +149,14 @@ impl AuthService {
         match user {
             Some(u) => {
                 if u.is_deactivated {
-                    return Err(ApiError::user_deactivated(
-                        "User account has been deactivated",
-                    ));
+                    return Err(ApiError::user_deactivated("User account has been deactivated"));
                 }
 
                 let claimed = self
                     .refresh_token_storage
                     .revoke_token_cas(&token_hash, "Rotated")
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_log("Failed to claim refresh token", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_log("Failed to claim refresh token", &e))?;
                 if !claimed {
                     ::tracing::warn!(
                         target: "security_audit",
@@ -180,22 +164,16 @@ impl AuthService {
                         user_id = u.user_id.as_str(),
                         "Concurrent refresh of the same token rejected"
                     );
-                    return Err(ApiError::unauthorized(
-                        "Refresh token has been revoked".to_string(),
-                    ));
+                    return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
                 }
 
                 let device_id = match t.device_id.clone() {
                     Some(d) if !d.is_empty() => d,
                     _ => {
-                        return Err(ApiError::unauthorized(
-                            "Refresh token has no associated device".to_string(),
-                        ));
+                        return Err(ApiError::unauthorized("Refresh token has no associated device".to_string()));
                     }
                 };
-                let new_access_token = self
-                    .generate_access_token(&u.user_id, &device_id, u.is_admin)
-                    .await?;
+                let new_access_token = self.generate_access_token(&u.user_id, &device_id, u.is_admin).await?;
                 let new_refresh_token = self.generate_refresh_token(&u.user_id, &device_id).await?;
 
                 Ok((new_access_token, new_refresh_token, device_id))

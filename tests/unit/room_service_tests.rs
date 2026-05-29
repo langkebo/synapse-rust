@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_rust::common::validation::Validator;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
@@ -28,9 +29,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping room service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping room service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -255,6 +254,47 @@ fn test_create_room_success() {
 }
 
 #[test]
+fn test_create_room_ignores_protected_creation_content_fields() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = match setup_test_database().await {
+            Some(pool) => pool,
+            None => return,
+        };
+        let id = unique_id();
+        let alice_id = format!("@alice_{id}:localhost");
+        let alice_name = format!("alice_{id}");
+        create_test_user(&pool, &alice_id, &alice_name).await;
+
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let room_service = create_room_service(&pool, cache.clone());
+
+        let config = CreateRoomConfig {
+            room_version: Some("11".to_string()),
+            creation_content: Some(json!({
+                "creator": "@mallory:localhost",
+                "room_version": "1",
+                "m.federate": false,
+            })),
+            ..Default::default()
+        };
+        let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+        let room_id = room_val["room_id"].as_str().unwrap();
+
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let create_events = event_storage.get_state_events_by_type(room_id, "m.room.create").await.unwrap();
+        let create_event = create_events
+            .iter()
+            .find(|event| event.state_key.as_deref() == Some(""))
+            .expect("room should have create state");
+
+        assert_eq!(create_event.content["creator"].as_str(), Some(alice_id.as_str()));
+        assert_eq!(create_event.content["room_version"].as_str(), Some("11"));
+        assert_eq!(create_event.content["m.federate"].as_bool(), Some(false));
+    });
+}
+
+#[test]
 fn test_join_room_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
@@ -273,20 +313,14 @@ fn test_join_room_success() {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
-        let config = CreateRoomConfig {
-            visibility: Some("public".to_string()),
-            ..Default::default()
-        };
+        let config = CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() };
         let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let result = room_service.join_room(room_id, &bob_id).await;
         assert!(result.is_ok(), "join_room failed: {:?}", result.err());
 
-        let members = room_service
-            .get_room_members(room_id, &alice_id)
-            .await
-            .unwrap();
+        let members = room_service.get_room_members(room_id, &alice_id).await.unwrap();
         let chunk = members["chunk"].as_array().unwrap();
         assert!(chunk.iter().any(|m| m["state_key"] == bob_id || m["user_id"] == bob_id));
     });
@@ -313,17 +347,12 @@ fn test_send_message_success() {
         let room_id = room_val["room_id"].as_str().unwrap();
 
         let content = json!({"msgtype": "m.text", "body": "Hello world"});
-        let result = room_service
-            .send_message(room_id, &alice_id, "m.room.message", &content)
-            .await;
+        let result = room_service.send_message(room_id, &alice_id, "m.room.message", &content).await;
         assert!(result.is_ok());
         let val = result.unwrap();
         assert!(val["event_id"].as_str().unwrap().starts_with('$'));
 
-        let messages = room_service
-            .get_room_messages(room_id, &alice_id, 0, 10, "b")
-            .await
-            .unwrap();
+        let messages = room_service.get_room_messages(room_id, &alice_id, 0, 10, "b").await.unwrap();
         let chunk = messages["chunk"].as_array().unwrap();
         let event = chunk
             .iter()
@@ -374,10 +403,7 @@ fn test_get_room_messages_supports_sync_prev_batch_token() {
                 .unwrap();
         }
 
-        let messages = room_service
-            .get_room_messages(room_id, &alice_id, base_ts + 3000, 2, "b")
-            .await
-            .unwrap();
+        let messages = room_service.get_room_messages(room_id, &alice_id, base_ts + 3000, 2, "b").await.unwrap();
 
         assert_eq!(messages["start"], format!("t{}", base_ts + 3000));
         assert_eq!(messages["end"], format!("t{}", base_ts + 1000));
@@ -386,14 +412,8 @@ fn test_get_room_messages_supports_sync_prev_batch_token() {
         assert_eq!(chunk.len(), 2);
         assert_eq!(chunk[0]["origin_server_ts"], base_ts + 2000);
         assert_eq!(chunk[1]["origin_server_ts"], base_ts + 1000);
-        assert_eq!(
-            chunk[0]["content"]["body"],
-            format!("msg-{}", base_ts + 2000)
-        );
-        assert_eq!(
-            chunk[1]["content"]["body"],
-            format!("msg-{}", base_ts + 1000)
-        );
+        assert_eq!(chunk[0]["content"]["body"], format!("msg-{}", base_ts + 2000));
+        assert_eq!(chunk[1]["content"]["body"], format!("msg-{}", base_ts + 1000));
     });
 }
 
@@ -437,10 +457,7 @@ fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
                 .unwrap();
         }
 
-        let messages = room_service
-            .get_room_messages(room_id, &alice_id, base_ts + 1000, 2, "f")
-            .await
-            .unwrap();
+        let messages = room_service.get_room_messages(room_id, &alice_id, base_ts + 1000, 2, "f").await.unwrap();
 
         assert_eq!(messages["start"], format!("t{}", base_ts + 1000));
         assert_eq!(messages["end"], format!("t{}", base_ts + 3000));
@@ -449,14 +466,8 @@ fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
         assert_eq!(chunk.len(), 2);
         assert_eq!(chunk[0]["origin_server_ts"], base_ts + 2000);
         assert_eq!(chunk[1]["origin_server_ts"], base_ts + 3000);
-        assert_eq!(
-            chunk[0]["content"]["body"],
-            format!("msg-{}", base_ts + 2000)
-        );
-        assert_eq!(
-            chunk[1]["content"]["body"],
-            format!("msg-{}", base_ts + 3000)
-        );
+        assert_eq!(chunk[0]["content"]["body"], format!("msg-{}", base_ts + 2000));
+        assert_eq!(chunk[1]["content"]["body"], format!("msg-{}", base_ts + 3000));
     });
 }
 
@@ -487,11 +498,7 @@ fn test_invite_user_success() {
         assert!(result.is_ok(), "invite_user failed: {:?}", result.err());
 
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
-        let member = member_storage
-            .get_member(room_id, &bob_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let member = member_storage.get_member(room_id, &bob_id).await.unwrap().unwrap();
         assert_eq!(member.membership, "invite");
     });
 }
@@ -519,17 +526,11 @@ fn test_ban_user_success() {
         let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let room_id = room_val["room_id"].as_str().unwrap();
 
-        let result = room_service
-            .ban_user(room_id, &bob_id, &alice_id, Some("Spam"))
-            .await;
+        let result = room_service.ban_user(room_id, &bob_id, &alice_id, Some("Spam")).await;
         assert!(result.is_ok(), "ban_user failed: {:?}", result.err());
 
         let member_storage = RoomMemberStorage::new(&pool, "localhost");
-        let member = member_storage
-            .get_member(room_id, &bob_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let member = member_storage.get_member(room_id, &bob_id).await.unwrap().unwrap();
         assert_eq!(member.membership, "ban");
         assert_eq!(member.banned_by, Some(alice_id));
     });
@@ -555,14 +556,35 @@ fn test_upgrade_room_success() {
         let room_val = room_service.create_room(&alice_id, config).await.unwrap();
         let old_room_id = room_val["room_id"].as_str().unwrap();
 
-        let result = room_service
-            .upgrade_room(old_room_id, "11", &alice_id)
-            .await;
+        let result = room_service.upgrade_room(old_room_id, "11", &alice_id).await;
 
         assert!(result.is_ok());
         let new_room_id = result.unwrap();
         assert!(!new_room_id.is_empty());
         assert_ne!(new_room_id, old_room_id);
+
+        let room_storage = RoomStorage::new(&pool);
+        let old_room = room_storage.get_room(old_room_id).await.unwrap().expect("old room should still exist");
+        assert_eq!(old_room.room_version, DEFAULT_ROOM_VERSION);
+
+        let new_room = room_storage.get_room(&new_room_id).await.unwrap().expect("replacement room should exist");
+        assert_eq!(new_room.room_version, "11");
+
+        let event_storage = EventStorage::new(&pool, "localhost".to_string());
+        let tombstone_events = event_storage.get_state_events_by_type(old_room_id, "m.room.tombstone").await.unwrap();
+        let tombstone = tombstone_events
+            .iter()
+            .find(|event| event.state_key.as_deref() == Some(""))
+            .expect("old room should have tombstone state");
+        assert_eq!(tombstone.content["replacement_room"].as_str(), Some(new_room_id.as_str()));
+
+        let create_events = event_storage.get_state_events_by_type(&new_room_id, "m.room.create").await.unwrap();
+        let create_event = create_events
+            .iter()
+            .find(|event| event.state_key.as_deref() == Some(""))
+            .expect("replacement room should have create state");
+        assert_eq!(create_event.content["predecessor"]["room_id"].as_str(), Some(old_room_id));
+        assert_eq!(create_event.content["predecessor"]["event_id"].as_str(), Some(tombstone.event_id.as_str()));
     });
 }
 
@@ -582,9 +604,7 @@ fn test_upgrade_room_not_found() {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let room_service = create_room_service(&pool, cache.clone());
 
-        let result = room_service
-            .upgrade_room("!nonexistent:localhost", "11", &alice_id)
-            .await;
+        let result = room_service.upgrade_room("!nonexistent:localhost", "11", &alice_id).await;
 
         assert!(result.is_err());
     });

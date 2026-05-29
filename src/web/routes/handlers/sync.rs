@@ -28,20 +28,15 @@ pub(crate) async fn sync(
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
-    let set_presence = params
-        .get("set_presence")
-        .and_then(|v| v.as_str())
-        .unwrap_or("online");
+    let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online");
     let filter = params.get("filter").and_then(|v| v.as_str());
     let since = params.get("since").and_then(|v| v.as_str());
 
     let file_config = state.sync_rate_limit_override();
-    let fail_open_on_error = file_config
-        .as_ref()
-        .map_or(state.services.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
-    let sync_rate_limit_enabled = file_config
-        .as_ref()
-        .map_or(state.services.config.rate_limit.sync.enabled, |c| c.sync.enabled);
+    let fail_open_on_error =
+        file_config.as_ref().map_or(state.services.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
+    let sync_rate_limit_enabled =
+        file_config.as_ref().map_or(state.services.config.rate_limit.sync.enabled, |c| c.sync.enabled);
     if sync_rate_limit_enabled {
         let is_initial = since.is_none();
         let (per_second, burst_size) = match &file_config {
@@ -64,14 +59,8 @@ pub(crate) async fn sync(
 
         let device_id_for_ratelimit = device_id.as_deref().unwrap_or("default");
         let kind = if is_initial { "initial" } else { "incremental" };
-        let rate_limit_key = format!(
-            "ratelimit:sync:{user_id}:{device_id_for_ratelimit}:{kind}"
-        );
-        let decision = match state
-            .cache
-            .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
-            .await
-        {
+        let rate_limit_key = format!("ratelimit:sync:{user_id}:{device_id_for_ratelimit}:{kind}");
+        let decision = match state.cache.rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size).await {
             Ok(decision) => decision,
             Err(error) => {
                 if fail_open_on_error {
@@ -82,11 +71,7 @@ pub(crate) async fn sync(
                         error = %error,
                         "Sync rate limiter failed; allowing request"
                     );
-                    crate::cache::RateLimitDecision {
-                        allowed: true,
-                        retry_after_seconds: 0,
-                        remaining: burst_size,
-                    }
+                    crate::cache::RateLimitDecision { allowed: true, retry_after_seconds: 0, remaining: burst_size }
                 } else {
                     return Err(ApiError::internal_with_log("Sync rate limit failed", &error));
                 }
@@ -98,17 +83,7 @@ pub(crate) async fn sync(
         }
     }
 
-    execute_sync(SyncParams {
-        state,
-        user_id,
-        device_id,
-        timeout,
-        is_full_state,
-        set_presence,
-        filter,
-        since,
-    })
-    .await
+    execute_sync(SyncParams { state, user_id, device_id, timeout, is_full_state, set_presence, filter, since }).await
 }
 
 async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
@@ -118,19 +93,15 @@ async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
 
     let sync_result = tokio::time::timeout(
         server_timeout,
-        params
-            .state
-            .services
-            .sync_service
-            .sync_with_request(SyncServiceRequest {
-                user_id: &params.user_id,
-                device_id: params.device_id.as_deref(),
-                timeout: params.timeout,
-                is_full_state: params.is_full_state,
-                set_presence: params.set_presence,
-                filter_id: params.filter,
-                since: params.since,
-            }),
+        params.state.services.sync_service.sync_with_request(SyncServiceRequest {
+            user_id: &params.user_id,
+            device_id: params.device_id.as_deref(),
+            timeout: params.timeout,
+            is_full_state: params.is_full_state,
+            set_presence: params.set_presence,
+            filter_id: params.filter,
+            since: params.since,
+        }),
     )
     .await;
 
@@ -158,11 +129,7 @@ pub(crate) async fn get_events(
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
 
-    let result = state
-        .services
-        .sync_service
-        .get_events(&user_id, from, timeout)
-        .await?;
+    let result = state.services.sync_service.get_events(&user_id, from, timeout).await?;
 
     Ok(Json(result))
 }

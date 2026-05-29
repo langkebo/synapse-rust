@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::storage::openclaw::{
-    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation,
-    AiGeneration, AiMessage, OpenClawConnection, OpenClawStorage,
+    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation, AiGeneration, AiMessage,
+    OpenClawConnection, OpenClawStorage,
 };
 use sha2::{Digest, Sha256};
 use std::net::IpAddr;
@@ -20,17 +20,11 @@ pub struct OpenClawService {
 
 impl OpenClawService {
     pub fn new(storage: Arc<OpenClawStorage>, api_key_encryption_key: Option<[u8; 32]>) -> Self {
-        Self {
-            storage,
-            api_key_encryption_key,
-        }
+        Self { storage, api_key_encryption_key }
     }
 
     /// Resolve the API key encryption key from environment / config.
-    pub fn resolve_encryption_key(
-        macaroon_secret_key: Option<&str>,
-        security_secret: &str,
-    ) -> Option<[u8; 32]> {
+    pub fn resolve_encryption_key(macaroon_secret_key: Option<&str>, security_secret: &str) -> Option<[u8; 32]> {
         let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok();
         let config_secret = macaroon_secret_key
             .map(|s| s.to_string())
@@ -49,9 +43,7 @@ impl OpenClawService {
 
     pub fn ensure_user_allowed(&self, is_guest: bool) -> Result<(), ApiError> {
         if is_guest {
-            return Err(ApiError::forbidden(
-                "Guest access to OpenClaw routes is disabled",
-            ));
+            return Err(ApiError::forbidden("Guest access to OpenClaw routes is disabled"));
         }
         Ok(())
     }
@@ -74,27 +66,21 @@ impl OpenClawService {
 
     /// SSRF protection: reject localhost / private IPs / non-HTTP schemes.
     pub fn validate_base_url(&self, base_url: &str) -> Result<(), ApiError> {
-        let url = Url::parse(base_url)
-            .map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
+        let url = Url::parse(base_url).map_err(|e| ApiError::bad_request(format!("Invalid base_url: {}", e)))?;
 
         if url.scheme() != "http" && url.scheme() != "https" {
-            return Err(ApiError::bad_request(
-                "OpenClaw base_url must use http or https".to_string(),
-            ));
+            return Err(ApiError::bad_request("OpenClaw base_url must use http or https".to_string()));
         }
 
-        let host = url.host_str().ok_or_else(|| {
-            ApiError::bad_request("OpenClaw base_url must include a host".to_string())
-        })?;
+        let host =
+            url.host_str().ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
 
         let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
             || host.eq_ignore_ascii_case("localhost.")
             || host.ends_with(".localhost");
 
         if is_forbidden_host {
-            return Err(ApiError::bad_request(
-                "OpenClaw base_url cannot target localhost".to_string(),
-            ));
+            return Err(ApiError::bad_request("OpenClaw base_url cannot target localhost".to_string()));
         }
 
         if let Ok(ip) = host.parse::<IpAddr>() {
@@ -130,17 +116,12 @@ impl OpenClawService {
     // Encryption helpers
     // -----------------------------------------------------------------------
 
-    pub fn encrypt_optional_api_key(
-        &self,
-        api_key: Option<String>,
-    ) -> Result<Option<String>, ApiError> {
+    pub fn encrypt_optional_api_key(&self, api_key: Option<String>) -> Result<Option<String>, ApiError> {
         match api_key {
             Some(api_key) => {
-                let key = self.api_key_encryption_key.ok_or_else(|| {
-                    ApiError::internal(
-                        "OpenClaw API key encryption is not configured".to_string(),
-                    )
-                })?;
+                let key = self
+                    .api_key_encryption_key
+                    .ok_or_else(|| ApiError::internal("OpenClaw API key encryption is not configured".to_string()))?;
                 Ok(Some(encrypt_api_key(&api_key, &key)?))
             }
             None => Ok(None),
@@ -172,10 +153,7 @@ impl OpenClawService {
     // Connection CRUD
     // -----------------------------------------------------------------------
 
-    pub async fn list_connections(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<OpenClawConnection>, ApiError> {
+    pub async fn list_connections(&self, user_id: &str) -> Result<Vec<OpenClawConnection>, ApiError> {
         self.storage
             .get_user_connections(user_id)
             .await
@@ -210,11 +188,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))
     }
 
-    pub async fn get_connection_for_user(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<OpenClawConnection, ApiError> {
+    pub async fn get_connection_for_user(&self, id: i64, auth_user_id: &str) -> Result<OpenClawConnection, ApiError> {
         let conn = self
             .storage
             .get_connection(id)
@@ -261,11 +235,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update connection", &e))
     }
 
-    pub async fn delete_connection(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_connection(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_connection_for_user(id, auth_user_id).await?;
 
@@ -341,11 +311,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create conversation", &e))
     }
 
-    pub async fn get_conversation_for_user(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<AiConversation, ApiError> {
+    pub async fn get_conversation_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiConversation, ApiError> {
         let conv = self
             .storage
             .get_conversation(id)
@@ -377,11 +343,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update conversation", &e))
     }
 
-    pub async fn delete_conversation(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_conversation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_conversation_for_user(id, auth_user_id).await?;
 
@@ -403,9 +365,7 @@ impl OpenClawService {
         before: Option<i64>,
     ) -> Result<Vec<AiMessage>, ApiError> {
         // Ownership check via conversation
-        let _ = self
-            .get_conversation_for_user(conversation_id, auth_user_id)
-            .await?;
+        let _ = self.get_conversation_for_user(conversation_id, auth_user_id).await?;
 
         self.storage
             .get_conversation_messages(conversation_id, limit, before)
@@ -423,9 +383,7 @@ impl OpenClawService {
         tool_call_id: Option<&str>,
     ) -> Result<AiMessage, ApiError> {
         // Ownership check via conversation
-        let _ = self
-            .get_conversation_for_user(conversation_id, auth_user_id)
-            .await?;
+        let _ = self.get_conversation_for_user(conversation_id, auth_user_id).await?;
 
         let role = role.unwrap_or("user");
 
@@ -435,11 +393,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create message", &e))
     }
 
-    pub async fn delete_message(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_message(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         let msg = self
             .storage
             .get_message(id)
@@ -448,14 +402,9 @@ impl OpenClawService {
             .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
         // Ownership check via conversation
-        let _ = self
-            .get_conversation_for_user(msg.conversation_id, auth_user_id)
-            .await?;
+        let _ = self.get_conversation_for_user(msg.conversation_id, auth_user_id).await?;
 
-        self.storage
-            .delete_message(id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete message", &e))
+        self.storage.delete_message(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete message", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -498,11 +447,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create generation", &e))
     }
 
-    pub async fn get_generation_for_user(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<AiGeneration, ApiError> {
+    pub async fn get_generation_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiGeneration, ApiError> {
         let gen = self
             .storage
             .get_generation(id)
@@ -514,11 +459,7 @@ impl OpenClawService {
         Ok(gen)
     }
 
-    pub async fn delete_generation(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_generation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_generation_for_user(id, auth_user_id).await?;
 
@@ -532,10 +473,7 @@ impl OpenClawService {
     // Chat Role CRUD
     // -----------------------------------------------------------------------
 
-    pub async fn list_chat_roles(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<AiChatRole>, ApiError> {
+    pub async fn list_chat_roles(&self, user_id: &str) -> Result<Vec<AiChatRole>, ApiError> {
         self.storage
             .get_user_chat_roles(user_id)
             .await
@@ -573,11 +511,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create chat role", &e))
     }
 
-    pub async fn get_chat_role_for_user(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<AiChatRole, ApiError> {
+    pub async fn get_chat_role_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiChatRole, ApiError> {
         let role = self
             .storage
             .get_chat_role(id)
@@ -634,11 +568,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update chat role", &e))
     }
 
-    pub async fn delete_chat_role(
-        &self,
-        id: i64,
-        auth_user_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_chat_role(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let existing = self
             .storage
@@ -679,9 +609,8 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher
-        .encrypt(nonce, key.as_bytes())
-        .map_err(|e| ApiError::internal_with_log("Encryption failed", &e))?;
+    let ciphertext =
+        cipher.encrypt(nonce, key.as_bytes()).map_err(|e| ApiError::internal_with_log("Encryption failed", &e))?;
 
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);

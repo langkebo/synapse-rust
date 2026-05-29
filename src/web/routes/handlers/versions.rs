@@ -2,8 +2,8 @@
 
 use crate::common::config::Config;
 use crate::common::room_versions::client_room_versions_capability;
-use crate::web::AppState;
 use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
+use crate::web::AppState;
 use axum::{
     extract::{Query, State},
     http::{
@@ -13,7 +13,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use url::Url;
 
 /// Empty query params marker used as the last handler parameter so that
@@ -23,9 +23,53 @@ use url::Url;
 #[derive(Deserialize, Default)]
 pub struct EmptyQuery {}
 
-const CLIENT_API_VERSIONS: &[&str] = &[
-    "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6",
-    "v1.7", "v1.8", "v1.9", "v1.10", "v1.11", "v1.12", "v1.13",
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClientApiVersionFamily {
+    LegacyR0,
+    StableV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ClientApiVersionSupport {
+    version: &'static str,
+    family: ClientApiVersionFamily,
+}
+
+impl ClientApiVersionSupport {
+    const fn legacy(version: &'static str) -> Self {
+        Self { version, family: ClientApiVersionFamily::LegacyR0 }
+    }
+
+    const fn stable(version: &'static str) -> Self {
+        Self { version, family: ClientApiVersionFamily::StableV1 }
+    }
+
+    const fn version(self) -> &'static str {
+        self.version
+    }
+
+    const fn family(self) -> ClientApiVersionFamily {
+        self.family
+    }
+}
+
+const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
+    ClientApiVersionSupport::legacy("r0.5.0"),
+    ClientApiVersionSupport::legacy("r0.6.0"),
+    ClientApiVersionSupport::legacy("r0.6.1"),
+    ClientApiVersionSupport::stable("v1.1"),
+    ClientApiVersionSupport::stable("v1.2"),
+    ClientApiVersionSupport::stable("v1.3"),
+    ClientApiVersionSupport::stable("v1.4"),
+    ClientApiVersionSupport::stable("v1.5"),
+    ClientApiVersionSupport::stable("v1.6"),
+    ClientApiVersionSupport::stable("v1.7"),
+    ClientApiVersionSupport::stable("v1.8"),
+    ClientApiVersionSupport::stable("v1.9"),
+    ClientApiVersionSupport::stable("v1.10"),
+    ClientApiVersionSupport::stable("v1.11"),
+    ClientApiVersionSupport::stable("v1.12"),
+    ClientApiVersionSupport::stable("v1.13"),
 ];
 
 const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
@@ -39,10 +83,29 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("org.matrix.msc3916", true),
     ("uk.tcpip.msc4133", true),
     ("org.matrix.msc3886.sliding_sync", true),
-    ("org.matrix.msc4261.widget", true),
-    ("io.hula.burn_after_read", true),
-    ("io.hula.friends", true),
+    ("org.matrix.msc4261.widget", cfg!(feature = "widgets")),
+    ("io.hula.burn_after_read", cfg!(feature = "burn-after-read")),
+    ("io.hula.friends", cfg!(feature = "friends")),
 ];
+
+fn declared_client_api_versions() -> Vec<&'static str> {
+    let mut seen_stable = false;
+
+    CLIENT_API_VERSION_SUPPORT
+        .iter()
+        .map(|support| {
+            match support.family() {
+                ClientApiVersionFamily::LegacyR0 => {
+                    debug_assert!(!seen_stable, "legacy r0 versions must stay before stable v1 versions");
+                }
+                ClientApiVersionFamily::StableV1 => {
+                    seen_stable = true;
+                }
+            }
+            support.version()
+        })
+        .collect()
+}
 
 fn build_client_versions(config: &Config) -> Value {
     let mut unstable_features = serde_json::Map::new();
@@ -56,7 +119,7 @@ fn build_client_versions(config: &Config) -> Value {
     }
 
     json!({
-        "versions": CLIENT_API_VERSIONS,
+        "versions": declared_client_api_versions(),
         "unstable_features": unstable_features
     })
 }
@@ -72,16 +135,12 @@ fn client_versions_headers() -> HeaderMap {
 }
 
 /// 获取客户端 API 版本
-pub async fn get_client_versions(
-    State(state): State<AppState>,
-) -> impl axum::response::IntoResponse {
+pub async fn get_client_versions(State(state): State<AppState>) -> impl axum::response::IntoResponse {
     (client_versions_headers(), Json(build_client_versions(&state.services.config)))
 }
 
 /// 获取服务端版本
-pub async fn get_server_version(
-    State(state): State<AppState>,
-) -> impl axum::response::IntoResponse {
+pub async fn get_server_version(State(state): State<AppState>) -> impl axum::response::IntoResponse {
     Json(json!({
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
@@ -97,11 +156,7 @@ fn format_host_port(host: &str, port: u16) -> String {
     }
 }
 
-fn derive_well_known_server(
-    public_baseurl: &str,
-    fallback_server_name: &str,
-    federation_port: u16,
-) -> String {
+fn derive_well_known_server(public_baseurl: &str, fallback_server_name: &str, federation_port: u16) -> String {
     let host = Url::parse(public_baseurl)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
@@ -116,6 +171,73 @@ fn build_well_known_client(base_url: &str) -> serde_json::Value {
         "m.homeserver": {
             "base_url": base_url
         }
+    })
+}
+
+fn insert_enabled_capability(capabilities: &mut Map<String, Value>, name: &str, enabled: bool) {
+    capabilities.insert(name.to_string(), json!({ "enabled": enabled }));
+}
+
+fn sso_providers(config: &Config) -> Vec<&'static str> {
+    let mut providers = Vec::new();
+    if config.saml.enabled {
+        providers.push("saml");
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        providers.push("cas");
+    }
+    providers
+}
+
+fn build_capabilities_unstable_features() -> Value {
+    json!({
+        "io.hula.friends": cfg!(feature = "friends"),
+        "org.matrix.msc3245.voice": true,
+        "org.matrix.msc3983.thread": true,
+        "org.matrix.msc3886.sliding_sync": true,
+        "org.matrix.msc4261.widget": cfg!(feature = "widgets"),
+        "io.hula.burn_after_read": cfg!(feature = "burn-after-read")
+    })
+}
+
+fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
+    let mut capabilities = Map::new();
+    let sso_providers = sso_providers(config);
+
+    insert_enabled_capability(&mut capabilities, "m.change_password", true);
+    capabilities.insert("m.room_versions".to_string(), client_room_versions_capability());
+    insert_enabled_capability(&mut capabilities, "m.set_displayname", true);
+    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", true);
+    insert_enabled_capability(&mut capabilities, "m.3pid_changes", true);
+    insert_enabled_capability(&mut capabilities, "m.room.summary", true);
+    insert_enabled_capability(&mut capabilities, "m.room.suggested", true);
+    insert_enabled_capability(&mut capabilities, "m.voice", true);
+    insert_enabled_capability(&mut capabilities, "m.thread", true);
+    insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", true);
+
+    if authenticated {
+        let openclaw_enabled = cfg!(feature = "openclaw-routes") && config.experimental.openclaw_routes_enabled;
+
+        capabilities.insert("io.hula.friends".to_string(), json!(cfg!(feature = "friends")));
+        capabilities.insert(
+            "m.sso".to_string(),
+            json!({
+                "enabled": !sso_providers.is_empty(),
+                "providers": sso_providers
+            }),
+        );
+        insert_enabled_capability(&mut capabilities, "ai_connection", openclaw_enabled);
+        insert_enabled_capability(&mut capabilities, "openclaw", openclaw_enabled);
+        insert_enabled_capability(&mut capabilities, "external_services", cfg!(feature = "external-services"));
+        insert_enabled_capability(&mut capabilities, "io.hula.voice_extended", cfg!(feature = "voice-extended"));
+        insert_enabled_capability(&mut capabilities, "io.hula.widget", cfg!(feature = "widgets"));
+        insert_enabled_capability(&mut capabilities, "io.hula.burn_after_read", cfg!(feature = "burn-after-read"));
+    }
+
+    json!({
+        "capabilities": capabilities,
+        "unstable_features": build_capabilities_unstable_features()
     })
 }
 
@@ -148,158 +270,20 @@ pub async fn get_capabilities(
     auth: OptionalAuthenticatedUser,
     Query(_): Query<EmptyQuery>,
 ) -> Json<serde_json::Value> {
-    let saml_enabled = state.services.config.saml.enabled;
-    let mut capabilities = json!({
-        "m.change_password": { "enabled": true },
-        "m.room_versions": client_room_versions_capability(),
-        "m.set_displayname": { "enabled": true },
-        "m.set_avatar_url": { "enabled": true },
-        "m.3pid_changes": { "enabled": true },
-        "m.room.summary": { "enabled": true },
-        "m.room.suggested": { "enabled": true },
-        "io.hula.friends": true,
-        "m.sso": {
-            "enabled": saml_enabled,
-            "providers": if saml_enabled { json!(["saml"]) } else { json!([]) }
-        },
-        "m.voice": { "enabled": true },
-        "io.hula.burn_after_read": { "enabled": cfg!(feature = "burn-after-read") },
-        "m.thread": { "enabled": true },
-        "io.hula.sliding_sync": { "enabled": true },
-        "io.hula.widget": { "enabled": cfg!(feature = "widgets") }
-    });
-
-    #[cfg(feature = "openclaw-routes")]
-    {
-        let ai_connection_enabled = state.services.config.experimental.openclaw_routes_enabled;
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert(
-                "ai_connection".to_string(),
-                json!({ "enabled": ai_connection_enabled }),
-            );
-            caps.insert(
-                "openclaw".to_string(),
-                json!({ "enabled": ai_connection_enabled }),
-            );
-        }
-    }
-    #[cfg(not(feature = "openclaw-routes"))]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("ai_connection".to_string(), json!({ "enabled": false }));
-            caps.insert("openclaw".to_string(), json!({ "enabled": false }));
-        }
-    }
-
-    #[cfg(feature = "external-services")]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("external_services".to_string(), json!({ "enabled": true }));
-        }
-    }
-    #[cfg(not(feature = "external-services"))]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("external_services".to_string(), json!({ "enabled": false }));
-        }
-    }
-
-    // Voice extended (MSC3245 extended server-side features)
-    #[cfg(feature = "voice-extended")]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.voice_extended".to_string(), json!({ "enabled": true }));
-        }
-    }
-    #[cfg(not(feature = "voice-extended"))]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.voice_extended".to_string(), json!({ "enabled": false }));
-        }
-    }
-
-    // CAS SSO
-    #[cfg(feature = "cas-sso")]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            if let Some(sso) = caps.get_mut("m.sso").and_then(|v| v.as_object_mut()) {
-                if let Some(providers) = sso.get_mut("providers").and_then(|v| v.as_array_mut()) {
-                    providers.push(json!("cas"));
-                }
-            }
-        }
-    }
-
-    // Widgets
-    #[cfg(feature = "widgets")]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.widget".to_string(), json!({ "enabled": true }));
-        }
-    }
-    #[cfg(not(feature = "widgets"))]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.widget".to_string(), json!({ "enabled": false }));
-        }
-    }
-
-    // Burn after read
-    #[cfg(feature = "burn-after-read")]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.burn_after_read".to_string(), json!({ "enabled": true }));
-        }
-    }
-    #[cfg(not(feature = "burn-after-read"))]
-    {
-        if let Some(caps) = capabilities.as_object_mut() {
-            caps.insert("io.hula.burn_after_read".to_string(), json!({ "enabled": false }));
-        }
-    }
-
-    // For unauthenticated users, only return public capabilities
-    let capabilities = if auth.user_id.is_none() {
-        if let Some(caps) = capabilities.as_object_mut() {
-            // Remove sensitive capabilities for unauthenticated access
-            caps.remove("io.hula.friends");
-            caps.remove("io.hula.burn_after_read");
-            caps.remove("io.hula.widget");
-            caps.remove("ai_connection");
-            caps.remove("openclaw");
-            caps.remove("external_services");
-            caps.remove("io.hula.voice_extended");
-            caps.remove("m.sso");
-        }
-        capabilities
-    } else {
-        capabilities
-    };
-
-    Json(json!({
-        "capabilities": capabilities,
-        "unstable_features": {
-            "io.hula.friends": true,
-            "org.matrix.msc3245.voice": true,
-            "org.matrix.msc3983.thread": true,
-            "org.matrix.msc3886.sliding_sync": true,
-            "org.matrix.msc4261.widget": true,
-            "io.hula.burn_after_read": true
-        }
-    }))
+    Json(build_capabilities_response(&state.services.config, auth.user_id.is_some()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_client_versions, build_well_known_client, client_versions_headers,
-        derive_well_known_server, get_client_versions, CLIENT_API_VERSIONS,
+        build_capabilities_response, build_client_versions, build_well_known_client, client_versions_headers,
+        derive_well_known_server, get_client_versions, ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
     };
-    use axum::http::header::{CACHE_CONTROL, VARY};
     use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::Config;
     use crate::services::ServiceContainer;
     use crate::web::AppState;
+    use axum::http::header::{CACHE_CONTROL, VARY};
     use std::sync::Arc;
 
     async fn make_test_state() -> AppState {
@@ -323,14 +307,30 @@ mod tests {
         let body = build_client_versions(&Config::default());
         let versions = body["versions"].as_array().expect("versions should be an array");
 
-        assert_eq!(versions.len(), CLIENT_API_VERSIONS.len());
-        for expected in CLIENT_API_VERSIONS {
+        assert_eq!(versions.len(), CLIENT_API_VERSION_SUPPORT.len());
+        for expected in CLIENT_API_VERSION_SUPPORT {
             assert_eq!(
-                versions.iter().filter(|version| version.as_str() == Some(expected)).count(),
+                versions.iter().filter(|version| version.as_str() == Some(expected.version())).count(),
                 1,
-                "version {expected} should appear exactly once"
+                "version {} should appear exactly once",
+                expected.version()
             );
         }
+    }
+
+    #[test]
+    fn test_client_version_support_keeps_legacy_before_stable_versions() {
+        let first_stable_index = CLIENT_API_VERSION_SUPPORT
+            .iter()
+            .position(|support| support.family() == ClientApiVersionFamily::StableV1)
+            .expect("stable v1 versions should be present");
+
+        assert!(CLIENT_API_VERSION_SUPPORT[..first_stable_index]
+            .iter()
+            .all(|support| support.family() == ClientApiVersionFamily::LegacyR0));
+        assert!(CLIENT_API_VERSION_SUPPORT[first_stable_index..]
+            .iter()
+            .all(|support| support.family() == ClientApiVersionFamily::StableV1));
     }
 
     #[test]
@@ -350,22 +350,45 @@ mod tests {
             headers.get(CACHE_CONTROL).and_then(|value| value.to_str().ok()),
             Some("public, max-age=600, s-maxage=3600, stale-while-revalidate=600")
         );
-        assert_eq!(
-            headers.get(VARY).and_then(|value| value.to_str().ok()),
-            Some("Authorization")
-        );
+        assert_eq!(headers.get(VARY).and_then(|value| value.to_str().ok()), Some("Authorization"));
+    }
+
+    #[test]
+    fn test_capabilities_public_surface_hides_private_extensions() {
+        let body = build_capabilities_response(&Config::default(), false);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        assert!(capabilities.contains_key("m.change_password"));
+        assert!(capabilities.contains_key("m.room_versions"));
+        assert!(!capabilities.contains_key("m.sso"));
+        assert!(!capabilities.contains_key("io.hula.friends"));
+        assert!(!capabilities.contains_key("io.hula.widget"));
+        assert!(!capabilities.contains_key("io.hula.burn_after_read"));
+    }
+
+    #[test]
+    fn test_capabilities_authenticated_surface_tracks_config_and_feature_flags() {
+        let mut config = Config::default();
+        config.saml.enabled = true;
+        config.experimental.openclaw_routes_enabled = false;
+
+        let body = build_capabilities_response(&config, true);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        assert_eq!(capabilities["m.sso"]["enabled"], true);
+        assert_eq!(capabilities["m.sso"]["providers"][0], "saml");
+        assert_eq!(capabilities["openclaw"]["enabled"], false);
+        assert_eq!(capabilities["io.hula.widget"]["enabled"], cfg!(feature = "widgets"));
+        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], cfg!(feature = "burn-after-read"));
+        assert_eq!(body["unstable_features"]["org.matrix.msc4261.widget"], cfg!(feature = "widgets"));
     }
 
     #[tokio::test]
     async fn test_get_client_versions_includes_msc3814() {
         use axum::response::IntoResponse;
         let state = make_test_state().await;
-        let response = get_client_versions(axum::extract::State(state))
-            .await
-            .into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10000)
-            .await
-            .unwrap();
+        let response = get_client_versions(axum::extract::State(state)).await.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
         assert_eq!(body["unstable_features"]["org.matrix.msc3814"], true);
@@ -386,10 +409,7 @@ mod tests {
     #[test]
     fn test_build_well_known_client_omits_identity_server() {
         let body = build_well_known_client("https://matrix.example.com");
-        assert_eq!(
-            body["m.homeserver"]["base_url"],
-            "https://matrix.example.com"
-        );
+        assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
         assert!(body.get("m.identity_server").is_none());
     }
 }

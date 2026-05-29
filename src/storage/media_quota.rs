@@ -117,9 +117,7 @@ pub struct MediaQuotaStorage {
 
 impl MediaQuotaStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self {
-            pool: (**pool).clone(),
-        }
+        Self { pool: (**pool).clone() }
     }
 
     pub async fn get_default_config(&self) -> Result<Option<MediaQuotaConfig>, ApiError> {
@@ -134,36 +132,27 @@ impl MediaQuotaStorage {
     }
 
     pub async fn get_config(&self, config_id: i64) -> Result<Option<MediaQuotaConfig>, ApiError> {
-        let config = sqlx::query_as::<_, MediaQuotaConfig>(
-            r"SELECT * FROM media_quota_config WHERE id = $1",
-        )
-        .bind(config_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get quota config", &e))?;
+        let config = sqlx::query_as::<_, MediaQuotaConfig>(r"SELECT * FROM media_quota_config WHERE id = $1")
+            .bind(config_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get quota config", &e))?;
 
         Ok(config)
     }
 
-    pub async fn create_config(
-        &self,
-        request: CreateQuotaConfigRequest,
-    ) -> Result<MediaQuotaConfig, ApiError> {
+    pub async fn create_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
         let now = Utc::now().timestamp_millis();
         let allowed_mime_types =
-            serde_json::to_value(request.allowed_mime_types.unwrap_or_default())
-                .unwrap_or(serde_json::json!([]));
+            serde_json::to_value(request.allowed_mime_types.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let blocked_mime_types =
-            serde_json::to_value(request.blocked_mime_types.unwrap_or_default())
-                .unwrap_or(serde_json::json!([]));
+            serde_json::to_value(request.blocked_mime_types.unwrap_or_default()).unwrap_or(serde_json::json!([]));
 
         if request.is_default.unwrap_or(false) {
-            sqlx::query(
-                r"UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE",
-            )
-            .execute(&self.pool)
-            .await
-            .ok();
+            sqlx::query(r"UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE")
+                .execute(&self.pool)
+                .await
+                .ok();
         }
 
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
@@ -204,32 +193,26 @@ impl MediaQuotaStorage {
     }
 
     pub async fn delete_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        let result =
-            sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1")
-                .bind(config_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to delete quota config", &e))?;
+        let result = sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1")
+            .bind(config_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete quota config", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
 
     pub async fn get_user_quota(&self, user_id: &str) -> Result<Option<UserMediaQuota>, ApiError> {
-        let quota = sqlx::query_as::<_, UserMediaQuota>(
-            r"SELECT * FROM user_media_quota WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get user quota", &e))?;
+        let quota = sqlx::query_as::<_, UserMediaQuota>(r"SELECT * FROM user_media_quota WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user quota", &e))?;
 
         Ok(quota)
     }
 
-    pub async fn get_or_create_user_quota(
-        &self,
-        user_id: &str,
-    ) -> Result<UserMediaQuota, ApiError> {
+    pub async fn get_or_create_user_quota(&self, user_id: &str) -> Result<UserMediaQuota, ApiError> {
         if let Some(quota) = self.get_user_quota(user_id).await? {
             return Ok(quota);
         }
@@ -255,10 +238,7 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    pub async fn set_user_quota(
-        &self,
-        request: SetUserQuotaRequest,
-    ) -> Result<UserMediaQuota, ApiError> {
+    pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
         let now = Utc::now().timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
@@ -366,21 +346,13 @@ impl MediaQuotaStorage {
         Ok(())
     }
 
-    pub async fn check_quota(
-        &self,
-        user_id: &str,
-        file_size: i64,
-    ) -> Result<QuotaCheckResult, ApiError> {
+    pub async fn check_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
         let user_quota = self.get_or_create_user_quota(user_id).await?;
 
         let max_storage = if let Some(custom) = user_quota.custom_max_storage_bytes {
             custom
         } else if let Some(config_id) = user_quota.quota_config_id {
-            self.get_config(config_id)
-                .await
-                .ok()
-                .flatten()
-                .map_or(0, |c| c.max_storage_bytes)
+            self.get_config(config_id).await.ok().flatten().map_or(0, |c| c.max_storage_bytes)
         } else {
             0
         };
@@ -401,11 +373,7 @@ impl MediaQuotaStorage {
 
         Ok(QuotaCheckResult {
             is_allowed,
-            reason: if !is_allowed {
-                Some("Quota exceeded".to_string())
-            } else {
-                None
-            },
+            reason: if !is_allowed { Some("Quota exceeded".to_string()) } else { None },
             current_usage: user_quota.current_storage_bytes,
             quota_limit: max_storage,
             usage_percent,
@@ -413,12 +381,10 @@ impl MediaQuotaStorage {
     }
 
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
-        let quota = sqlx::query_as::<_, ServerMediaQuota>(
-            r"SELECT * FROM server_media_quota WHERE id = 1",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get server quota", &e))?;
+        let quota = sqlx::query_as::<_, ServerMediaQuota>(r"SELECT * FROM server_media_quota WHERE id = 1")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get server quota", &e))?;
 
         Ok(quota)
     }
@@ -491,11 +457,7 @@ impl MediaQuotaStorage {
         Ok(alert)
     }
 
-    pub async fn get_user_alerts(
-        &self,
-        user_id: &str,
-        unread_only: bool,
-    ) -> Result<Vec<MediaQuotaAlert>, ApiError> {
+    pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         let alerts = if unread_only {
             sqlx::query_as::<_, MediaQuotaAlert>(
                 r"SELECT * FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC",

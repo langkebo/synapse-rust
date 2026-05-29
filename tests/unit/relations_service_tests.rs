@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::services::relations_service::{
-    AggregationItem, AggregationResponse, RelationsResponse, RelationsService,
-    SendAnnotationRequest, SendReferenceRequest, SendReplacementRequest,
+    AggregationItem, AggregationResponse, RelationsResponse, RelationsService, SendAnnotationRequest,
+    SendReferenceRequest, SendReplacementRequest,
 };
 use synapse_rust::storage::relations::RelationsStorage;
 use tokio::runtime::Runtime;
@@ -19,9 +19,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
     let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
-            eprintln!(
-                "Skipping relations service tests because test database is unavailable: {error}"
-            );
+            eprintln!("Skipping relations service tests because test database is unavailable: {error}");
             return None;
         }
     };
@@ -360,10 +358,7 @@ fn test_get_relations_empty() {
         let room_id = format!("!room_{suffix}:localhost");
         let relates_to = format!("$orig_{suffix}:localhost");
 
-        let response = service
-            .get_relations(&room_id, &relates_to, None, None, None, None)
-            .await
-            .unwrap();
+        let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
 
         assert!(response.chunk.is_empty());
         assert_eq!(response.total, Some(0));
@@ -395,10 +390,7 @@ fn test_get_relations_with_data() {
         };
         service.send_annotation(request).await.unwrap();
 
-        let response = service
-            .get_relations(&room_id, &relates_to, None, None, None, None)
-            .await
-            .unwrap();
+        let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
 
         assert_eq!(response.chunk.len(), 1);
         assert_eq!(response.total, Some(1));
@@ -441,10 +433,8 @@ fn test_get_relations_filtered_by_type() {
         };
         service.send_reference(reference_req).await.unwrap();
 
-        let response = service
-            .get_relations(&room_id, &relates_to, Some("m.annotation"), None, None, None)
-            .await
-            .unwrap();
+        let response =
+            service.get_relations(&room_id, &relates_to, Some("m.annotation"), None, None, None).await.unwrap();
 
         assert_eq!(response.chunk.len(), 1);
         assert_eq!(response.total, Some(1));
@@ -476,10 +466,7 @@ fn test_get_relations_with_limit() {
             service.send_annotation(request).await.unwrap();
         }
 
-        let response = service
-            .get_relations(&room_id, &relates_to, None, Some(3), None, None)
-            .await
-            .unwrap();
+        let response = service.get_relations(&room_id, &relates_to, None, Some(3), None, None).await.unwrap();
 
         assert_eq!(response.chunk.len(), 3);
         assert_eq!(response.total, Some(5));
@@ -499,10 +486,7 @@ fn test_get_aggregations_empty() {
         let room_id = format!("!room_{suffix}:localhost");
         let relates_to = format!("$orig_{suffix}:localhost");
 
-        let response = service
-            .get_aggregations(&room_id, &relates_to)
-            .await
-            .unwrap();
+        let response = service.get_aggregations(&room_id, &relates_to).await.unwrap();
 
         assert!(response.chunk.is_empty());
     });
@@ -543,25 +527,14 @@ fn test_get_aggregations_with_annotations() {
         };
         service.send_annotation(extra_req).await.unwrap();
 
-        let response = service
-            .get_aggregations(&room_id, &relates_to)
-            .await
-            .unwrap();
+        let response = service.get_aggregations(&room_id, &relates_to).await.unwrap();
 
         assert_eq!(response.chunk.len(), 2);
-        let thumbs_up = response
-            .chunk
-            .iter()
-            .find(|item| item.key.as_deref() == Some("👍"))
-            .unwrap();
+        let thumbs_up = response.chunk.iter().find(|item| item.key.as_deref() == Some("👍")).unwrap();
         assert_eq!(thumbs_up.count, 3);
         assert_eq!(thumbs_up.event_type, "m.annotation");
 
-        let heart = response
-            .chunk
-            .iter()
-            .find(|item| item.key.as_deref() == Some("❤️"))
-            .unwrap();
+        let heart = response.chunk.iter().find(|item| item.key.as_deref() == Some("❤️")).unwrap();
         assert_eq!(heart.count, 1);
     });
 }
@@ -589,16 +562,11 @@ fn test_redact_relation_own_sender() {
         };
         let annotation = service.send_annotation(request).await.unwrap();
 
-        let result = service
-            .redact_relation(&room_id, &annotation.event_id, &sender)
-            .await;
+        let result = service.redact_relation(&room_id, &annotation.event_id, &sender).await;
         assert!(result.is_ok());
 
         let storage = RelationsStorage::new(&pool);
-        let found = storage
-            .get_relation(&room_id, &annotation.event_id)
-            .await
-            .unwrap();
+        let found = storage.get_relation(&room_id, &annotation.event_id).await.unwrap();
         assert!(found.is_none());
     });
 }
@@ -627,9 +595,7 @@ fn test_redact_relation_different_sender_forbidden() {
         };
         let annotation = service.send_annotation(request).await.unwrap();
 
-        let result = service
-            .redact_relation(&room_id, &annotation.event_id, &other_sender)
-            .await;
+        let result = service.redact_relation(&room_id, &annotation.event_id, &other_sender).await;
         assert!(result.is_err());
     });
 }
@@ -647,9 +613,7 @@ fn test_redact_relation_nonexistent() {
         let room_id = format!("!room_{suffix}:localhost");
         let sender = format!("@user_{suffix}:localhost");
 
-        let result = service
-            .redact_relation(&room_id, "$nonexistent:localhost", &sender)
-            .await;
+        let result = service.redact_relation(&room_id, "$nonexistent:localhost", &sender).await;
         assert!(result.is_ok());
     });
 }
@@ -677,10 +641,7 @@ fn test_annotation_exists_true() {
         };
         service.send_annotation(request).await.unwrap();
 
-        let exists = service
-            .annotation_exists(&room_id, &relates_to, &sender, "👍")
-            .await
-            .unwrap();
+        let exists = service.annotation_exists(&room_id, &relates_to, &sender, "👍").await.unwrap();
         assert!(exists);
     });
 }
@@ -709,10 +670,7 @@ fn test_annotation_exists_false_different_sender() {
         };
         service.send_annotation(request).await.unwrap();
 
-        let exists = service
-            .annotation_exists(&room_id, &relates_to, &other_sender, "👍")
-            .await
-            .unwrap();
+        let exists = service.annotation_exists(&room_id, &relates_to, &other_sender, "👍").await.unwrap();
         assert!(!exists);
     });
 }
@@ -731,10 +689,7 @@ fn test_annotation_exists_false_no_annotation() {
         let sender = format!("@user_{suffix}:localhost");
         let relates_to = format!("$orig_{suffix}:localhost");
 
-        let exists = service
-            .annotation_exists(&room_id, &relates_to, &sender, "👍")
-            .await
-            .unwrap();
+        let exists = service.annotation_exists(&room_id, &relates_to, &sender, "👍").await.unwrap();
         assert!(!exists);
     });
 }
@@ -762,15 +717,9 @@ fn test_redacted_relation_excluded_from_get_relations() {
         };
         let annotation = service.send_annotation(request).await.unwrap();
 
-        service
-            .redact_relation(&room_id, &annotation.event_id, &sender)
-            .await
-            .unwrap();
+        service.redact_relation(&room_id, &annotation.event_id, &sender).await.unwrap();
 
-        let response = service
-            .get_relations(&room_id, &relates_to, None, None, None, None)
-            .await
-            .unwrap();
+        let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
 
         assert!(response.chunk.is_empty());
         assert_eq!(response.total, Some(0));
@@ -800,14 +749,7 @@ fn test_redacted_annotation_excluded_from_exists() {
         };
         service.send_annotation(request).await.unwrap();
 
-        service
-            .redact_relation(
-                &room_id,
-                &format!("$annotation_{suffix}:localhost"),
-                &sender,
-            )
-            .await
-            .unwrap();
+        service.redact_relation(&room_id, &format!("$annotation_{suffix}:localhost"), &sender).await.unwrap();
 
         let storage = RelationsStorage::new(&pool);
         let relations = storage
@@ -848,15 +790,9 @@ fn test_get_aggregations_excludes_redacted() {
         };
         let annotation = service.send_annotation(request).await.unwrap();
 
-        service
-            .redact_relation(&room_id, &annotation.event_id, &sender)
-            .await
-            .unwrap();
+        service.redact_relation(&room_id, &annotation.event_id, &sender).await.unwrap();
 
-        let response = service
-            .get_aggregations(&room_id, &relates_to)
-            .await
-            .unwrap();
+        let response = service.get_aggregations(&room_id, &relates_to).await.unwrap();
 
         assert!(response.chunk.is_empty());
     });
@@ -887,10 +823,7 @@ fn test_multiple_annotations_same_key_aggregated() {
             service.send_annotation(request).await.unwrap();
         }
 
-        let response = service
-            .get_aggregations(&room_id, &relates_to)
-            .await
-            .unwrap();
+        let response = service.get_aggregations(&room_id, &relates_to).await.unwrap();
 
         assert_eq!(response.chunk.len(), 1);
         assert_eq!(response.chunk[0].count, 5);
@@ -923,17 +856,8 @@ fn test_get_relations_backward_direction() {
             service.send_annotation(request).await.unwrap();
         }
 
-        let response = service
-            .get_relations(
-                &room_id,
-                &relates_to,
-                None,
-                None,
-                None,
-                Some("b".to_string()),
-            )
-            .await
-            .unwrap();
+        let response =
+            service.get_relations(&room_id, &relates_to, None, None, None, Some("b".to_string())).await.unwrap();
 
         assert_eq!(response.chunk.len(), 3);
     });
@@ -994,12 +918,7 @@ fn test_relations_response_serialization() {
 
 #[test]
 fn test_relations_response_total_skipped_when_none() {
-    let response = RelationsResponse {
-        chunk: vec![],
-        next_batch: None,
-        prev_batch: None,
-        total: None,
-    };
+    let response = RelationsResponse { chunk: vec![], next_batch: None, prev_batch: None, total: None };
 
     let json = serde_json::to_value(&response).unwrap();
     assert!(json.get("total").is_none());

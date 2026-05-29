@@ -442,13 +442,7 @@ mod tests {
 
         #[test]
         fn test_error_codes() {
-            let codes = [
-                "M_NOT_FOUND",
-                "M_UNAUTHORIZED",
-                "M_FORBIDDEN",
-                "M_INVALID_PARAM",
-                "M_UNKNOWN",
-            ];
+            let codes = ["M_NOT_FOUND", "M_UNAUTHORIZED", "M_FORBIDDEN", "M_INVALID_PARAM", "M_UNKNOWN"];
             assert_eq!(codes.len(), 5);
         }
     }

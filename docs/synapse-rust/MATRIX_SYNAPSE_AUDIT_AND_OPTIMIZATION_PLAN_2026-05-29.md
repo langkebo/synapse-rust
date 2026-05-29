@@ -11,7 +11,9 @@
 
 项目已经具备较完整的 Matrix homeserver 骨架，并且有路由账本、schema health check、Redis/本地缓存、worker、E2EE、媒体、空间、同步、联邦等模块。但与 Matrix v1.18 和 Synapse v1.153.0 的成熟实现相比，主要短板不在“有没有路由”，而在协议声明准确性、联邦边界语义、长期运行治理、规范级事件校验、Complement 级互通测试和 worker/stream 运维模型。
 
-本次已完成首个 P0 修复: 联邦 `Authorization: X-Matrix ... destination=...` 不再只匹配旧配置字段 `server.name`，而是接受当前服务实际 server name、兼容旧字段、`server.server_name` 和 `federation.server_name`。这避免反向代理或委托域部署中合法联邦请求被误拒。
+本次已完成两个低风险修复:
+- 联邦 `Authorization: X-Matrix ... destination=...` 不再只匹配旧配置字段 `server.name`，而是接受当前服务实际 server name、兼容旧字段、`server.server_name` 和 `federation.server_name`。这避免反向代理或委托域部署中合法联邦请求被误拒。
+- `/_matrix/client/v3/capabilities` 能力响应已从 handler 内的大块重复 `cfg` 分支收口为 builder，公共能力与认证后私有/扩展能力分层生成，`widgets`、`burn-after-read`、`friends` 等 unstable/custom 声明随编译特性变化，避免禁用特性仍对外声明为可用。
 
 ## 规范与 Synapse 关键学习
 
@@ -56,14 +58,14 @@ Synapse v1.153.0 的近期方向:
 ### P1: Client-Server 能力声明
 
 4. `/versions` 与能力声明需要治理机制
-- 现状: `CLIENT_VERSIONS_JSON_BASE` 是静态 JSON，当前写到 `v1.13`，而官方 spec 已到 v1.18；Synapse 最新稳定仍谨慎声明到 v1.12。
+- 现状: `CLIENT_API_VERSIONS` 是静态列表，当前写到 `v1.13`，而官方 spec 已到 v1.18；Synapse 最新稳定仍谨慎声明到 v1.12。
 - 风险: 过度声明导致客户端启用未完整实现能力；声明滞后导致新 SDK 误判能力。
 - 建议: 建立 `SupportedMatrixVersions` 常量与覆盖测试，每次提升版本必须绑定端点覆盖、错误码、字段兼容清单。
 
 5. `capabilities` 应从配置和实现表生成
-- 现状: room version、SSO、profile、custom capability 混在 handler 中硬编码。
+- 现状: 已完成第一步 builder 化，room version、SSO、OpenClaw 和 feature-gated 私有能力不再散落在重复分支里；但 profile/password/3PID 等稳定能力仍是静态 `true`，尚未与配置和路由账本形成证据链。
 - 风险: 配置关闭但能力仍显示启用，或实现存在但未声明。
-- 建议: 按 Synapse 模式拆出 capability builder，输入为 `Config + FeatureFlags + RouteLedger`。
+- 建议: 下一步按 Synapse 模式把 builder 输入扩展为 `Config + FeatureFlags + RouteLedger`，并为每个稳定 capability 增加“声明证据”测试。
 
 6. room version v12 路线不清
 - 现状: 声明 stable 到 v11，存储与事件校验层尚未形成版本能力矩阵。
@@ -118,13 +120,16 @@ Synapse v1.153.0 的近期方向:
 ### Phase 2: 声明层治理
 
 - 把 `/versions` 静态 JSON 改为 typed builder。
-- 把 `/capabilities` 拆成 `CapabilityBuilder`，输入配置与 feature flags。
-- 新增 `docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`，列出每个稳定版本/MSC 的支持证据。
+- 已完成 `/capabilities` 第一阶段 builder 化: 公共能力、认证私有能力、unstable feature 声明分层生成，去掉重复 feature 分支。
+- 已新增 `docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`，记录当前 `/versions`、`/capabilities`、room versions 和 unstable/custom feature 的声明证据与提升规则。
+- 继续把 `/capabilities` builder 输入扩展到 route ledger 和稳定能力配置项。
+- 持续完善 `docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`，列出每个稳定版本/MSC 的支持证据。
 - 禁止未绑定证据的版本号提升。
 
 验收:
 - route ledger 与 supported surface 一致。
 - `/_matrix/client/versions`、`/_matrix/client/v3/capabilities` 快照测试稳定。
+- `cargo test --lib web::routes::handlers::versions::tests -- --nocapture` 通过。
 
 ### Phase 3: 房间版本与事件语义
 
@@ -164,3 +169,9 @@ Synapse v1.153.0 的近期方向:
 - `X-Matrix` 参数名解析改为大小写不敏感。
 - 新增集成测试覆盖 `server.name` 与 `server.server_name` 不一致时的合法 destination。
 - 新增单元测试覆盖 `Origin/Destination/Key/Sig` 参数名大小写。
+- 重构 `src/web/routes/handlers/versions.rs` 中 capabilities 构建逻辑，删除重复的 widgets / burn-after-read / external-services / voice-extended 插入分支。
+- 将 `/versions` 与 `/capabilities` 中 feature-gated unstable/custom 声明对齐到编译特性，避免禁用模块仍被声明为可用。
+- 新增 capabilities 单元测试，覆盖未认证公共能力过滤、认证后 SSO/OpenClaw/feature-gate 声明。
+- 将 `CLIENT_API_VERSIONS` 裸字符串数组升级为 `CLIENT_API_VERSION_SUPPORT` typed support table，为 legacy r0 与 stable v1 声明建立可测试结构。
+- 新增 `docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`，作为后续提升 Matrix 版本、MSC 和 capabilities 声明的证据入口。
+- 删除 push provider 与 worker 模块中已弃用且命名冲突的兼容别名: `ApnsConfig`、`FcmConfig`、`WebPushConfig`、`RedisConfig`、`WorkerConfig`，统一使用 `*ProviderConfig`、`RedisBusConfig` 和 `WorkerRuntimeConfig`，减少与 `common::config::*Config` 的重复命名。
