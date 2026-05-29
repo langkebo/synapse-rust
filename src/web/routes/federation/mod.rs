@@ -227,11 +227,7 @@ async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
         "server_name": state.services.server_name,
         "capabilities": {
             "m.change_password": true,
-            "m.room_versions": {
-                "1": {
-                    "status": "stable"
-                }
-            }
+            "m.room_versions": federation_room_versions_capability()
         }
     }))
 }
