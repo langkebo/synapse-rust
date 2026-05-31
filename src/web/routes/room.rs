@@ -337,8 +337,7 @@ async fn get_anti_screenshot(
         .into_iter()
         .find(|e| e.state_key.as_deref() == Some("") || e.state_key.is_none())
         .and_then(|e| e.content.get("action").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .map(|a| a == "block_screenshot")
-        .unwrap_or(false);
+        .is_some_and(|a| a == "block_screenshot");
 
     Ok(Json(serde_json::json!({"enabled": enabled})))
 }

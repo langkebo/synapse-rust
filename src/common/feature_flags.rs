@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct FeatureFlags {
     pub room_summary: RoomSummaryFlags,
     pub dm: DmFlags,
@@ -29,13 +29,13 @@ pub struct SpaceFlags {
     pub max_depth: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PusherFlags {
     #[serde(default)]
     pub experimental: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct VerificationFlags {
     #[serde(default)]
     pub use_new_api: bool,
@@ -53,18 +53,6 @@ fn default_max_depth() -> i32 {
     100
 }
 
-impl Default for FeatureFlags {
-    fn default() -> Self {
-        Self {
-            room_summary: RoomSummaryFlags::default(),
-            dm: DmFlags::default(),
-            space: SpaceFlags::default(),
-            pushers: PusherFlags::default(),
-            verification: VerificationFlags::default(),
-        }
-    }
-}
-
 impl Default for RoomSummaryFlags {
     fn default() -> Self {
         Self { realtime_sync: default_realtime_sync() }
@@ -80,18 +68,6 @@ impl Default for DmFlags {
 impl Default for SpaceFlags {
     fn default() -> Self {
         Self { max_depth: default_max_depth() }
-    }
-}
-
-impl Default for PusherFlags {
-    fn default() -> Self {
-        Self { experimental: false }
-    }
-}
-
-impl Default for VerificationFlags {
-    fn default() -> Self {
-        Self { use_new_api: false }
     }
 }
 

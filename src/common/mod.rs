@@ -58,6 +58,7 @@ pub use error::*;
 pub use event_utils::*;
 #[allow(ambiguous_glob_reexports)]
 pub use feature_flags::*;
+#[cfg(any(test, feature = "test-utils"))]
 #[allow(ambiguous_glob_reexports)]
 pub use federation_test_keys::*;
 #[allow(ambiguous_glob_reexports)]

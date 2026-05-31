@@ -396,14 +396,201 @@ mod tests {
     use crate::storage::media_quota::{MediaQuotaStorage, SetUserQuotaRequest};
     use crate::storage::user::UserStorage;
     use crate::test_utils;
+    use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
+    use std::time::Duration;
+
+    async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
+        let database_url = test_utils::resolve_test_database_url().await?;
+        let schema_name = format!(
+            "media_test_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_else(|| chrono::Utc::now().timestamp_micros() * 1000)
+        );
+
+        let admin_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&database_url)
+            .await
+            .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+
+        sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
+            .execute(&admin_pool)
+            .await
+            .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
+
+        let search_path_sql = format!("SET search_path TO {schema_name}, public");
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .min_connections(0)
+            .acquire_timeout(Duration::from_secs(30))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    Ok(())
+                })
+            })
+            .connect(&database_url)
+            .await
+            .map_err(|error| format!("failed to connect media test pool for {schema_name}: {error}"))?;
+
+        sqlx::raw_sql(
+            r"
+            CREATE TABLE users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_hash TEXT,
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                is_guest BOOLEAN NOT NULL DEFAULT FALSE,
+                is_shadow_banned BOOLEAN NOT NULL DEFAULT FALSE,
+                is_deactivated BOOLEAN NOT NULL DEFAULT FALSE,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                displayname TEXT,
+                avatar_url TEXT,
+                email TEXT,
+                phone TEXT,
+                generation BIGINT NOT NULL DEFAULT 0,
+                consent_version TEXT,
+                appservice_id TEXT,
+                user_type TEXT,
+                invalid_update_at BIGINT,
+                migration_state TEXT,
+                password_changed_ts BIGINT,
+                is_password_change_required BOOLEAN NOT NULL DEFAULT FALSE,
+                password_expires_at BIGINT,
+                failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+                locked_until BIGINT,
+                must_change_password BOOLEAN NOT NULL DEFAULT FALSE
+            );
+
+            CREATE TABLE media_metadata (
+                media_id TEXT PRIMARY KEY,
+                server_name TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                file_name TEXT,
+                size BIGINT NOT NULL,
+                uploader_user_id TEXT,
+                created_ts BIGINT NOT NULL,
+                last_accessed_at BIGINT,
+                quarantine_status TEXT
+            );
+
+            CREATE TABLE upload_progress (
+                upload_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                filename TEXT,
+                content_type TEXT,
+                total_size BIGINT,
+                uploaded_size BIGINT NOT NULL DEFAULT 0,
+                total_chunks INTEGER NOT NULL,
+                uploaded_chunks INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT,
+                expires_at BIGINT NOT NULL
+            );
+
+            CREATE TABLE upload_chunks (
+                upload_id TEXT NOT NULL REFERENCES upload_progress(upload_id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                chunk_data BYTEA NOT NULL,
+                chunk_size BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                PRIMARY KEY (upload_id, chunk_index)
+            );
+
+            CREATE TABLE media_quota_config (
+                id BIGSERIAL PRIMARY KEY,
+                config_name TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT 'default',
+                description TEXT,
+                max_file_size BIGINT DEFAULT 10485760,
+                max_upload_rate BIGINT,
+                allowed_content_types TEXT[] DEFAULT ARRAY[]::TEXT[],
+                retention_days INTEGER DEFAULT 90,
+                max_storage_bytes BIGINT NOT NULL DEFAULT 10737418240,
+                max_file_size_bytes BIGINT NOT NULL DEFAULT 10485760,
+                max_files_count INTEGER NOT NULL DEFAULT 10000,
+                allowed_mime_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+                blocked_mime_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+                is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+                updated_ts BIGINT
+            );
+
+            CREATE TABLE user_media_quota (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
+                max_bytes BIGINT DEFAULT 1073741824,
+                used_bytes BIGINT DEFAULT 0,
+                file_count INTEGER DEFAULT 0,
+                quota_config_id BIGINT,
+                custom_max_storage_bytes BIGINT,
+                custom_max_file_size_bytes BIGINT,
+                custom_max_files_count INTEGER,
+                current_storage_bytes BIGINT NOT NULL DEFAULT 0,
+                current_files_count INTEGER NOT NULL DEFAULT 0,
+                created_ts BIGINT NOT NULL,
+                updated_ts BIGINT
+            );
+
+            CREATE TABLE media_usage_log (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                media_id TEXT NOT NULL,
+                file_size_bytes BIGINT NOT NULL,
+                mime_type TEXT,
+                operation TEXT NOT NULL,
+                timestamp BIGINT NOT NULL
+            );
+
+            CREATE TABLE media_quota_alerts (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                alert_type TEXT NOT NULL,
+                threshold_percent INTEGER NOT NULL,
+                current_usage_bytes BIGINT NOT NULL,
+                quota_limit_bytes BIGINT NOT NULL,
+                message TEXT,
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
+            );
+
+            CREATE TABLE server_media_quota (
+                id BIGSERIAL PRIMARY KEY,
+                max_storage_bytes BIGINT,
+                max_file_size_bytes BIGINT,
+                max_files_count INTEGER,
+                current_storage_bytes BIGINT NOT NULL DEFAULT 0,
+                current_files_count INTEGER NOT NULL DEFAULT 0,
+                alert_threshold_percent INTEGER NOT NULL DEFAULT 80,
+                updated_ts BIGINT NOT NULL
+            );
+
+            INSERT INTO server_media_quota (
+                id, max_storage_bytes, max_file_size_bytes, max_files_count,
+                current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts
+            )
+            VALUES (1, 10995116277760, 1073741824, 1000000, 0, 0, 80, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000);
+            ",
+        )
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("failed to create media test schema objects in {schema_name}: {error}"))?;
+
+        Ok(Arc::new(pool))
+    }
 
     async fn setup_test_media_domain_users_with_quota(
         usernames: &[&str],
         max_storage_bytes: i64,
         max_file_size_bytes: i64,
     ) -> (MediaDomainService, MediaService, Vec<crate::storage::user::User>, tempfile::TempDir) {
-        let pool = test_utils::prepare_isolated_test_pool().await.expect("failed to prepare isolated test pool");
+        let pool = prepare_media_test_pool().await.expect("failed to prepare media test pool");
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let media_path = temp_dir.path().to_str().expect("temp dir path should be valid utf-8");
 

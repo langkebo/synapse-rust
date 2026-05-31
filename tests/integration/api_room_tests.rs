@@ -2549,6 +2549,39 @@ async fn test_create_room_rejects_protected_initial_state_events() {
 }
 
 #[tokio::test]
+async fn test_create_room_rejects_malformed_invite() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let Some(token) = register_user(&app, &format!("malformed_invite_{}", rand::random::<u32>())).await else {
+        return;
+    };
+
+    for invite in [json!("@not-array:localhost"), json!(["@valid:localhost", 42])] {
+        let create_request = Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/createRoom")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "name": "Malformed Invite Test Room",
+                    "invite": invite
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
+        assert_eq!(create_response.status(), StatusCode::BAD_REQUEST);
+
+        let body = axum::body::to_bytes(create_response.into_body(), 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["errcode"], "M_INVALID_PARAM");
+    }
+}
+
+#[tokio::test]
 async fn test_room_hierarchy_returns_room_summary_for_regular_room() {
     let Some(app) = setup_test_app().await else {
         return;

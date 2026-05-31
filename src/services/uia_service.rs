@@ -235,7 +235,7 @@ impl UiaService {
             identifier_user.to_string()
         } else {
             // Extract server_name from the authenticated user_id
-            let server_name = user_id.rsplit_once(':').map(|(_, s)| s).unwrap_or("localhost");
+            let server_name = user_id.rsplit_once(':').map_or("localhost", |(_, s)| s);
             format!("@{}:{}", identifier_user, server_name)
         };
 
@@ -300,9 +300,7 @@ impl UiaService {
         };
 
         // Validate UIA session and stage
-        if let Err(uia_response) = self.validate_auth(auth_val, user_id, flows.clone()).await {
-            return Err(uia_response);
-        }
+        self.validate_auth(auth_val, user_id, flows.clone()).await?;
 
         // Verify the specific auth type
         let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");

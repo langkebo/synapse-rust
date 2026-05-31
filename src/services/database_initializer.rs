@@ -1877,7 +1877,7 @@ impl DatabaseInitService {
             sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template").fetch_one(&*self.pool).await.unwrap_or(0);
         if captcha_count == 0 {
             let now_ts = chrono::Utc::now().timestamp_millis();
-            sqlx::query(
+            if let Err(e) = sqlx::query(
                 r#"
                 INSERT INTO captcha_template (template_name, captcha_type, subject, content, is_default, is_enabled, created_ts, updated_ts)
                 VALUES
@@ -1889,9 +1889,9 @@ impl DatabaseInitService {
             .bind(now_ts)
             .execute(&*self.pool)
             .await
-            .unwrap_or_else(|e| {
+            {
                 tracing::warn!("Failed to seed captcha templates: {}", e);
-            });
+            }
         }
 
         Ok("附加表和列检查完成".to_string())

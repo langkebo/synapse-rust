@@ -9,29 +9,33 @@ import json
 MIGRATIONS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations"
 )
-ACTIVE_PATTERNS = [
-    "00000000_unified_schema_v6.sql",
-    "00000001_extensions_*.sql",
-    "202604*.sql",
-]
+SQL_LINE_COMMENT_PATTERN = re.compile(r"--.*?(?=\n|$)")
+SQL_BLOCK_COMMENT_PATTERN = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def strip_sql_comments(content):
+    """Remove SQL comments before extracting schema definitions."""
+    content = SQL_BLOCK_COMMENT_PATTERN.sub(" ", content)
+    return SQL_LINE_COMMENT_PATTERN.sub(" ", content)
 
 
 def extract_tables_from_migrations():
     """Parse all CREATE TABLE and ALTER TABLE ADD COLUMN from active migrations."""
     tables = {}
-    all_files = []
-    for pattern in ACTIVE_PATTERNS:
-        all_files.extend(glob.glob(os.path.join(MIGRATIONS_DIR, pattern)))
-    all_files = sorted(set(f for f in all_files if ".undo." not in f))
+    all_files = sorted(
+        f
+        for f in glob.glob(os.path.join(MIGRATIONS_DIR, "*.sql"))
+        if ".undo." not in os.path.basename(f)
+    )
 
     for fpath in all_files:
         fname = os.path.basename(fpath)
         with open(fpath) as f:
-            content = f.read()
+            content = strip_sql_comments(f.read())
 
         # CREATE TABLE IF NOT EXISTS name ( ... );
         for m in re.finditer(
-            r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\);",
+            r"CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?\"?(\w+)\"?\s*\((.*?)\);",
             content,
             re.DOTALL | re.IGNORECASE,
         ):
@@ -45,17 +49,27 @@ def extract_tables_from_migrations():
                 tables[tname]["source"] += "+" + fname
 
         # ALTER TABLE name ADD COLUMN [IF NOT EXISTS] colname type ...
+        # Also handles multi-add statements:
+        # ALTER TABLE t ADD COLUMN a TEXT, ADD COLUMN b BIGINT;
         for m in re.finditer(
-            r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?(\w+)\"?\s+(.+?)(?:;|$)",
+            r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?\"?(\w+)\"?\s+(.*?);",
             content,
-            re.IGNORECASE,
+            re.IGNORECASE | re.DOTALL,
         ):
             tname = m.group(1)
-            cname = m.group(2)
-            cdef = m.group(3).strip().rstrip(";")
-            if tname in tables and cname not in tables[tname]["columns"]:
-                tables[tname]["columns"][cname] = cdef
-                tables[tname]["source"] += "+ALTER(" + fname + ")"
+            body = m.group(2)
+            if tname not in tables:
+                continue
+            for col_m in re.finditer(
+                r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?(\w+)\"?\s+(.+?)(?=,\s*ADD\s+COLUMN|\s*,?\s*(?:ALTER|DROP)\s+COLUMN|$)",
+                body,
+                re.IGNORECASE | re.DOTALL,
+            ):
+                cname = col_m.group(1)
+                cdef = col_m.group(2).strip().rstrip(",")
+                if cname not in tables[tname]["columns"]:
+                    tables[tname]["columns"][cname] = cdef
+                    tables[tname]["source"] += "+ALTER(" + fname + ")"
 
     return tables
 
@@ -124,17 +138,16 @@ def extract_rust_structs():
                 for field_line in body.split("\n"):
                     fl = field_line.strip().rstrip(",")
                     if not fl or fl.startswith("//"):
-                        # Check if this is an attribute line
-                        attr_fl = fl.strip()
-                        if attr_fl.startswith("#["):
-                            rename_m = re.search(
-                                r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', attr_fl
-                            )
-                            skip_m = re.search(r"#\[\s*sqlx\(skip\)\]", attr_fl)
-                            if rename_m:
-                                pending_rename = rename_m.group(1)
-                            if skip_m:
-                                pending_skip = True
+                        continue
+                    if fl.startswith("#["):
+                        rename_m = re.search(
+                            r'#\[\s*sqlx\(rename\s*=\s*"([^"]+)"\s*\)\]', fl
+                        )
+                        skip_m = re.search(r"#\[\s*sqlx\(skip\)\]", fl)
+                        if rename_m:
+                            pending_rename = rename_m.group(1)
+                        if skip_m:
+                            pending_skip = True
                         continue
 
                     # Check for sqlx attribute on this field (same line)
@@ -176,13 +189,17 @@ def extract_rust_structs():
                 }
 
     # Now extract struct-to-table mapping from query_as calls
-    struct_table_map, alias_maps = _extract_struct_table_mapping(rust_dir, structs)
+    struct_table_map, alias_maps, projection_structs, query_columns = _extract_struct_table_mapping(rust_dir, structs)
     for sname, tname in struct_table_map.items():
         if sname in structs:
             structs[sname]["table"] = tname
     for sname, aliases in alias_maps.items():
         if sname in structs:
             structs[sname]["sql_aliases"] = aliases
+    for sname in projection_structs:
+        if sname in structs:
+            structs[sname]["query_projection"] = True
+            structs[sname]["query_columns"] = sorted(query_columns.get(sname, set()))
 
     return structs
 
@@ -193,6 +210,8 @@ def _extract_struct_table_mapping(rust_dir, structs):
     """
     mapping = {}
     alias_maps = {}
+    projection_structs = set()
+    query_columns = {}
     for root, dirs, files in os.walk(rust_dir):
         if "__pycache__" in root or "target" in root:
             continue
@@ -221,6 +240,15 @@ def _extract_struct_table_mapping(rust_dir, structs):
                     if sname not in mapping:
                         mapping[sname] = tname
 
+                select_m = re.search(r"\bSELECT\b(.*?)\bFROM\b", sql_text, re.IGNORECASE | re.DOTALL)
+                if select_m:
+                    selected = select_m.group(1)
+                    selected_cols = _extract_selected_output_columns(selected)
+                    if selected_cols:
+                        query_columns.setdefault(sname, set()).update(selected_cols)
+                    if "*" not in selected:
+                        projection_structs.add(sname)
+
                 # Extract AS aliases: "column_name AS alias_name" or "expr as alias_name"
                 aliases = {}
                 for alias_m in re.finditer(
@@ -231,7 +259,7 @@ def _extract_struct_table_mapping(rust_dir, structs):
                     # Find the source column
                     full_expr = alias_m.group(0)
                     # Simple case: "column_name AS alias"
-                    simple_col = re.match(r"(\w+)\s+[Aa][Ss]\s+", full_expr)
+                    simple_col = re.match(r"(?:\w+\.)?(\w+)\s+[Aa][Ss]\s+", full_expr)
                     if simple_col:
                         source_col = simple_col.group(1)
                         if source_col.upper() not in (
@@ -258,7 +286,23 @@ def _extract_struct_table_mapping(rust_dir, structs):
                 if aliases and sname not in alias_maps:
                     alias_maps[sname] = aliases
 
-    return mapping, alias_maps
+    return mapping, alias_maps, projection_structs, query_columns
+
+
+def _extract_selected_output_columns(selected):
+    """Return likely output column names from a SELECT list."""
+    columns = set()
+    for alias_m in re.finditer(r"\bAS\s+\"?([A-Za-z_][A-Za-z0-9_]*)\"?", selected, re.IGNORECASE):
+        columns.add(alias_m.group(1))
+
+    for part in selected.split(","):
+        expr = part.strip()
+        if not expr or "*" in expr or re.search(r"\bAS\b", expr, re.IGNORECASE):
+            continue
+        simple = re.fullmatch(r"(?:\w+\.)?\"?([A-Za-z_][A-Za-z0-9_]*)\"?", expr)
+        if simple:
+            columns.add(simple.group(1))
+    return columns
 
 
 def rust_type_to_sql_type(rust_type):
@@ -339,6 +383,8 @@ def compare_schema_vs_code(sql_tables, rust_structs):
         rust_fields = sinfo["fields"]
         renames = sinfo["renames"]
         skips = sinfo["skips"]
+        is_projection = sinfo.get("query_projection", False)
+        query_output_columns = set(sinfo.get("query_columns", []))
 
         matched.append((tname, sname))
 
@@ -356,43 +402,47 @@ def compare_schema_vs_code(sql_tables, rust_structs):
                 db_name = fname
             db_to_rust[db_name] = (fname, ftype)
 
-        # Check: SQL columns that have no matching Rust field
-        for cname, cdef in sorted(sql_cols.items()):
-            if (
-                cname not in db_to_rust
-                and cname not in [r[0] for r in renames.values()]
-                and cname not in skips
-            ):
-                c_upper = cdef.upper()
-                is_nullable = "NOT NULL" not in c_upper or "DEFAULT" in c_upper
-                has_default = "DEFAULT" in c_upper
+        # Full table models should cover table columns. Query projection structs
+        # intentionally select a subset or computed aliases and should not be
+        # compared as if they represented every column in the source table.
+        if not is_projection:
+            for cname, cdef in sorted(sql_cols.items()):
+                if (
+                    cname not in db_to_rust
+                    and cname not in [r[0] for r in renames.values()]
+                    and cname not in skips
+                ):
+                    c_upper = cdef.upper()
+                    has_default = "DEFAULT" in c_upper
 
-                if "NOT NULL" in c_upper and not has_default:
-                    issues["high"].append(
-                        {
-                            "type": "SQL_COLUMN_WITHOUT_RUST_FIELD",
-                            "table": tname,
-                            "struct": sname,
-                            "column": cname,
-                            "col_def": cdef.strip(),
-                            "detail": f"SQL column '{cname}' ({cdef.strip()}) has no matching Rust field in {sname}",
-                        }
-                    )
-                else:
-                    issues["low"].append(
-                        {
-                            "type": "SQL_COLUMN_UNUSED_BY_RUST",
-                            "table": tname,
-                            "struct": sname,
-                            "column": cname,
-                            "col_def": cdef.strip(),
-                            "detail": f"SQL column '{cname}' not mapped to any Rust field (nullable/has_default)",
-                        }
-                    )
+                    if "NOT NULL" in c_upper and not has_default:
+                        issues["high"].append(
+                            {
+                                "type": "SQL_COLUMN_WITHOUT_RUST_FIELD",
+                                "table": tname,
+                                "struct": sname,
+                                "column": cname,
+                                "col_def": cdef.strip(),
+                                "detail": f"SQL column '{cname}' ({cdef.strip()}) has no matching Rust field in {sname}",
+                            }
+                        )
+                    else:
+                        issues["low"].append(
+                            {
+                                "type": "SQL_COLUMN_UNUSED_BY_RUST",
+                                "table": tname,
+                                "struct": sname,
+                                "column": cname,
+                                "col_def": cdef.strip(),
+                                "detail": f"SQL column '{cname}' not mapped to any Rust field (nullable/has_default)",
+                            }
+                        )
 
         # Check: Rust fields with no matching SQL column
         for db_name, (fname, ftype) in db_to_rust.items():
             if db_name not in sql_cols:
+                if is_projection and (fname in query_output_columns or db_name in query_output_columns):
+                    continue
                 is_option = "Option<" in ftype
                 target = issues["critical"] if not is_option else issues["high"]
                 target.append(
@@ -408,6 +458,8 @@ def compare_schema_vs_code(sql_tables, rust_structs):
                 )
 
         # Check type mismatches for matched columns
+        if is_projection:
+            continue
         for db_name, (fname, ftype) in db_to_rust.items():
             if db_name not in sql_cols:
                 continue

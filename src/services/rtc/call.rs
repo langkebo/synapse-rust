@@ -289,7 +289,7 @@ mod tests {
                 "sdp": "v=0..."
             },
             "invitee": "@alice:example.com",
-            "lifetime": 60_000
+            "lifetime": 60000
         }"#;
 
         let event: CallInviteEvent = serde_json::from_str(json).unwrap();

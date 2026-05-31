@@ -106,7 +106,7 @@ pub struct ThirdPartyRuleResult {
     pub event_type: String,
     pub rule_name: String,
     #[serde(rename = "allowed")]
-    #[sqlx(rename = "allowed")]
+    #[sqlx(rename = "is_allowed")]
     pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
@@ -200,24 +200,6 @@ pub struct CreatePasswordAuthProviderRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct PresenceRoute {
-    pub id: i64,
-    pub user_id: String,
-    pub presence_server: String,
-    pub updated_ts: i64,
-    pub is_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatePresenceRouteRequest {
-    pub route_name: String,
-    pub route_type: String,
-    pub config: serde_json::Value,
-    pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct MediaCallback {
     pub id: i64,
     pub callback_type: String,
@@ -240,27 +222,6 @@ pub struct CreateMediaCallbackRequest {
     pub is_enabled: Option<bool>,
     pub timeout_ms: Option<i32>,
     pub retry_count: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RateLimitCallback {
-    pub id: i64,
-    pub callback_type: String,
-    pub user_id: String,
-    pub ip_address: String,
-    pub rate_limit_type: String,
-    pub result: Option<serde_json::Value>,
-    pub created_ts: i64,
-    pub is_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateRateLimitCallbackRequest {
-    pub callback_name: String,
-    pub callback_type: String,
-    pub config: serde_json::Value,
-    pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -459,41 +420,85 @@ impl ModuleStorage {
         request: CreateSpamCheckRequest,
     ) -> Result<SpamCheckResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        tracing::info!(
-            event_id = %request.event_id,
-            sender = %request.sender,
-            result = %request.result,
-            checker = %request.checker_module,
-            "spam check result"
-        );
-        Ok(SpamCheckResult {
-            id: 0,
-            event_id: request.event_id,
-            room_id: request.room_id,
-            sender: request.sender,
-            event_type: request.event_type,
-            content: Some(request.content),
-            result: request.result,
-            score: request.score.unwrap_or(0),
-            reason: request.reason,
-            checker_module: request.checker_module,
-            checked_ts: now,
-            action_taken: request.action_taken,
-        })
+        let score = request.score.unwrap_or(0);
+        let is_spam = !matches!(request.result.as_str(), "ok" | "allow" | "pass" | "clean");
+        let check_details = serde_json::json!({
+            "event_type": request.event_type,
+            "content": request.content,
+            "result": request.result,
+            "reason": request.reason,
+            "checker_module": request.checker_module,
+            "action_taken": request.action_taken,
+        });
+
+        let row = sqlx::query_as::<_, SpamCheckResult>(
+            r"
+            INSERT INTO spam_check_results (
+                event_id, room_id, user_id, sender, event_type, content, result, score,
+                spam_score, is_spam, check_details, reason, checker_module, checked_ts,
+                action_taken, created_ts
+            )
+            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12, $13, $12)
+            RETURNING id, event_id, room_id, sender, event_type, content, result, score,
+                reason, checker_module, checked_ts, action_taken
+            ",
+        )
+        .bind(&request.event_id)
+        .bind(&request.room_id)
+        .bind(&request.sender)
+        .bind(&request.event_type)
+        .bind(&request.content)
+        .bind(&request.result)
+        .bind(score)
+        .bind(is_spam)
+        .bind(check_details)
+        .bind(&request.reason)
+        .bind(&request.checker_module)
+        .bind(now)
+        .bind(&request.action_taken)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_spam_check_result(&self, _event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
-        Ok(None)
+    pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
+        sqlx::query_as::<_, SpamCheckResult>(
+            r"
+            SELECT id, event_id, room_id, sender, event_type, content, result, score,
+                reason, checker_module, checked_ts, action_taken
+            FROM spam_check_results
+            WHERE event_id = $1
+            ORDER BY checked_ts DESC, id DESC
+            LIMIT 1
+            ",
+        )
+        .bind(event_id)
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     #[instrument(skip(self))]
     pub async fn get_spam_check_results_by_sender(
         &self,
-        _sender: &str,
-        _limit: i64,
+        sender: &str,
+        limit: i64,
     ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
-        Ok(vec![])
+        sqlx::query_as::<_, SpamCheckResult>(
+            r"
+            SELECT id, event_id, room_id, sender, event_type, content, result, score,
+                reason, checker_module, checked_ts, action_taken
+            FROM spam_check_results
+            WHERE sender = $1
+            ORDER BY checked_ts DESC, id DESC
+            LIMIT $2
+            ",
+        )
+        .bind(sender)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     #[instrument(skip(self))]
@@ -502,32 +507,54 @@ impl ModuleStorage {
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        tracing::info!(
-            event_id = %request.event_id,
-            rule = %request.rule_name,
-            allowed = request.is_allowed,
-            "third party rule result"
-        );
-        Ok(ThirdPartyRuleResult {
-            id: 0,
-            event_id: request.event_id,
-            room_id: request.room_id,
-            sender: request.sender,
-            event_type: request.event_type,
-            rule_name: request.rule_name,
-            is_allowed: request.is_allowed,
-            reason: request.reason,
-            modified_content: request.modified_content,
-            checked_ts: now,
-        })
+        let rule_details = serde_json::json!({
+            "event_type": request.event_type,
+            "rule_name": request.rule_name,
+            "reason": request.reason,
+            "modified_content": request.modified_content,
+        });
+
+        let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
+            r"
+            INSERT INTO third_party_rule_results (
+                rule_type, event_id, room_id, user_id, sender, event_type, rule_name,
+                is_allowed, rule_details, reason, modified_content, checked_ts, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $4, $5, $1, $6, $7, $8, $9, $10, $10)
+            RETURNING id, event_id, room_id, sender, event_type, rule_name,
+                is_allowed, reason, modified_content, checked_ts
+            ",
+        )
+        .bind(&request.rule_name)
+        .bind(&request.event_id)
+        .bind(&request.room_id)
+        .bind(&request.sender)
+        .bind(&request.event_type)
+        .bind(request.is_allowed)
+        .bind(rule_details)
+        .bind(&request.reason)
+        .bind(&request.modified_content)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
     }
 
     #[instrument(skip(self))]
-    pub async fn get_third_party_rule_results(
-        &self,
-        _event_id: &str,
-    ) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
-        Ok(vec![])
+    pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
+        sqlx::query_as::<_, ThirdPartyRuleResult>(
+            r"
+            SELECT id, event_id, room_id, sender, event_type, rule_name,
+                is_allowed, reason, modified_content, checked_ts
+            FROM third_party_rule_results
+            WHERE event_id = $1
+            ORDER BY checked_ts DESC, id DESC
+            ",
+        )
+        .bind(event_id)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     #[instrument(skip(self))]
@@ -717,19 +744,6 @@ impl ModuleStorage {
     }
 
     #[instrument(skip(self))]
-    pub async fn create_presence_route(
-        &self,
-        _request: CreatePresenceRouteRequest,
-    ) -> Result<PresenceRoute, sqlx::Error> {
-        Err(sqlx::Error::RowNotFound)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_presence_routes(&self) -> Result<Vec<PresenceRoute>, sqlx::Error> {
-        Ok(vec![])
-    }
-
-    #[instrument(skip(self))]
     pub async fn create_media_callback(
         &self,
         request: CreateMediaCallbackRequest,
@@ -776,19 +790,6 @@ impl ModuleStorage {
         };
 
         Ok(rows)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn create_rate_limit_callback(
-        &self,
-        _request: CreateRateLimitCallbackRequest,
-    ) -> Result<RateLimitCallback, sqlx::Error> {
-        Err(sqlx::Error::RowNotFound)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_rate_limit_callbacks(&self) -> Result<Vec<RateLimitCallback>, sqlx::Error> {
-        Ok(vec![])
     }
 
     #[instrument(skip(self))]

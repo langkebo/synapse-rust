@@ -1047,7 +1047,7 @@ mod tests {
             event_id: Some("$event123".to_string()),
             room_id: Some("!room123:example.com".to_string()),
             notification_type: Some("m.room.message".to_string()),
-            content: content.clone(),
+            content,
             priority: 10,
         };
 

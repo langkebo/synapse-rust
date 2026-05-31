@@ -43,6 +43,7 @@ impl RoomMemberStorage {
         Self { pool: pool.clone(), server_name: server_name.to_string() }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_member(
         &self,
         room_id: &str,

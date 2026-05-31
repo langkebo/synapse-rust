@@ -211,6 +211,14 @@ fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
         return true;
     }
 
+    // Sensitive federation operations
+    if path == "/_synapse/admin/v1/federation/resolve"
+        || path.contains("/federation/blacklist")
+        || path == "/_synapse/admin/v1/federation/cache/clear"
+    {
+        return true;
+    }
+
     false
 }
 
@@ -463,6 +471,11 @@ mod tests {
         assert!(!is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/rooms/!room:localhost/retention"));
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/make_admin"));
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/send_server_notice"));
+
+        // Sensitive federation operations
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/resolve"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/blacklist/server.example.com"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/cache/clear"));
     }
 
     #[test]
@@ -473,12 +486,6 @@ mod tests {
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/login"));
         // Admin should be able to logout user
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/logout"));
-        // Admin should be able to resolve federation
-        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/resolve"));
-        // Admin should be able to manage federation blacklist
-        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/blacklist/server.example.com"));
-        // Admin should be able to clear federation cache
-        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/federation/cache/clear"));
         // Admin should be able to shutdown rooms
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/shutdown_room"));
         // Admin should be able to delete rooms

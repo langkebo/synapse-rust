@@ -286,7 +286,7 @@ async fn load_direct_room_snapshot(
     #[cfg(feature = "friends")]
     {
         let snapshot = state.services.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
-        return Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct));
+        Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
@@ -319,7 +319,7 @@ async fn update_direct_room_snapshot(
         };
 
         let snapshot = state.services.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
-        return Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct));
+        Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
@@ -529,7 +529,7 @@ pub async fn get_dm_rooms(
     #[cfg(feature = "friends")]
     {
         let dm_rooms = state.services.friend_room_service.get_effective_direct_map(user_id).await?;
-        return Ok(Json(json!({ "rooms": dm_rooms })));
+        Ok(Json(json!({ "rooms": dm_rooms })))
     }
 
     #[cfg(not(feature = "friends"))]

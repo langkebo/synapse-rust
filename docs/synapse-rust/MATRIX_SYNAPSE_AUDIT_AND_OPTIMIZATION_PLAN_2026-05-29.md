@@ -68,9 +68,9 @@ Synapse v1.153.0 的近期方向:
 - 建议: 下一步按 Synapse 模式把 builder 输入扩展为 `Config + FeatureFlags + RouteLedger`，并为每个稳定 capability 增加“声明证据”测试。
 
 6. room version v12 路线不清
-- 现状: 声明 stable 到 v11，存储与事件校验层尚未形成版本能力矩阵。
+- 现状: 声明 stable 到 v11；已新增 room version 能力矩阵，区分 create、join/accept、parse、federation，但 v12 尚未评估和声明。
 - 风险: 升房、restricted/knock/space 行为在不同房间版本下出现不一致。
-- 建议: 新增 `RoomVersionCapabilities`，显式声明 authorization rules、event format、redaction rules、restricted join、knock、state resolution 支持。
+- 建议: 基于现有矩阵继续补 authorization rules、event format、redaction rules、restricted join、knock、state resolution 支持字段。
 
 ### P1: 同步、设备与长期运行
 
@@ -133,7 +133,7 @@ Synapse v1.153.0 的近期方向:
 
 ### Phase 3: 房间版本与事件语义
 
-- 建立 `RoomVersionCapabilities`。
+- 已建立 room version 能力矩阵，显式区分可创建、可加入/接受、可解析、可联邦接受版本。
 - 明确默认房间版本、可创建版本、可加入版本、仅解析版本。
 - 补充 v12 评估: authorization rules、redaction、knock/restricted join、tombstone upgrade。
 - 对升级房间流程增加事务性测试，避免 Synapse v1.153.0 提到的 power level 临时突变类问题。
@@ -175,3 +175,6 @@ Synapse v1.153.0 的近期方向:
 - 将 `CLIENT_API_VERSIONS` 裸字符串数组升级为 `CLIENT_API_VERSION_SUPPORT` typed support table，为 legacy r0 与 stable v1 声明建立可测试结构。
 - 新增 `docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`，作为后续提升 Matrix 版本、MSC 和 capabilities 声明的证据入口。
 - 删除 push provider 与 worker 模块中已弃用且命名冲突的兼容别名: `ApnsConfig`、`FcmConfig`、`WebPushConfig`、`RedisConfig`、`WorkerConfig`，统一使用 `*ProviderConfig`、`RedisBusConfig` 和 `WorkerRuntimeConfig`，减少与 `common::config::*Config` 的重复命名。
+- 将 `src/common/room_versions.rs` 从单一 stable 列表升级为能力矩阵，当前 v1-v11 行为保持不变，但为 v12 或“仅解析不创建”的过渡状态预留明确模型。
+- 联邦 membership 路径已接入 room version federation 维度校验，包括 `make_join`、`make_leave`、`send_join`、`send_join_v2`、`send_leave`、`send_leave_v2`、`knock`、`invite`、`invite_v2`、third-party invite 和成员查询类入口，不再对缺失或未知版本房间默认为 v10 继续处理。
+- 数据库专项审查记录见 `docs/db/DB_AUDIT_AND_REMEDIATION_2026-05-29.md`: 已修复迁移/deploy 镜像漂移、Postgres search 误引用 `room_members`、schema coverage 误报和已删除冗余表 `room_children` 的过期 contract 期望。

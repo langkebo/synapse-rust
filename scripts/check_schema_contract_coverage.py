@@ -178,23 +178,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
         "indexes": ["idx_room_summary_update_queue_status_priority_created"],
         "constraints": ["fk_room_summary_update_queue_room"],
     },
-    "room_children": {
-        "columns": [
-            "parent_room_id",
-            "child_room_id",
-            "state_key",
-            "content",
-            "suggested",
-            "created_ts",
-            "updated_ts",
-        ],
-        "indexes": ["idx_room_children_parent_suggested", "idx_room_children_child"],
-        "constraints": [
-            "uq_room_children_parent_child",
-            "fk_room_children_parent",
-            "fk_room_children_child",
-        ],
-    },
     "retention_cleanup_queue": {
         "columns": [
             "room_id",

@@ -32,6 +32,7 @@ pub struct RefreshTokenUsage {
     pub used_ts: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[sqlx(rename = "is_success")]
     pub success: bool,
     pub error_message: Option<String>,
 }
@@ -382,7 +383,7 @@ impl RefreshTokenStorage {
             r"
             INSERT INTO refresh_token_usage (
                 refresh_token_id, user_id, old_access_token_id, new_access_token_id,
-                used_ts, ip_address, user_agent, success, error_message
+                used_ts, ip_address, user_agent, is_success, error_message
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ",
