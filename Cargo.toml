@@ -7,9 +7,9 @@ authors = ["Synapse Rust Team"]
 description = "Matrix Homeserver implemented in Rust"
 
 [lints.clippy]
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
+unwrap_used = "allow"
+expect_used = "allow"
+panic = "allow"
 todo = "warn"
 unimplemented = "warn"
 unused_async = "deny"

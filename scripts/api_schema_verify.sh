@@ -12,7 +12,7 @@
 set -e
 
 # Docker 配置
-DB_CONTAINER="${DB_CONTAINER:-synapse_db_prod}"
+DB_CONTAINER="${DB_CONTAINER:-synapse-postgres}"
 DB_NAME="${DB_NAME:-synapse}"
 
 # 颜色输出
@@ -81,9 +81,9 @@ declare -a API_MAPPINGS=(
     "GET|/_matrix/client/v1/spaces/user|space_members,spaces"
     "GET|/_matrix/client/r0/devices|devices"
     "DELETE|/_matrix/client/r0/devices/*|devices"
-    "POST|/_matrix/media/r0/upload|media"
-    "GET|/_matrix/media/r0/download/*|media"
-    "GET|/_synapse/admin/v1/media|media"
+    "POST|/_matrix/media/r0/upload|media_metadata"
+    "GET|/_matrix/media/r0/download/*|media_metadata"
+    "GET|/_synapse/admin/v1/media|media_metadata"
     "POST|/_matrix/client/v3/room_keys/version|key_backups"
     "GET|/_matrix/client/v3/room_keys/keys|backup_keys,key_backups"
     "PUT|/_matrix/client/v3/room_keys/keys/*/*|backup_keys"
@@ -116,10 +116,10 @@ for mapping in "${API_MAPPINGS[@]}"; do
 
     if [ -z "$missing" ]; then
         echo -e "  ${GREEN}✓${NC} $method $api"
-        ((PASSED++))
+        ((PASSED+=1))
     else
         echo -e "  ${RED}✗${NC} $method $api (缺失表:$missing)"
-        ((FAILED++))
+        ((FAILED+=1))
     fi
 done
 

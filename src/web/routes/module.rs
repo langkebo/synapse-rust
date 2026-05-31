@@ -74,15 +74,6 @@ pub struct CreatePasswordAuthProviderBody {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CreatePresenceRouteBody {
-    pub route_name: String,
-    pub route_type: String,
-    pub config: serde_json::Value,
-    pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateMediaCallbackBody {
     pub callback_name: String,
     pub callback_type: String,
@@ -92,15 +83,6 @@ pub struct CreateMediaCallbackBody {
     pub is_enabled: Option<bool>,
     pub timeout_ms: Option<i32>,
     pub retry_count: Option<i32>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateRateLimitCallbackBody {
-    pub callback_name: String,
-    pub callback_type: String,
-    pub config: serde_json::Value,
-    pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -288,27 +270,6 @@ impl From<PasswordAuthProvider> for PasswordAuthProviderResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PresenceRouteResponse {
-    pub id: i64,
-    pub user_id: String,
-    pub presence_server: String,
-    pub updated_ts: i64,
-    pub is_enabled: bool,
-}
-
-impl From<PresenceRoute> for PresenceRouteResponse {
-    fn from(r: PresenceRoute) -> Self {
-        Self {
-            id: r.id,
-            user_id: r.user_id,
-            presence_server: r.presence_server,
-            updated_ts: r.updated_ts,
-            is_enabled: r.is_enabled,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct MediaCallbackResponse {
     pub id: i64,
     pub callback_type: String,
@@ -332,33 +293,6 @@ impl From<MediaCallback> for MediaCallbackResponse {
             result: c.result,
             created_ts: c.created_ts,
             completed_ts: c.completed_ts,
-            is_enabled: c.is_enabled,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RateLimitCallbackResponse {
-    pub id: i64,
-    pub callback_type: String,
-    pub user_id: String,
-    pub ip_address: String,
-    pub rate_limit_type: String,
-    pub result: Option<serde_json::Value>,
-    pub created_ts: i64,
-    pub is_enabled: bool,
-}
-
-impl From<RateLimitCallback> for RateLimitCallbackResponse {
-    fn from(c: RateLimitCallback) -> Self {
-        Self {
-            id: c.id,
-            callback_type: c.callback_type,
-            user_id: c.user_id,
-            ip_address: c.ip_address,
-            rate_limit_type: c.rate_limit_type,
-            result: c.result,
-            created_ts: c.created_ts,
             is_enabled: c.is_enabled,
         }
     }
@@ -683,45 +617,6 @@ pub async fn get_password_auth_providers(
     Ok(Json(responses))
 }
 
-pub async fn create_presence_route(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-    Json(body): Json<CreatePresenceRouteBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    let request = CreatePresenceRouteRequest {
-        route_name: body.route_name,
-        route_type: body.route_type,
-        config: body.config,
-        is_enabled: body.is_enabled,
-        priority: body.priority,
-    };
-
-    let route = state
-        .services
-        .module_storage
-        .create_presence_route(request)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create presence route", &e))?;
-
-    Ok((StatusCode::CREATED, Json(PresenceRouteResponse::from(route))))
-}
-
-pub async fn get_presence_routes(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let routes = state
-        .services
-        .module_storage
-        .get_presence_routes()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get presence routes", &e))?;
-
-    let responses: Vec<PresenceRouteResponse> = routes.into_iter().map(PresenceRouteResponse::from).collect();
-
-    Ok(Json(responses))
-}
-
 pub async fn create_media_callback(
     State(state): State<AppState>,
     _auth_user: AdminUser,
@@ -777,46 +672,6 @@ pub async fn get_all_media_callbacks(
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
 
     let responses: Vec<MediaCallbackResponse> = callbacks.into_iter().map(MediaCallbackResponse::from).collect();
-
-    Ok(Json(responses))
-}
-
-pub async fn create_rate_limit_callback(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-    Json(body): Json<CreateRateLimitCallbackBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    let request = CreateRateLimitCallbackRequest {
-        callback_name: body.callback_name,
-        callback_type: body.callback_type,
-        config: body.config,
-        is_enabled: body.is_enabled,
-        priority: body.priority,
-    };
-
-    let callback = state
-        .services
-        .module_storage
-        .create_rate_limit_callback(request)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create rate limit callback", &e))?;
-
-    Ok((StatusCode::CREATED, Json(RateLimitCallbackResponse::from(callback))))
-}
-
-pub async fn get_rate_limit_callbacks(
-    State(state): State<AppState>,
-    _auth_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = state
-        .services
-        .module_storage
-        .get_rate_limit_callbacks()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get rate limit callbacks", &e))?;
-
-    let responses: Vec<RateLimitCallbackResponse> =
-        callbacks.into_iter().map(RateLimitCallbackResponse::from).collect();
 
     Ok(Json(responses))
 }
@@ -881,13 +736,9 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/account_validity/{user_id}/renew", post(renew_account))
         .route("/_synapse/admin/v1/password_auth_providers", post(create_password_auth_provider))
         .route("/_synapse/admin/v1/password_auth_providers", get(get_password_auth_providers))
-        .route("/_synapse/admin/v1/presence_routes", post(create_presence_route))
-        .route("/_synapse/admin/v1/presence_routes", get(get_presence_routes))
         .route("/_synapse/admin/v1/media_callbacks", post(create_media_callback))
         .route("/_synapse/admin/v1/media_callbacks", get(get_all_media_callbacks))
         .route("/_synapse/admin/v1/media_callbacks/{callback_type}", get(get_media_callbacks))
-        .route("/_synapse/admin/v1/rate_limit_callbacks", post(create_rate_limit_callback))
-        .route("/_synapse/admin/v1/rate_limit_callbacks", get(get_rate_limit_callbacks))
         .route("/_synapse/admin/v1/account_data_callbacks", post(create_account_data_callback))
         .route("/_synapse/admin/v1/account_data_callbacks", get(get_account_data_callbacks))
         .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
@@ -916,13 +767,9 @@ pub fn module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::POST, "/_synapse/admin/v1/account_validity/{user_id}/renew"),
         (Method::POST, "/_synapse/admin/v1/password_auth_providers"),
         (Method::GET, "/_synapse/admin/v1/password_auth_providers"),
-        (Method::POST, "/_synapse/admin/v1/presence_routes"),
-        (Method::GET, "/_synapse/admin/v1/presence_routes"),
         (Method::POST, "/_synapse/admin/v1/media_callbacks"),
         (Method::GET, "/_synapse/admin/v1/media_callbacks"),
         (Method::GET, "/_synapse/admin/v1/media_callbacks/{callback_type}"),
-        (Method::POST, "/_synapse/admin/v1/rate_limit_callbacks"),
-        (Method::GET, "/_synapse/admin/v1/rate_limit_callbacks"),
         (Method::POST, "/_synapse/admin/v1/account_data_callbacks"),
         (Method::GET, "/_synapse/admin/v1/account_data_callbacks"),
     ]

@@ -263,10 +263,22 @@ pub(crate) async fn create_room(
         }
     }
 
-    let invite = body
-        .get("invite")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect::<Vec<String>>());
+    let invite = match body.get("invite") {
+        Some(value) => {
+            let Some(invites) = value.as_array() else {
+                return Err(ApiError::invalid_param("invite must be an array".to_string()));
+            };
+            let mut invitees = Vec::with_capacity(invites.len());
+            for invitee in invites {
+                let Some(user_id) = invitee.as_str() else {
+                    return Err(ApiError::invalid_param("invite entries must be strings".to_string()));
+                };
+                invitees.push(user_id.to_string());
+            }
+            Some(invitees)
+        }
+        None => None,
+    };
 
     if let Some(ref inv) = invite {
         if inv.len() > 100 {
@@ -686,25 +698,6 @@ where
 {
     let raw = Option::<String>::deserialize(deserializer)?;
     Ok(raw.as_deref().and_then(parse_bool_query_value))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{parse_bool_query_value, parse_u64_query_value};
-
-    #[test]
-    fn test_room_sync_parse_u64_query_value_accepts_decimal_string() {
-        assert_eq!(parse_u64_query_value("30000"), Some(30000));
-        assert_eq!(parse_u64_query_value("0"), Some(0));
-    }
-
-    #[test]
-    fn test_room_sync_parse_bool_query_value_accepts_legacy_forms() {
-        assert_eq!(parse_bool_query_value("true"), Some(true));
-        assert_eq!(parse_bool_query_value("1"), Some(true));
-        assert_eq!(parse_bool_query_value("false"), Some(false));
-        assert_eq!(parse_bool_query_value("0"), Some(false));
-    }
 }
 
 pub(crate) async fn get_room_thread_by_id(
@@ -1456,5 +1449,24 @@ pub(crate) async fn get_retention_policy(
                 "updated_ts": default.updated_ts
             })))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_bool_query_value, parse_u64_query_value};
+
+    #[test]
+    fn test_room_sync_parse_u64_query_value_accepts_decimal_string() {
+        assert_eq!(parse_u64_query_value("30000"), Some(30000));
+        assert_eq!(parse_u64_query_value("0"), Some(0));
+    }
+
+    #[test]
+    fn test_room_sync_parse_bool_query_value_accepts_legacy_forms() {
+        assert_eq!(parse_bool_query_value("true"), Some(true));
+        assert_eq!(parse_bool_query_value("1"), Some(true));
+        assert_eq!(parse_bool_query_value("false"), Some(false));
+        assert_eq!(parse_bool_query_value("0"), Some(false));
     }
 }

@@ -368,7 +368,7 @@ mod tests {
     use super::*;
     use axum::http::Method;
 
-    fn contains(entries: &[RouteEntry], method: Method, path: &str) -> bool {
+    fn contains(entries: &[RouteEntry], method: &Method, path: &str) -> bool {
         entries.iter().any(|entry| entry.method == method && entry.path == path)
     }
 
@@ -376,72 +376,72 @@ mod tests {
     #[test]
     fn friend_manifest_declares_core_routes() {
         let entries = friend_room::friend_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_matrix/client/v3/friends"));
-        assert!(contains(&entries, Method::DELETE, "/_matrix/client/v1/friends/{user_id}"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/friends"));
+        assert!(contains(&entries, &Method::DELETE, "/_matrix/client/v1/friends/{user_id}"));
     }
 
     #[cfg(feature = "saml-sso")]
     #[test]
     fn saml_manifest_declares_core_routes() {
         let entries = saml::saml_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"));
-        assert!(contains(&entries, Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"));
+        assert!(contains(&entries, &Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"));
     }
 
     #[cfg(feature = "cas-sso")]
     #[test]
     fn cas_manifest_declares_core_routes() {
         let entries = cas::cas_route_manifest();
-        assert!(contains(&entries, Method::GET, "/login"));
-        assert!(contains(&entries, Method::GET, "/_synapse/admin/v1/cas/services"));
+        assert!(contains(&entries, &Method::GET, "/login"));
+        assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/cas/services"));
     }
 
     #[cfg(feature = "widgets")]
     #[test]
     fn widget_manifest_declares_core_routes() {
         let entries = widget::widget_route_manifest();
-        assert!(contains(&entries, Method::POST, "/_matrix/client/v1/widgets"));
-        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/client/v1/widgets"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"));
     }
 
     #[cfg(feature = "burn-after-read")]
     #[test]
     fn burn_after_read_manifest_declares_core_routes() {
         let entries = burn_after_read::burn_after_read_route_manifest();
-        assert!(contains(&entries, Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
-        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/user/burn/stats"));
+        assert!(contains(&entries, &Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/user/burn/stats"));
     }
 
     #[cfg(feature = "voice-extended")]
     #[test]
     fn voice_manifest_declares_core_routes() {
         let entries = voice::voice_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_matrix/client/r0/voice/config"));
-        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/voice/config"));
-        assert!(contains(&entries, Method::POST, "/_matrix/client/r0/voice/upload"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/r0/voice/config"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/voice/config"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/client/r0/voice/upload"));
     }
 
     #[cfg(feature = "external-services")]
     #[test]
     fn external_service_manifest_declares_core_routes() {
         let entries = external_service::external_service_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_synapse/admin/v1/external_services"));
-        assert!(contains(&entries, Method::POST, "/_synapse/external/webhook/{service_id}"));
+        assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/external_services"));
+        assert!(contains(&entries, &Method::POST, "/_synapse/external/webhook/{service_id}"));
     }
 
     #[cfg(feature = "openclaw-routes")]
     #[test]
     fn ai_connection_manifest_declares_core_routes() {
         let entries = ai_connection::ai_connection_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_matrix/client/v1/ai/connections"));
-        assert!(contains(&entries, Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/ai/connections"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"));
     }
 
     #[cfg(feature = "openclaw-routes")]
     #[test]
     fn openclaw_manifest_declares_core_routes() {
         let entries = openclaw::openclaw_route_manifest();
-        assert!(contains(&entries, Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"));
-        assert!(contains(&entries, Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"));
     }
 }
