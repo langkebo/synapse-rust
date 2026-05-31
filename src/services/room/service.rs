@@ -470,13 +470,10 @@ impl RoomService {
                 }
 
                 // Track key state changes from initial_state to sync back to storage.
-                match event_type {
-                    "m.room.join_rules" => {
-                        if let Some(jr) = evt.get("content").and_then(|c| c.get("join_rule")).and_then(|v| v.as_str()) {
-                            initial_join_rule = Some(jr.to_string());
-                        }
+                if event_type == "m.room.join_rules" {
+                    if let Some(jr) = evt.get("content").and_then(|c| c.get("join_rule")).and_then(|v| v.as_str()) {
+                        initial_join_rule = Some(jr.to_string());
                     }
-                    _ => {}
                 }
             }
         }
@@ -2041,7 +2038,7 @@ mod tests {
             "burn_after_read": true
         });
 
-        let has_metadata = content.as_object().map(|c| c.contains_key("burn_after_read")).unwrap_or(false);
+        let has_metadata = content.as_object().is_some_and(|c| c.contains_key("burn_after_read"));
 
         assert!(has_metadata);
     }

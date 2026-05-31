@@ -783,8 +783,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(ephemeral::create_ephemeral_router(state.clone()))
         .merge(crate::web::routes::handlers::thread::create_thread_routes(state.clone()))
         .merge(create_rendezvous_router(state.clone()))
-        .merge(create_presence_router())
-        .merge(oidc::create_oidc_router(state.clone()));
+        .merge(create_presence_router());
 
     router
         .layer(axum::middleware::from_fn(cors_middleware))

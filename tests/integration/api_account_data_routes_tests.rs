@@ -8,11 +8,15 @@ use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_test_app_with_config(|_| {}).await.map(|(app, _)| app)
 }
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
-    super::setup_test_app_with_pool().await
+    super::setup_test_app_with_config(|_| {}).await.map(|(app, state)| {
+        let pool = state.services.user_storage.pool.clone();
+        let cache = state.cache;
+        (app, pool, cache)
+    })
 }
 
 async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
@@ -40,13 +44,26 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+    if status != StatusCode::OK {
+        eprintln!("registration failed with status {}: {}", status, String::from_utf8_lossy(&body));
+    }
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "registration failed with status {}: {}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
+
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
+}
+
+fn unique_username(prefix: &str) -> String {
+    format!("{prefix}_{}", rand::random::<u32>())
 }
 
 #[tokio::test]
@@ -54,7 +71,8 @@ async fn test_account_data_round_trip_across_v3_and_r0() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "account_data_routes").await;
+    let username = unique_username("account_data_routes");
+    let (token, user_id) = register_user(&app, &username).await;
     let content = json!({ "theme": "dark", "layout": "compact" });
 
     let put_request = Request::builder()
@@ -88,7 +106,8 @@ async fn test_account_data_list_returns_saved_entries() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "account_data_list_routes").await;
+    let username = unique_username("account_data_list_routes");
+    let (token, user_id) = register_user(&app, &username).await;
 
     for (data_type, content) in [
         ("im.vector.settings", json!({ "theme": "dark", "layout": "compact" })),
@@ -127,7 +146,8 @@ async fn test_room_account_data_round_trip_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "room_account_data_routes").await;
+    let username = unique_username("room_account_data_routes");
+    let (token, user_id) = register_user(&app, &username).await;
     let room_id = "!room:localhost";
     let content = json!({ "tags": { "m.favourite": { "order": 0.1 } } });
 
@@ -162,7 +182,8 @@ async fn test_filter_round_trip_across_versions() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "filter_routes").await;
+    let username = unique_username("filter_routes");
+    let (token, user_id) = register_user(&app, &username).await;
     let filter = json!({
         "room": {
             "timeline": {
@@ -206,7 +227,8 @@ async fn test_filter_post_route_round_trip() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "filter_post_routes").await;
+    let username = unique_username("filter_post_routes");
+    let (token, user_id) = register_user(&app, &username).await;
     let filter = json!({
         "event_fields": ["type", "content"],
         "room": {
@@ -251,7 +273,8 @@ async fn test_openid_request_token_route_is_shared() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "openid_routes").await;
+    let username = unique_username("openid_routes");
+    let (token, user_id) = register_user(&app, &username).await;
 
     for path in [
         format!("/_matrix/client/r0/user/{}/openid/request_token", user_id),
@@ -279,7 +302,8 @@ async fn test_tags_routes_work_across_v3_and_r0() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (token, user_id) = register_user(&app, "tags_routes").await;
+    let username = unique_username("tags_routes");
+    let (token, user_id) = register_user(&app, &username).await;
     let room_id = "!tags-room:localhost";
 
     let put_request = Request::builder()

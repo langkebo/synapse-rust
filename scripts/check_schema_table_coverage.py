@@ -38,6 +38,12 @@ SQL_LITERAL_PATTERNS = [
 ]
 SQL_TRIGGER_PATTERN = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
 CTE_PATTERN = re.compile(r"(?:WITH|,)\s*([a-z_][a-z0-9_]*)\s+AS\s*\(", re.IGNORECASE)
+SQL_LINE_COMMENT_PATTERN = re.compile(r"--.*?(?=\n|$)")
+SQL_BLOCK_COMMENT_PATTERN = re.compile(r"/\*.*?\*/", re.DOTALL)
+EXTRACT_FROM_PATTERN = re.compile(
+    r"\bEXTRACT\s*\(\s*[A-Z_]+\s+FROM\s+[^)]*\)",
+    re.IGNORECASE,
+)
 DEF_PATTERNS = [
     re.compile(
         r"\bCREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([a-z_][a-z0-9_]*)",
@@ -101,6 +107,9 @@ def collect_references() -> dict[str, set[str]]:
                 )
 
             for literal in sql_literals:
+                literal = SQL_BLOCK_COMMENT_PATTERN.sub(" ", literal)
+                literal = SQL_LINE_COMMENT_PATTERN.sub(" ", literal)
+                literal = EXTRACT_FROM_PATTERN.sub(" ", literal)
                 cte_names = {
                     match.group(1).lower() for match in CTE_PATTERN.finditer(literal)
                 }

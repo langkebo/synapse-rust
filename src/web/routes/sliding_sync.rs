@@ -124,7 +124,7 @@ mod tests {
         file_config.sync.incremental.burst_size = 44;
         let sync_override = SyncRateLimitOverride {
             fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync.clone(),
+            sync: file_config.sync,
         };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
@@ -148,7 +148,7 @@ mod tests {
         file_config.sync.initial.burst_size = 99;
         let sync_override = SyncRateLimitOverride {
             fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync.clone(),
+            sync: file_config.sync,
         };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));

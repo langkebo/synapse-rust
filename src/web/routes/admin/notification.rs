@@ -29,7 +29,7 @@ fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
     Some((sent_ts, id))
 }
 
-#[cfg(feature = "server-notifications")]
+#[cfg(all(test, feature = "server-notifications"))]
 fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
     format!("{sent_ts}|{id}")
 }
@@ -133,7 +133,6 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
     entries.into_iter().map(|(m, p)| RouteEntry::new(m, p, "admin::notification")).collect()
 }
 
-#[cfg(feature = "server-notifications")]
 #[cfg(feature = "server-notifications")]
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let user = state.services.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {

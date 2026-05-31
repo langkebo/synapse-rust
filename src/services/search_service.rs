@@ -187,7 +187,7 @@ impl SearchService {
                     e.indexed_at,
                     ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
                 FROM events e
-                INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
+                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
@@ -230,7 +230,7 @@ impl SearchService {
                     e.indexed_at,
                     ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
                 FROM events e
-                INNER JOIN room_members rm ON e.room_id = rm.room_id AND rm.user_id = $1
+                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)

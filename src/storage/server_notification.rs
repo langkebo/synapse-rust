@@ -831,6 +831,7 @@ impl ServerNotificationStorage {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_server_notice(
         &self,
         room_id: &str,
