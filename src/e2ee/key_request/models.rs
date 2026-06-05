@@ -76,7 +76,7 @@ pub struct KeyShareResponse {
     pub forwarding_curve25519_key: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct KeyRequestInfo {
     pub request_id: String,
     pub user_id: String,

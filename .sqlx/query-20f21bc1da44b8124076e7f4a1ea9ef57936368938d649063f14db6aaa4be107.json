@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO e2ee_security_events\n             (user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts)\n             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20f21bc1da44b8124076e7f4a1ea9ef57936368938d649063f14db6aaa4be107"
+}
