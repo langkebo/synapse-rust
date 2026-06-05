@@ -95,7 +95,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
             last_refresh_ts BIGINT,
             refresh_count INTEGER DEFAULT 0,
             is_compromised BOOLEAN DEFAULT FALSE,
-            compromised_ts BIGINT
+            compromised_at BIGINT
         )
         "#,
     )
@@ -920,7 +920,7 @@ fn test_mark_family_compromised() {
 
         let family = storage.get_family(&family_id).await.unwrap().unwrap();
         assert!(family.is_compromised);
-        assert!(family.compromised_ts.is_some());
+        assert!(family.compromised_at.is_some());
     });
 }
 

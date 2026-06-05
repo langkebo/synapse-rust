@@ -49,7 +49,7 @@ pub async fn get_sticky_events(
         let sticky_event = state
             .services
             .sticky_event_storage
-            .get_sticky_event(&room_id, &auth_user.user_id, &event_type)
+            .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky event", &e))?;
 
@@ -71,7 +71,7 @@ pub async fn get_sticky_events(
         let sticky_events = state
             .services
             .sticky_event_storage
-            .get_all_sticky_events(&room_id, &auth_user.user_id)
+            .get_all_is_sticky_events(&room_id, &auth_user.user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky events", &e))?;
 
@@ -123,6 +123,7 @@ pub async fn set_sticky_events(
 
         let stored_event = state
             .services
+            .rooms
             .event_storage
             .get_event(event_id)
             .await
@@ -135,7 +136,7 @@ pub async fn set_sticky_events(
         state
             .services
             .sticky_event_storage
-            .set_sticky_event(&room_id, &auth_user.user_id, &stored_event.event_id, event_type, true)
+            .set_is_sticky_event(&room_id, &auth_user.user_id, &stored_event.event_id, event_type, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
     }
@@ -156,7 +157,7 @@ pub async fn clear_sticky_event(
     state
         .services
         .sticky_event_storage
-        .clear_sticky_event(&room_id, &auth_user.user_id, &event_type)
+        .clear_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to clear sticky event", &e))?;
 

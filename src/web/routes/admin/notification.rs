@@ -172,7 +172,7 @@ pub struct NoticeContent {
 
 #[derive(Debug, Deserialize)]
 pub struct UserNotificationRequest {
-    pub enabled: bool,
+    pub is_enabled: bool,
 }
 
 #[cfg(feature = "server-notifications")]
@@ -472,9 +472,9 @@ pub async fn update_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.server_notification_storage.upsert_user_notification_setting(&user_id, body.enabled).await?;
+    state.services.server_notification_storage.upsert_user_notification_setting(&user_id, body.is_enabled).await?;
 
-    Ok(Json(json!({ "enabled": body.enabled })))
+    Ok(Json(json!({ "is_enabled": body.is_enabled })))
 }
 
 #[cfg(feature = "server-notifications")]

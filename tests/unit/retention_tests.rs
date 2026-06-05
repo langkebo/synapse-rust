@@ -9,12 +9,12 @@ mod tests {
             room_id: "!test:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
-            expire_on_clients: Some(true),
+            is_expire_on_clients: Some(true),
         };
 
         assert_eq!(request.room_id, "!test:example.com");
         assert_eq!(request.max_lifetime, Some(86_400_000));
-        assert_eq!(request.expire_on_clients, Some(true));
+        assert_eq!(request.is_expire_on_clients, Some(true));
     }
 
     #[test]
@@ -22,7 +22,7 @@ mod tests {
         let request = UpdateRoomRetentionPolicyRequest {
             max_lifetime: Some(172800000),
             min_lifetime: None,
-            expire_on_clients: Some(false),
+            is_expire_on_clients: Some(false),
         };
 
         assert_eq!(request.max_lifetime, Some(172800000));
@@ -34,7 +34,7 @@ mod tests {
         let request = UpdateServerRetentionPolicyRequest {
             max_lifetime: Some(604800000),
             min_lifetime: Some(86_400_000),
-            expire_on_clients: Some(true),
+            is_expire_on_clients: Some(true),
         };
 
         assert_eq!(request.max_lifetime, Some(604800000));
@@ -48,7 +48,7 @@ mod tests {
 
         assert_eq!(policy.max_lifetime, Some(86_400_000));
         assert_eq!(policy.min_lifetime, 0);
-        assert!(policy.expire_on_clients);
+        assert!(policy.is_expire_on_clients);
     }
 
     #[test]
@@ -58,7 +58,7 @@ mod tests {
             room_id: "!test:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: 0,
-            expire_on_clients: true,
+            is_expire_on_clients: true,
             is_server_default: false,
             created_ts: 1234567890,
             updated_ts: 1234567890,
@@ -75,13 +75,13 @@ mod tests {
             id: 1,
             max_lifetime: Some(604800000),
             min_lifetime: 0,
-            expire_on_clients: false,
+            is_expire_on_clients: false,
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };
 
         assert_eq!(policy.max_lifetime, Some(604800000));
-        assert!(!policy.expire_on_clients);
+        assert!(!policy.is_expire_on_clients);
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
             room_id: format!("!retention-test-{}:example.com", uuid::Uuid::new_v4()),
             max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
-            expire_on_clients: Some(false),
+            is_expire_on_clients: Some(false),
         };
 
         let result = service.set_room_policy(request).await;

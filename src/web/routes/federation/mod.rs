@@ -41,8 +41,7 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
 
 async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_room_members(room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
@@ -56,8 +55,7 @@ async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, ori
 
 async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_room_members(room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
@@ -71,8 +69,7 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
 
 async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
     let joined_room_ids = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load user rooms", &e))?;
@@ -87,8 +84,7 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 
     for room_id in joined_room_ids {
         let joined_members = state
-            .services
-            .member_storage
+            .services.rooms.member_storage
             .get_room_members(&room_id, "join")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;

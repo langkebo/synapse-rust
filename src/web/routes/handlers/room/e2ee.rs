@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 
 async fn latest_room_key_backup_version(state: &AppState, user_id: &str) -> Result<Option<String>, ApiError> {
-    let backups = state.services.backup_service.get_all_backups(user_id).await?;
+    let backups = state.services.e2ee.backup_service.get_all_backups(user_id).await?;
 
     Ok(backups.into_iter().max_by_key(|backup| backup.version).map(|backup| backup.version.to_string()))
 }
@@ -17,7 +17,7 @@ async fn ensure_room_key_backup_version(state: &AppState, user_id: &str) -> Resu
         return Ok(version);
     }
 
-    state.services.backup_service.create_backup(user_id, "m.megolm.v1.aes-sha2", Some(json!({}))).await
+    state.services.e2ee.backup_service.create_backup(user_id, "m.megolm.v1.aes-sha2", Some(json!({}))).await
 }
 
 fn room_key_to_json(key: &BackupKeyInfo) -> Value {
@@ -121,8 +121,7 @@ pub(crate) async fn get_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -132,7 +131,7 @@ pub(crate) async fn get_room_keys(
 
     let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
     let keys = if let Some(version) = version.clone() {
-        state.services.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
+        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
     } else {
         Vec::new()
     };
@@ -151,8 +150,7 @@ pub(crate) async fn get_room_key_count(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -162,7 +160,7 @@ pub(crate) async fn get_room_key_count(
 
     let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
     let count = if let Some(version) = version {
-        state.services.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?.len()
+        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?.len()
     } else {
         0
     };
@@ -180,8 +178,7 @@ pub(crate) async fn claim_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -192,7 +189,7 @@ pub(crate) async fn claim_room_keys(
     let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
     let requested_sessions = requested_room_key_session_ids(&body, &room_id);
     let keys = if let Some(version) = version {
-        state.services.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
+        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
     } else {
         Vec::new()
     };
@@ -218,8 +215,7 @@ pub(crate) async fn get_room_keys_version(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -242,8 +238,7 @@ pub(crate) async fn forward_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -256,8 +251,7 @@ pub(crate) async fn forward_room_keys(
 
     if !keys.is_empty() {
         state
-            .services
-            .backup_service
+            .services.e2ee.backup_service
             .upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone())
             .await?;
     }

@@ -37,7 +37,7 @@ mod retention_tests {
             "room_id": "!test:example.com",
             "max_lifetime": 3153_600_0000_i64,
             "min_lifetime": 0_i64,
-            "expire_on_clients": false,
+            "is_expire_on_clients": false,
             "is_server_default": false,
             "created_ts": 1700000000000_i64,
             "updated_ts": 1700000000000_i64
@@ -54,7 +54,7 @@ mod retention_tests {
             "room_id": "!test:example.com",
             "max_lifetime": null,
             "min_lifetime": 0_i64,
-            "expire_on_clients": false,
+            "is_expire_on_clients": false,
             "is_server_default": true
         });
 

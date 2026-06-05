@@ -327,8 +327,7 @@ async fn get_anti_screenshot(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
     let events = state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .get_state_events_by_type(&room_id, "com.hula.privacy")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get anti-screenshot state", &e))?;
@@ -354,8 +353,7 @@ async fn set_anti_screenshot(
     let now_ts = chrono::Utc::now().timestamp_millis();
 
     state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .create_event(
             crate::storage::event::CreateEventParams {
                 event_id,

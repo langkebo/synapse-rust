@@ -52,8 +52,8 @@ pub struct CasRegisteredService {
     pub allowed_attributes: serde_json::Value,
     pub allowed_proxy_callbacks: serde_json::Value,
     pub is_enabled: bool,
-    pub require_secure: bool,
-    pub single_logout: bool,
+    pub is_require_secure: bool,
+    pub is_single_logout: bool,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -119,8 +119,8 @@ pub struct RegisterServiceRequest {
     pub service_url_pattern: String,
     pub allowed_attributes: Option<Vec<String>>,
     pub allowed_proxy_callbacks: Option<Vec<String>>,
-    pub require_secure: Option<bool>,
-    pub single_logout: Option<bool>,
+    pub is_require_secure: Option<bool>,
+    pub is_single_logout: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -317,7 +317,7 @@ impl CasStorage {
             INSERT INTO cas_services (
                 service_id, name, description, service_url_pattern,
                 allowed_attributes, allowed_proxy_callbacks,
-                require_secure, single_logout, created_ts, updated_ts
+                is_require_secure, is_single_logout, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING *
@@ -329,8 +329,8 @@ impl CasStorage {
         .bind(&request.service_url_pattern)
         .bind(&allowed_attributes)
         .bind(&allowed_proxy_callbacks)
-        .bind(request.require_secure.unwrap_or(true))
-        .bind(request.single_logout.unwrap_or(false))
+        .bind(request.is_require_secure.unwrap_or(true))
+        .bind(request.is_single_logout.unwrap_or(false))
         .bind(now)
         .fetch_one(&self.pool)
         .await
@@ -535,8 +535,8 @@ mod tests {
             allowed_attributes: serde_json::json!(["email"]),
             allowed_proxy_callbacks: serde_json::json!([]),
             is_enabled: true,
-            require_secure: true,
-            single_logout: false,
+            is_require_secure: true,
+            is_single_logout: false,
             created_ts: 1234567800000,
             updated_ts: 1234567890000,
         };
@@ -585,8 +585,8 @@ mod tests {
             service_url_pattern: "https://new-app.example.com/*".to_string(),
             allowed_attributes: Some(vec![]),
             allowed_proxy_callbacks: Some(vec![]),
-            require_secure: Some(true),
-            single_logout: Some(false),
+            is_require_secure: Some(true),
+            is_single_logout: Some(false),
         };
         assert_eq!(request.service_id, "new-app");
     }

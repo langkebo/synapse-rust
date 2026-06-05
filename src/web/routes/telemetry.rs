@@ -128,7 +128,7 @@ pub async fn health_check(
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
     let readiness = state.health_checker.check_readiness().await;
-    let (database_health, alerts) = state.services.telemetry_alert_service.sync_with_health().await?;
+    let (database_health, alerts) = state.services.admin.telemetry_alert_service.sync_with_health().await?;
 
     Ok(Json(serde_json::json!({
         "status": readiness.status,
@@ -147,12 +147,11 @@ pub async fn list_alerts(
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if query.refresh.unwrap_or(true) {
-        let _ = state.services.telemetry_alert_service.sync_with_health().await?;
+        let _ = state.services.admin.telemetry_alert_service.sync_with_health().await?;
     }
 
     let alerts = state
-        .services
-        .telemetry_alert_service
+        .services.admin.telemetry_alert_service
         .list_alerts(&TelemetryAlertFilters { status: query.status, severity: query.severity })?;
 
     Ok(Json(TelemetryAlertsResponse { alerts }))
@@ -164,11 +163,10 @@ pub async fn acknowledge_alert(
     Path(alert_id): Path<String>,
     admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let alert = state.services.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
+    let alert = state.services.admin.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     state
-        .services
-        .admin_audit_service
+        .services.admin.admin_audit_service
         .create_event(crate::storage::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),

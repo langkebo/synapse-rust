@@ -334,8 +334,8 @@ async fn register_service(
         service_url_pattern: body.service_url_pattern,
         allowed_attributes: body.allowed_attributes,
         allowed_proxy_callbacks: body.allowed_proxy_callbacks,
-        require_secure: body.require_secure,
-        single_logout: body.single_logout,
+        is_require_secure: body.require_secure,
+        is_single_logout: body.single_logout,
     };
 
     let service = state.services.cas_service.register_service(request).await?;

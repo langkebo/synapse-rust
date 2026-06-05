@@ -33,6 +33,8 @@ mod invite_blocklist_tests;
 mod key_backup_api_tests;
 mod key_backup_storage_tests;
 mod ledger_export_tests;
+mod megolm_dual_write_metrics_tests;
+mod megolm_dual_write_storage_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
 mod membership_storage_tests;

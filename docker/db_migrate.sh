@@ -257,13 +257,13 @@ is_superseded_by_latest_baseline() {
     local baseline_name="$1"
     local filename="$2"
 
-    if [ "$baseline_name" != "00000000_unified_schema_v7.sql" ]; then
+    if [ "$baseline_name" != "00000000_unified_schema_v8.sql" ]; then
         return 1
     fi
 
     if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
         local version_prefix="${BASH_REMATCH[1]}"
-        if [ "$version_prefix" -lt 20260515000001 ]; then
+        if [ "$version_prefix" -lt 20260701000000 ]; then
             return 0
         fi
     fi

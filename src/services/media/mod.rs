@@ -189,6 +189,16 @@ impl MediaDomainService {
         self.chunked_upload_service.get_progress(upload_id).await
     }
 
+    /// Sign a media download URL for the given server_name/media_id pair.
+    pub fn sign_media_download_url(&self, server_name: &str, media_id: &str) -> Option<String> {
+        self.media_service.sign_media_download_url(server_name, media_id)
+    }
+
+    /// Verify a signed media download URL.
+    pub fn verify_media_download_url(&self, server_name: &str, media_id: &str, signature: &str, expires: u64) -> bool {
+        self.media_service.verify_media_download_url(server_name, media_id, signature, expires)
+    }
+
     pub async fn download_media(
         &self,
         server_name: &str,

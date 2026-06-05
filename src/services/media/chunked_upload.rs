@@ -331,7 +331,7 @@ impl ChunkedUploadService {
 
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
         sqlx::query_as::<_, UploadProgress>(
-            "SELECT * FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",
+            "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

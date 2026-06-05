@@ -9,13 +9,13 @@ pub struct RendezvousSession {
     pub session_id: String,
     pub user_id: Option<String>,
     pub device_id: Option<String>,
-    pub intent: String,
-    pub transport: String,
+    pub intent: Option<String>,
+    pub transport: Option<String>,
     pub transport_data: Option<serde_json::Value>,
-    pub key: String,
+    pub key: Option<String>,
     pub created_ts: i64,
     pub expires_at: i64,
-    pub status: String,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,7 +117,7 @@ impl RendezvousStorage {
             r"
             INSERT INTO rendezvous_session
                 (session_id, intent, transport, transport_data, key, created_ts, expires_at, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'waiting')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
             RETURNING *
             ",
         )

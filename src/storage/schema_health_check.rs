@@ -164,7 +164,7 @@ const CORE_COLUMNS: &[(&str, &str)] = &[
     // room_retention_policies 表
     ("room_retention_policies", "room_id"),
     ("room_retention_policies", "max_lifetime"),
-    ("room_retention_policies", "expire_on_clients"),
+    ("room_retention_policies", "is_expire_on_clients"),
     ("room_retention_policies", "is_server_default"),
 ];
 

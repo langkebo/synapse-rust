@@ -551,7 +551,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
-            expire_on_clients: Some(true),
+            is_expire_on_clients: Some(true),
         };
         assert_eq!(request.room_id, "!room:example.com");
         assert_eq!(request.max_lifetime, Some(86_400_000));
@@ -562,7 +562,7 @@ mod tests {
         let request = crate::storage::retention::UpdateRoomRetentionPolicyRequest {
             max_lifetime: Some(172800000),
             min_lifetime: None,
-            expire_on_clients: Some(false),
+            is_expire_on_clients: Some(false),
         };
         assert_eq!(request.max_lifetime, Some(172800000));
         assert!(request.min_lifetime.is_none());
@@ -573,7 +573,7 @@ mod tests {
         let request = crate::storage::retention::UpdateRoomRetentionPolicyRequest::default();
         assert!(request.max_lifetime.is_none());
         assert!(request.min_lifetime.is_none());
-        assert!(request.expire_on_clients.is_none());
+        assert!(request.is_expire_on_clients.is_none());
     }
 
     #[test]
@@ -583,7 +583,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: 0,
-            expire_on_clients: true,
+            is_expire_on_clients: true,
             is_server_default: false,
             created_ts: 1234567890,
             updated_ts: 1234567890,
@@ -599,7 +599,7 @@ mod tests {
             id: 1,
             max_lifetime: Some(604800000),
             min_lifetime: 0,
-            expire_on_clients: true,
+            is_expire_on_clients: true,
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };

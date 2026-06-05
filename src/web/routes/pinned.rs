@@ -54,7 +54,7 @@ pub async fn get_pinned_events(
         ",
     )
     .bind(&room_id)
-    .fetch_optional(&*state.services.event_storage.pool)
+    .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -87,7 +87,7 @@ pub async fn pin_event(
         ",
     )
     .bind(&room_id)
-    .fetch_optional(&*state.services.event_storage.pool)
+    .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -110,7 +110,7 @@ pub async fn pin_event(
     .bind(serde_json::json!({ "pinned": pinned_list }))
     .bind(now)
     .bind(&auth_user.user_id)
-    .execute(&*state.services.event_storage.pool)
+    .execute(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -142,7 +142,7 @@ pub async fn unpin_event(
         ",
     )
     .bind(&room_id)
-    .fetch_optional(&*state.services.event_storage.pool)
+    .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -163,7 +163,7 @@ pub async fn unpin_event(
     .bind(serde_json::json!({ "pinned": pinned_list }))
     .bind(now)
     .bind(&auth_user.user_id)
-    .execute(&*state.services.event_storage.pool)
+    .execute(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 

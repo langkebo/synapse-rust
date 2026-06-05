@@ -9,8 +9,7 @@ use serde_json::{json, Value};
 pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     if state.services.config.federation.signing_key.is_none() {
         state
-            .services
-            .key_rotation_manager
+            .services.federation.key_rotation_manager
             .load_or_create_key()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to initialize federation signing key", &e))?;
@@ -71,7 +70,7 @@ pub(super) async fn keys_claim(
     );
 
     let response =
-        state.services.device_keys_service.claim_keys_for_federation(request, &state.services.server_name).await?;
+        state.services.e2ee.device_keys_service.claim_keys_for_federation(request, &state.services.server_name).await?;
 
     Ok(Json(json!({
         "one_time_keys": response.one_time_keys,
@@ -112,7 +111,7 @@ pub(super) async fn keys_query(
     );
 
     let response =
-        state.services.device_keys_service.query_keys_for_federation(request, &state.services.server_name).await?;
+        state.services.e2ee.device_keys_service.query_keys_for_federation(request, &state.services.server_name).await?;
 
     Ok(Json(json!({
         "device_keys": response.device_keys,
@@ -172,15 +171,13 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
     }
 
     if let Some(current_key) = state
-        .services
-        .key_rotation_manager
+        .services.federation.key_rotation_manager
         .get_current_key()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load federation signing key", &e))?
     {
         return state
-            .services
-            .key_rotation_manager
+            .services.federation.key_rotation_manager
             .get_server_keys_response()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to build server key response", &e))

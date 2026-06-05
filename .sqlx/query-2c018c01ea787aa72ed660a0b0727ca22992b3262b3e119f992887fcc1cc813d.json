@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 1 AS \"exists!\"\n            FROM token_blacklist\n            WHERE token_hash IN ($1, $2)\n              AND (expires_at IS NULL OR expires_at = 0 OR expires_at > $3)\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2c018c01ea787aa72ed660a0b0727ca22992b3262b3e119f992887fcc1cc813d"
+}

@@ -15,7 +15,7 @@ pub async fn get_key_rotation_status(
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
-    let rotation_manager = &state.services.key_rotation_manager;
+    let rotation_manager = &state.services.federation.key_rotation_manager;
     let status = rotation_manager.get_rotation_status().await;
 
     // Add user-specific last rotation info
@@ -51,7 +51,7 @@ pub async fn rotate_keys(
 
     let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let rotation_manager = &state.services.key_rotation_manager;
+    let rotation_manager = &state.services.federation.key_rotation_manager;
     match rotation_manager.rotate_keys(requested_key_id).await {
         Ok(()) => {
             let current = rotation_manager.get_current_key().await;
@@ -118,7 +118,7 @@ pub async fn revoke_old_keys(
         return Err(ApiError::bad_request("key_id is required for key revocation".to_string()));
     }
 
-    let rotation_manager = &state.services.key_rotation_manager;
+    let rotation_manager = &state.services.federation.key_rotation_manager;
     match rotation_manager.revoke_key(key_id, reason).await {
         Ok(revoked_count) => Ok(Json(json!({
             "success": true,
@@ -154,7 +154,7 @@ pub async fn configure_key_rotation(
     let megolm_rotation_messages = body.get("megolm_rotation_messages").and_then(|v| v.as_i64());
     let max_session_age_days = body.get("max_session_age_days").and_then(|v| v.as_i64());
 
-    let rotation_manager = &state.services.key_rotation_manager;
+    let rotation_manager = &state.services.federation.key_rotation_manager;
 
     if let Some(enabled_val) = enabled {
         rotation_manager.set_rotation_enabled(enabled_val).await;

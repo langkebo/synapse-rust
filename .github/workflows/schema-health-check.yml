@@ -1,0 +1,104 @@
+name: Schema Health Check
+
+# M-3 CI 强制门禁：每次 PR 验证数据库 schema 健康
+# 这是替代全量迁移到 sqlx::query! 的核心防护网
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: schema-health-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  SKIP_DB_SETUP: "1"  # 复用 CI 服务的 PostgreSQL
+
+jobs:
+  schema-health:
+    name: Schema Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_health
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-schema-health-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h 127.0.0.1 -p 5432; then break; fi
+            sleep 2
+          done
+
+      - name: Apply v8 baseline schema
+        env:
+          PGPASSWORD: synapse
+        run: |
+          psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
+            -f migrations/00000000_unified_schema_v8.sql
+          if [ -f migrations/00000001_extensions_v8.sql ]; then
+            psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
+              -f migrations/00000001_extensions_v8.sql
+          fi
+
+      - name: Build schema_health_check binary
+        run: cargo build --bin schema_health_check --locked
+
+      - name: Run schema health check (strict)
+        env:
+          DATABASE_URL: postgres://synapse:synapse@127.0.0.1:5432/synapse_health
+        run: |
+          cargo run --quiet --bin schema_health_check --locked
+
+      - name: Generate detailed report (on failure)
+        if: failure()
+        env:
+          DATABASE_URL: postgres://synapse:synapse@127.0.0.1:5432/synapse_health
+          SCHEMA_HEALTH_REPORT_OUT: schema-health-report.md
+        run: |
+          cargo run --quiet --bin schema_health_check -- --detailed --locked
+          echo ""
+          echo "Report file exists: $(test -f schema-health-report.md && echo yes || echo no)"
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-health-report
+          path: schema-health-report.md
+          retention-days: 14

@@ -59,6 +59,7 @@ pub async fn create_audit_event(
 ) -> Result<Json<Value>, ApiError> {
     let event = state
         .services
+        .admin
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: body.actor_id,
@@ -98,6 +99,7 @@ pub async fn list_audit_events(
 
     let (events, total, next_batch) = state
         .services
+        .admin
         .admin_audit_service
         .list_events(AuditEventFilters {
             actor_id: params.actor_id,
@@ -125,6 +127,7 @@ pub async fn get_audit_event(
 ) -> Result<Json<Value>, ApiError> {
     let event = state
         .services
+        .admin
         .admin_audit_service
         .get_event(&event_id)
         .await?
@@ -153,6 +156,7 @@ pub(crate) async fn record_audit_event(
 ) -> Result<(), ApiError> {
     let result = state
         .services
+        .admin
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: actor_id.to_string(),

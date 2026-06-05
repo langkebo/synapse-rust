@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id AS \"id!\",\n                token_hash AS \"token_hash!\",\n                user_id AS \"user_id!\",\n                device_id AS \"device_id?\",\n                created_ts AS \"created_ts!\",\n                expires_at AS \"expires_at?\",\n                last_used_ts AS \"last_used_ts?\",\n                user_agent AS \"user_agent?\",\n                ip_address AS \"ip_address?\",\n                is_revoked AS \"is_revoked!\"\n            FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_agent?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "ip_address?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_revoked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fc0f2230549153bef4836fcfc475a3870697527ac45a0760d3ff7b69b1178e1f"
+}

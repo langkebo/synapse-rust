@@ -1,0 +1,87 @@
+# cargo-deny configuration for synapse-rust.
+#
+# cargo-deny blocks four classes of supply-chain risk:
+#   - advisories: known CVEs / unmaintained crates
+#   - bans:       disallowed / duplicate dependency versions
+#   - licenses:   SPDX-allowlist for the dependency graph
+#   - sources:    registries a build may pull from
+#
+# This file is intentionally permissive on advisories only for the
+# crates that already have an accepted exception in
+# `.cargo/audit.toml`. Everything else will fail CI.
+#
+# See: docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md
+#      (recommendation step "引入 cargo-deny / cargo-audit / cargo-mutants 入 CI")
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = [
+    # RUSTSEC-2023-0071 — rsa 0.9.10 Marvin Attack (PKCS#1 v1.5 decryption
+    # timing side-channel). Direct usage in
+    # `src/services/builtin_oidc_provider.rs` is restricted to *signing*
+    # only; no decryption code path. Review-by 2026-06-30 (target: ES256
+    # migration).
+    "RUSTSEC-2023-0071",
+    # RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Transitive via
+    # image → ravif → rav1e → paste. Compile-time macro use only.
+    "RUSTSEC-2024-0436",
+    # RUSTSEC-2025-0123 — opentelemetry-jaeger 0.20.0 unmaintained.
+    # Optional tracing exporter; project uses opentelemetry-otlp.
+    "RUSTSEC-2025-0123",
+    # RUSTSEC-2026-0097 — rand 0.8.5 / 0.10.0 unsound with custom
+    # logger. Project uses tracing_subscriber, so not exposed.
+    "RUSTSEC-2026-0097",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = []
+# Skip the (numerous) dev-only crates from the version-uniqueness check
+# to keep the warning surface useful without being noisy.
+skip = [
+    { name = "criterion", version = "*" },
+    { name = "quickcheck", version = "*" },
+    { name = "quickcheck_macros", version = "*" },
+    { name = "arbitrary", version = "*" },
+    { name = "mockall", version = "*" },
+    { name = "wiremock", version = "*" },
+    { name = "tempfile", version = "*" },
+    { name = "fake", version = "*" },
+]
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "OpenSSL",
+    "MPL-2.0",
+    "0BSD",
+]
+confidence-threshold = 0.8
+copyleft = "warn"
+allow-osi-fsf-free = "neither"
+default = "deny"
+unused-allowed-license = "allow"
+unlicensed = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

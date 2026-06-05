@@ -280,14 +280,14 @@ impl SynapseServer {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
-        self.app_state.services.key_rotation_manager.start_auto_rotation().await;
+        self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
 
         ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
         self.scheduled_tasks.start_all();
 
         #[cfg(feature = "beacons")]
-        let beacon_service = self.app_state.services.beacon_service.clone();
-        let retention_service = self.app_state.services.retention_service.clone();
+        let beacon_service = self.app_state.services.rooms.beacon_service.clone();
+        let retention_service = self.app_state.services.admin.retention_service.clone();
         let retention_config = self.app_state.services.config.retention.clone();
         let background_tasks_interval = self.app_state.services.config.server.background_tasks_interval.max(10);
         let dehydrated_cleanup_interval_secs =
@@ -357,8 +357,8 @@ impl SynapseServer {
         let mut shutdown_rx5 = shutdown_tx.subscribe();
 
         {
-            let bg_service = self.app_state.services.background_update_service.clone();
-            let retention_service = self.app_state.services.retention_service.clone();
+            let bg_service = self.app_state.services.admin.background_update_service.clone();
+            let retention_service = self.app_state.services.admin.retention_service.clone();
             let media_service = self.app_state.services.media_service.clone();
             let event_broadcaster = self.app_state.services.event_broadcaster.clone();
             let remote_media_lifetime = self.app_state.services.config.server.remote_media_lifetime;
@@ -417,7 +417,7 @@ impl SynapseServer {
         }
 
         {
-            let dehydrated_service = self.app_state.services.dehydrated_device_service.clone();
+            let dehydrated_service = self.app_state.services.e2ee.dehydrated_device_service.clone();
             let cleanup_interval = dehydrated_device_cleanup_interval(dehydrated_cleanup_interval_secs);
             let server_metrics = self.app_state.services.server_metrics.clone();
             tokio::spawn(async move {

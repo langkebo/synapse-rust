@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO access_tokens (token_hash, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked)\n            VALUES ($1, NULL, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)\n            RETURNING\n                id AS \"id!\",\n                token_hash AS \"token_hash!\",\n                user_id AS \"user_id!\",\n                device_id AS \"device_id?\",\n                created_ts AS \"created_ts!\",\n                expires_at AS \"expires_at?\",\n                last_used_ts AS \"last_used_ts?\",\n                user_agent AS \"user_agent?\",\n                ip_address AS \"ip_address?\",\n                is_revoked AS \"is_revoked!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_agent?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "ip_address?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_revoked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f97c693e2bd98a211044b2579bb721db5d3daafc37535785a1fcedd8a860b470"
+}

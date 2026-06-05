@@ -39,7 +39,7 @@ pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger:
 pub struct RetentionPolicyRequest {
     pub max_lifetime: Option<i64>,
     pub min_lifetime: Option<i64>,
-    pub expire_on_clients: Option<bool>,
+    pub is_expire_on_clients: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,8 +50,8 @@ pub struct RunRetentionRequest {
 #[axum::debug_handler]
 pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let policy =
-        sqlx::query("SELECT max_lifetime, min_lifetime, expire_on_clients FROM server_retention_policy LIMIT 1")
-            .fetch_optional(&*state.services.room_storage.pool)
+        sqlx::query("SELECT max_lifetime, min_lifetime, is_expire_on_clients FROM server_retention_policy LIMIT 1")
+            .fetch_optional(&*state.services.rooms.room_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -59,12 +59,12 @@ pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppStat
         Some(row) => Ok(Json(json!({
             "max_lifetime": row.get::<Option<i64>, _>("max_lifetime"),
             "min_lifetime": row.get::<Option<i64>, _>("min_lifetime"),
-            "expire_on_clients": row.get::<bool, _>("expire_on_clients")
+            "is_expire_on_clients": row.get::<bool, _>("is_expire_on_clients")
         }))),
         None => Ok(Json(json!({
             "max_lifetime": null,
             "min_lifetime": null,
-            "expire_on_clients": false
+            "is_expire_on_clients": false
         }))),
     }
 }
@@ -76,19 +76,19 @@ pub async fn set_retention_policy(
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     sqlx::query(
-        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts) VALUES (1, $1, $2, $3, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (id) DO UPDATE SET max_lifetime = $1, min_lifetime = $2, expire_on_clients = $3, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
+        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts) VALUES (1, $1, $2, $3, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (id) DO UPDATE SET max_lifetime = $1, min_lifetime = $2, is_expire_on_clients = $3, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
     )
     .bind(body.max_lifetime)
     .bind(body.min_lifetime)
-    .bind(body.expire_on_clients.unwrap_or(false))
-    .execute(&*state.services.room_storage.pool)
+    .bind(body.is_expire_on_clients.unwrap_or(false))
+    .execute(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     Ok(Json(json!({
         "max_lifetime": body.max_lifetime,
         "min_lifetime": body.min_lifetime,
-        "expire_on_clients": body.expire_on_clients.unwrap_or(false)
+        "is_expire_on_clients": body.is_expire_on_clients.unwrap_or(false)
     })))
 }
 
@@ -99,8 +99,7 @@ pub async fn get_room_retention_policy(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -110,10 +109,10 @@ pub async fn get_room_retention_policy(
     }
 
     let policy = sqlx::query(
-        "SELECT max_lifetime, min_lifetime, expire_on_clients FROM room_retention_policies WHERE room_id = $1",
+        "SELECT max_lifetime, min_lifetime, is_expire_on_clients FROM room_retention_policies WHERE room_id = $1",
     )
     .bind(&room_id)
-    .fetch_optional(&*state.services.room_storage.pool)
+    .fetch_optional(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -122,13 +121,13 @@ pub async fn get_room_retention_policy(
             "room_id": room_id,
             "max_lifetime": row.get::<Option<i64>, _>("max_lifetime"),
             "min_lifetime": row.get::<Option<i64>, _>("min_lifetime"),
-            "expire_on_clients": row.get::<bool, _>("expire_on_clients")
+            "is_expire_on_clients": row.get::<bool, _>("is_expire_on_clients")
         }))),
         None => Ok(Json(json!({
             "room_id": room_id,
             "max_lifetime": null,
             "min_lifetime": null,
-            "expire_on_clients": false
+            "is_expire_on_clients": false
         }))),
     }
 }
@@ -141,8 +140,7 @@ pub async fn set_room_retention_policy(
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -151,13 +149,13 @@ pub async fn set_room_retention_policy(
     }
 
     sqlx::query(
-        "INSERT INTO room_retention_policies (room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts) VALUES ($1, $2, $3, $4, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (room_id) DO UPDATE SET max_lifetime = $2, min_lifetime = $3, expire_on_clients = $4, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
+        "INSERT INTO room_retention_policies (room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts) VALUES ($1, $2, $3, $4, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (room_id) DO UPDATE SET max_lifetime = $2, min_lifetime = $3, is_expire_on_clients = $4, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
     )
     .bind(&room_id)
     .bind(body.max_lifetime)
     .bind(body.min_lifetime)
-    .bind(body.expire_on_clients.unwrap_or(false))
-    .execute(&*state.services.room_storage.pool)
+    .bind(body.is_expire_on_clients.unwrap_or(false))
+    .execute(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -165,7 +163,7 @@ pub async fn set_room_retention_policy(
         "room_id": room_id,
         "max_lifetime": body.max_lifetime,
         "min_lifetime": body.min_lifetime,
-        "expire_on_clients": body.expire_on_clients.unwrap_or(false)
+        "is_expire_on_clients": body.is_expire_on_clients.unwrap_or(false)
     })))
 }
 
@@ -178,8 +176,7 @@ pub async fn run_retention(
     match body.room_id {
         Some(room_id) => {
             if !state
-                .services
-                .room_storage
+                .services.rooms.room_storage
                 .room_exists(&room_id)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -187,7 +184,7 @@ pub async fn run_retention(
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
 
-            let log = state.services.retention_service.run_cleanup(&room_id).await?;
+            let log = state.services.admin.retention_service.run_cleanup(&room_id).await?;
             Ok(Json(json!({
                 "started": true,
                 "room_id": room_id,
@@ -197,7 +194,7 @@ pub async fn run_retention(
             })))
         }
         None => {
-            let cleaned = state.services.retention_service.run_scheduled_cleanups().await?;
+            let cleaned = state.services.admin.retention_service.run_scheduled_cleanups().await?;
             Ok(Json(json!({
                 "started": true,
                 "scope": "all_rooms",
@@ -210,16 +207,16 @@ pub async fn run_retention(
 #[axum::debug_handler]
 pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let rooms_with_policy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_retention_policies")
-        .fetch_one(&*state.services.room_storage.pool)
+        .fetch_one(&*state.services.rooms.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let server_policy_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
-        .fetch_one(&*state.services.room_storage.pool)
+        .fetch_one(&*state.services.rooms.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let last_run = state.services.retention_service.get_last_lifecycle_summary().await.map(|summary| {
+    let last_run = state.services.admin.retention_service.get_last_lifecycle_summary().await.map(|summary| {
         json!({
             "started_ts": summary.started_ts,
             "completed_ts": summary.completed_ts,

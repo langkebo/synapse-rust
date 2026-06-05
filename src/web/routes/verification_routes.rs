@@ -108,8 +108,7 @@ async fn verification_start(
         .ok_or_else(|| ApiError::bad_request("device_id is required for E2EE verification".to_string()))?;
 
     let sas_data = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .start_sas_verification(
             &auth_user.user_id,
             &device_id,
@@ -141,8 +140,7 @@ async fn verification_accept(
     Json(body): Json<VerificationAcceptBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -150,8 +148,7 @@ async fn verification_accept(
     ensure_verification_participant(&request, &auth_user, "Cannot accept another user's verification request")?;
 
     let sas_data = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .accept_sas(&body.transaction_id, &body.key_agreement_protocol, &body.hash)
         .await?;
 
@@ -177,15 +174,14 @@ async fn verification_key_agreement(
     Json(body): Json<KeyAgreementBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
     ensure_verification_participant(&request, &auth_user, "Cannot participate in another user's verification")?;
 
-    let sas_result = state.services.verification_service.generate_sas(&body.transaction_id, &body.pubkey).await?;
+    let sas_result = state.services.e2ee.verification_service.generate_sas(&body.transaction_id, &body.pubkey).await?;
 
     let mut response = json!({
         "transaction_id": sas_result.transaction_id,
@@ -234,8 +230,7 @@ async fn verification_mac(
     Json(body): Json<VerificationMacBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -246,7 +241,7 @@ async fn verification_mac(
         return Err(ApiError::bad_request("MAC must not be empty".to_string()));
     }
 
-    let verified = state.services.verification_service.confirm_sas(&body.transaction_id, &body.mac).await?;
+    let verified = state.services.e2ee.verification_service.confirm_sas(&body.transaction_id, &body.mac).await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -268,8 +263,7 @@ async fn verification_done(
         body.get("mac").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Missing mac".to_string()))?;
 
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -280,7 +274,7 @@ async fn verification_done(
         return Err(ApiError::bad_request("MAC must not be empty for verification completion".to_string()));
     }
 
-    state.services.verification_service.confirm_sas(transaction_id, mac).await?;
+    state.services.e2ee.verification_service.confirm_sas(transaction_id, mac).await?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id
@@ -300,15 +294,14 @@ async fn verification_cancel(
     Json(body): Json<VerificationCancelBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
     ensure_verification_participant(&request, &auth_user, "Cannot cancel another user's verification request")?;
 
-    state.services.verification_service.cancel_verification(&body.transaction_id, &body.code, &body.reason).await?;
+    state.services.e2ee.verification_service.cancel_verification(&body.transaction_id, &body.code, &body.reason).await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -322,7 +315,7 @@ async fn list_verification_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests = state.services.verification_service.get_pending_verifications(&auth_user.user_id).await?;
+    let requests = state.services.e2ee.verification_service.get_pending_verifications(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "requests": requests.iter().map(serialize_verification_request).collect::<Vec<_>>()
@@ -335,7 +328,7 @@ async fn show_qr_code(State(state): State<AppState>, auth_user: AuthenticatedUse
     let server_name = state.services.config.federation.server_name.clone();
 
     let qr_data =
-        state.services.verification_service.generate_qr_code(&auth_user.user_id, &device_id, &server_name).await?;
+        state.services.e2ee.verification_service.generate_qr_code(&auth_user.user_id, &device_id, &server_name).await?;
 
     Ok(Json(json!({
         "transaction_id": qr_data.transaction_id,
@@ -375,7 +368,7 @@ async fn scan_qr_code(
         signature: String::new(),
     };
 
-    state.services.verification_service.scan_qr_code(&qr_data, &device_id, &auth_user.user_id).await?;
+    state.services.e2ee.verification_service.scan_qr_code(&qr_data, &device_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "transaction_id": qr_data.transaction_id,
@@ -457,8 +450,7 @@ async fn compat_verification_request(
         .to_string();
 
     let sas_data = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .start_sas_verification(&auth_user.user_id, &from_device, &to_user, to_device.clone())
         .await?;
 
@@ -483,8 +475,7 @@ async fn compat_verification_status(
     Path(transaction_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services
-        .verification_service
+        .services.e2ee.verification_service
         .get_request(&transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;

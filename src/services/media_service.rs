@@ -1,4 +1,5 @@
 use crate::common::background_job::BackgroundJob;
+use crate::common::media_link_signer::MediaLinkSigner;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
 use crate::services::*;
@@ -50,6 +51,7 @@ pub struct MediaService {
     default_thumbnail_configs: Vec<ThumbnailSettings>,
     server_name: String,
     pool: Option<Arc<PgPool>>,
+    link_signer: Option<Arc<MediaLinkSigner>>,
 }
 
 impl MediaService {
@@ -115,7 +117,31 @@ impl MediaService {
             default_thumbnail_configs,
             server_name: server_name.to_string(),
             pool,
+            link_signer: None,
         }
+    }
+
+    /// Set the media link signer for signing download URLs.
+    pub fn set_link_signer(&mut self, signer: Arc<MediaLinkSigner>) {
+        self.link_signer = Some(signer);
+    }
+
+    /// Sign a media download URL for the given server_name/media_id pair.
+    /// Returns a query string like `signature=...&expires=...`.
+    pub fn sign_media_download_url(&self, server_name: &str, media_id: &str) -> Option<String> {
+        let signer = self.link_signer.as_ref()?;
+        let path = format!("{server_name}/{media_id}");
+        Some(signer.sign(&path))
+    }
+
+    /// Verify a signed media download URL.
+    pub fn verify_media_download_url(&self, server_name: &str, media_id: &str, signature: &str, expires: u64) -> bool {
+        let signer = match self.link_signer.as_ref() {
+            Some(s) => s,
+            None => return false,
+        };
+        let path = format!("{server_name}/{media_id}");
+        signer.verify(&path, signature, expires)
     }
 
     pub async fn upload_media(

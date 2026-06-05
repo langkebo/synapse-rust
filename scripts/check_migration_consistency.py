@@ -8,16 +8,7 @@ import re
 from pathlib import Path
 
 
-REQUIRED_V7_BATCHES = [
-    "20260515000001_consolidated_schema_contract_and_features_v7.sql",
-    "20260515000002_consolidated_stream_ordering_online_fix_v7.sql",
-    "20260515000003_consolidated_drop_redundant_tables_v7.sql",
-    "20260515000004_consolidated_schema_fixes_v7.sql",
-    "20260515000005_consolidated_table_indexes_v7.sql",
-    "20260515000006_consolidated_constraint_governance_v7.sql",
-    "20260515000007_rooms_summaries_materialized_view_v7.sql",
-    "20260515000008_consolidated_field_rename_expires_at_v7.sql",
-]
+REQUIRED_V8_BATCHES: list[str] = []
 TIMESTAMP_RE = re.compile(r"^\d{14}_.*\.sql$")
 
 
@@ -28,7 +19,7 @@ def sha256(path: Path) -> str:
 def requires_undo(path: Path) -> bool:
     if path.name.startswith("00000000_unified_schema_v"):
         return False
-    if path.name.startswith("00000001_extensions_"):
+    if path.name.startswith("00000001_extensions_v8"):
         return False
     return bool(TIMESTAMP_RE.match(path.name) or path.name.startswith("V"))
 
@@ -62,7 +53,7 @@ def main() -> int:
     primary_names = {path.name for path in primary_forward}
     deploy_names = {path.name for path in deploy_forward}
 
-    for filename in REQUIRED_V7_BATCHES:
+    for filename in REQUIRED_V8_BATCHES:
         if filename not in primary_names:
             issues.append({"type": "missing_primary_batch", "file": filename})
         if filename not in deploy_names:
@@ -89,7 +80,7 @@ def main() -> int:
     latest_baselines = sorted(
         name for name in primary_names if name.startswith("00000000_unified_schema_v")
     )
-    if latest_baselines and latest_baselines[-1] != "00000000_unified_schema_v7.sql":
+    if latest_baselines and latest_baselines[-1] != "00000000_unified_schema_v8.sql":
         issues.append(
             {
                 "type": "unexpected_latest_baseline",
