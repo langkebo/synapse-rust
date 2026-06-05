@@ -9,16 +9,90 @@ codecov:
     patch: true
     files: true
 
+# Coverage thresholds for synapse-rust.
+#
+# P0 paths = the modules touched by the 2026-06-03 comprehensive audit
+# (security-critical). These must reach 90% so a single regression in a
+# fixed security path is caught before merge.
+#
+# Library code (everything else under `src/`) must reach 70% on each
+# push; this is the contract for adding new features.
+#
+# Patch coverage (the diff of a single PR) must not drop coverage on
+# any flagged area below its existing level.
 coverage:
   precision: 2
   range: "70...90"
   status:
     project:
+      # Default applies to anything not matching the explicit
+      # sub-targets below.
       default:
+        target: 70%
+        threshold: 0.5%
         informational: false
+        only_pulls: false
+      # Library crate as a whole. Tighter than the default because we
+      # exclude bin/ and bench/ noise from the aggregate.
+      lib:
+        target: 70%
+        threshold: 0.5%
+        paths:
+          - "src/**"
+        only_pulls: false
+      # P0 / security-critical paths from the 2026-06-03 audit. New
+      # code in these modules must hold 90% line coverage.
+      security_p0:
+        target: 90%
+        threshold: 0.5%
+        paths:
+          - "src/auth/**"
+          - "src/web/middleware/federation_auth.rs"
+          - "src/web/middleware/auth.rs"
+          - "src/web/utils/admin_auth.rs"
+          - "src/federation/signing.rs"
+          - "src/common/nonce_cache.rs"
+          - "src/services/sync_service/**"
+          - "src/e2ee/**"
+        only_pulls: false
     patch:
       default:
+        target: 80%
+        threshold: 0%
         informational: false
+        only_pulls: true
+      security_p0:
+        target: 90%
+        threshold: 0%
+        informational: false
+        paths:
+          - "src/auth/**"
+          - "src/web/middleware/federation_auth.rs"
+          - "src/web/middleware/auth.rs"
+          - "src/web/utils/admin_auth.rs"
+          - "src/federation/signing.rs"
+          - "src/common/nonce_cache.rs"
+          - "src/services/sync_service/**"
+          - "src/e2ee/**"
+        only_pulls: true
 
 comment:
   require_changes: false
+
+# Flag matrix used by tarpaulin. Each flag contributes its own
+# coverage number; the project.status checks above reference the flag
+# names directly.
+flag_management:
+  default_rules:
+    carryforward: true
+    statuses:
+      - type: project
+        target: auto
+        threshold: 0.5%
+      - type: patch
+        target: 80%
+  individual_flags:
+    - name: unittests
+      paths:
+        - tests/unit/**
+        - src/**

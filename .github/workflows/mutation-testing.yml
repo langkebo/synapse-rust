@@ -1,0 +1,104 @@
+name: Mutation Testing (cargo-mutants)
+
+on:
+  schedule:
+    # Nightly run at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to mutate (empty = workspace)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  mutation-test:
+    name: Mutation Testing (nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Non-blocking: failure does not prevent merge
+    continue-on-error: true
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: synapse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-mutants-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-mutants-
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/synapse_test
+        run: |
+          bash docker/db_migrate.sh migrate
+          bash docker/db_migrate.sh validate
+
+      - name: Run mutation tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/synapse_test
+          TEST_REDIS_URL: redis://localhost:6379
+        run: |
+          if [ -n "${{ inputs.package }}" ]; then
+            cargo mutants --package "${{ inputs.package }}" \
+              --timeout 30 \
+              -- --test-threads=2
+          else
+            # Incremental: focus on high-value crates
+            cargo mutants \
+              --package synapse-rust \
+              --timeout 30 \
+              -- --test-threads=2
+          fi
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: |
+            mutants.out/
+            target/mutants/
+          retention-days: 30

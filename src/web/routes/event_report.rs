@@ -167,7 +167,7 @@ pub async fn create_report(
         score: body.score,
     };
 
-    let report = state.services.event_report_service.create_report(request).await?;
+    let report = state.services.admin.event_report_service.create_report(request).await?;
 
     Ok((StatusCode::CREATED, Json(ReportResponse::from(report))))
 }
@@ -178,8 +178,7 @@ pub async fn get_report(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = state
-        .services
-        .event_report_service
+        .services.admin.event_report_service
         .get_report(id)
         .await?
         .ok_or_else(|| ApiError::not_found("Report not found"))?;
@@ -192,7 +191,7 @@ pub async fn get_reports_by_event(
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let reports = state.services.event_report_service.get_reports_by_event(&event_id).await?;
+    let reports = state.services.admin.event_report_service.get_reports_by_event(&event_id).await?;
 
     let response: Vec<ReportResponse> = reports.into_iter().map(ReportResponse::from).collect();
 
@@ -208,8 +207,7 @@ pub async fn get_reports_by_room(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services
-        .event_report_service
+        .services.admin.event_report_service
         .get_reports_by_room(&room_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -227,8 +225,7 @@ pub async fn get_reports_by_reporter(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services
-        .event_report_service
+        .services.admin.event_report_service
         .get_reports_by_reporter(&reporter_user_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -246,8 +243,7 @@ pub async fn get_reports_by_status(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services
-        .event_report_service
+        .services.admin.event_report_service
         .get_reports_by_status(&status, limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -264,8 +260,7 @@ pub async fn get_all_reports(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services
-        .event_report_service
+        .services.admin.event_report_service
         .get_all_reports(limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -283,7 +278,7 @@ pub async fn update_report(
     let request =
         UpdateEventReportRequest { status: body.status, score: body.score, resolved_by: None, resolution_reason: None };
 
-    let report = state.services.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
+    let report = state.services.admin.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -294,7 +289,7 @@ pub async fn resolve_report(
     Path(id): Path<i64>,
     Json(body): Json<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
+    let report = state.services.admin.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -305,7 +300,7 @@ pub async fn dismiss_report(
     Path(id): Path<i64>,
     Json(body): Json<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
+    let report = state.services.admin.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -315,7 +310,7 @@ pub async fn escalate_report(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.event_report_service.escalate_report(id, &_auth_user.user_id).await?;
+    let report = state.services.admin.event_report_service.escalate_report(id, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -325,7 +320,7 @@ pub async fn delete_report(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.event_report_service.delete_report(id).await?;
+    state.services.admin.event_report_service.delete_report(id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -335,7 +330,7 @@ pub async fn get_report_history(
     _auth_user: AdminUser,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let history = state.services.event_report_service.get_report_history(id).await?;
+    let history = state.services.admin.event_report_service.get_report_history(id).await?;
 
     let response: Vec<ReportHistoryResponse> = history.into_iter().map(ReportHistoryResponse::from).collect();
 
@@ -347,7 +342,7 @@ pub async fn check_rate_limit(
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let check = state.services.event_report_service.check_rate_limit(&user_id).await?;
+    let check = state.services.admin.event_report_service.check_rate_limit(&user_id).await?;
 
     Ok(Json(serde_json::json!({
         "is_allowed": check.is_allowed,
@@ -362,7 +357,7 @@ pub async fn block_user(
     Path(user_id): Path<String>,
     Json(body): Json<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
+    state.services.admin.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -372,7 +367,7 @@ pub async fn unblock_user(
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.event_report_service.unblock_user_reports(&user_id).await?;
+    state.services.admin.event_report_service.unblock_user_reports(&user_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -384,7 +379,7 @@ pub async fn get_stats(
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
 
-    let stats = state.services.event_report_service.get_stats(days).await?;
+    let stats = state.services.admin.event_report_service.get_stats(days).await?;
 
     let response: Vec<StatsResponse> = stats.into_iter().map(StatsResponse::from).collect();
 
@@ -396,7 +391,7 @@ pub async fn count_by_status(
     _auth_user: AdminUser,
     Path(status): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.event_report_service.count_reports_by_status(&status).await?;
+    let count = state.services.admin.event_report_service.count_reports_by_status(&status).await?;
 
     Ok(Json(serde_json::json!({
         "status": status,
@@ -405,7 +400,7 @@ pub async fn count_by_status(
 }
 
 pub async fn count_all(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.event_report_service.count_all_reports().await?;
+    let count = state.services.admin.event_report_service.count_all_reports().await?;
 
     Ok(Json(serde_json::json!({
         "total_reports": count,

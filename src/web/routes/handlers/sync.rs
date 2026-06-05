@@ -93,7 +93,7 @@ async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
 
     let sync_result = tokio::time::timeout(
         server_timeout,
-        params.state.services.sync_service.sync_with_request(SyncServiceRequest {
+        params.state.services.rooms.sync_service.sync_with_request(SyncServiceRequest {
             user_id: &params.user_id,
             device_id: params.device_id.as_deref(),
             timeout: params.timeout,
@@ -129,7 +129,7 @@ pub(crate) async fn get_events(
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
 
-    let result = state.services.sync_service.get_events(&user_id, from, timeout).await?;
+    let result = state.services.rooms.sync_service.get_events(&user_id, from, timeout).await?;
 
     Ok(Json(result))
 }

@@ -43,7 +43,7 @@ async fn write_typing_ephemeral(
     .bind(now)
     .bind(now)
     .bind(now + timeout_ms)
-    .execute(&*state.services.event_storage.pool)
+    .execute(&*state.services.rooms.event_storage.pool)
     .await;
 }
 
@@ -56,7 +56,7 @@ async fn clear_typing_ephemeral(state: &AppState, room_id: &str, user_id: &str) 
     )
     .bind(room_id)
     .bind(user_id)
-    .execute(&*state.services.event_storage.pool)
+    .execute(&*state.services.rooms.event_storage.pool)
     .await;
 }
 
@@ -79,7 +79,7 @@ pub async fn set_typing(
     let is_typing = body.get("typing").and_then(|v| v.as_bool()).unwrap_or(true);
 
     if is_typing {
-        state.services.typing_service.set_typing(&room_id, &user_id, timeout).await?;
+        state.services.rooms.typing_service.set_typing(&room_id, &user_id, timeout).await?;
 
         write_typing_ephemeral(&state, &room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64).await;
 
@@ -102,7 +102,7 @@ pub async fn set_typing(
 
         Ok(Json(json!({})))
     } else {
-        state.services.typing_service.clear_typing(&room_id, &user_id).await?;
+        state.services.rooms.typing_service.clear_typing(&room_id, &user_id).await?;
 
         clear_typing_ephemeral(&state, &room_id, &user_id).await;
 
@@ -136,7 +136,7 @@ pub async fn get_typing_users(
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let typing = state.services.typing_service.get_typing_users(&room_id).await?;
+    let typing = state.services.rooms.typing_service.get_typing_users(&room_id).await?;
     let users: Vec<String> = typing.into_keys().collect();
     Ok(Json(json!({ "typing": users })))
 }
@@ -150,7 +150,7 @@ pub async fn get_user_typing(
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let is_typing = state.services.typing_service.get_user_typing(&room_id, &user_id).await?.is_some();
+    let is_typing = state.services.rooms.typing_service.get_user_typing(&room_id, &user_id).await?.is_some();
     Ok(Json(json!({ "typing": is_typing })))
 }
 
@@ -171,7 +171,7 @@ pub async fn bulk_get_typing(
     for room_id in room_ids {
         ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-        let typing = state.services.typing_service.get_typing_users(&room_id).await?;
+        let typing = state.services.rooms.typing_service.get_typing_users(&room_id).await?;
         let users: Vec<String> = typing.into_keys().collect();
         result.insert(room_id, json!({ "typing": users }));
     }

@@ -1,7 +1,7 @@
 // Key Rotation Service
 // E2EE Phase 2: Automatic key rotation for enhanced security
 
-use crate::e2ee::megolm::{MegolmService, MegolmSession};
+use crate::e2ee::megolm::{MegolmProvider, MegolmSession};
 use crate::e2ee::olm::OlmService;
 use crate::error::ApiError;
 use chrono::{DateTime, Utc};
@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub struct KeyRotationService {
     #[allow(dead_code)]
     olm_service: Arc<OlmService>,
-    megolm_service: Arc<MegolmService>,
+    megolm_service: Arc<MegolmProvider>,
     storage: Arc<KeyRotationStorage>,
     config: Arc<tokio::sync::RwLock<KeyRotationConfig>>,
 }
@@ -91,14 +91,13 @@ pub struct KeyRotationLog {
 pub struct RotationStatus {
     pub total_sessions: i64,
     pub rotated_sessions: i64,
-    pub pending_rotations: i64,
     pub last_rotation: Option<DateTime<Utc>>,
 }
 
 impl KeyRotationService {
     pub fn new(
         olm_service: Arc<OlmService>,
-        megolm_service: Arc<MegolmService>,
+        megolm_service: Arc<MegolmProvider>,
         storage: Arc<KeyRotationStorage>,
         config: KeyRotationConfig,
     ) -> Self {
@@ -107,7 +106,7 @@ impl KeyRotationService {
 
     pub async fn new_with_db_config(
         olm_service: Arc<OlmService>,
-        megolm_service: Arc<MegolmService>,
+        megolm_service: Arc<MegolmProvider>,
         storage: Arc<KeyRotationStorage>,
         fallback_config: KeyRotationConfig,
     ) -> Self {
@@ -383,7 +382,7 @@ impl KeyRotationStorage {
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
-        let result = sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < NOW()")
+        let result = sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
             .execute(&*self.pool)
             .await
             .map_err(|e| {
@@ -399,7 +398,6 @@ impl KeyRotationStorage {
             "SELECT
              COUNT(*) as total_sessions,
              COUNT(CASE WHEN rotated_at > NOW() - INTERVAL '7 days' THEN 1 END) as rotated_sessions,
-             COUNT(CASE WHEN last_used_ts < NOW() - INTERVAL '7 days' THEN 1 END) as pending_rotations,
              MAX(rotated_at) as last_rotation
              FROM key_rotation_log
              WHERE user_id = $1",
@@ -416,7 +414,6 @@ impl KeyRotationStorage {
         Ok(RotationStatus {
             total_sessions: row.get("total_sessions"),
             rotated_sessions: row.get("rotated_sessions"),
-            pending_rotations: row.get("pending_rotations"),
             last_rotation: row.get("last_rotation"),
         })
     }

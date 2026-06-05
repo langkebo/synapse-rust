@@ -1,0 +1,149 @@
+name: E2EE Interop (vodozemac)
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/e2ee/**'
+      - 'docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/e2ee/vodozemac_interop_tests.rs'
+      - '.github/workflows/e2ee-interop.yml'
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/e2ee-vodozemac/**'
+  schedule:
+    # Sunday 02:00 UTC, after the nightly dependency refresh.
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  E2EE_INTEROP: '1'
+  E2EE_INTEROP_CLIENT: 'element-web'
+  E2EE_INTEROP_LOG: artifacts/e2ee-interop
+  MATRIX_HOMESERVER_URL: 'http://localhost:8008'
+
+jobs:
+  vodozemac-vector-roundtrip:
+    # Cheap: runs the vodozemac reference test vectors inside the
+    # synapse-rust binary. Catches any regression in the local
+    # vodozemac glue code without spinning up a second homeserver.
+    name: Vodozemac vector roundtrip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2ee-interop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-e2ee-interop-
+
+      - name: Vodozemac interop smoke
+        run: |
+          mkdir -p "${E2EE_INTEROP_LOG}"
+          cargo test --all-features --locked --lib \
+            'e2ee::vodozemac_interop_tests' \
+            -- --nocapture 2>&1 | tee "${E2EE_INTEROP_LOG}/vodozemac-smoke.log"
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2ee-interop-vodozemac-smoke
+          path: ${{ env.E2EE_INTEROP_LOG }}/vodozemac-smoke.log
+          retention-days: 14
+
+  element-web-interop:
+    # Full Element Web x synapse-rust interop. Slow (~20 min) so it
+    # only runs on the dedicated branch, weekly schedule, and manual
+    # dispatch.
+    name: Element Web x synapse-rust
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/heads/feature/e2ee-vodozemac/')
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse
+        ports: [5432:5432]
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: [6379:6379]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2ee-interop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-e2ee-interop-
+
+      - name: Build synapse-rust (release)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+        run: |
+          cargo build --release --locked \
+            --features server,all-extensions \
+            --bin synapse-rust
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          REDIS_URL: redis://localhost:6379
+        run: |
+          mkdir -p "${E2EE_INTEROP_LOG}"
+          cargo test --all-features --locked --tests \
+            'e2ee::interop' \
+            -- --nocapture 2>&1 | tee "${E2EE_INTEROP_LOG}/element-web.log"
+        # NOTE: full Element Web harness lives behind a feature flag
+        # until the harness is wired up. The interop module is
+        # present (see src/e2ee/vodozemac_interop_tests.rs) and the
+        # vodozemac-vector-roundtrip job already runs the local
+        # half. To enable the full Element Web pass, install
+        # `playwright` and a running Element instance, then add the
+        # runner below; tracked in
+        # docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md §5.3.
+
+      - name: Upload Element Web interop log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2ee-interop-element-web
+          path: ${{ env.E2EE_INTEROP_LOG }}/element-web.log
+          retention-days: 30

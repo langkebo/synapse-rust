@@ -365,11 +365,11 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
 
     let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
     if key_id != config_key_id {
-        if state.services.key_rotation_manager.load_or_create_key().await.is_err() {
+        if state.services.federation.key_rotation_manager.load_or_create_key().await.is_err() {
             return None;
         }
 
-        let current_key = state.services.key_rotation_manager.get_current_key().await.ok().flatten()?;
+        let current_key = state.services.federation.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
         if current_key.key_id != key_id {
             return None;
@@ -385,11 +385,11 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
         return Some(*verifying_key.as_bytes());
     }
 
-    if state.services.key_rotation_manager.load_or_create_key().await.is_err() {
+    if state.services.federation.key_rotation_manager.load_or_create_key().await.is_err() {
         return None;
     }
 
-    let current_key = state.services.key_rotation_manager.get_current_key().await.ok().flatten()?;
+    let current_key = state.services.federation.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
     if current_key.key_id != key_id {
         return None;

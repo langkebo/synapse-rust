@@ -326,8 +326,7 @@ pub async fn resolve_federation(
     let server_name = &body.server_name;
 
     let is_blocked = state
-        .services
-        .federation_blacklist_storage
+        .services.admin.federation_blacklist_storage
         .is_server_blocked(server_name)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -392,8 +391,7 @@ pub async fn confirm_federation(
 
     if !body.accept {
         if let Err(e) = state
-            .services
-            .federation_blacklist_storage
+            .services.admin.federation_blacklist_storage
             .add_to_blacklist(crate::storage::federation_blacklist::AddBlacklistRequest {
                 server_name: body.server_name.clone(),
                 block_type: "blacklist".to_string(),
@@ -500,7 +498,7 @@ pub async fn get_blacklist(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (blacklist, next_batch) = state.services.federation_blacklist_service.get_blacklist(limit, from).await?;
+    let (blacklist, next_batch) = state.services.admin.federation_blacklist_service.get_blacklist(limit, from).await?;
 
     let list: Vec<Value> = blacklist
         .iter()

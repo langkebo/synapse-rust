@@ -231,7 +231,7 @@ impl From<AccountValidity> for AccountValidityResponse {
     fn from(v: AccountValidity) -> Self {
         Self {
             user_id: v.user_id,
-            expiration_ts: v.expiration_ts,
+            expiration_ts: v.expiration_at,
             email_sent_ts: v.email_sent_ts,
             renewal_token: v.renewal_token,
             renewal_token_ts: v.renewal_token_ts,
@@ -349,7 +349,7 @@ pub async fn create_module(
         config: body.config,
     };
 
-    let module = state.services.module_service.register_module(request).await?;
+    let module = state.services.admin.module_service.register_module(request).await?;
 
     Ok((StatusCode::CREATED, Json(ModuleResponse::from(module))))
 }
@@ -360,8 +360,7 @@ pub async fn get_module(
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = state
-        .services
-        .module_service
+        .services.admin.module_service
         .get_module(&module_name)
         .await?
         .ok_or_else(|| ApiError::not_found("Module not found"))?;
@@ -374,7 +373,7 @@ pub async fn get_modules_by_type(
     _auth_user: AdminUser,
     Path(module_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let modules = state.services.module_service.get_modules_by_type(&module_type).await?;
+    let modules = state.services.admin.module_service.get_modules_by_type(&module_type).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -388,7 +387,7 @@ pub async fn get_all_modules(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (modules, next_batch) = state.services.module_service.get_all_modules(limit, query.from).await?;
+    let (modules, next_batch) = state.services.admin.module_service.get_all_modules(limit, query.from).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -404,7 +403,7 @@ pub async fn update_module_config(
     Path(module_name): Path<String>,
     Json(body): Json<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state.services.module_service.update_module_config(&module_name, body.config).await?;
+    let module = state.services.admin.module_service.update_module_config(&module_name, body.config).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
@@ -415,7 +414,7 @@ pub async fn enable_module(
     Path(module_name): Path<String>,
     Json(body): Json<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state.services.module_service.enable_module(&module_name, body.is_enabled).await?;
+    let module = state.services.admin.module_service.enable_module(&module_name, body.is_enabled).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
@@ -425,7 +424,7 @@ pub async fn delete_module(
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.module_service.delete_module(&module_name).await?;
+    state.services.admin.module_service.delete_module(&module_name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -443,7 +442,7 @@ pub async fn check_spam(
         content: body.content,
     };
 
-    let result = state.services.module_service.check_spam(&context).await?;
+    let result = state.services.admin.module_service.check_spam(&context).await?;
 
     Ok(Json(result))
 }
@@ -462,7 +461,7 @@ pub async fn check_third_party_rule(
         state_events: body.state_events,
     };
 
-    let result = state.services.module_service.check_third_party_rules(&context).await?;
+    let result = state.services.admin.module_service.check_third_party_rules(&context).await?;
 
     Ok(Json(result))
 }
@@ -473,8 +472,7 @@ pub async fn get_spam_check_result(
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
-        .services
-        .module_service
+        .services.admin.module_service
         .get_spam_check_result(&event_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Spam check result not found"))?;
@@ -490,7 +488,7 @@ pub async fn get_spam_check_results_by_sender(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let results = state.services.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
+    let results = state.services.admin.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
 
     let responses: Vec<SpamCheckResultResponse> = results.into_iter().map(SpamCheckResultResponse::from).collect();
 
@@ -502,7 +500,7 @@ pub async fn get_third_party_rule_results(
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let results = state.services.module_service.get_third_party_rule_results(&event_id).await?;
+    let results = state.services.admin.module_service.get_third_party_rule_results(&event_id).await?;
 
     let responses: Vec<ThirdPartyRuleResultResponse> =
         results.into_iter().map(ThirdPartyRuleResultResponse::from).collect();
@@ -518,7 +516,7 @@ pub async fn get_execution_logs(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let logs = state.services.module_service.get_execution_logs(&module_name, limit).await?;
+    let logs = state.services.admin.module_service.get_execution_logs(&module_name, limit).await?;
 
     Ok(Json(logs))
 }
@@ -532,11 +530,11 @@ pub async fn create_account_validity(
 
     let request = CreateAccountValidityRequest {
         user_id: body.user_id,
-        expiration_ts: body.expiration_ts,
+        expiration_at: body.expiration_ts,
         is_valid: body.is_valid,
     };
 
-    let validity = state.services.account_validity_service.create_validity(request).await?;
+    let validity = state.services.admin.account_validity_service.create_validity(request).await?;
 
     Ok((StatusCode::CREATED, Json(AccountValidityResponse::from(validity))))
 }
@@ -547,8 +545,7 @@ pub async fn get_account_validity(
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let validity = state
-        .services
-        .account_validity_service
+        .services.admin.account_validity_service
         .get_validity(&user_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Account validity not found"))?;
@@ -564,13 +561,12 @@ pub async fn renew_account(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    if state.services.account_validity_service.get_validity(&user_id).await?.is_none() {
+    if state.services.admin.account_validity_service.get_validity(&user_id).await?.is_none() {
         return Err(ApiError::not_found("Account validity not found"));
     }
 
     let validity = state
-        .services
-        .account_validity_service
+        .services.admin.account_validity_service
         .renew_account(&user_id, &body.renewal_token, body.new_expiration_ts)
         .await?;
 
@@ -591,8 +587,7 @@ pub async fn create_password_auth_provider(
     };
 
     let provider = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .create_password_auth_provider(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create password auth provider", &e))?;
@@ -605,8 +600,7 @@ pub async fn get_password_auth_providers(
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let providers = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .get_password_auth_providers()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get password auth providers", &e))?;
@@ -634,8 +628,7 @@ pub async fn create_media_callback(
     };
 
     let callback = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .create_media_callback(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create media callback", &e))?;
@@ -649,8 +642,7 @@ pub async fn get_media_callbacks(
     Path(callback_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .get_media_callbacks(Some(&callback_type))
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
@@ -665,8 +657,7 @@ pub async fn get_all_media_callbacks(
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .get_media_callbacks(None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
@@ -690,8 +681,7 @@ pub async fn create_account_data_callback(
     };
 
     let callback = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .create_account_data_callback(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create account data callback", &e))?;
@@ -704,8 +694,7 @@ pub async fn get_account_data_callbacks(
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = state
-        .services
-        .module_storage
+        .services.admin.module_storage
         .get_account_data_callbacks()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get account data callbacks", &e))?;

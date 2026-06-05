@@ -327,7 +327,7 @@ async fn get_dehydrated_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let device = state.services.dehydrated_device_service.get_device(&auth_user.user_id).await?;
+    let device = state.services.e2ee.dehydrated_device_service.get_device(&auth_user.user_id).await?;
 
     match device {
         Some(device) => Ok(Json(device)),
@@ -342,7 +342,7 @@ async fn put_dehydrated_device(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // P0: Precondition checks (MSC3814)
     // 1. Check if user has cross-signing keys
-    let cs_status = state.services.cross_signing_service.get_user_verification_status(&auth_user.user_id).await?;
+    let cs_status = state.services.e2ee.cross_signing_service.get_user_verification_status(&auth_user.user_id).await?;
     if !cs_status.has_master_key {
         return Err(ApiError::forbidden(
             "Cross-signing keys not found. Please initialize cross-signing before creating a dehydrated device."
@@ -351,7 +351,7 @@ async fn put_dehydrated_device(
     }
 
     // 2. Check if user has SSSS keys
-    let ssss_keys = state.services.ssss_service.get_all_keys(&auth_user.user_id).await?;
+    let ssss_keys = state.services.e2ee.ssss_service.get_all_keys(&auth_user.user_id).await?;
     if ssss_keys.is_empty() {
         return Err(ApiError::forbidden(
             "Secret storage keys not found. Please initialize secret storage (SSSS) before creating a dehydrated device."
@@ -359,7 +359,7 @@ async fn put_dehydrated_device(
         ));
     }
 
-    let device_id = state.services.dehydrated_device_service.put_device(&auth_user.user_id, body).await?;
+    let device_id = state.services.e2ee.dehydrated_device_service.put_device(&auth_user.user_id, body).await?;
 
     Ok(Json(json!({
         "device_id": device_id
@@ -370,7 +370,7 @@ async fn get_dehydrated_device_status(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let status = state.services.dehydrated_device_service.get_status(&auth_user.user_id).await?;
+    let status = state.services.e2ee.dehydrated_device_service.get_status(&auth_user.user_id).await?;
     Ok(Json(status))
 }
 
@@ -378,7 +378,7 @@ async fn delete_dehydrated_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _deleted = state.services.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
+    let _deleted = state.services.e2ee.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -398,7 +398,7 @@ async fn post_dehydrated_device_events(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
     let response =
-        state.services.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, 100).await?;
+        state.services.e2ee.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, 100).await?;
     Ok(Json(response))
 }
 

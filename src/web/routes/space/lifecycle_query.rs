@@ -39,7 +39,7 @@ pub(super) async fn create_space(
     validate_request(&body)?;
     let request = body.into_request(auth_user.user_id.clone());
 
-    let space = state.services.space_service.create_space(request).await?;
+    let space = state.services.rooms.space_service.create_space(request).await?;
 
     Ok(created_json_from::<_, SpaceResponse>(space))
 }
@@ -76,7 +76,7 @@ pub(super) async fn update_space(
     let request = body.into_request();
 
     with_resolved_space(state, space_id, |state, space| async move {
-        let space = state.services.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
+        let space = state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceResponse>(space))
     })
@@ -89,7 +89,7 @@ pub(super) async fn delete_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(state, space_id, |state, space| async move {
-        state.services.space_service.delete_space(&space.space_id, &auth_user.user_id).await?;
+        state.services.rooms.space_service.delete_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(StatusCode::NO_CONTENT)
     })
@@ -100,7 +100,7 @@ pub(super) async fn get_user_spaces(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let spaces = state.services.space_service.get_user_spaces(&auth_user.user_id).await?;
+    let spaces = state.services.rooms.space_service.get_user_spaces(&auth_user.user_id).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces))
 }
@@ -116,8 +116,7 @@ pub(super) async fn get_public_spaces(
     }
 
     let spaces = state
-        .services
-        .space_service
+        .services.rooms.space_service
         .get_public_spaces(limit, cursor.map(|(created_ts, _)| created_ts), cursor.map(|(_, space_id)| space_id))
         .await?;
 
@@ -142,7 +141,7 @@ pub(super) async fn search_spaces(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(10).clamp(1, 100);
 
-    let spaces = state.services.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
+    let spaces = state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces))
 }
@@ -151,7 +150,7 @@ pub(super) async fn get_space_statistics(
     State(state): State<AppState>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.space_service.get_space_statistics().await?;
+    let stats = state.services.rooms.space_service.get_space_statistics().await?;
     let mut visible_stats = Vec::new();
 
     for stat in stats {
@@ -159,7 +158,7 @@ pub(super) async fn get_space_statistics(
             continue;
         };
 
-        let Some(space) = state.services.space_service.get_space(space_id).await? else {
+        let Some(space) = state.services.rooms.space_service.get_space(space_id).await? else {
             continue;
         };
 

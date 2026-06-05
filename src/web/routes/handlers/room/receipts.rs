@@ -23,13 +23,12 @@ pub(crate) async fn send_receipt(
 
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to send receipts").await?;
 
-    get_room_event(&state.services.event_storage, &room_id, &event_id).await?;
+    get_room_event(&state.services.rooms.event_storage, &room_id, &event_id).await?;
 
     let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 
     state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .add_receipt(&auth_user.user_id, &auth_user.user_id, &room_id, &event_id, &receipt_type, &body)
         .await
         .map_err(map_internal!("Failed to store receipt"))?;
@@ -57,7 +56,7 @@ pub(crate) async fn send_receipt(
     .bind(&receipt_content)
     .bind(now_ts)
     .bind(now_ts)
-    .execute(&*state.services.event_storage.pool)
+    .execute(&*state.services.rooms.event_storage.pool)
     .await;
 
     let receipt_edu = serde_json::json!({
@@ -94,11 +93,10 @@ pub(crate) async fn get_receipts(
     validate_event_id(&event_id)?;
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
-    get_room_event(&state.services.event_storage, &room_id, &event_id).await?;
+    get_room_event(&state.services.rooms.event_storage, &room_id, &event_id).await?;
 
     let receipts = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_receipts(&room_id, &receipt_type, &event_id)
         .await
         .map_err(map_internal!("Failed to get receipts"))?;
@@ -132,8 +130,7 @@ pub(crate) async fn set_read_markers(
     validate_room_id(&room_id)?;
 
     let room = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -147,8 +144,8 @@ pub(crate) async fn set_read_markers(
     }
 
     write_read_markers_from_body(
-        &state.services.room_storage,
-        &state.services.event_storage,
+        &state.services.rooms.room_storage,
+        &state.services.rooms.event_storage,
         &room_id,
         &auth_user.user_id,
         &body,

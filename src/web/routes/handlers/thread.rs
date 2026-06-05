@@ -282,8 +282,7 @@ async fn ensure_thread_management_access(
     ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage threads").await?;
 
     let is_creator = state
-        .services
-        .room_service
+        .services.rooms.room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -310,8 +309,7 @@ async fn list_visible_threads(
     from: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
     let room_ids = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to list user rooms", &e))?;
@@ -319,8 +317,7 @@ async fn list_visible_threads(
     let mut threads = Vec::new();
     for room_id in room_ids {
         let mut response = state
-            .services
-            .thread_service
+            .services.rooms.thread_service
             .list_threads(ListThreadsRequest { room_id, limit: None, from: None, include_all: true })
             .await?;
         threads.append(&mut response.threads);
@@ -356,7 +353,7 @@ async fn create_thread(
     let user_id = auth_user.user_id;
     let request = CreateThreadRequest { room_id, root_event_id: body.root_event_id };
 
-    let thread = state.services.thread_service.create_thread(&user_id, request).await?;
+    let thread = state.services.rooms.thread_service.create_thread(&user_id, request).await?;
 
     Ok(Json(ThreadResponse::from(thread)))
 }
@@ -376,7 +373,7 @@ async fn list_threads(
         include_all: query.include_all.unwrap_or(false),
     };
 
-    let response = state.services.thread_service.list_threads(request).await?;
+    let response = state.services.rooms.thread_service.list_threads(request).await?;
     Ok(Json(response))
 }
 
@@ -396,7 +393,7 @@ async fn list_threads_legacy_search(
         include_all: query.include_all.unwrap_or(false),
     };
 
-    let response = state.services.thread_service.list_threads(request).await?;
+    let response = state.services.rooms.thread_service.list_threads(request).await?;
     Ok(Json(build_legacy_threads_response(response)))
 }
 
@@ -415,7 +412,7 @@ async fn get_thread(
         reply_limit: query.reply_limit,
     };
 
-    let response = state.services.thread_service.get_thread(request, Some(&auth_user.user_id)).await?;
+    let response = state.services.rooms.thread_service.get_thread(request, Some(&auth_user.user_id)).await?;
     Ok(Json(response))
 }
 
@@ -427,8 +424,7 @@ async fn delete_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services
-        .thread_storage
+        .services.rooms.thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -437,7 +433,7 @@ async fn delete_thread(
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
     }
 
-    state.services.thread_service.delete_thread(&room_id, &thread_id).await?;
+    state.services.rooms.thread_service.delete_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -449,8 +445,7 @@ async fn freeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services
-        .thread_storage
+        .services.rooms.thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -459,7 +454,7 @@ async fn freeze_thread(
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
     }
 
-    state.services.thread_service.freeze_thread(&room_id, &thread_id).await?;
+    state.services.rooms.thread_service.freeze_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -471,8 +466,7 @@ async fn unfreeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services
-        .thread_storage
+        .services.rooms.thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -481,7 +475,7 @@ async fn unfreeze_thread(
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
     }
 
-    state.services.thread_service.unfreeze_thread(&room_id, &thread_id).await?;
+    state.services.rooms.thread_service.unfreeze_thread(&room_id, &thread_id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -505,7 +499,7 @@ async fn add_reply(
         origin_server_ts: body.origin_server_ts.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
-    let reply = state.services.thread_service.add_reply(&user_id, request).await?;
+    let reply = state.services.rooms.thread_service.add_reply(&user_id, request).await?;
     Ok(Json(ReplyResponse::from(reply)))
 }
 
@@ -517,7 +511,7 @@ async fn get_replies(
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let storage = &state.services.thread_storage;
+    let storage = &state.services.rooms.thread_storage;
 
     let replies = storage
         .get_thread_replies(&room_id, &thread_id, query.limit, query.from)
@@ -539,7 +533,7 @@ async fn subscribe_thread(
 
     let request = SubscribeRequest { room_id, thread_id, user_id, notification_level: body.notification_level };
 
-    let subscription = state.services.thread_service.subscribe(request).await?;
+    let subscription = state.services.rooms.thread_service.subscribe(request).await?;
     Ok(Json(subscription))
 }
 
@@ -552,7 +546,7 @@ async fn unsubscribe_thread(
 
     let user_id = auth_user.user_id;
 
-    state.services.thread_service.unsubscribe(&room_id, &thread_id, &user_id).await?;
+    state.services.rooms.thread_service.unsubscribe(&room_id, &thread_id, &user_id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -565,7 +559,7 @@ async fn mute_thread(
 
     let user_id = auth_user.user_id;
 
-    let subscription = state.services.thread_service.mute_thread(&room_id, &thread_id, &user_id).await?;
+    let subscription = state.services.rooms.thread_service.mute_thread(&room_id, &thread_id, &user_id).await?;
     Ok(Json(subscription))
 }
 
@@ -587,7 +581,7 @@ async fn mark_read(
         origin_server_ts: body.origin_server_ts,
     };
 
-    let receipt = state.services.thread_service.mark_read(request).await?;
+    let receipt = state.services.rooms.thread_service.mark_read(request).await?;
     Ok(Json(receipt))
 }
 
@@ -600,7 +594,7 @@ async fn get_unread_threads(
 
     let user_id = auth_user.user_id;
 
-    let response = state.services.thread_service.get_unread_threads(&user_id, Some(&room_id)).await?;
+    let response = state.services.rooms.thread_service.get_unread_threads(&user_id, Some(&room_id)).await?;
     Ok(Json(response))
 }
 
@@ -612,7 +606,7 @@ async fn search_threads(
 ) -> Result<Json<Vec<crate::storage::thread::ThreadSummary>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let results = state.services.thread_service.search_threads(&room_id, &query.q, query.limit).await?;
+    let results = state.services.rooms.thread_service.search_threads(&room_id, &query.q, query.limit).await?;
     Ok(Json(results))
 }
 
@@ -623,7 +617,7 @@ async fn get_stats(
 ) -> Result<Json<Option<crate::storage::thread::ThreadStatistics>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let stats = state.services.thread_service.get_thread_statistics(&room_id, &thread_id).await?;
+    let stats = state.services.rooms.thread_service.get_thread_statistics(&room_id, &thread_id).await?;
     Ok(Json(stats))
 }
 
@@ -634,7 +628,7 @@ async fn redact_reply(
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    state.services.thread_service.redact_reply(&room_id, &event_id).await?;
+    state.services.rooms.thread_service.redact_reply(&room_id, &event_id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -658,7 +652,7 @@ async fn create_thread_global(
 
     let request = CreateThreadRequest { room_id, root_event_id: body.root_event_id };
 
-    let thread = state.services.thread_service.create_thread(&auth_user.user_id, request).await?;
+    let thread = state.services.rooms.thread_service.create_thread(&auth_user.user_id, request).await?;
 
     Ok(Json(ThreadResponse::from(thread)))
 }
@@ -667,7 +661,7 @@ async fn get_subscribed_threads(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<SubscribedThreadsResponse>, ApiError> {
-    let response = state.services.thread_service.get_subscribed_threads(&auth_user.user_id, Some(50)).await?;
+    let response = state.services.rooms.thread_service.get_subscribed_threads(&auth_user.user_id, Some(50)).await?;
     Ok(Json(response))
 }
 
@@ -675,7 +669,7 @@ async fn get_unread_threads_global(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<UnreadThreadsResponse>, ApiError> {
-    let response = state.services.thread_service.get_unread_threads(&auth_user.user_id, None).await?;
+    let response = state.services.rooms.thread_service.get_unread_threads(&auth_user.user_id, None).await?;
     Ok(Json(response))
 }
 

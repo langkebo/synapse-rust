@@ -68,8 +68,7 @@ async fn create_session(State(state): State<AppState>, Json(body): Json<Value>) 
         CreateRendezvousSessionParams { intent: intent_enum, transport: transport_enum, transport_data, expires_in_ms };
 
     let session = state
-        .services
-        .rendezvous_storage
+        .services.admin.rendezvous_storage
         .create_session(params)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
@@ -89,8 +88,7 @@ fn extract_rendezvous_key(headers: &HeaderMap) -> Option<&str> {
 
 async fn load_rendezvous_session(state: &AppState, session_id: &str) -> Result<RendezvousSession, ApiError> {
     state
-        .services
-        .rendezvous_storage
+        .services.admin.rendezvous_storage
         .get_session(session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get session", &e))?
@@ -107,7 +105,7 @@ async fn ensure_rendezvous_session_access(
     let session = load_rendezvous_session(state, session_id).await?;
 
     if let Some(session_key) = extract_rendezvous_key(headers) {
-        if session.key == session_key {
+        if session.key.as_deref() == Some(session_key) {
             return Ok(session);
         }
 
@@ -161,8 +159,7 @@ async fn update_session(
         .ok_or_else(|| ApiError::bad_request("status required".to_string()))?;
 
     state
-        .services
-        .rendezvous_storage
+        .services.admin.rendezvous_storage
         .update_session_status(&session_id, status)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
@@ -171,8 +168,7 @@ async fn update_session(
         let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
         let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
         state
-            .services
-            .rendezvous_storage
+            .services.admin.rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to bind user", &e))?;
@@ -218,8 +214,7 @@ async fn delete_session(
     ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "delete").await?;
 
     state
-        .services
-        .rendezvous_storage
+        .services.admin.rendezvous_storage
         .delete_session(&session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;
@@ -243,7 +238,7 @@ async fn send_message(
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
 
-    let msg_storage = RendezvousMessageStorage::new(state.services.rendezvous_storage.pool.clone());
+    let msg_storage = RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
     msg_storage
         .store_message(&session_id, "outbound", &message)
@@ -268,7 +263,7 @@ async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read messages").await?;
 
-    let msg_storage = RendezvousMessageStorage::new(state.services.rendezvous_storage.pool.clone());
+    let msg_storage = RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
     let messages = msg_storage
         .get_messages(&session_id, None)

@@ -329,11 +329,13 @@ impl SamlStorage {
     }
 
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query("UPDATE saml_sessions SET last_used_ts = NOW() WHERE session_id = $1")
-            .bind(session_id)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update session last used", &e))?;
+        sqlx::query(
+            "UPDATE saml_sessions SET last_used_ts = (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to update session last used", &e))?;
 
         Ok(())
     }
@@ -577,7 +579,7 @@ impl SamlStorage {
                 is_enabled = EXCLUDED.is_enabled,
                 priority = EXCLUDED.priority,
                 attribute_mapping = EXCLUDED.attribute_mapping,
-                updated_ts = NOW()
+                updated_ts = (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
             RETURNING *
             "#,
         )
@@ -775,7 +777,9 @@ impl SamlStorage {
     }
 
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
-        let result = sqlx::query("DELETE FROM saml_auth_events WHERE created_ts < NOW() - INTERVAL '1 day' * $1")
+        let result = sqlx::query(
+            "DELETE FROM saml_auth_events WHERE created_ts < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) - $1 * 86400000",
+        )
             .bind(days)
             .execute(&*self.pool)
             .await

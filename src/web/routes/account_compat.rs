@@ -271,8 +271,7 @@ pub(crate) async fn change_password_uia(
                 sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
             let verification_token = state
-                .services
-                .email_verification_storage
+                .services.admin.email_verification_storage
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
@@ -458,8 +457,7 @@ pub(crate) async fn add_threepid(
     // 原子消费已校验会话：DELETE ... RETURNING 在单条 SQL 中完成"取出 + 删除",
     // 任何后续校验失败时 token 都已物理销毁，不能被重放。
     let verification_token = state
-        .services
-        .email_verification_storage
+        .services.admin.email_verification_storage
         .claim_used_token(sid_int)
         .await
         .map_err(|e| {

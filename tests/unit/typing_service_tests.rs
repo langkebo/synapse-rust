@@ -6,7 +6,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_typing() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set typing
         service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
@@ -18,7 +18,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_typing() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set typing
         service.set_typing("!room:example.com", "@user:example.com", 30000).await.unwrap();
@@ -33,7 +33,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_typing_users() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set multiple users typing
         service.set_typing("!room:example.com", "@user1:example.com", 30000).await.unwrap();
@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_user_not_typing() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Check user who hasn't typed
         let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
@@ -58,7 +58,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_different_rooms() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set typing in different rooms
         service.set_typing("!room1:example.com", "@user:example.com", 30000).await.unwrap();
@@ -74,13 +74,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_expired_typing() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set typing with very short timeout (would expire)
         service.set_typing("!room:example.com", "@user:example.com", 0).await.unwrap();
 
         // Clear expired
-        service.clear_expired_typing().await.unwrap();
+        service.clear_expired_typing().unwrap();
 
         // Should be cleared
         let timeout = service.get_user_typing("!room:example.com", "@user:example.com").await.unwrap();
@@ -89,7 +89,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_typing_timeout() {
-        let service = TypingService::new();
+        let service = TypingService::default();
 
         // Set typing with specific timeout
         service.set_typing("!room:example.com", "@user:example.com", 5000).await.unwrap();

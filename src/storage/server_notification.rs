@@ -624,7 +624,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn get_user_notification_setting(&self, user_id: &str) -> Result<Option<bool>, ApiError> {
-        let row = sqlx::query("SELECT enabled FROM user_notification_settings WHERE user_id = $1")
+        let row = sqlx::query("SELECT is_enabled FROM user_notification_settings WHERE user_id = $1")
             .bind(user_id)
             .fetch_optional(&self.pool)
             .await
@@ -633,7 +633,7 @@ impl ServerNotificationStorage {
         match row {
             Some(row) => {
                 use sqlx::Row;
-                Ok(Some(row.get::<Option<bool>, _>("enabled").unwrap_or(true)))
+                Ok(Some(row.get::<Option<bool>, _>("is_enabled").unwrap_or(true)))
             }
             None => Ok(None),
         }
@@ -641,7 +641,7 @@ impl ServerNotificationStorage {
 
     pub async fn upsert_user_notification_setting(&self, user_id: &str, enabled: bool) -> Result<(), ApiError> {
         sqlx::query(
-            "INSERT INTO user_notification_settings (user_id, enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET enabled = $2",
+            "INSERT INTO user_notification_settings (user_id, is_enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET is_enabled = $2",
         )
         .bind(user_id)
         .bind(enabled)

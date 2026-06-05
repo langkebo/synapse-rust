@@ -741,7 +741,7 @@ mod schema_contract_p0_suite {
             .await;
         assert_column(&pool, "room_retention_policies", "min_lifetime", &["bigint"], false, Some("0"), None).await;
         assert_column(&pool, "room_retention_policies", "max_lifetime", &["bigint"], true, None, None).await;
-        assert_column(&pool, "room_retention_policies", "expire_on_clients", &["boolean"], false, Some("false"), None)
+        assert_column(&pool, "room_retention_policies", "is_expire_on_clients", &["boolean"], false, Some("false"), None)
             .await;
         assert_column(&pool, "room_retention_policies", "is_server_default", &["boolean"], false, Some("false"), None)
             .await;

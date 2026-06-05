@@ -88,8 +88,6 @@ pub struct PushNotificationLog {
     pub notification_type: Option<String>,
     pub push_type: String,
     pub sent_at: DateTime<Utc>,
-    #[serde(rename = "success")]
-    #[sqlx(rename = "success")]
     pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
@@ -143,7 +141,6 @@ pub struct CreateNotificationLogRequest {
     pub room_id: Option<String>,
     pub notification_type: Option<String>,
     pub push_type: String,
-    #[serde(rename = "success")]
     pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
@@ -497,7 +494,7 @@ impl PushNotificationStorage {
             r"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
-                success, error_message, provider_response, response_time_ms
+                is_success, error_message, provider_response, response_time_ms
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *

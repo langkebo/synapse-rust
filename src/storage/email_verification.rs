@@ -10,7 +10,7 @@ pub struct EmailVerificationToken {
     pub token: String,
     pub expires_at: DateTime<Utc>,
     pub created_ts: DateTime<Utc>,
-    pub used: bool,
+    pub is_used: bool,
     pub session_data: Option<serde_json::Value>,
 }
 
@@ -38,7 +38,7 @@ impl EmailVerificationStorage {
 
         let row = sqlx::query_as::<_, TokenIdRow>(
             r"
-            INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, used, user_id, session_data)
+            INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, is_used, user_id, session_data)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING id
             ",
@@ -60,9 +60,9 @@ impl EmailVerificationStorage {
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r"
-            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
             FROM email_verification_tokens
-            WHERE email = $1 AND token = $2 AND used = FALSE AND expires_at > $3
+            WHERE email = $1 AND token = $2 AND is_used = FALSE AND expires_at > $3
             ",
         )
         .bind(email)
@@ -77,7 +77,7 @@ impl EmailVerificationStorage {
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
-            UPDATE email_verification_tokens SET used = TRUE WHERE id = $1
+            UPDATE email_verification_tokens SET is_used = TRUE WHERE id = $1
             ",
         )
         .bind(token_id)
@@ -92,7 +92,7 @@ impl EmailVerificationStorage {
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r"
-            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
             FROM email_verification_tokens
             WHERE id = $1
             ",
@@ -118,7 +118,7 @@ impl EmailVerificationStorage {
 
     /// 原子地"消费"一次已校验的会话：DELETE ... RETURNING 在单条 SQL 中
     /// 完成"取出 + 删除"，保证两个并发请求里只有一个能拿到行，另一个
-    /// 拿到 `Ok(None)`。配合 `expires_at > now` 与 `used = TRUE`
+    /// 拿到 `Ok(None)`。配合 `expires_at > now` 与 `is_used = TRUE`
     /// 一并放在 WHERE 里，避免单独 SELECT/UPDATE 之间的 TOCTOU 窗口。
     ///
     /// 仅返回 `email`、`user_id`、`session_data`，调用方据此完成业务校验
@@ -129,8 +129,8 @@ impl EmailVerificationStorage {
         let row = sqlx::query_as::<_, EmailVerificationToken>(
             r"
             DELETE FROM email_verification_tokens
-            WHERE id = $1 AND used = TRUE AND expires_at > $2
-            RETURNING id, user_id, email, token, expires_at, created_ts, used, session_data
+            WHERE id = $1 AND is_used = TRUE AND expires_at > $2
+            RETURNING id, user_id, email, token, expires_at, created_ts, is_used, session_data
             ",
         )
         .bind(token_id)
@@ -159,9 +159,9 @@ impl EmailVerificationStorage {
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r"
-            SELECT id, user_id, email, token, expires_at, created_ts, used, session_data
+            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
             FROM email_verification_tokens
-            WHERE email = $1 AND used = FALSE AND expires_at > $2
+            WHERE email = $1 AND is_used = FALSE AND expires_at > $2
             ORDER BY created_ts DESC
             LIMIT 1
             ",
@@ -193,13 +193,13 @@ mod tests {
             token: "abc123".to_string(),
             expires_at: Utc::now(),
             created_ts: Utc::now(),
-            used: false,
+            is_used: false,
             session_data: None,
         };
 
         assert_eq!(token.id, 1);
         assert_eq!(token.email, "test@example.com");
-        assert!(!token.used);
+        assert!(!token.is_used);
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
             token: "token456".to_string(),
             expires_at: Utc::now(),
             created_ts: Utc::now(),
-            used: false,
+            is_used: false,
             session_data: Some(serde_json::json!({"key": "value"})),
         };
         assert!(token.session_data.is_some());
@@ -227,7 +227,7 @@ mod tests {
             token: "expired_token".to_string(),
             expires_at: current_ts - Duration::seconds(3600),
             created_ts: current_ts - Duration::seconds(7200),
-            used: false,
+            is_used: false,
             session_data: None,
         };
         assert!(token.expires_at < current_ts);
@@ -242,10 +242,10 @@ mod tests {
             token: "used_token".to_string(),
             expires_at: Utc::now(),
             created_ts: Utc::now(),
-            used: true,
+            is_used: true,
             session_data: None,
         };
-        assert!(token.used);
+        assert!(token.is_used);
     }
 
     #[tokio::test]
@@ -269,7 +269,7 @@ mod tests {
                 token TEXT NOT NULL,
                 expires_at TIMESTAMPTZ NOT NULL,
                 created_ts TIMESTAMPTZ NOT NULL,
-                used BOOLEAN NOT NULL DEFAULT FALSE,
+                is_used BOOLEAN NOT NULL DEFAULT FALSE,
                 session_data JSONB
             )
             "#,

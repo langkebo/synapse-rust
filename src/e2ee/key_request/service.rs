@@ -1,6 +1,6 @@
 use crate::e2ee::key_request::models::{KeyRequestInfo, KeyShareResponse};
 use crate::e2ee::key_request::storage::KeyRequestStorage;
-use crate::e2ee::megolm::MegolmService;
+use crate::e2ee::megolm::MegolmProvider;
 use crate::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,11 +26,11 @@ impl KeyRequestStatusFilter {
 #[derive(Clone)]
 pub struct KeyRequestService {
     storage: KeyRequestStorage,
-    megolm_service: MegolmService,
+    megolm_service: MegolmProvider,
 }
 
 impl KeyRequestService {
-    pub fn new(storage: KeyRequestStorage, megolm_service: MegolmService) -> Self {
+    pub fn new(storage: KeyRequestStorage, megolm_service: MegolmProvider) -> Self {
         Self { storage, megolm_service }
     }
 

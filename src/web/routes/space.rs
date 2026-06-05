@@ -30,8 +30,7 @@ pub(super) async fn resolve_space_by_room(
     space_room_id: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
     state
-        .services
-        .space_service
+        .services.rooms.space_service
         .get_space_by_room(space_room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Space not found"))
@@ -41,7 +40,7 @@ pub(super) async fn resolve_space(
     state: &AppState,
     space_identifier: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
-    if let Some(space) = state.services.space_service.get_space(space_identifier).await? {
+    if let Some(space) = state.services.rooms.space_service.get_space(space_identifier).await? {
         return Ok(space);
     }
 
@@ -71,7 +70,7 @@ pub(super) async fn can_user_view_space(
     }
 
     match auth_user.user_id.as_deref() {
-        Some(user_id) => state.services.space_service.check_user_can_see_space(&space.space_id, user_id).await,
+        Some(user_id) => state.services.rooms.space_service.check_user_can_see_space(&space.space_id, user_id).await,
         None => Ok(false),
     }
 }

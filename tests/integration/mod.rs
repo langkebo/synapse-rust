@@ -66,6 +66,7 @@ mod permission_escalation_tests;
 mod coverage_tests;
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
 
@@ -85,34 +86,84 @@ fn integration_tests_required() -> bool {
     std::env::var("CI").is_ok()
 }
 
+fn integration_test_setup_timeout() -> Duration {
+    let default_secs = if integration_tests_required() { 600 } else { 120 };
+    let secs = std::env::var("INTEGRATION_TEST_SETUP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_secs);
+    Duration::from_secs(secs)
+}
+
+fn describe_integration_test_setup(mode: &str, elapsed: Duration) -> String {
+    let database_url_source = if std::env::var_os("TEST_DATABASE_URL").is_some() {
+        "TEST_DATABASE_URL"
+    } else if std::env::var_os("DATABASE_URL").is_some() {
+        "DATABASE_URL"
+    } else {
+        "built-in localhost fallbacks"
+    };
+
+    format!(
+        "mode={mode}, elapsed={elapsed:?}, database_url_source={database_url_source}, \
+         TEST_ISOLATED_SCHEMAS={}, TEST_DB_CONNECT_TIMEOUT_SECS={}, TEST_DB_INIT_TIMEOUT_SECS={}",
+        std::env::var("TEST_ISOLATED_SCHEMAS").unwrap_or_else(|_| "<unset>".to_string()),
+        std::env::var("TEST_DB_CONNECT_TIMEOUT_SECS").unwrap_or_else(|_| "<default>".to_string()),
+        std::env::var("TEST_DB_INIT_TIMEOUT_SECS").unwrap_or_else(|_| "<default>".to_string()),
+    )
+}
+
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     TEST_POOL
         .get_or_init(|| async {
             let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
+            let mode = if use_isolated { "isolated-schema" } else { "shared-template-schema" };
+            let setup_timeout = integration_test_setup_timeout();
+            let started = Instant::now();
 
-            let result = if use_isolated {
-                synapse_rust::test_utils::prepare_isolated_test_pool().await
-            } else {
-                match synapse_rust::test_utils::prepare_shared_test_pool().await {
-                    Ok(pool) => Ok(pool),
-                    Err(error) if should_fallback_to_isolated_pool(&error) => {
-                        eprintln!(
-                            "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
-                        );
-                        synapse_rust::test_utils::prepare_isolated_test_pool().await
+            eprintln!("Preparing integration test database schema ({mode}; timeout {setup_timeout:?})");
+
+            let setup = async {
+                if use_isolated {
+                    synapse_rust::test_utils::prepare_isolated_test_pool().await
+                } else {
+                    match synapse_rust::test_utils::prepare_shared_test_pool().await {
+                        Ok(pool) => Ok(pool),
+                        Err(error) if should_fallback_to_isolated_pool(&error) => {
+                            eprintln!(
+                                "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
+                            );
+                            synapse_rust::test_utils::prepare_isolated_test_pool().await
+                        }
+                        Err(error) => Err(error),
                     }
-                    Err(error) => Err(error),
                 }
             };
 
+            let result = match tokio::time::timeout(setup_timeout, setup).await {
+                Ok(result) => result,
+                Err(_) => Err(format!(
+                    "integration test database setup timed out after {setup_timeout:?}. \
+                     Set INTEGRATION_TEST_SETUP_TIMEOUT_SECS to override, or INTEGRATION_TESTS_REQUIRED=1/CI=1 to fail hard.",
+                )),
+            };
+
             match result {
-                Ok(pool) => Some(pool),
+                Ok(pool) => {
+                    eprintln!(
+                        "Integration test database schema ready: {}",
+                        describe_integration_test_setup(mode, started.elapsed())
+                    );
+                    Some(pool)
+                }
                 Err(error) => {
                     eprintln!(
-                        "Skipping integration tests because schema setup failed: {}",
-                        error
+                        "Skipping integration tests because schema setup failed: {}; {}",
+                        error,
+                        describe_integration_test_setup(mode, started.elapsed())
                     );
                     if integration_tests_required() {
                         panic!(

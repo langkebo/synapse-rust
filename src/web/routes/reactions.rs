@@ -58,7 +58,7 @@ async fn add_reaction(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ReactionResponse>, ApiError> {
     // 验证房间存在
-    if !state.services.room_service.room_exists(&room_id).await? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -78,8 +78,7 @@ async fn add_reaction(
 
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
     let relation = state
-        .services
-        .relations_service
+        .services.rooms.relations_service
         .send_annotation(crate::services::relations_service::SendAnnotationRequest {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.event_id.clone(),

@@ -83,7 +83,7 @@ mod retention_storage_suite {
                 room_id: room_id.clone(),
                 max_lifetime: Some(86_400_000),
                 min_lifetime: Some(3_600_000),
-                expire_on_clients: Some(true),
+                is_expire_on_clients: Some(true),
             })
             .await
             .expect("Failed to create room policy");
@@ -91,7 +91,7 @@ mod retention_storage_suite {
         assert_eq!(policy.room_id, room_id);
         assert_eq!(policy.max_lifetime, Some(86_400_000));
         assert_eq!(policy.min_lifetime, 3_600_000);
-        assert!(policy.expire_on_clients);
+        assert!(policy.is_expire_on_clients);
 
         let loaded = storage
             .get_room_policy(&room_id)
@@ -107,7 +107,7 @@ mod retention_storage_suite {
                 UpdateRoomRetentionPolicyRequest {
                     max_lifetime: Some(172_800_000),
                     min_lifetime: Some(7_200_000),
-                    expire_on_clients: Some(false),
+                    is_expire_on_clients: Some(false),
                 },
             )
             .await
@@ -115,7 +115,7 @@ mod retention_storage_suite {
 
         assert_eq!(updated.max_lifetime, Some(172_800_000));
         assert_eq!(updated.min_lifetime, 7_200_000);
-        assert!(!updated.expire_on_clients);
+        assert!(!updated.is_expire_on_clients);
 
         let server_policy = storage.get_server_policy().await.expect("Failed to get server policy");
 
@@ -125,20 +125,20 @@ mod retention_storage_suite {
             .update_server_policy(UpdateServerRetentionPolicyRequest {
                 max_lifetime: Some(259_200_000),
                 min_lifetime: Some(10_800_000),
-                expire_on_clients: Some(true),
+                is_expire_on_clients: Some(true),
             })
             .await
             .expect("Failed to update server policy");
 
         assert_eq!(updated_server_policy.max_lifetime, Some(259_200_000));
         assert_eq!(updated_server_policy.min_lifetime, 10_800_000);
-        assert!(updated_server_policy.expire_on_clients);
+        assert!(updated_server_policy.is_expire_on_clients);
 
         let effective_policy = storage.get_effective_policy(&room_id).await.expect("Failed to get effective policy");
 
         assert_eq!(effective_policy.max_lifetime, Some(172_800_000));
         assert_eq!(effective_policy.min_lifetime, 7_200_000);
-        assert!(!effective_policy.expire_on_clients);
+        assert!(!effective_policy.is_expire_on_clients);
 
         cleanup(&pool, &room_id, &creator).await;
     }

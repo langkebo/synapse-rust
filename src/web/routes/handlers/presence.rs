@@ -43,8 +43,7 @@ async fn ensure_presence_access_or_shared_room(
     }
 
     let shared = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .share_common_room(&auth_user.user_id, target_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check shared rooms", &e))?;

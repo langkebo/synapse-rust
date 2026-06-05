@@ -48,7 +48,7 @@ pub async fn send_captcha(
     let request =
         SendCaptchaRequest { captcha_type: body.captcha_type, target: body.target, template_name: body.template_name };
 
-    let response = state.services.captcha_service.send_captcha(request, None, None).await?;
+    let response = state.services.admin.captcha_service.send_captcha(request, None, None).await?;
 
     Ok(Json(CaptchaResponse {
         captcha_id: response.captcha_id,
@@ -63,7 +63,7 @@ pub async fn verify_captcha(
 ) -> Result<impl IntoResponse, ApiError> {
     let request = VerifyCaptchaRequest { captcha_id: body.captcha_id, code: body.code };
 
-    let verified = state.services.captcha_service.verify_captcha(request).await?;
+    let verified = state.services.admin.captcha_service.verify_captcha(request).await?;
 
     Ok(Json(VerifyResponse { is_verified: verified }))
 }
@@ -73,8 +73,7 @@ pub async fn get_captcha_status(
     Query(query): Query<CaptchaIdQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let captcha = state
-        .services
-        .captcha_service
+        .services.admin.captcha_service
         .get_captcha(&query.captcha_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Captcha not found"))?;
@@ -97,7 +96,7 @@ pub struct CaptchaIdQuery {
 }
 
 pub async fn cleanup_expired(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.captcha_service.cleanup_expired().await?;
+    let count = state.services.admin.captcha_service.cleanup_expired().await?;
 
     Ok(Json(serde_json::json!({
         "cleaned_count": count,

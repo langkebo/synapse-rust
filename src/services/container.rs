@@ -18,7 +18,7 @@ use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
 use crate::e2ee::key_request::KeyRequestService;
 use crate::e2ee::key_rotation::KeyRotationStorage;
-use crate::e2ee::megolm::MegolmService;
+use crate::e2ee::megolm::MegolmProvider;
 use crate::e2ee::ssss::SecretStorageService;
 use crate::e2ee::to_device::ToDeviceService;
 use crate::e2ee::verification::VerificationService;
@@ -34,38 +34,25 @@ use std::sync::Arc;
 use std::{env, path::Path};
 
 #[derive(Clone)]
+#[allow(private_interfaces)]
 pub struct ServiceContainer {
+    // Layered service groups
+    pub e2ee: E2eeServices,
+    pub rooms: RoomSyncServices,
+    pub federation: FederationServices,
+    pub admin: AdminServices,
+
+    // Core services — not specific to any single domain
     pub user_storage: UserStorage,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
-    pub room_storage: RoomStorage,
-    pub member_storage: RoomMemberStorage,
-    pub event_storage: EventStorage,
     pub presence_storage: PresenceStorage,
     pub qr_login_storage: QrLoginStorage,
     pub invite_blocklist_storage: InviteBlocklistStorage,
     pub sticky_event_storage: StickyEventStorage,
     pub auth_service: AuthService,
-    pub device_keys_service: DeviceKeyService,
-    pub key_request_service: KeyRequestService,
-    pub megolm_service: MegolmService,
-    pub cross_signing_service: CrossSigningService,
-    pub ssss_service: SecretStorageService,
-    pub backup_service: KeyBackupService,
-    pub dehydrated_device_service: crate::services::dehydrated_device_service::DehydratedDeviceService,
-    pub secure_backup_service: crate::e2ee::secure_backup::SecureBackupService,
-    pub to_device_service: ToDeviceService,
-    pub verification_service: VerificationService,
-    pub device_trust_service: crate::e2ee::device_trust::DeviceTrustService,
-    #[cfg(feature = "voice-extended")]
-    pub voice_service: crate::services::voice_service::VoiceService,
     pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
-    pub room_service: Arc<crate::services::room_service::RoomService>,
-    #[cfg(feature = "beacons")]
-    pub beacon_service: Arc<crate::services::beacon_service::BeaconService>,
-    pub sync_service: Arc<crate::services::sync_service::SyncService>,
-    pub sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
     pub search_service: Arc<crate::services::search_service::SearchService>,
     pub media_service: crate::services::media_service::MediaService,
     pub cache: Arc<CacheManager>,
@@ -74,13 +61,9 @@ pub struct ServiceContainer {
     pub server_metrics: Arc<crate::common::server_metrics::ServerMetrics>,
     pub server_name: String,
     pub config: Config,
-    pub admin_registration_service: crate::services::admin_registration_service::AdminRegistrationService,
-    pub email_verification_storage: EmailVerificationStorage,
-    pub event_auth_chain: EventAuthChain,
-    pub key_rotation_manager: KeyRotationManager,
     pub key_rotation_storage: KeyRotationStorage,
-    pub federation_client: Arc<FederationClient>,
-    pub device_sync_manager: DeviceSyncManager,
+    #[cfg(feature = "voice-extended")]
+    pub voice_service: crate::services::voice_service::VoiceService,
     #[cfg(feature = "friends")]
     pub friend_storage: FriendRoomStorage,
     #[cfg(feature = "friends")]
@@ -89,51 +72,14 @@ pub struct ServiceContainer {
     pub friend_federation: Arc<FriendFederation>,
     pub rtc_domain_service: Arc<crate::services::rtc::RtcDomainService>,
     pub directory_service: Arc<crate::services::directory_service::DirectoryService>,
-    pub typing_service: Arc<crate::services::typing_service::TypingService>,
-    pub space_storage: SpaceStorage,
-    pub space_service: Arc<crate::services::space_service::SpaceService>,
-    pub app_service_storage: ApplicationServiceStorage,
-    pub app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
-    pub worker_storage: crate::worker::WorkerStorage,
-    pub worker_manager: Arc<crate::worker::WorkerManager>,
-    pub room_summary_storage: crate::storage::room_summary::RoomSummaryStorage,
-    pub retention_storage: crate::storage::retention::RetentionStorage,
-    pub retention_service: Arc<crate::services::retention_service::RetentionService>,
-    pub refresh_token_storage: crate::storage::refresh_token::RefreshTokenStorage,
-    pub refresh_token_service: Arc<crate::services::refresh_token_service::RefreshTokenService>,
-    pub registration_token_storage: crate::storage::registration_token::RegistrationTokenStorage,
-    pub registration_token_service: Arc<crate::services::registration_token_service::RegistrationTokenService>,
-    pub audit_storage: crate::storage::audit::AuditEventStorage,
-    pub admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
-    pub feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
-    pub feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
-    pub event_report_storage: crate::storage::event_report::EventReportStorage,
-    pub event_report_service: Arc<crate::services::event_report_service::EventReportService>,
-    pub background_update_storage: crate::storage::background_update::BackgroundUpdateStorage,
-    pub background_update_service: Arc<crate::services::background_update_service::BackgroundUpdateService>,
-    pub module_storage: crate::storage::module::ModuleStorage,
-    pub module_service: Arc<crate::services::module_service::ModuleService>,
-    pub account_validity_service: Arc<crate::services::module_service::AccountValidityService>,
     #[cfg(feature = "saml-sso")]
     pub saml_storage: crate::storage::saml::SamlStorage,
     #[cfg(feature = "saml-sso")]
     pub saml_service: Arc<crate::services::saml_service::SamlService>,
-    pub captcha_storage: crate::storage::captcha::CaptchaStorage,
-    pub captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
-    pub federation_blacklist_storage: crate::storage::federation_blacklist::FederationBlacklistStorage,
-    pub federation_blacklist_service: Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
-    pub push_notification_storage: crate::storage::push_notification::PushNotificationStorage,
-    pub push_notification_service: Arc<crate::services::push_notification_service::PushNotificationService>,
-    pub thread_storage: crate::storage::thread::ThreadStorage,
-    pub thread_service: Arc<crate::services::thread_service::ThreadService>,
-    pub relations_storage: crate::storage::relations::RelationsStorage,
-    pub relations_service: Arc<crate::services::relations_service::RelationsService>,
     #[cfg(feature = "cas-sso")]
     pub cas_storage: crate::storage::cas::CasStorage,
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::services::cas_service::CasService>,
-    pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
-    pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
     pub media_domain_service: Arc<crate::services::media::MediaDomainService>,
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
@@ -143,12 +89,10 @@ pub struct ServiceContainer {
     pub server_notification_service: Arc<crate::services::server_notification_service::ServerNotificationService>,
     #[cfg(feature = "privacy-ext")]
     pub privacy_storage: crate::storage::privacy::PrivacyStorage,
-    pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
     #[cfg(feature = "widgets")]
     pub widget_storage: crate::storage::widget::WidgetStorage,
     #[cfg(feature = "widgets")]
     pub widget_service: Arc<crate::services::widget_service::WidgetService>,
-    pub telemetry_alert_service: Arc<crate::services::telemetry_service::TelemetryAlertService>,
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadService>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
@@ -166,19 +110,20 @@ pub struct ServiceContainer {
 // E2EE assembly — device keys, cross-signing, megolm, backup, verification
 // =============================================================================
 
-struct E2eeServices {
-    device_keys_service: DeviceKeyService,
-    key_request_service: KeyRequestService,
-    megolm_service: MegolmService,
-    cross_signing_service: CrossSigningService,
-    ssss_service: SecretStorageService,
-    backup_service: KeyBackupService,
-    dehydrated_device_service: crate::services::dehydrated_device_service::DehydratedDeviceService,
-    secure_backup_service: crate::e2ee::secure_backup::SecureBackupService,
-    to_device_service: ToDeviceService,
-    verification_service: VerificationService,
-    device_trust_service: crate::e2ee::device_trust::DeviceTrustService,
-    to_device_storage: crate::e2ee::to_device::ToDeviceStorage,
+#[derive(Clone)]
+pub struct E2eeServices {
+    pub device_keys_service: DeviceKeyService,
+    pub key_request_service: KeyRequestService,
+    pub megolm_service: MegolmProvider,
+    pub cross_signing_service: CrossSigningService,
+    pub ssss_service: SecretStorageService,
+    pub backup_service: KeyBackupService,
+    pub dehydrated_device_service: crate::services::dehydrated_device_service::DehydratedDeviceService,
+    pub secure_backup_service: crate::e2ee::secure_backup::SecureBackupService,
+    pub to_device_service: ToDeviceService,
+    pub verification_service: VerificationService,
+    pub device_trust_service: crate::e2ee::device_trust::DeviceTrustService,
+    pub to_device_storage: crate::e2ee::to_device::ToDeviceStorage,
 }
 
 fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_storage: &UserStorage) -> E2eeServices {
@@ -195,7 +140,13 @@ fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_stora
 
     let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
     let encryption_key = generate_encryption_key();
-    let megolm_service = MegolmService::new(megolm_storage, cache.clone(), encryption_key);
+    // Phase 1: 双路径抽象 — vodozemac-megolm feature 启用时由
+    // E2EE_USE_VODOZEMAC_MEGOLM 环境变量在 Legacy / Vodozemac 间路由。
+    #[cfg(feature = "vodozemac-megolm")]
+    let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), encryption_key);
+    #[cfg(not(feature = "vodozemac-megolm"))]
+    let megolm_service: MegolmProvider =
+        crate::e2ee::megolm::MegolmService::new(megolm_storage, cache.clone(), encryption_key);
 
     let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
     let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
@@ -250,27 +201,25 @@ fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_stora
 // Room & Sync assembly — room, member, event, summary, space, sync, sliding_sync
 // =============================================================================
 
-// Intermediate assembly struct — fields are destructured into ServiceContainer,
-// so the struct itself appears unused to the compiler.
-#[allow(dead_code)]
-struct RoomSyncServices {
-    room_storage: RoomStorage,
-    member_storage: RoomMemberStorage,
-    event_storage: EventStorage,
-    room_summary_storage: crate::storage::room_summary::RoomSummaryStorage,
-    relations_storage: crate::storage::relations::RelationsStorage,
-    room_summary_service: Arc<crate::services::room_summary_service::RoomSummaryService>,
+#[derive(Clone)]
+pub struct RoomSyncServices {
+    pub room_storage: RoomStorage,
+    pub member_storage: RoomMemberStorage,
+    pub event_storage: EventStorage,
+    pub room_summary_storage: crate::storage::room_summary::RoomSummaryStorage,
+    pub relations_storage: crate::storage::relations::RelationsStorage,
+    pub room_summary_service: Arc<crate::services::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
-    beacon_service: Arc<crate::services::beacon_service::BeaconService>,
-    room_service: Arc<crate::services::room_service::RoomService>,
-    sync_service: Arc<crate::services::sync_service::SyncService>,
-    sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
-    typing_service: Arc<crate::services::typing_service::TypingService>,
-    space_storage: SpaceStorage,
-    space_service: Arc<crate::services::space_service::SpaceService>,
-    relations_service: Arc<crate::services::relations_service::RelationsService>,
-    thread_storage: crate::storage::thread::ThreadStorage,
-    thread_service: Arc<crate::services::thread_service::ThreadService>,
+    pub beacon_service: Arc<crate::services::beacon_service::BeaconService>,
+    pub room_service: Arc<crate::services::room_service::RoomService>,
+    pub sync_service: Arc<crate::services::sync_service::SyncService>,
+    pub sliding_sync_service: Arc<crate::services::sliding_sync_service::SlidingSyncService>,
+    pub typing_service: Arc<crate::services::typing_service::TypingService>,
+    pub space_storage: SpaceStorage,
+    pub space_service: Arc<crate::services::space_service::SpaceService>,
+    pub relations_service: Arc<crate::services::relations_service::RelationsService>,
+    pub thread_storage: crate::storage::thread::ThreadStorage,
+    pub thread_service: Arc<crate::services::thread_service::ThreadService>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -332,7 +281,7 @@ fn assemble_room_and_sync(
         },
     ));
 
-    let typing_service = Arc::new(crate::services::typing_service::TypingService::new());
+    let typing_service = Arc::new(crate::services::typing_service::TypingService::new(cache.clone()));
 
     let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
     let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
@@ -385,15 +334,13 @@ fn assemble_room_and_sync(
 // Federation assembly — key rotation, federation client, device sync
 // =============================================================================
 
-// Intermediate assembly struct — fields are destructured into ServiceContainer,
-// so the struct itself appears unused to the compiler.
-#[allow(dead_code)]
-struct FederationServices {
-    event_auth_chain: EventAuthChain,
-    key_rotation_manager: KeyRotationManager,
-    federation_client: Arc<FederationClient>,
-    device_sync_manager: DeviceSyncManager,
-    federation_server_name: String,
+#[derive(Clone)]
+pub struct FederationServices {
+    pub event_auth_chain: EventAuthChain,
+    pub key_rotation_manager: KeyRotationManager,
+    pub federation_client: Arc<FederationClient>,
+    pub device_sync_manager: DeviceSyncManager,
+    pub federation_server_name: String,
 }
 
 fn assemble_federation(
@@ -434,40 +381,41 @@ fn assemble_federation(
 // Admin assembly — audit, feature flags, modules, background updates
 // =============================================================================
 
-struct AdminServices {
-    admin_registration_service: crate::services::admin_registration_service::AdminRegistrationService,
-    audit_storage: crate::storage::audit::AuditEventStorage,
-    admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
-    feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
-    feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
-    event_report_storage: crate::storage::event_report::EventReportStorage,
-    event_report_service: Arc<crate::services::event_report_service::EventReportService>,
-    background_update_storage: crate::storage::background_update::BackgroundUpdateStorage,
-    background_update_service: Arc<crate::services::background_update_service::BackgroundUpdateService>,
-    module_storage: crate::storage::module::ModuleStorage,
-    module_service: Arc<crate::services::module_service::ModuleService>,
-    account_validity_service: Arc<crate::services::module_service::AccountValidityService>,
-    retention_storage: crate::storage::retention::RetentionStorage,
-    retention_service: Arc<crate::services::retention_service::RetentionService>,
-    refresh_token_storage: crate::storage::refresh_token::RefreshTokenStorage,
-    refresh_token_service: Arc<crate::services::refresh_token_service::RefreshTokenService>,
-    registration_token_storage: crate::storage::registration_token::RegistrationTokenStorage,
-    registration_token_service: Arc<crate::services::registration_token_service::RegistrationTokenService>,
-    captcha_storage: crate::storage::captcha::CaptchaStorage,
-    captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
-    federation_blacklist_storage: crate::storage::federation_blacklist::FederationBlacklistStorage,
-    federation_blacklist_service: Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
-    push_notification_storage: crate::storage::push_notification::PushNotificationStorage,
-    push_notification_service: Arc<crate::services::push_notification_service::PushNotificationService>,
-    media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
-    media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
-    telemetry_alert_service: Arc<crate::services::telemetry_service::TelemetryAlertService>,
-    email_verification_storage: EmailVerificationStorage,
-    rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
-    app_service_storage: ApplicationServiceStorage,
-    app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
-    worker_storage: crate::worker::WorkerStorage,
-    worker_manager: Arc<crate::worker::WorkerManager>,
+#[derive(Clone)]
+pub struct AdminServices {
+    pub admin_registration_service: crate::services::admin_registration_service::AdminRegistrationService,
+    pub audit_storage: crate::storage::audit::AuditEventStorage,
+    pub admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
+    pub feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
+    pub feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
+    pub event_report_storage: crate::storage::event_report::EventReportStorage,
+    pub event_report_service: Arc<crate::services::event_report_service::EventReportService>,
+    pub background_update_storage: crate::storage::background_update::BackgroundUpdateStorage,
+    pub background_update_service: Arc<crate::services::background_update_service::BackgroundUpdateService>,
+    pub module_storage: crate::storage::module::ModuleStorage,
+    pub module_service: Arc<crate::services::module_service::ModuleService>,
+    pub account_validity_service: Arc<crate::services::module_service::AccountValidityService>,
+    pub retention_storage: crate::storage::retention::RetentionStorage,
+    pub retention_service: Arc<crate::services::retention_service::RetentionService>,
+    pub refresh_token_storage: crate::storage::refresh_token::RefreshTokenStorage,
+    pub refresh_token_service: Arc<crate::services::refresh_token_service::RefreshTokenService>,
+    pub registration_token_storage: crate::storage::registration_token::RegistrationTokenStorage,
+    pub registration_token_service: Arc<crate::services::registration_token_service::RegistrationTokenService>,
+    pub captcha_storage: crate::storage::captcha::CaptchaStorage,
+    pub captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
+    pub federation_blacklist_storage: crate::storage::federation_blacklist::FederationBlacklistStorage,
+    pub federation_blacklist_service: Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
+    pub push_notification_storage: crate::storage::push_notification::PushNotificationStorage,
+    pub push_notification_service: Arc<crate::services::push_notification_service::PushNotificationService>,
+    pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
+    pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
+    pub telemetry_alert_service: Arc<crate::services::telemetry_service::TelemetryAlertService>,
+    pub email_verification_storage: EmailVerificationStorage,
+    pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
+    pub app_service_storage: ApplicationServiceStorage,
+    pub app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
+    pub worker_storage: crate::worker::WorkerStorage,
+    pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
 
 fn assemble_admin_support(
@@ -877,37 +825,20 @@ impl ServiceContainer {
         let broadcaster_origin = config.server.get_server_name().to_string();
 
         let container = Self {
+            e2ee,
+            rooms,
+            federation,
+            admin,
             user_storage,
             threepid_storage,
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
-            room_storage: rooms.room_storage,
-            member_storage: rooms.member_storage,
-            event_storage: rooms.event_storage,
             presence_storage: presence_storage.clone(),
             qr_login_storage,
             invite_blocklist_storage,
             sticky_event_storage,
             auth_service,
-            device_keys_service: e2ee.device_keys_service,
-            key_request_service: e2ee.key_request_service,
-            megolm_service: e2ee.megolm_service,
-            cross_signing_service: e2ee.cross_signing_service,
-            ssss_service: e2ee.ssss_service,
-            backup_service: e2ee.backup_service,
-            dehydrated_device_service: e2ee.dehydrated_device_service,
-            secure_backup_service: e2ee.secure_backup_service,
-            to_device_service: e2ee.to_device_service,
-            verification_service: e2ee.verification_service,
-            device_trust_service: e2ee.device_trust_service,
-            #[cfg(feature = "voice-extended")]
-            voice_service,
             registration_service,
-            room_service: rooms.room_service,
-            #[cfg(feature = "beacons")]
-            beacon_service: rooms.beacon_service,
-            sync_service: rooms.sync_service,
-            sliding_sync_service: rooms.sliding_sync_service,
             search_service,
             media_service,
             cache: cache.clone(),
@@ -915,14 +846,10 @@ impl ServiceContainer {
             metrics,
             server_name: config.server.name.clone(),
             config,
-            admin_registration_service: admin.admin_registration_service,
-            email_verification_storage: admin.email_verification_storage,
-            event_auth_chain: federation.event_auth_chain,
-            key_rotation_manager: federation.key_rotation_manager,
             key_rotation_storage: KeyRotationStorage::new(pool.clone()),
-            federation_client: federation.federation_client,
-            device_sync_manager: federation.device_sync_manager,
             server_metrics,
+            #[cfg(feature = "voice-extended")]
+            voice_service,
             #[cfg(feature = "friends")]
             friend_storage,
             #[cfg(feature = "friends")]
@@ -931,51 +858,14 @@ impl ServiceContainer {
             friend_federation,
             rtc_domain_service,
             directory_service,
-            typing_service: rooms.typing_service,
-            space_storage: rooms.space_storage,
-            space_service: rooms.space_service,
-            app_service_storage: admin.app_service_storage,
-            app_service_manager: admin.app_service_manager,
-            worker_storage: admin.worker_storage,
-            worker_manager: admin.worker_manager,
-            room_summary_storage: rooms.room_summary_storage,
-            retention_storage: admin.retention_storage,
-            retention_service: admin.retention_service,
-            refresh_token_storage: admin.refresh_token_storage,
-            refresh_token_service: admin.refresh_token_service,
-            registration_token_storage: admin.registration_token_storage,
-            registration_token_service: admin.registration_token_service,
-            audit_storage: admin.audit_storage,
-            admin_audit_service: admin.admin_audit_service,
-            feature_flag_storage: admin.feature_flag_storage,
-            feature_flag_service: admin.feature_flag_service,
-            event_report_storage: admin.event_report_storage,
-            event_report_service: admin.event_report_service,
-            background_update_storage: admin.background_update_storage,
-            background_update_service: admin.background_update_service,
-            module_storage: admin.module_storage,
-            module_service: admin.module_service,
-            account_validity_service: admin.account_validity_service,
             #[cfg(feature = "saml-sso")]
             saml_storage,
             #[cfg(feature = "saml-sso")]
             saml_service,
-            captcha_storage: admin.captcha_storage,
-            captcha_service: admin.captcha_service,
-            federation_blacklist_storage: admin.federation_blacklist_storage,
-            federation_blacklist_service: admin.federation_blacklist_service,
-            push_notification_storage: admin.push_notification_storage,
-            push_notification_service: admin.push_notification_service,
-            thread_storage: rooms.thread_storage,
-            thread_service: rooms.thread_service,
-            relations_storage: rooms.relations_storage,
-            relations_service: rooms.relations_service,
             #[cfg(feature = "cas-sso")]
             cas_storage,
             #[cfg(feature = "cas-sso")]
             cas_service,
-            media_quota_storage: admin.media_quota_storage,
-            media_quota_service: admin.media_quota_service,
             media_domain_service,
             #[cfg(feature = "openclaw-routes")]
             ai_connection_storage,
@@ -985,12 +875,10 @@ impl ServiceContainer {
             server_notification_service,
             #[cfg(feature = "privacy-ext")]
             privacy_storage,
-            rendezvous_storage: admin.rendezvous_storage,
             #[cfg(feature = "widgets")]
             widget_storage,
             #[cfg(feature = "widgets")]
             widget_service,
-            telemetry_alert_service: admin.telemetry_alert_service,
             #[cfg(feature = "burn-after-read")]
             burn_after_read,
             oidc_service,

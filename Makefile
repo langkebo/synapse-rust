@@ -2,8 +2,8 @@
 # 简化数据库迁移操作的命令行工具
 
 .PHONY: help migrate migrate-check migrate-undo migrate-status migrate-baseline migrate-audit
-.PHONY: test test-unit test-integration test-all test-coverage
-.PHONY: lint fmt format format-check format-install format-audit format-cycle check
+.PHONY: test test-unit test-integration test-all test-coverage test-coverage-check test-mutation test-mutation-incremental
+.PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint
 .PHONY: build build-release
 
 # 默认目标
@@ -21,10 +21,13 @@ help:
 	@echo "  migrate-audit    - Show migration audit log"
 	@echo ""
 	@echo "Test Commands:"
-	@echo "  test             - Run all tests"
-	@echo "  test-unit        - Run unit tests only"
-	@echo "  test-integration - Run integration tests only"
-	@echo "  test-coverage    - Run tests with coverage"
+	@echo "  test                  - Run all tests"
+	@echo "  test-unit             - Run unit tests only"
+	@echo "  test-integration      - Run integration tests only"
+	@echo "  test-coverage         - Run tests with coverage"
+	@echo "  test-coverage-check   - Run tests with coverage threshold (≥70%)"
+	@echo "  test-mutation         - Run mutation tests (cargo-mutants)"
+	@echo "  test-mutation-incr    - Run incremental mutation tests"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  lint             - Run linter"
@@ -34,7 +37,11 @@ help:
 	@echo "  format-install   - Install pre-commit hooks"
 	@echo "  format-audit     - Generate formatting drift audit report"
 	@echo "  format-cycle     - Refresh the rolling three-cycle format tracking report"
+	@echo "  route-lint       - Check route→service→storage layering"
 	@echo "  check            - Run all checks"
+	@echo "  schema-health-check        - Run schema health check (报告模式, 不阻塞)"
+	@echo "  schema-health-check-strict - Run schema health check (CI 严格模式, 失败则退出)"
+	@echo "  ci-schema-health-check     - Full CI: start temp DB + apply v8 + run schema check"
 	@echo ""
 	@echo "Build:"
 	@echo "  build            - Build debug version"
@@ -104,8 +111,20 @@ test-integration:
 	@cargo test --locked --test '*'
 
 test-coverage:
-	@echo "Running tests with coverage..."
+	@echo "Running tests with coverage (tarpaulin)..."
 	@cargo tarpaulin --out Html --out Xml --out Json --include-tests --locked
+
+test-coverage-check:
+	@echo "Running tests with coverage threshold check (≥70%)..."
+	@cargo tarpaulin --fail-under 70 --out Html --out Lcov --include-tests --locked
+
+test-mutation:
+	@echo "Running mutation tests (cargo-mutants, nightly)..."
+	@cargo mutants --package synapse-rust --timeout 30 -- --test-threads=2
+
+test-mutation-incremental:
+	@echo "Running incremental mutation tests on changed files..."
+	@cargo mutants --incremental --timeout 30 -- --test-threads=2
 
 # Code Quality Commands
 lint:
@@ -143,6 +162,26 @@ format-cycle:
 		--base-ref "$$base_ref" \
 		--head-ref "$$head_ref" \
 		--compliance-status pass
+
+route-lint:
+	@echo "Checking route layering..."
+	@bash scripts/quality/check_route_layering.sh
+
+# Schema health check (M-3 CI 强制门禁)
+# 默认：报告状态但允许失败（开发环境）
+# 设 STRICT=1 在 CI 中以严格模式运行
+schema-health-check:
+	@echo "Running schema health check against current DATABASE_URL..."
+	@DATABASE_URL=$${DATABASE_URL:-$(DATABASE_URL)} cargo run --quiet --bin schema_health_check --locked || \
+		(echo ""; echo "⚠️  Schema health check 报告漂移（非严格模式）"; echo "  设 STRICT=1 在 CI 中以失败模式运行"; exit 0)
+
+schema-health-check-strict:
+	@echo "Running schema health check (STRICT mode)..."
+	@DATABASE_URL=$${DATABASE_URL:-$(DATABASE_URL)} cargo run --quiet --bin schema_health_check --locked
+
+ci-schema-health-check:
+	@echo "Running CI schema health check (start temp DB if needed)..."
+	@bash scripts/ci_schema_health_check.sh
 
 check: fmt lint
 	@echo "Running all checks..."

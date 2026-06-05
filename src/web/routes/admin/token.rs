@@ -91,7 +91,7 @@ pub async fn get_registration_tokens(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (tokens, next_batch) = state.services.registration_token_service.get_all_tokens(limit, from).await?;
+    let (tokens, next_batch) = state.services.admin.registration_token_service.get_all_tokens(limit, from).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()

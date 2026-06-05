@@ -1,6 +1,46 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use uuid::Uuid;
+
+/// Pickle 格式标识（Phase 2 引入：megolm_sessions.pickle_format 列）
+///
+/// - `Legacy`:     自研 AES-256-GCM pickle，写在 `session_key` 列
+/// - `Vodozemac`:  vodozemac 0.9 pickle，写在 `session_key` 列
+/// - `Dual`:       同时持有两种 pickle（`session_key`=legacy, `vodozemac_pickle`=vodozemac）
+///
+/// 历史数据全部回填为 `Legacy`；新增 session 在 `MegolmProvider::Vodozemac`
+/// 路径下会同时写两种 pickle 以支持平滑回滚。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PickleFormat {
+    #[default]
+    Legacy,
+    Vodozemac,
+    Dual,
+}
+
+impl PickleFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy",
+            Self::Vodozemac => "vodozemac",
+            Self::Dual => "dual",
+        }
+    }
+}
+
+impl FromStr for PickleFormat {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "vodozemac" => Self::Vodozemac,
+            "dual" => Self::Dual,
+            _ => Self::Legacy,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MegolmSession {
@@ -14,6 +54,12 @@ pub struct MegolmSession {
     pub created_ts: DateTime<Utc>,
     pub last_used_ts: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
+    /// Pickle 格式（Phase 2 引入，默认 `Legacy`）
+    #[serde(default)]
+    pub pickle_format: PickleFormat,
+    /// vodozemac 0.9 pickle 副本（当 `pickle_format` 为 `Vodozemac` 或 `Dual` 时非空）
+    #[serde(default)]
+    pub vodozemac_pickle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,11 +99,15 @@ mod tests {
             created_ts: chrono::Utc::now(),
             last_used_ts: chrono::Utc::now(),
             expires_at: None,
+            pickle_format: PickleFormat::Legacy,
+            vodozemac_pickle: None,
         };
 
         assert_eq!(session.room_id, "!room:example.com");
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
         assert_eq!(session.message_index, 0);
+        assert_eq!(session.pickle_format, PickleFormat::Legacy);
+        assert!(session.vodozemac_pickle.is_none());
     }
 
     #[test]
@@ -74,10 +124,14 @@ mod tests {
             created_ts: chrono::Utc::now(),
             last_used_ts: chrono::Utc::now(),
             expires_at: Some(expires),
+            pickle_format: PickleFormat::Dual,
+            vodozemac_pickle: Some("base64_pickle".to_string()),
         };
 
         assert!(session.expires_at.is_some());
         assert!(session.expires_at.unwrap() > chrono::Utc::now());
+        assert_eq!(session.pickle_format, PickleFormat::Dual);
+        assert!(session.vodozemac_pickle.is_some());
     }
 
     #[test]
@@ -114,6 +168,8 @@ mod tests {
             created_ts: chrono::Utc::now(),
             last_used_ts: chrono::Utc::now(),
             expires_at: None,
+            pickle_format: PickleFormat::Legacy,
+            vodozemac_pickle: None,
         };
 
         assert!(session.session_id.starts_with("megolm"));
@@ -159,6 +215,8 @@ mod tests {
                 created_ts: chrono::Utc::now(),
                 last_used_ts: chrono::Utc::now(),
                 expires_at: None,
+                pickle_format: PickleFormat::Legacy,
+                vodozemac_pickle: None,
             };
 
             assert_eq!(session.algorithm, algo);
@@ -178,6 +236,8 @@ mod tests {
             created_ts: chrono::Utc::now(),
             last_used_ts: chrono::Utc::now(),
             expires_at: None,
+            pickle_format: PickleFormat::Vodozemac,
+            vodozemac_pickle: Some("abc123".to_string()),
         };
 
         let json = serde_json::to_string(&session).unwrap();
@@ -186,5 +246,20 @@ mod tests {
         assert_eq!(session.session_id, deserialized.session_id);
         assert_eq!(session.room_id, deserialized.room_id);
         assert_eq!(session.message_index, deserialized.message_index);
+        assert_eq!(deserialized.pickle_format, PickleFormat::Vodozemac);
+        assert_eq!(deserialized.vodozemac_pickle.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn test_pickle_format_default_and_roundtrip() {
+        assert_eq!(PickleFormat::default(), PickleFormat::Legacy);
+        assert_eq!(PickleFormat::Legacy.as_str(), "legacy");
+        assert_eq!(PickleFormat::Vodozemac.as_str(), "vodozemac");
+        assert_eq!(PickleFormat::Dual.as_str(), "dual");
+
+        // 兼容未知字符串（fallback 到 legacy）
+        assert_eq!(PickleFormat::from_str("unknown").unwrap(), PickleFormat::Legacy);
+        assert_eq!(PickleFormat::from_str("vodozemac").unwrap(), PickleFormat::Vodozemac);
+        assert_eq!(PickleFormat::from_str("dual").unwrap(), PickleFormat::Dual);
     }
 }

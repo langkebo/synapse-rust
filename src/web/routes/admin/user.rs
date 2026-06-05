@@ -169,21 +169,20 @@ async fn evict_user(
     let user = resolve_user(&state, &user_id).await?;
 
     let joined_rooms = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_joined_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let mut failures: Vec<Value> = Vec::new();
     for room_id in &joined_rooms {
-        if let Err(e) = state.services.member_storage.remove_member(room_id, &user.user_id).await {
+        if let Err(e) = state.services.rooms.member_storage.remove_member(room_id, &user.user_id).await {
             failures.push(json!({
                 "room_id": room_id,
                 "error": e.to_string()
             }));
         } else {
-            let _ = state.services.room_storage.decrement_member_count(room_id).await;
+            let _ = state.services.rooms.room_storage.decrement_member_count(room_id).await;
         }
     }
 
@@ -512,8 +511,7 @@ pub async fn get_user_rooms_admin(
     let user = resolve_user(&state, &user_id).await?;
 
     let rooms = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_user_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -902,8 +900,7 @@ pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) ->
     let guest_users = stats.get::<i64, _>("guest_users");
 
     let room_count = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_room_count()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
@@ -930,13 +927,12 @@ pub async fn get_single_user_stats(
     let user = resolve_user(&state, &user_id).await?;
 
     let rooms_joined: i64 = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_joined_room_count(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to count rooms", &e))?;
 
-    let pool = &*state.services.room_storage.pool;
+    let pool = &*state.services.rooms.room_storage.pool;
 
     let messages_sent: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false",
@@ -1157,8 +1153,7 @@ pub async fn get_account_details(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let room_count: i64 = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_joined_room_count(canonical_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

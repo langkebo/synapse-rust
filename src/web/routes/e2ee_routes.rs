@@ -201,7 +201,7 @@ async fn upload_keys(
         fallback_keys: body.get("fallback_keys").cloned(),
     };
 
-    let response = state.services.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
+    let response = state.services.e2ee.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
 
     Ok(Json(serde_json::json!({
         "one_time_key_counts": response.one_time_key_counts
@@ -226,7 +226,7 @@ async fn query_keys(
 
     let device_keys = if requested_users.is_empty() {
         let mut shared =
-            state.services.member_storage.get_shared_room_users(&auth_user.user_id).await.unwrap_or_default();
+            state.services.rooms.member_storage.get_shared_room_users(&auth_user.user_id).await.unwrap_or_default();
         shared.push(auth_user.user_id.clone());
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
@@ -244,14 +244,14 @@ async fn query_keys(
 
     request.device_keys = device_keys;
 
-    let response = state.services.device_keys_service.query_keys(request).await?;
+    let response = state.services.e2ee.device_keys_service.query_keys(request).await?;
 
     let mut verified_devices = serde_json::Map::new();
     if let Some(device_keys_obj) = response.device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
             let batch_result =
-                state.services.cross_signing_service.get_verified_devices_batch(&user_ids).await.unwrap_or_default();
+                state.services.e2ee.cross_signing_service.get_verified_devices_batch(&user_ids).await.unwrap_or_default();
 
             for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map
@@ -316,7 +316,7 @@ async fn claim_keys(
         })));
     }
 
-    let response = state.services.device_keys_service.claim_keys(request).await?;
+    let response = state.services.e2ee.device_keys_service.claim_keys(request).await?;
 
     let claimed_device_count: usize = response
         .one_time_keys
@@ -575,8 +575,7 @@ async fn send_to_device(
     }
 
     state
-        .services
-        .to_device_service
+        .services.e2ee.to_device_service
         .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
 
@@ -589,7 +588,7 @@ async fn upload_signatures(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.device_keys_service.upload_signatures(&auth_user.user_id, body).await?;
+    let response = state.services.e2ee.device_keys_service.upload_signatures(&auth_user.user_id, body).await?;
 
     Ok(Json(response))
 }
@@ -625,8 +624,7 @@ async fn upload_device_signing(
         if let Some(key_obj) = master_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services
-                    .cross_signing_service
+                    .services.e2ee.cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, master_key)
                     .await?;
             }
@@ -637,8 +635,7 @@ async fn upload_device_signing(
         if let Some(key_obj) = self_signing_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services
-                    .cross_signing_service
+                    .services.e2ee.cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
                     .await?;
             }
@@ -649,8 +646,7 @@ async fn upload_device_signing(
         if let Some(key_obj) = user_signing_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services
-                    .cross_signing_service
+                    .services.e2ee.cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
                     .await?;
             }
@@ -672,8 +668,7 @@ async fn create_room_key_request(
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
 
     let request = state
-        .services
-        .key_request_service
+        .services.e2ee.key_request_service
         .create_request(
             &auth_user.user_id,
             device_id,
@@ -697,7 +692,7 @@ async fn get_room_key_requests(
     Query(params): Query<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let mut requests =
-        state.services.key_request_service.get_requests(&auth_user.user_id, params.status.as_deref()).await?;
+        state.services.e2ee.key_request_service.get_requests(&auth_user.user_id, params.status.as_deref()).await?;
 
     if let Some(room_id) = params.room_id.as_deref() {
         requests.retain(|request| request.room_id == room_id);
@@ -725,7 +720,7 @@ async fn delete_room_key_request(
     auth_user: AuthenticatedUser,
     Path(request_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state.services.key_request_service.get_request(&request_id).await?;
+    let existing = state.services.e2ee.key_request_service.get_request(&request_id).await?;
 
     let request = existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
 
@@ -733,7 +728,7 @@ async fn delete_room_key_request(
         return Err(ApiError::forbidden("Cannot delete another user's room key request".to_string()));
     }
 
-    state.services.key_request_service.cancel_request(&request_id).await?;
+    state.services.e2ee.key_request_service.cancel_request(&request_id).await?;
 
     Ok(empty_json())
 }
@@ -807,8 +802,7 @@ async fn request_device_verification(
     };
 
     let response = state
-        .services
-        .device_trust_service
+        .services.e2ee.device_trust_service
         .request_device_verification(
             &auth_user.user_id,
             new_device_id,
@@ -841,8 +835,7 @@ async fn respond_device_verification(
     let approved = body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let response = state
-        .services
-        .device_trust_service
+        .services.e2ee.device_trust_service
         .respond_to_verification(&auth_user.user_id, request_token, approved)
         .await?;
 
@@ -858,7 +851,7 @@ async fn get_verification_status(
     auth_user: AuthenticatedUser,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.device_trust_service.get_verification_status(&auth_user.user_id, &token).await?;
+    let response = state.services.e2ee.device_trust_service.get_verification_status(&auth_user.user_id, &token).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -879,7 +872,7 @@ async fn get_device_trust_list(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let devices = state.services.device_trust_service.get_all_devices_with_trust(&auth_user.user_id).await?;
+    let devices = state.services.e2ee.device_trust_service.get_all_devices_with_trust(&auth_user.user_id).await?;
 
     let devices_json: Vec<Value> = devices
         .into_iter()
@@ -904,7 +897,7 @@ async fn get_device_trust(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let status = state.services.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
+    let status = state.services.e2ee.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
 
     match status {
         Some(s) => Ok(Json(serde_json::json!({
@@ -922,7 +915,7 @@ async fn get_security_summary(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let summary = state.services.device_trust_service.get_security_summary(&auth_user.user_id).await?;
+    let summary = state.services.e2ee.device_trust_service.get_security_summary(&auth_user.user_id).await?;
 
     Ok(Json(serde_json::json!({
         "verified_devices": summary.verified_devices,
@@ -943,7 +936,7 @@ async fn get_secure_backup_list(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let backups = state.services.secure_backup_service.list_backups(&auth_user.user_id).await?;
+    let backups = state.services.e2ee.secure_backup_service.list_backups(&auth_user.user_id).await?;
 
     let mut response = serde_json::Map::with_capacity(backups.len());
     for backup in backups {
@@ -977,7 +970,7 @@ async fn create_secure_backup(
 
     if let Some(passphrase) = passphrase {
         // Passphrase mode: server derives key from passphrase
-        let response = state.services.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
+        let response = state.services.e2ee.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
 
         Ok(Json(serde_json::json!({
             "backup_id": response.backup_id,
@@ -989,8 +982,7 @@ async fn create_secure_backup(
     } else if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
         // Standard mode: client provides algorithm and auth_data
         let response = state
-            .services
-            .secure_backup_service
+            .services.e2ee.secure_backup_service
             .create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val)
             .await?;
 
@@ -1012,7 +1004,7 @@ async fn get_secure_backup(
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
+    let response = state.services.e2ee.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -1062,8 +1054,7 @@ async fn store_secure_backup_keys(
         .unwrap_or_default();
 
     let key_count = state
-        .services
-        .secure_backup_service
+        .services.e2ee.secure_backup_service
         .store_session_keys(&auth_user.user_id, &backup_id, passphrase, session_keys)
         .await?;
 
@@ -1081,8 +1072,7 @@ async fn restore_secure_backup(
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let response = state
-        .services
-        .secure_backup_service
+        .services.e2ee.secure_backup_service
         .restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms)
         .await?;
 
@@ -1105,7 +1095,7 @@ async fn verify_secure_backup_passphrase(
         .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
 
     let valid =
-        state.services.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
+        state.services.e2ee.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
 
     Ok(Json(serde_json::json!({
         "valid": valid
@@ -1118,7 +1108,7 @@ async fn delete_secure_backup(
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
+    state.services.e2ee.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
     Ok(empty_json())
 }

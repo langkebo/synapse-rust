@@ -140,6 +140,14 @@ fn test_register_user_success() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
+            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -179,6 +187,14 @@ fn test_login_success() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
+            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -228,6 +244,14 @@ fn test_get_profile_success() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
+            invite_signing_key: None,
         };
         let metrics = Arc::new(MetricsCollector::new());
         let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");

@@ -1240,7 +1240,7 @@ mod tests {
                 ),
                 "localhost".to_string(),
             ),
-            typing_service: Arc::new(crate::services::typing_service::TypingService::new()),
+            typing_service: Arc::new(crate::services::typing_service::TypingService::default()),
             presence_storage: PresenceStorage::new(
                 Arc::new(
                     sqlx::postgres::PgPoolOptions::new()

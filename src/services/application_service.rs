@@ -383,7 +383,7 @@ mod tests {
             id: 1,
             as_id: "test-as".to_string(),
             namespace_pattern: "@_.*:example.com".to_string(),
-            exclusive: true,
+            is_exclusive: true,
             regex: "@_.*:example.com".to_string(),
             created_ts: 1234567890,
         };
@@ -398,12 +398,12 @@ mod tests {
         let request = crate::storage::application_service::UpdateApplicationServiceRequest::new()
             .url("http://new-url:8080")
             .description("New Description")
-            .rate_limited(true)
+            .is_rate_limited(true)
             .is_enabled(true);
 
         assert_eq!(request.url, Some("http://new-url:8080".to_string()));
         assert_eq!(request.description, Some("New Description".to_string()));
-        assert_eq!(request.rate_limited, Some(true));
+        assert_eq!(request.is_rate_limited, Some(true));
         assert_eq!(request.is_enabled, Some(true));
     }
 
@@ -414,7 +414,7 @@ mod tests {
 
         assert!(request.url.is_none());
         assert_eq!(request.description, Some("Only Description Update".to_string()));
-        assert!(request.rate_limited.is_none());
+        assert!(request.is_rate_limited.is_none());
         assert!(request.is_enabled.is_none());
     }
 
@@ -430,11 +430,11 @@ mod tests {
     #[test]
     fn test_namespace_rule_creation() {
         let rule = crate::storage::application_service::NamespaceRule {
-            exclusive: true,
+            is_exclusive: true,
             regex: "@_irc_.*:example\\.com".to_string(),
             group_id: Some("group:example.com".to_string()),
         };
-        assert!(rule.exclusive);
+        assert!(rule.is_exclusive);
         assert_eq!(rule.regex, "@_irc_.*:example\\.com");
         assert_eq!(rule.group_id, Some("group:example.com".to_string()));
     }
@@ -442,11 +442,11 @@ mod tests {
     #[test]
     fn test_namespace_rule_without_group() {
         let rule = crate::storage::application_service::NamespaceRule {
-            exclusive: false,
+            is_exclusive: false,
             regex: "#_.*:example\\.com".to_string(),
             group_id: None,
         };
-        assert!(!rule.exclusive);
+        assert!(!rule.is_exclusive);
         assert!(rule.group_id.is_none());
     }
 
@@ -454,7 +454,7 @@ mod tests {
     fn test_namespaces_structure() {
         let namespaces = crate::storage::application_service::Namespaces {
             users: vec![crate::storage::application_service::NamespaceRule {
-                exclusive: true,
+                is_exclusive: true,
                 regex: "@_.*:example.com".to_string(),
                 group_id: None,
             }],
@@ -475,7 +475,7 @@ mod tests {
             hs_token: "hs_token".to_string(),
             sender: "@bot:example.com".to_string(),
             description: None,
-            rate_limited: None,
+            is_rate_limited: None,
             protocols: None,
             namespaces: None,
             api_key: None,
@@ -495,7 +495,7 @@ mod tests {
             hs_token: "hs_token".to_string(),
             sender: "@bridge:example.com".to_string(),
             description: Some("A full bridge service".to_string()),
-            rate_limited: Some(true),
+            is_rate_limited: Some(true),
             protocols: Some(vec!["irc".to_string()]),
             namespaces: Some(serde_json::json!({
                 "users": [{"exclusive": true, "regex": "@_.*:example.com"}],
@@ -506,7 +506,7 @@ mod tests {
             config: None,
         };
         assert_eq!(request.description, Some("A full bridge service".to_string()));
-        assert_eq!(request.rate_limited, Some(true));
+        assert_eq!(request.is_rate_limited, Some(true));
         assert!(request.namespaces.is_some());
     }
 }

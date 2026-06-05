@@ -16,7 +16,7 @@ pub struct ApplicationService {
     #[sqlx(rename = "sender_localpart")]
     pub sender_localpart: String,
     pub is_enabled: bool,
-    pub rate_limited: bool,
+    pub is_rate_limited: bool,
     pub protocols: Vec<String>,
     pub namespaces: serde_json::Value,
     pub created_ts: i64,
@@ -66,7 +66,7 @@ pub struct ApplicationServiceNamespace {
     pub id: i64,
     pub as_id: String,
     pub namespace_pattern: String,
-    pub exclusive: bool,
+    pub is_exclusive: bool,
     pub regex: String,
     pub created_ts: i64,
 }
@@ -88,7 +88,7 @@ pub struct RegisterApplicationServiceRequest {
     pub hs_token: String,
     pub sender: String,
     pub description: Option<String>,
-    pub rate_limited: Option<bool>,
+    pub is_rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
     pub namespaces: Option<serde_json::Value>,
     pub api_key: Option<String>,
@@ -99,7 +99,7 @@ pub struct RegisterApplicationServiceRequest {
 pub struct UpdateApplicationServiceRequest {
     pub url: Option<String>,
     pub description: Option<String>,
-    pub rate_limited: Option<bool>,
+    pub is_rate_limited: Option<bool>,
     pub protocols: Option<Vec<String>>,
     pub is_enabled: Option<bool>,
     pub api_key: Option<String>,
@@ -121,8 +121,8 @@ impl UpdateApplicationServiceRequest {
         self
     }
 
-    pub fn rate_limited(mut self, rate_limited: bool) -> Self {
-        self.rate_limited = Some(rate_limited);
+    pub fn is_rate_limited(mut self, is_rate_limited: bool) -> Self {
+        self.is_rate_limited = Some(is_rate_limited);
         self
     }
 
@@ -156,7 +156,7 @@ pub struct Namespaces {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NamespaceRule {
-    pub exclusive: bool,
+    pub is_exclusive: bool,
     pub regex: String,
     #[serde(default)]
     pub group_id: Option<String>,
@@ -189,7 +189,7 @@ impl ApplicationServiceStorage {
             r"
             INSERT INTO application_services (
                 as_id, url, as_token, hs_token, sender_localpart, is_enabled,
-                rate_limited, protocols, namespaces, created_ts, description, api_key, config
+                is_rate_limited, protocols, namespaces, created_ts, description, api_key, config
             )
             VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
@@ -200,7 +200,7 @@ impl ApplicationServiceStorage {
         .bind(&request.as_token)
         .bind(&request.hs_token)
         .bind(&request.sender)
-        .bind(request.rate_limited.unwrap_or(false))
+        .bind(request.is_rate_limited.unwrap_or(false))
         .bind(&protocols)
         .bind(&namespaces)
         .bind(now)
@@ -329,7 +329,7 @@ impl ApplicationServiceStorage {
             UPDATE application_services SET
                 url = COALESCE($2, url),
                 description = COALESCE($3, description),
-                rate_limited = COALESCE($4, rate_limited),
+                is_rate_limited = COALESCE($4, is_rate_limited),
                 protocols = COALESCE($5::text[], protocols),
                 is_enabled = COALESCE($6, is_enabled),
                 api_key = COALESCE($7, api_key),
@@ -342,7 +342,7 @@ impl ApplicationServiceStorage {
         .bind(as_id)
         .bind(&request.url)
         .bind(&request.description)
-        .bind(request.rate_limited)
+        .bind(request.is_rate_limited)
         .bind(protocols)
         .bind(request.is_enabled)
         .bind(&request.api_key)
@@ -623,7 +623,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive AS exclusive,
+                is_exclusive,
                 namespace AS regex,
                 created_ts
             FROM application_service_user_namespaces
@@ -645,7 +645,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive AS exclusive,
+                is_exclusive,
                 namespace AS regex,
                 created_ts
             FROM application_service_room_alias_namespaces
@@ -664,7 +664,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive AS exclusive,
+                is_exclusive,
                 namespace AS regex,
                 created_ts
             FROM application_service_room_namespaces
@@ -685,7 +685,7 @@ impl ApplicationServiceStorage {
                         "as_id": row.get::<String, _>("as_id"),
                         "name": row.get::<Option<String>, _>("name"),
                         "is_enabled": row.get::<bool, _>("is_enabled"),
-                        "rate_limited": row.get::<bool, _>("rate_limited"),
+                        "is_rate_limited": row.get::<bool, _>("is_rate_limited"),
                         "virtual_user_count": row.get::<i64, _>("virtual_user_count"),
                         "pending_event_count": row.get::<i64, _>("pending_event_count"),
                         "pending_transaction_count": row.get::<i64, _>("pending_transaction_count"),
@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn test_namespace_rule_serialization() {
         let rule = NamespaceRule {
-            exclusive: true,
+            is_exclusive: true,
             regex: "@_.*:example.com".to_string(),
             group_id: Some("group:example.com".to_string()),
         };
@@ -731,7 +731,7 @@ mod tests {
         let json = serde_json::to_string(&rule).unwrap();
         let deserialized: NamespaceRule = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(rule.exclusive, deserialized.exclusive);
+        assert_eq!(rule.is_exclusive, deserialized.is_exclusive);
         assert_eq!(rule.regex, deserialized.regex);
         assert_eq!(rule.group_id, deserialized.group_id);
     }
@@ -739,8 +739,8 @@ mod tests {
     #[test]
     fn test_namespaces_serialization() {
         let namespaces = Namespaces {
-            users: vec![NamespaceRule { exclusive: true, regex: "@_.*:example.com".to_string(), group_id: None }],
-            aliases: vec![NamespaceRule { exclusive: false, regex: "#_.*:example.com".to_string(), group_id: None }],
+            users: vec![NamespaceRule { is_exclusive: true, regex: "@_.*:example.com".to_string(), group_id: None }],
+            aliases: vec![NamespaceRule { is_exclusive: false, regex: "#_.*:example.com".to_string(), group_id: None }],
             rooms: vec![],
         };
 
@@ -761,7 +761,7 @@ mod tests {
             hs_token: "hs_secret".to_string(),
             sender: "@irc-bot:example.com".to_string(),
             description: Some("IRC to Matrix bridge".to_string()),
-            rate_limited: Some(false),
+            is_rate_limited: Some(false),
             protocols: Some(vec!["irc".to_string()]),
             namespaces: Some(serde_json::json!({
                 "users": [{"exclusive": true, "regex": "@_irc_.*:example.com"}],

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 
-V7_CONSOLIDATED_START = 20260515000001
+V8_CONSOLIDATED_START = 20260701000000
 TIMESTAMP_RE = re.compile(r"^(?P<ts>\d{14})_.*\.sql$")
 
 
@@ -33,15 +33,16 @@ def active_forward_migrations(migrations_dir: Path) -> list[Path]:
         raise SystemExit("no unified schema baseline was found")
 
     latest_baseline = sorted(baselines)[-1]
-    selected = [latest_baseline]
-    selected.extend(path for path in forward if is_extension(path))
+    extensions = [path for path in forward if is_extension(path)]
+    latest_extension = sorted(extensions)[-1] if extensions else None
 
+    selected = [latest_baseline]
+    if latest_extension:
+        selected.append(latest_extension)
+
+    # All timestamp-based migrations are superseded by v8 baseline
     for path in forward:
         if path in selected:
-            continue
-        match = TIMESTAMP_RE.match(path.name)
-        if match and int(match.group("ts")) >= V7_CONSOLIDATED_START:
-            selected.append(path)
             continue
         if path.name.startswith("V") and path.suffix == ".sql":
             selected.append(path)
@@ -51,7 +52,7 @@ def active_forward_migrations(migrations_dir: Path) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build the forward-only sqlx migration source for the consolidated v7 chain."
+        description="Build the forward-only sqlx migration source for the consolidated v8 chain."
     )
     parser.add_argument(
         "output_dir", help="Directory where the sqlx migration source is written."

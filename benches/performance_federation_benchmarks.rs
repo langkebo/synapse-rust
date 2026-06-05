@@ -1,53 +1,17 @@
 //! Federation Performance Benchmarks
 //!
 //! This module contains federation-specific performance benchmarks
-//! to ensure federation features meet quality gate standards.
+//! that test real federation logic (state resolution, event auth
+//! chain building). All benchmarks exercise actual code paths in
+//! `synapse_rust::federation`.
+//!
+//! Pseudo benchmarks (signature black-box, key prewarm, cache
+//! compress) have been removed per Step 8 audit — they measured
+//! memory operations rather than federation behaviour.
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use serde_json::json;
 use std::time::Duration;
-
-fn benchmark_federation_signature_verification(c: &mut Criterion) {
-    use std::collections::HashMap;
-    use synapse_rust::common::crypto::generate_signing_key;
-
-    c.bench_function("federation_signature_single", |b| {
-        b.iter(|| {
-            let signing_key = generate_signing_key();
-            criterion::black_box(signing_key);
-        });
-    });
-
-    c.bench_function("federation_signature_verify", |b| {
-        let mut signatures = HashMap::new();
-        signatures.insert(
-            "matrix.org".to_string(),
-            HashMap::from([("ed25519:testkey".to_string(), "mock-signature".to_string())]),
-        );
-
-        b.iter(|| {
-            criterion::black_box(&signatures);
-        });
-    });
-}
-
-fn benchmark_federation_key_prewarming(c: &mut Criterion) {
-    use std::sync::Arc;
-    use synapse_rust::cache::{CacheConfig, CacheManager};
-    use tokio::runtime::Runtime;
-
-    let rt = Runtime::new().expect("Failed to create runtime");
-    let cache_manager = Arc::new(CacheManager::new(&CacheConfig::default()));
-
-    c.bench_function("federation_key_prewarm_10", |b| {
-        b.iter(|| {
-            rt.block_on(async {
-                let origins: Vec<String> = (0..10).map(|i| format!("server{i}.test")).collect();
-                criterion::black_box((&cache_manager, &origins));
-            });
-        });
-    });
-}
 
 fn benchmark_state_resolution(c: &mut Criterion) {
     use std::collections::HashMap;
@@ -138,50 +102,14 @@ fn benchmark_event_auth_chain(c: &mut Criterion) {
     });
 }
 
-fn benchmark_cache_compression(c: &mut Criterion) {
-    use synapse_rust::cache::compression::{compress, decompress};
-
-    let small_data = b"Hello, World!";
-    let medium_data = (0..1000).map(|i| (i % 256) as u8).collect::<Vec<_>>();
-    let large_data = (0..10000).map(|i| (i % 256) as u8).collect::<Vec<_>>();
-
-    c.bench_function("cache_compress_small", |b| {
-        b.iter(|| {
-            let _ = compress(small_data).unwrap();
-        });
-    });
-
-    c.bench_function("cache_compress_medium", |b| {
-        b.iter(|| {
-            let _ = compress(&medium_data).unwrap();
-        });
-    });
-
-    c.bench_function("cache_compress_large", |b| {
-        b.iter(|| {
-            let _ = compress(&large_data).unwrap();
-        });
-    });
-
-    c.bench_function("cache_decompress", |b| {
-        let compressed = compress(&large_data).unwrap();
-        b.iter(|| {
-            let _ = decompress(&compressed).unwrap();
-        });
-    });
-}
-
 criterion_group!(
     name = federation_benches;
     config = Criterion::default()
         .sample_size(20)
         .measurement_time(Duration::from_secs(30))
         .warm_up_time(Duration::from_secs(5));
-    targets = benchmark_federation_signature_verification,
-             benchmark_federation_key_prewarming,
-             benchmark_state_resolution,
-             benchmark_event_auth_chain,
-             benchmark_cache_compression
+    targets = benchmark_state_resolution,
+             benchmark_event_auth_chain
 );
 
 criterion_main!(federation_benches);

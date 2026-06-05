@@ -49,6 +49,10 @@ impl AppState {
                 services.config.federation.key_rotation_grace_period_ms,
             )));
 
+        // Wire federation signature cache to key rotation manager so that
+        // cached signature verification results are invalidated on key rotation.
+        services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
+
         #[cfg(feature = "openclaw-routes")]
         let pool = services.user_storage.pool.clone();
         #[cfg(feature = "openclaw-routes")]

@@ -318,7 +318,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let storage = SlidingSyncStorage::new(pool.clone());
     let event_storage = EventStorage::new(pool, "localhost".to_string());
-    let typing_service = Arc::new(TypingService::new());
+    let typing_service = Arc::new(TypingService::default());
     let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
     let member_storage = RoomMemberStorage::new(pool, "localhost");
 

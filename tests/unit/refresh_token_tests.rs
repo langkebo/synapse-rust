@@ -79,7 +79,7 @@ mod tests {
             last_refresh_ts: Some(1234567000),
             refresh_count: 3,
             is_compromised: false,
-            compromised_ts: None,
+            compromised_at: None,
         };
 
         assert_eq!(family.family_id, "family123");

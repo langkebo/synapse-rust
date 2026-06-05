@@ -37,8 +37,15 @@ fn test_invalid_jwt() {
             argon2_t_cost: 1,
             argon2_p_cost: 1,
             allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
+            invite_signing_key: None,
         };
-
         let auth_service = AuthService::new(&pool, cache, metrics, &security_config, "localhost");
 
         let result = auth_service.validate_token("invalid_token").await;

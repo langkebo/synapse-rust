@@ -57,8 +57,6 @@ pub struct RegistrationTokenUsage {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub used_ts: i64,
-    #[serde(rename = "success")]
-    #[sqlx(rename = "success")]
     pub is_success: bool,
     pub error_message: Option<String>,
 }
