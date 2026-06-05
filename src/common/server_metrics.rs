@@ -72,6 +72,29 @@ pub struct ServerMetrics {
     pub csrf_validations_total: Counter,
     pub csrf_validation_failures_total: Counter,
 
+    // Megolm (E2EE) Metrics — Phase 1 vodozemac migration observability.
+    // These cover share/get flows; legacy AES-256-GCM path also uses the
+    // same counter names so dashboards do not need to special-case
+    // backends during the migration window.
+    pub megolm_share_total: Counter,
+    pub megolm_share_recipients_total: Counter,
+    pub megolm_share_db_duration_ms: Histogram,
+    pub megolm_share_cache_duration_ms: Histogram,
+    pub megolm_share_cache_errors_total: Counter,
+    pub megolm_share_db_errors_total: Counter,
+    pub megolm_session_key_read_total: Counter,
+    pub megolm_session_key_read_duration_ms: Histogram,
+    // Megolm (E2EE) Metrics — Phase 2 dual-write observability.
+    // Tracks vodozemac pickle persistence success/failure, dual-write promotion
+    // (legacy→dual), and lazy migration scan progress.
+    pub megolm_vodozemac_pickle_persist_total: Counter,
+    pub megolm_vodozemac_pickle_persist_errors_total: Counter,
+    pub megolm_dual_write_promotions_total: Counter,
+    pub megolm_dual_write_promotion_errors_total: Counter,
+    pub megolm_lazy_migration_sessions_scanned_total: Counter,
+    pub megolm_lazy_migration_sessions_promoted_total: Counter,
+    pub megolm_pickle_persist_duration_ms: Histogram,
+
     collector: Arc<MetricsCollector>,
 }
 
@@ -175,6 +198,34 @@ impl ServerMetrics {
 
             csrf_validations_total: collector.register_counter("csrf_validations_total".to_string()),
             csrf_validation_failures_total: collector.register_counter("csrf_validation_failures_total".to_string()),
+
+            megolm_share_total: collector.register_counter("megolm_share_total".to_string()),
+            megolm_share_recipients_total: collector.register_counter("megolm_share_recipients_total".to_string()),
+            megolm_share_db_duration_ms: collector.register_histogram_with_labels(
+                "megolm_share_db_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+            megolm_share_cache_duration_ms: collector.register_histogram_with_labels(
+                "megolm_share_cache_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+            megolm_share_cache_errors_total: collector.register_counter("megolm_share_cache_errors_total".to_string()),
+            megolm_share_db_errors_total: collector.register_counter("megolm_share_db_errors_total".to_string()),
+            megolm_session_key_read_total: collector.register_counter("megolm_session_key_read_total".to_string()),
+            megolm_session_key_read_duration_ms: collector.register_histogram_with_labels(
+                "megolm_session_key_read_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
+            megolm_vodozemac_pickle_persist_total: collector.register_counter("megolm_vodozemac_pickle_persist_total".to_string()),
+            megolm_vodozemac_pickle_persist_errors_total: collector.register_counter("megolm_vodozemac_pickle_persist_errors_total".to_string()),
+            megolm_dual_write_promotions_total: collector.register_counter("megolm_dual_write_promotions_total".to_string()),
+            megolm_dual_write_promotion_errors_total: collector.register_counter("megolm_dual_write_promotion_errors_total".to_string()),
+            megolm_lazy_migration_sessions_scanned_total: collector.register_counter("megolm_lazy_migration_sessions_scanned_total".to_string()),
+            megolm_lazy_migration_sessions_promoted_total: collector.register_counter("megolm_lazy_migration_sessions_promoted_total".to_string()),
+            megolm_pickle_persist_duration_ms: collector.register_histogram_with_labels(
+                "megolm_pickle_persist_duration_ms".to_string(),
+                Self::labels(&[("unit", "ms")]),
+            ),
 
             collector,
         }
@@ -305,6 +356,77 @@ impl ServerMetrics {
         if !success {
             self.csrf_validation_failures_total.inc();
         }
+    }
+
+    /// Record one Megolm session-key share operation.
+    ///
+    /// `db_duration_ms` is the database round-trip latency. `cache_duration_ms`
+    /// is the best-effort cache write latency. `success` indicates whether
+    /// the database write succeeded (cache failures are recorded separately
+    /// via `record_megolm_share_cache_error`).
+    pub fn record_megolm_share(
+        &self,
+        recipients: usize,
+        db_duration_ms: f64,
+        cache_duration_ms: f64,
+        success: bool,
+    ) {
+        self.megolm_share_total.inc();
+        if success {
+            self.megolm_share_recipients_total.inc_by(recipients as u64);
+            self.megolm_share_db_duration_ms.observe(db_duration_ms);
+            self.megolm_share_cache_duration_ms.observe(cache_duration_ms);
+        } else {
+            self.megolm_share_db_errors_total.inc();
+        }
+    }
+
+    /// Record a cache write failure during Megolm share.
+    pub fn record_megolm_share_cache_error(&self) {
+        self.megolm_share_cache_errors_total.inc();
+    }
+
+    /// Record a Megolm session-key read for a recipient.
+    ///
+    /// `result` is a free-form label (e.g. `"hit"`, `"miss_db_hit"`,
+    /// `"miss_db_miss"`) that callers can use to slice the counter.
+    pub fn record_megolm_session_key_read(&self, result: &str, duration_ms: f64) {
+        self.megolm_session_key_read_total.inc();
+        self.megolm_session_key_read_duration_ms.observe(duration_ms);
+        // Result label is intentionally accepted for future label-aware
+        // collectors; the current Counter stores a single aggregate. Avoid
+        // unused-variable warnings while keeping the call site readable.
+        let _ = result;
+    }
+
+    // ========================================================================
+    // Phase 2: Megolm dual-write + 懒迁移 可观测性
+    // ========================================================================
+
+    /// Record a vodozemac pickle persistence attempt.
+    /// `success = false` 时只累加错误计数，避免观察 histogram 污染。
+    pub fn record_megolm_vodozemac_pickle_persist(&self, duration_ms: f64, success: bool) {
+        self.megolm_vodozemac_pickle_persist_total.inc();
+        if success {
+            self.megolm_pickle_persist_duration_ms.observe(duration_ms);
+        } else {
+            self.megolm_vodozemac_pickle_persist_errors_total.inc();
+        }
+    }
+
+    /// Record a legacy→dual 转换（promote_to_dual）的结果
+    pub fn record_megolm_dual_write_promotion(&self, success: bool) {
+        if success {
+            self.megolm_dual_write_promotions_total.inc();
+        } else {
+            self.megolm_dual_write_promotion_errors_total.inc();
+        }
+    }
+
+    /// Record lazy migration scan progress（批量扫描时调用一次）
+    pub fn record_megolm_lazy_migration_batch(&self, scanned: u64, promoted: u64) {
+        self.megolm_lazy_migration_sessions_scanned_total.inc_by(scanned);
+        self.megolm_lazy_migration_sessions_promoted_total.inc_by(promoted);
     }
 
     pub fn get_collector(&self) -> &Arc<MetricsCollector> {

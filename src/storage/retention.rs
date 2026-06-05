@@ -9,7 +9,7 @@ pub struct RoomRetentionPolicy {
     pub room_id: String,
     pub max_lifetime: Option<i64>,
     pub min_lifetime: i64,
-    pub expire_on_clients: bool,
+    pub is_expire_on_clients: bool,
     pub is_server_default: bool,
     pub created_ts: i64,
     pub updated_ts: i64,
@@ -20,7 +20,7 @@ pub struct ServerRetentionPolicy {
     pub id: i64,
     pub max_lifetime: Option<i64>,
     pub min_lifetime: i64,
-    pub expire_on_clients: bool,
+    pub is_expire_on_clients: bool,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -79,28 +79,28 @@ pub struct CreateRoomRetentionPolicyRequest {
     pub room_id: String,
     pub max_lifetime: Option<i64>,
     pub min_lifetime: Option<i64>,
-    pub expire_on_clients: Option<bool>,
+    pub is_expire_on_clients: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateRoomRetentionPolicyRequest {
     pub max_lifetime: Option<i64>,
     pub min_lifetime: Option<i64>,
-    pub expire_on_clients: Option<bool>,
+    pub is_expire_on_clients: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateServerRetentionPolicyRequest {
     pub max_lifetime: Option<i64>,
     pub min_lifetime: Option<i64>,
-    pub expire_on_clients: Option<bool>,
+    pub is_expire_on_clients: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectiveRetentionPolicy {
     pub max_lifetime: Option<i64>,
     pub min_lifetime: i64,
-    pub expire_on_clients: bool,
+    pub is_expire_on_clients: bool,
 }
 
 #[derive(Clone)]
@@ -122,21 +122,21 @@ impl RetentionStorage {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             r"
             INSERT INTO room_retention_policies (
-                room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts
+                room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, FALSE, $5, $5)
             ON CONFLICT (room_id) DO UPDATE SET
                 max_lifetime = EXCLUDED.max_lifetime,
                 min_lifetime = EXCLUDED.min_lifetime,
-                expire_on_clients = EXCLUDED.expire_on_clients,
+                is_expire_on_clients = EXCLUDED.is_expire_on_clients,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts
+            RETURNING id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
             ",
         )
         .bind(&request.room_id)
         .bind(request.max_lifetime)
         .bind(request.min_lifetime.unwrap_or(0))
-        .bind(request.expire_on_clients.unwrap_or(false))
+        .bind(request.is_expire_on_clients.unwrap_or(false))
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
@@ -146,7 +146,7 @@ impl RetentionStorage {
 
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            "SELECT id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
+            "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
@@ -165,7 +165,7 @@ impl RetentionStorage {
             UPDATE room_retention_policies SET
                 max_lifetime = COALESCE($2, max_lifetime),
                 min_lifetime = COALESCE($3, min_lifetime),
-                expire_on_clients = COALESCE($4, expire_on_clients)
+                is_expire_on_clients = COALESCE($4, is_expire_on_clients)
             WHERE room_id = $1
             RETURNING *
             ",
@@ -173,7 +173,7 @@ impl RetentionStorage {
         .bind(room_id)
         .bind(request.max_lifetime)
         .bind(request.min_lifetime)
-        .bind(request.expire_on_clients)
+        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -191,7 +191,7 @@ impl RetentionStorage {
 
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            "SELECT id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
+            "SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -208,14 +208,14 @@ impl RetentionStorage {
             UPDATE server_retention_policy SET
                 max_lifetime = COALESCE($1, max_lifetime),
                 min_lifetime = COALESCE($2, min_lifetime),
-                expire_on_clients = COALESCE($3, expire_on_clients)
+                is_expire_on_clients = COALESCE($3, is_expire_on_clients)
             WHERE id = (SELECT MIN(id) FROM server_retention_policy)
-            RETURNING id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts
+            RETURNING id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
             ",
         )
         .bind(request.max_lifetime)
         .bind(request.min_lifetime)
-        .bind(request.expire_on_clients)
+        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -229,7 +229,7 @@ impl RetentionStorage {
         Ok(EffectiveRetentionPolicy {
             max_lifetime: room_policy.as_ref().and_then(|p| p.max_lifetime).or(server_policy.max_lifetime),
             min_lifetime: room_policy.as_ref().map_or(server_policy.min_lifetime, |p| p.min_lifetime),
-            expire_on_clients: room_policy.as_ref().map_or(server_policy.expire_on_clients, |p| p.expire_on_clients),
+            is_expire_on_clients: room_policy.as_ref().map_or(server_policy.is_expire_on_clients, |p| p.is_expire_on_clients),
         })
     }
 
@@ -253,7 +253,7 @@ impl RetentionStorage {
 
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomRetentionPolicy>(
-            "SELECT id, room_id, max_lifetime, min_lifetime, expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
+            "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -273,7 +273,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: 0,
-            expire_on_clients: true,
+            is_expire_on_clients: true,
             is_server_default: false,
             created_ts: 1234567890,
             updated_ts: 1234567890,
@@ -289,7 +289,7 @@ mod tests {
             room_id: "!room2:example.com".to_string(),
             max_lifetime: None,
             min_lifetime: 0,
-            expire_on_clients: false,
+            is_expire_on_clients: false,
             is_server_default: false,
             created_ts: 1234567890,
             updated_ts: 1234567890,
@@ -303,7 +303,7 @@ mod tests {
             id: 1,
             max_lifetime: Some(2592000000),
             min_lifetime: 0,
-            expire_on_clients: true,
+            is_expire_on_clients: true,
             created_ts: 1234567890,
             updated_ts: 1234567890,
         };
@@ -334,7 +334,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             max_lifetime: Some(86_400_000),
             min_lifetime: Some(0),
-            expire_on_clients: Some(true),
+            is_expire_on_clients: Some(true),
         };
         assert_eq!(request.room_id, "!room:example.com");
     }
@@ -342,14 +342,14 @@ mod tests {
     #[test]
     fn test_effective_retention_policy() {
         let policy =
-            EffectiveRetentionPolicy { max_lifetime: Some(86_400_000), min_lifetime: 0, expire_on_clients: true };
+            EffectiveRetentionPolicy { max_lifetime: Some(86_400_000), min_lifetime: 0, is_expire_on_clients: true };
         assert_eq!(policy.max_lifetime, Some(86_400_000));
-        assert!(policy.expire_on_clients);
+        assert!(policy.is_expire_on_clients);
     }
 
     #[test]
     fn test_effective_retention_policy_no_max_lifetime() {
-        let policy = EffectiveRetentionPolicy { max_lifetime: None, min_lifetime: 0, expire_on_clients: false };
+        let policy = EffectiveRetentionPolicy { max_lifetime: None, min_lifetime: 0, is_expire_on_clients: false };
         assert!(policy.max_lifetime.is_none());
     }
 }

@@ -12,6 +12,14 @@ pub mod signature;
 pub mod signed_json;
 pub mod ssss;
 pub mod to_device;
+#[cfg(feature = "vodozemac-megolm")]
+pub mod vodozemac_megolm;
+
+// 跨客户端互操作测试（Phase 3）。所有 case 需 `E2EE_INTEROP=1` 显式启用，
+// 不会拖慢默认 `cargo test` 速度；本地 Element 互操作通过
+// `.github/workflows/e2ee-interop.yml` 跑。
+#[cfg(all(test, feature = "vodozemac-megolm"))]
+mod vodozemac_interop_tests;
 
 // Explicit exports for backup module
 pub use backup::models::{
@@ -51,6 +59,7 @@ pub use device_trust::service::DeviceTrustService;
 pub use device_trust::storage::DeviceTrustStorage;
 pub use key_request::{KeyRequestInfo, KeyRequestService};
 pub use megolm::models::{EncryptedEvent, MegolmSession};
+pub use megolm::service::MegolmProvider;
 pub use megolm::service::MegolmService;
 pub use olm::models::*;
 pub use olm::OlmService;

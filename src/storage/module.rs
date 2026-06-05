@@ -134,8 +134,6 @@ pub struct ModuleExecutionLog {
     pub event_id: Option<String>,
     pub room_id: Option<String>,
     pub execution_time_ms: i64,
-    #[serde(rename = "success")]
-    #[sqlx(rename = "success")]
     pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -149,7 +147,6 @@ pub struct CreateExecutionLogRequest {
     pub event_id: Option<String>,
     pub room_id: Option<String>,
     pub execution_time_ms: i64,
-    #[serde(rename = "success")]
     pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -158,8 +155,7 @@ pub struct CreateExecutionLogRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountValidity {
     pub user_id: String,
-    #[sqlx(rename = "expiration_at")]
-    pub expiration_ts: i64,
+    pub expiration_at: i64,
     #[sqlx(rename = "last_check_at")]
     pub email_sent_ts: Option<i64>,
     pub renewal_token: Option<String>,
@@ -174,7 +170,7 @@ pub struct AccountValidity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAccountValidityRequest {
     pub user_id: String,
-    pub expiration_ts: i64,
+    pub expiration_at: i64,
     pub is_valid: Option<bool>,
 }
 
@@ -567,7 +563,7 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, ModuleExecutionLog>(
             r"
             INSERT INTO module_execution_logs (
-                module_name, module_type, event_id, room_id, execution_time_ms, success, error_message, metadata, executed_ts
+                module_name, module_type, event_id, room_id, execution_time_ms, is_success, error_message, metadata, executed_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
@@ -631,7 +627,7 @@ impl ModuleStorage {
             ",
         )
         .bind(&request.user_id)
-        .bind(request.expiration_ts)
+        .bind(request.expiration_at)
         .bind(request.is_valid.unwrap_or(true))
         .bind(now)
         .fetch_one(&*self.pool)
@@ -668,7 +664,7 @@ impl ModuleStorage {
         &self,
         user_id: &str,
         renewal_token: &str,
-        new_expiration_ts: i64,
+        new_expiration_at: i64,
     ) -> Result<AccountValidity, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
             r"
@@ -689,7 +685,7 @@ impl ModuleStorage {
         )
         .bind(user_id)
         .bind(renewal_token)
-        .bind(new_expiration_ts)
+        .bind(new_expiration_at)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -914,7 +910,7 @@ mod tests {
     fn test_account_validity() {
         let validity = AccountValidity {
             user_id: "@alice:example.com".to_string(),
-            expiration_ts: 1234567890,
+            expiration_at: 1234567890,
             email_sent_ts: Some(1234567890),
             renewal_token: Some("token123".to_string()),
             renewal_token_ts: Some(1234567890),

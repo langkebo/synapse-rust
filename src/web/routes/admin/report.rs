@@ -56,14 +56,14 @@ pub async fn get_all_reports(
         .bind(score)
         .bind(ts)
         .bind(id)
-        .fetch_all(&*state.services.event_storage.pool)
+        .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
     } else {
         sqlx::query(
             "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
         )
         .bind(limit)
-        .fetch_all(&*state.services.event_storage.pool)
+        .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
     }
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -99,7 +99,7 @@ pub async fn get_report(
         "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1"
     )
     .bind(report_id)
-    .fetch_optional(&*state.services.event_storage.pool)
+    .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -128,7 +128,7 @@ pub async fn delete_report(
 ) -> Result<Json<Value>, ApiError> {
     let result = sqlx::query("DELETE FROM event_reports WHERE id = $1")
         .bind(report_id)
-        .execute(&*state.services.event_storage.pool)
+        .execute(&*state.services.rooms.event_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -147,8 +147,7 @@ pub async fn get_room_reports(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -173,7 +172,7 @@ pub async fn get_room_reports(
         .bind(ts)
         .bind(id)
         .bind(limit)
-        .fetch_all(&*state.services.event_storage.pool)
+        .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
     } else {
         sqlx::query(
@@ -181,7 +180,7 @@ pub async fn get_room_reports(
         )
         .bind(&room_id)
         .bind(limit)
-        .fetch_all(&*state.services.event_storage.pool)
+        .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
     }
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -214,8 +213,7 @@ pub async fn get_room_report(
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -229,7 +227,7 @@ pub async fn get_room_report(
     )
     .bind(report_id)
     .bind(&room_id)
-    .fetch_optional(&*state.services.event_storage.pool)
+    .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 

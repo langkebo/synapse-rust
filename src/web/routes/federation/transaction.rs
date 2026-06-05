@@ -211,7 +211,7 @@ pub(super) async fn send_transaction(
 
         if origin != state.services.config.server.name {
             if let Ok(create_events) =
-                state.services.event_storage.get_state_events_by_type(room_id, "m.room.create").await
+                state.services.rooms.event_storage.get_state_events_by_type(room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
                     if !crate::federation::signing::check_event_federate(&create_event.content) {
@@ -276,7 +276,7 @@ pub(super) async fn send_transaction(
             origin_server_ts,
         };
 
-        match state.services.event_storage.create_event(params, None).await {
+        match state.services.rooms.event_storage.create_event(params, None).await {
             Ok(_) => {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({

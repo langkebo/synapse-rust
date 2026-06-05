@@ -16,8 +16,8 @@ docker/nginx/ssl/
 homeserver.yaml
 !homeserver.yaml.example
 
-# SQLx 缓存（可重新生成）
-.sqlx/
+# SQLx 编译期查询缓存（M-3 迁移必须入仓）
+# 不再忽略 .sqlx/，由 `cargo sqlx prepare` 生成并随代码提交
 
 # 临时文件和日志
 *.db

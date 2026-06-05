@@ -746,7 +746,7 @@ async fn oidc_logout(
 
     // 如果提供了 refresh_token，则尝试撤销
     if let Some(refresh_token) = body.refresh_token {
-        state.services.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
+        state.services.admin.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
     }
 
     tracing::info!("OIDC logout for user: {}", auth_user.user_id);

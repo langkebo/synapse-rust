@@ -396,8 +396,7 @@ async fn verify_additional_registration_controls(
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_code is required"))?;
 
         let verified = state
-            .services
-            .captcha_service
+            .services.admin.captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;

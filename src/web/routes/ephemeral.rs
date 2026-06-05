@@ -54,7 +54,7 @@ pub async fn get_ephemeral_events(
     .bind(&room_id)
     .bind(now)
     .bind(params.limit)
-    .fetch_all(&*state.services.event_storage.pool)
+    .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
 

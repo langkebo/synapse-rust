@@ -67,7 +67,7 @@ async fn sliding_sync(
     }
 
     // Call the sliding sync service
-    let response = state.services.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
+    let response = state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
 
     Ok(Json(response))
 }

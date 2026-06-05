@@ -176,15 +176,15 @@ impl FederationBlacklistStorage {
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE federation_blacklist
             SET is_enabled = false, updated_ts = $1
             WHERE server_name = $2
             ",
+            now,
+            server_name,
         )
-        .bind(now)
-        .bind(server_name)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to remove from blacklist", &e))?;
@@ -336,24 +336,36 @@ impl FederationBlacklistStorage {
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as::<_, FederationBlacklistLog>(
-            r"
+        let row = sqlx::query_as!(
+            FederationBlacklistLog,
+            r#"
             INSERT INTO federation_blacklist_log (
                 server_name, action, old_status, new_status, reason, performed_by, ip_address, user_agent, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            ",
+            RETURNING
+                id AS "id!",
+                server_name AS "server_name!",
+                action AS "action!",
+                old_status AS "old_status?",
+                new_status AS "new_status?",
+                reason AS "reason?",
+                performed_by AS "performed_by!",
+                performed_ts AS "performed_ts!",
+                ip_address AS "ip_address?",
+                user_agent AS "user_agent?",
+                metadata AS "metadata!"
+            "#,
+            request.server_name,
+            request.action,
+            request.old_status,
+            request.new_status,
+            request.reason,
+            request.performed_by,
+            request.ip_address,
+            request.user_agent,
+            metadata,
         )
-        .bind(&request.server_name)
-        .bind(&request.action)
-        .bind(&request.old_status)
-        .bind(&request.new_status)
-        .bind(&request.reason)
-        .bind(&request.performed_by)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create log", &e))?;
@@ -414,23 +426,35 @@ impl FederationBlacklistStorage {
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, FederationBlacklistRule>(
-            r"
+        let row = sqlx::query_as!(
+            FederationBlacklistRule,
+            r#"
             INSERT INTO federation_blacklist_rule (
                 rule_name, rule_type, pattern, action, priority, description, created_ts, updated_ts, created_by
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
-            RETURNING *
-            ",
+            RETURNING
+                id AS "id!",
+                rule_name AS "rule_name!",
+                rule_type AS "rule_type!",
+                pattern AS "pattern!",
+                action AS "action!",
+                priority AS "priority!",
+                is_enabled AS "is_enabled!",
+                description AS "description?",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!",
+                created_by AS "created_by!"
+            "#,
+            request.rule_name,
+            request.rule_type,
+            request.pattern,
+            request.action,
+            request.priority,
+            request.description,
+            now,
+            request.created_by,
         )
-        .bind(&request.rule_name)
-        .bind(&request.rule_type)
-        .bind(&request.pattern)
-        .bind(&request.action)
-        .bind(request.priority)
-        .bind(&request.description)
-        .bind(now)
-        .bind(&request.created_by)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create rule", &e))?;
@@ -440,8 +464,21 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
-        let rows = sqlx::query_as::<_, FederationBlacklistRule>(
-            "SELECT * FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC",
+        let rows = sqlx::query_as!(
+            FederationBlacklistRule,
+            r#"SELECT
+                id AS "id!",
+                rule_name AS "rule_name!",
+                rule_type AS "rule_type!",
+                pattern AS "pattern!",
+                action AS "action!",
+                priority AS "priority!",
+                is_enabled AS "is_enabled!",
+                description AS "description?",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!",
+                created_by AS "created_by!"
+            FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC"#,
         )
         .fetch_all(&*self.pool)
         .await
@@ -452,10 +489,10 @@ impl FederationBlacklistStorage {
 
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query(
+        let result = sqlx::query!(
             "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true",
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired entries", &e))?;

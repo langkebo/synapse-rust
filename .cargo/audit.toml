@@ -1,0 +1,34 @@
+# cargo-audit canonical configuration file.
+# cargo-audit 0.22 reads this from `.cargo/audit.toml` (relative to the
+# project root) or `~/.cargo/audit.toml`. The previous `audit.toml` /
+# `audit-ignore.toml` pair in the repo root used the legacy `[[advisories.ignore]]`
+# array-of-tables format which the current binary rejects, so all four
+# known-and-accepted advisories are consolidated here with the same
+# justification as the original two files. The old `audit.toml` is kept
+# in the repo root for tooling history / cargo-audit < 0.20; both files
+# must stay in sync.
+
+[advisories]
+# RUSTSEC-2023-0071 — rsa 0.9.10 Marvin Attack (PKCS#1 v1.5 decryption
+# timing side-channel). Direct usage in src/services/builtin_oidc_provider.rs
+# is restricted to *signing* (RsaPrivateKey::to_pkcs8_pem /
+# pkcs1v15::SigningKey); no PKCS#1 v1.5 *decryption* code path is exposed
+# to network input. Transitive path is through sqlx-mysql which is not
+# invoked at runtime (PG-only). Tracked for migration to ES256 (already
+# used elsewhere). Review-by 2026-06-30.
+# RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Transitive via
+# image → ravif → rav1e → paste. Compile-time macro use only; no
+# runtime risk. Review-by 2026-06-30.
+# RUSTSEC-2025-0123 — opentelemetry-jaeger 0.20.0 unmaintained.
+# Optional tracing exporter; non-default path (project uses
+# opentelemetry-otlp). Review-by 2026-06-30.
+# RUSTSEC-2026-0097 — rand 0.8.5 / 0.10.0 unsound with custom logger
+# that calls rand::rng() during panic. Project uses tracing_subscriber
+# not a custom logger, so not exposed. No upstream fix; block new
+# rand::rng() usages and re-evaluate on patch. Review-by 2026-05-15.
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2025-0123",
+    "RUSTSEC-2026-0097",
+]

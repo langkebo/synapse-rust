@@ -1,0 +1,15 @@
+# Allowlist of route files that may still import from `crate::storage`.
+#
+# Every line in this file is a technical-debt marker: it represents a
+# file where a route handler reaches past the service layer to talk
+# to storage directly. Each entry should be removed as the call sites
+# are migrated to services.
+#
+# Format: one repo-relative path per line. Lines starting with `#`
+# and blank lines are ignored.
+#
+# The current entries are the snapshot taken on 2026-06-03 during
+# the comprehensive audit. The list is expected to shrink over time
+# as P1 work proceeds (see `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`).
+# When the file is empty the `check_route_storage_boundary.sh` script
+# will fail on any new `use crate::storage` import inside `src/web/routes/`.

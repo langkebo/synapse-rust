@@ -2,6 +2,7 @@ use super::models::*;
 use crate::error::ApiError;
 use chrono::Utc;
 use sqlx::{PgPool, Row};
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -17,9 +18,13 @@ impl MegolmSessionStorage {
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
             r"
-            INSERT INTO megolm_sessions (id, session_id, room_id, sender_key, session_key, algorithm, message_index, created_ts, last_used_ts, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "
+            INSERT INTO megolm_sessions (
+                id, session_id, room_id, sender_key, session_key, algorithm,
+                message_index, created_ts, last_used_ts, expires_at,
+                pickle_format, vodozemac_pickle
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ",
         )
         .bind(session.id)
         .bind(&session.session_id)
@@ -31,6 +36,8 @@ impl MegolmSessionStorage {
         .bind(session.created_ts.timestamp_millis())
         .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
+        .bind(session.pickle_format.as_str())
+        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await?;
 
@@ -41,7 +48,7 @@ impl MegolmSessionStorage {
         let row = sqlx::query(
             r"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts, last_used_ts, expires_at
+                   created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
             FROM megolm_sessions
             WHERE session_id = $1
             ",
@@ -54,6 +61,8 @@ impl MegolmSessionStorage {
             let created_ts: i64 = row.get("created_ts");
             let last_used_ts: Option<i64> = row.get("last_used_ts");
             let expires_at: Option<i64> = row.get("expires_at");
+            let pickle_format: String = row.get("pickle_format");
+            let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
 
             let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
             let last_used_ts_dt =
@@ -71,6 +80,8 @@ impl MegolmSessionStorage {
                 created_ts: created_ts_dt,
                 last_used_ts: last_used_ts_dt,
                 expires_at: expires_at_dt,
+                pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
+                vodozemac_pickle,
             }
         }))
     }
@@ -79,7 +90,7 @@ impl MegolmSessionStorage {
         let rows = sqlx::query(
             r"
             SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts, last_used_ts, expires_at
+                   created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
             FROM megolm_sessions
             WHERE room_id = $1
             ",
@@ -94,6 +105,8 @@ impl MegolmSessionStorage {
                 let created_ts: i64 = row.get("created_ts");
                 let last_used_ts: Option<i64> = row.get("last_used_ts");
                 let expires_at: Option<i64> = row.get("expires_at");
+                let pickle_format: String = row.get("pickle_format");
+                let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
 
                 let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
                 let last_used_ts_dt =
@@ -111,6 +124,8 @@ impl MegolmSessionStorage {
                     created_ts: created_ts_dt,
                     last_used_ts: last_used_ts_dt,
                     expires_at: expires_at_dt,
+                    pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
+                    vodozemac_pickle,
                 }
             })
             .collect())
@@ -120,7 +135,12 @@ impl MegolmSessionStorage {
         sqlx::query(
             r"
             UPDATE megolm_sessions
-            SET session_key = $2, message_index = $3, last_used_ts = $4, expires_at = $5
+            SET session_key = $2,
+                message_index = $3,
+                last_used_ts = $4,
+                expires_at = $5,
+                pickle_format = $6,
+                vodozemac_pickle = $7
             WHERE session_id = $1
             ",
         )
@@ -129,6 +149,8 @@ impl MegolmSessionStorage {
         .bind(session.message_index)
         .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
+        .bind(session.pickle_format.as_str())
+        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::Database(e.to_string()))?;
@@ -147,6 +169,248 @@ impl MegolmSessionStorage {
         .await?;
 
         Ok(())
+    }
+
+    // ========================================================================
+    // vodozemac Megolm 路径（Phase 1）— 由 MegolmVodozemacService 调用
+    // ========================================================================
+
+    /// 原子地增加 message_index 并返回新值。
+    /// vodozemac 路径下加密 N 条消息时使用，避免并发加密撞索引。
+    pub async fn increment_message_index(
+        &self,
+        session_id: &str,
+        delta: i64,
+        now_ms: i64,
+    ) -> Result<Option<i64>, ApiError> {
+        let row = sqlx::query(
+            r"
+            UPDATE megolm_sessions
+            SET message_index = message_index + $2,
+                last_used_ts = $3
+            WHERE session_id = $1
+            RETURNING message_index
+            ",
+        )
+        .bind(session_id)
+        .bind(delta)
+        .bind(now_ms)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get::<i64, _>("message_index")))
+    }
+
+    /// 更新 vodozemac pickle 副本（Phase 2 双写：encrypt/decrypt 后持久化新 ratchet state）
+    ///
+    /// 同时刷新 `last_used_ts` 便于监控。
+    pub async fn update_vodozemac_pickle(
+        &self,
+        session_id: &str,
+        vodozemac_pickle: &str,
+        now_ms: i64,
+    ) -> Result<bool, ApiError> {
+        let result = sqlx::query(
+            r"
+            UPDATE megolm_sessions
+            SET vodozemac_pickle = $2,
+                last_used_ts = $3
+            WHERE session_id = $1
+            ",
+        )
+        .bind(session_id)
+        .bind(vodozemac_pickle)
+        .bind(now_ms)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// 批量 upsert session keys（向多个用户共享 session_key 时使用）
+    pub async fn upsert_session_keys_batch(
+        &self,
+        user_ids: &[String],
+        session_id: &str,
+        encrypted_key: &str,
+        created_ts: i64,
+        expires_at: Option<i64>,
+    ) -> Result<u64, ApiError> {
+        if user_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total: u64 = 0;
+        for user_id in user_ids {
+            let result = sqlx::query(
+                r"
+                INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (user_id, session_id) DO UPDATE
+                SET encrypted_key = EXCLUDED.encrypted_key,
+                    created_ts = EXCLUDED.created_ts,
+                    expires_at = EXCLUDED.expires_at
+                ",
+            )
+            .bind(user_id)
+            .bind(session_id)
+            .bind(encrypted_key)
+            .bind(created_ts)
+            .bind(expires_at)
+            .execute(&*self.pool)
+            .await?;
+            total += result.rows_affected();
+        }
+        Ok(total)
+    }
+
+    /// 单用户查询共享的 session key（vodozemac import_session 后使用）
+    pub async fn get_session_key(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<Option<String>, ApiError> {
+        let row = sqlx::query(
+            r"
+            SELECT encrypted_key
+            FROM megolm_session_keys
+            WHERE user_id = $1 AND session_id = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(session_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get::<String, _>("encrypted_key")))
+    }
+
+    // ========================================================================
+    // Phase 2 (Megolm 双写): 懒迁移辅助方法
+    // ========================================================================
+
+    /// 将已有 legacy session 升级为 dual 格式（追加 vodozemac_pickle）
+    ///
+    /// 仅在 `pickle_format = 'legacy'` 时执行，避免重复写入。
+    /// 返回是否实际更新了行。
+    pub async fn promote_to_dual(
+        &self,
+        session_id: &str,
+        vodozemac_pickle: &str,
+        now_ms: i64,
+    ) -> Result<bool, ApiError> {
+        let result = sqlx::query(
+            r"
+            UPDATE megolm_sessions
+            SET pickle_format = 'dual',
+                vodozemac_pickle = $2,
+                last_used_ts = $3
+            WHERE session_id = $1
+              AND pickle_format = 'legacy'
+              AND vodozemac_pickle IS NULL
+            ",
+        )
+        .bind(session_id)
+        .bind(vodozemac_pickle)
+        .bind(now_ms)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// 分页查询存量 legacy session（懒迁移扫描）
+    ///
+    /// 按 `session_id` 排序确保多次调用结果稳定；游标分页避免内存爆炸。
+    pub async fn list_legacy_sessions(
+        &self,
+        after_session_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<MegolmSession>, ApiError> {
+        let limit = limit.clamp(1, 1000);
+        let rows = match after_session_id {
+            Some(cursor) => {
+                sqlx::query(
+                    r"
+                    SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
+                           created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
+                    FROM megolm_sessions
+                    WHERE pickle_format = 'legacy'
+                      AND session_id > $1
+                    ORDER BY session_id ASC
+                    LIMIT $2
+                    ",
+                )
+                .bind(cursor)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query(
+                    r"
+                    SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
+                           created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
+                    FROM megolm_sessions
+                    WHERE pickle_format = 'legacy'
+                    ORDER BY session_id ASC
+                    LIMIT $1
+                    ",
+                )
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+        };
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let created_ts: i64 = row.get("created_ts");
+                let last_used_ts: Option<i64> = row.get("last_used_ts");
+                let expires_at: Option<i64> = row.get("expires_at");
+                let pickle_format: String = row.get("pickle_format");
+                let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
+
+                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
+                let last_used_ts_dt =
+                    last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
+                let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
+
+                MegolmSession {
+                    id: row.get("id"),
+                    session_id: row.get("session_id"),
+                    room_id: row.get("room_id"),
+                    sender_key: row.get("sender_key"),
+                    session_key: row.get("session_key"),
+                    algorithm: row.get("algorithm"),
+                    message_index: row.get("message_index"),
+                    created_ts: created_ts_dt,
+                    last_used_ts: last_used_ts_dt,
+                    expires_at: expires_at_dt,
+                    pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
+                    vodozemac_pickle,
+                }
+            })
+            .collect())
+    }
+
+    /// 统计各 pickle_format 的 session 数量（监控/迁移进度）
+    pub async fn count_by_pickle_format(&self) -> Result<Vec<(String, i64)>, ApiError> {
+        let rows = sqlx::query(
+            r"
+            SELECT pickle_format, COUNT(*) AS cnt
+            FROM megolm_sessions
+            GROUP BY pickle_format
+            ",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.get::<String, _>("pickle_format"), r.get::<i64, _>("cnt")))
+            .collect())
     }
 }
 
@@ -167,7 +431,16 @@ mod tests {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: None,
+            pickle_format: PickleFormat::Legacy,
+            vodozemac_pickle: None,
         }
+    }
+
+    fn create_dual_test_session() -> MegolmSession {
+        let mut s = create_test_session();
+        s.pickle_format = PickleFormat::Dual;
+        s.vodozemac_pickle = Some("base64_vodozemac_pickle".to_string());
+        s
     }
 
     #[test]
@@ -179,6 +452,16 @@ mod tests {
         assert!(!session.sender_key.is_empty());
         assert!(!session.session_key.is_empty());
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
+        assert_eq!(session.pickle_format, PickleFormat::Legacy);
+        assert!(session.vodozemac_pickle.is_none());
+    }
+
+    #[test]
+    fn test_megolm_session_dual_format() {
+        let session = create_dual_test_session();
+        assert_eq!(session.pickle_format, PickleFormat::Dual);
+        assert!(session.vodozemac_pickle.is_some());
+        assert_eq!(session.vodozemac_pickle.as_deref(), Some("base64_vodozemac_pickle"));
     }
 
     #[test]
@@ -296,6 +579,8 @@ mod tests {
             created_ts: created,
             last_used_ts: last_used,
             expires_at: Some(expires),
+            pickle_format: PickleFormat::Legacy,
+            vodozemac_pickle: None,
         };
 
         assert!(session.created_ts <= session.last_used_ts);

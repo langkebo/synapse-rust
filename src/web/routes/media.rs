@@ -56,6 +56,8 @@ fn create_media_v3_router() -> Router<AppState> {
         .route("/upload/{server_name}/{media_id}", put(upload_media_with_id))
         .route("/download/{server_name}/{media_id}", get(download_media))
         .route("/download/{server_name}/{media_id}/{filename}", get(download_media_with_filename))
+        .route("/download_signed/{server_name}/{media_id}", get(download_media_signed))
+        .route("/download_signed/{server_name}/{media_id}/{filename}", get(download_media_signed_with_filename))
         .route("/thumbnail/{server_name}/{media_id}", get(get_thumbnail))
 }
 
@@ -181,6 +183,8 @@ fn media_v3_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::PUT, "/upload/{server_name}/{media_id}"),
         (Method::GET, "/download/{server_name}/{media_id}"),
         (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+        (Method::GET, "/download_signed/{server_name}/{media_id}"),
+        (Method::GET, "/download_signed/{server_name}/{media_id}/{filename}"),
         (Method::GET, "/thumbnail/{server_name}/{media_id}"),
     ]
 }
@@ -454,6 +458,59 @@ async fn download_media_with_filename(
     State(state): State<AppState>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
+}
+
+/// Signed media download — verifies HMAC signature before serving.
+/// URL: /_matrix/media/v3/download/{server_name}/{media_id}?signature={hex}&expires={timestamp}
+async fn download_media_signed(
+    State(state): State<AppState>,
+    Path((server_name, media_id)): Path<(String, String)>,
+    Query(params): Query<Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let signature = params
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
+
+    let expires: u64 = params
+        .get("expires")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+        return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
+    }
+
+    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let headers = media_response_headers(&response.headers);
+    Ok((StatusCode::OK, headers, response.content))
+}
+
+/// Signed media download with filename.
+async fn download_media_signed_with_filename(
+    State(state): State<AppState>,
+    Path((server_name, media_id, filename)): Path<(String, String, String)>,
+    Query(params): Query<Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let signature = params
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
+
+    let expires: u64 = params
+        .get("expires")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+        return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
+    }
+
     let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))

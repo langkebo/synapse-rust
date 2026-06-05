@@ -8,6 +8,7 @@ pub(super) async fn get_space_summary(
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
         let summary = state
             .services
+            .rooms
             .space_service
             .get_space_summary(&space.space_id)
             .await?
@@ -26,6 +27,7 @@ pub(super) async fn get_space_summary_with_children(
     with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
         let summary = state
             .services
+            .rooms
             .space_service
             .get_space_summary_with_children(&space.space_id, auth_user.user_id.as_deref())
             .await?;

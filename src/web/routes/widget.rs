@@ -131,8 +131,7 @@ async fn create_widget(
 ) -> Result<Json<WidgetResponse>, ApiError> {
     if let Some(room_id) = body.room_id.as_deref() {
         let room_exists = state
-            .services
-            .room_storage
+            .services.rooms.room_storage
             .room_exists(room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to validate room", &e))?;
@@ -366,7 +365,7 @@ async fn ensure_room_widget_manage_access(
         return Ok(());
     }
 
-    let is_creator = state.services.room_service.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
+    let is_creator = state.services.rooms.room_service.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
 
     if is_creator {
         return Ok(());

@@ -1231,7 +1231,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
             json!({
                 "max_lifetime": server_max_lifetime,
                 "min_lifetime": server_min_lifetime,
-                "expire_on_clients": true
+                "is_expire_on_clients": true
             })
             .to_string(),
         ))
@@ -1242,7 +1242,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
 
     let body = axum::body::to_bytes(set_server_policy_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["expire_on_clients"], true);
+    assert_eq!(json["is_expire_on_clients"], true);
 
     let get_server_policy_request = Request::builder()
         .uri("/_synapse/admin/v1/retention/policy")
@@ -1257,7 +1257,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["max_lifetime"].as_i64(), Some(server_max_lifetime));
     assert_eq!(json["min_lifetime"].as_i64(), Some(server_min_lifetime));
-    assert_eq!(json["expire_on_clients"], true);
+    assert_eq!(json["is_expire_on_clients"], true);
 
     let create_room_request = Request::builder()
         .method("POST")
@@ -1282,7 +1282,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
             json!({
                 "max_lifetime": 172_800_000_i64,
                 "min_lifetime": 7_200_000_i64,
-                "expire_on_clients": true
+                "is_expire_on_clients": true
             })
             .to_string(),
         ))
@@ -1293,7 +1293,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
 
     let body = axum::body::to_bytes(set_room_policy_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["expire_on_clients"], true);
+    assert_eq!(json["is_expire_on_clients"], true);
 
     let get_room_policy_request = Request::builder()
         .uri(format!("/_synapse/admin/v1/retention/policy/{}", room_id))
@@ -1307,7 +1307,7 @@ async fn test_admin_retention_policy_preserves_expire_on_clients() {
     let body = axum::body::to_bytes(get_room_policy_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["room_id"], room_id);
-    assert_eq!(json["expire_on_clients"], true);
+    assert_eq!(json["is_expire_on_clients"], true);
 
     sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
         .bind(&room_id)
@@ -1345,7 +1345,7 @@ async fn test_admin_room_retention_policy_requires_existing_room() {
             json!({
                 "max_lifetime": 172_800_000_i64,
                 "min_lifetime": 7_200_000_i64,
-                "expire_on_clients": true
+                "is_expire_on_clients": true
             })
             .to_string(),
         ))
@@ -1387,7 +1387,7 @@ async fn test_admin_retention_run_requires_existing_room() {
         .expect("failed to promote admin test user to super_admin");
 
     sqlx::query(
-        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, expire_on_clients, created_ts, updated_ts)
+        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts)
          VALUES (1, $1, $2, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
          ON CONFLICT (id) DO UPDATE SET max_lifetime = EXCLUDED.max_lifetime, min_lifetime = EXCLUDED.min_lifetime, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000",
     )

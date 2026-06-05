@@ -251,11 +251,12 @@ impl CrossSigningVerificationService {
 
         sqlx::query(
             r"
-            UPDATE devices
-            SET verified = TRUE,
-                verified_ts = $3,
-                verification_method = $4
-            WHERE user_id = $1 AND device_id = $2
+            INSERT INTO device_trust_status (user_id, device_id, is_verified, verification_method, verified_ts)
+            VALUES ($1, $2, TRUE, $4, $3)
+            ON CONFLICT (user_id, device_id) DO UPDATE SET
+                is_verified = TRUE,
+                verification_method = $4,
+                verified_ts = $3
             ",
         )
         .bind(user_id)
@@ -290,11 +291,12 @@ impl CrossSigningVerificationService {
 
         sqlx::query(
             r"
-            UPDATE devices
-            SET verified = FALSE,
-                verified_ts = NULL,
-                verification_method = NULL
-            WHERE user_id = $1 AND device_id = $2
+            INSERT INTO device_trust_status (user_id, device_id, is_verified, verification_method, verified_ts)
+            VALUES ($1, $2, FALSE, NULL, NULL)
+            ON CONFLICT (user_id, device_id) DO UPDATE SET
+                is_verified = FALSE,
+                verification_method = NULL,
+                verified_ts = NULL
             ",
         )
         .bind(user_id)
@@ -325,9 +327,11 @@ impl CrossSigningVerificationService {
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let rows = sqlx::query(
             r"
-            SELECT device_id, user_id, display_name, verified, verified_ts, verification_method
-            FROM devices
-            WHERE user_id = $1
+            SELECT d.device_id, d.user_id, d.display_name,
+                   dt.is_verified, dt.verified_ts, dt.verification_method
+            FROM devices d
+            LEFT JOIN device_trust_status dt ON d.user_id = dt.user_id AND d.device_id = dt.device_id
+            WHERE d.user_id = $1
             ",
         )
         .bind(user_id)

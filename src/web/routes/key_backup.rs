@@ -190,7 +190,7 @@ async fn create_backup_version(
         }
     }
 
-    let version = state.services.backup_service.create_backup(&auth_user.user_id, algorithm, auth_data).await?;
+    let version = state.services.e2ee.backup_service.create_backup(&auth_user.user_id, algorithm, auth_data).await?;
 
     Ok(Json(json!({
         "version": version
@@ -203,7 +203,7 @@ async fn get_all_backup_versions(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backups = state.services.backup_service.get_all_backups(&auth_user.user_id).await?;
+    let backups = state.services.e2ee.backup_service.get_all_backups(&auth_user.user_id).await?;
 
     let latest = backups
         .into_iter()
@@ -212,7 +212,7 @@ async fn get_all_backup_versions(
 
     let version_str = latest.version.to_string();
     let count =
-        state.services.backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
+        state.services.e2ee.backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
 
     Ok(Json(serde_json::json!({
         "algorithm": latest.algorithm,
@@ -229,14 +229,13 @@ async fn get_backup_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state.services.backup_service.get_backup(&auth_user.user_id, &version).await?;
+    let backup = state.services.e2ee.backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     match backup {
         Some(b) => {
             let version_str = b.version.to_string();
             let count = state
-                .services
-                .backup_service
+                .services.e2ee.backup_service
                 .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
                 .await?;
             Ok(Json(serde_json::json!({
@@ -264,7 +263,7 @@ async fn update_backup_version(
 
     let auth_data = body.auth_data;
 
-    state.services.backup_service.update_backup_auth_data(&auth_user.user_id, &version, auth_data).await?;
+    state.services.e2ee.backup_service.update_backup_auth_data(&auth_user.user_id, &version, auth_data).await?;
 
     Ok(Json(serde_json::json!({
         "version": version
@@ -277,13 +276,13 @@ async fn delete_backup_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state.services.backup_service.get_backup(&auth_user.user_id, &version).await?;
+    let backup = state.services.e2ee.backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     if backup.is_none() {
         return Err(crate::error::ApiError::not_found(format!("Backup version '{version}' not found")));
     }
 
-    state.services.backup_service.delete_backup(&auth_user.user_id, &version).await?;
+    state.services.e2ee.backup_service.delete_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::json!({
         "deleted": true,
@@ -320,8 +319,7 @@ fn write_response(version: &str, count: u64) -> Json<Value> {
 
 async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) -> Result<(), crate::error::ApiError> {
     state
-        .services
-        .backup_service
+        .services.e2ee.backup_service
         .get_backup(user_id, version)
         .await?
         .ok_or_else(|| crate::error::ApiError::not_found(format!("Backup version '{version}' not found")))
@@ -334,7 +332,7 @@ async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) ->
 // ----------------------------------------------------------------------------
 async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let keys = state.services.backup_service.get_keys_for_version(user_id, version).await?;
+    let keys = state.services.e2ee.backup_service.get_keys_for_version(user_id, version).await?;
 
     let mut rooms = serde_json::Map::<String, Value>::new();
     for k in keys {
@@ -376,7 +374,7 @@ async fn read_room(
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let keys = state.services.backup_service.get_room_backup_keys(user_id, room_id, version).await?;
+    let keys = state.services.e2ee.backup_service.get_room_backup_keys(user_id, room_id, version).await?;
 
     let mut sessions = serde_json::Map::<String, Value>::new();
     for k in keys {
@@ -416,7 +414,7 @@ async fn read_session(
     room_id: &str,
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let key = state.services.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
+    let key = state.services.e2ee.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
         || crate::error::ApiError::not_found(format!("Session '{session_id}' in room '{room_id}' not found")),
     )?;
 
@@ -458,7 +456,7 @@ async fn write_all_rooms(
     for (room_id, room_payload) in body.rooms {
         let sessions = room_payload.get("sessions").and_then(|v| v.as_object()).cloned().unwrap_or_default();
         for (session_id, key_data) in sessions {
-            state.services.backup_service.upload_session(user_id, version, &room_id, &session_id, key_data).await?;
+            state.services.e2ee.backup_service.upload_session(user_id, version, &room_id, &session_id, key_data).await?;
             count += 1;
         }
     }
@@ -501,7 +499,7 @@ async fn write_room(
 
     let mut count: u64 = 0;
     for (session_id, key_data) in body.sessions {
-        state.services.backup_service.upload_session(user_id, version, room_id, &session_id, key_data).await?;
+        state.services.e2ee.backup_service.upload_session(user_id, version, room_id, &session_id, key_data).await?;
         count += 1;
     }
 
@@ -542,7 +540,7 @@ async fn write_session(
     key_data: Value,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    state.services.backup_service.upload_session(user_id, version, room_id, session_id, key_data).await?;
+    state.services.e2ee.backup_service.upload_session(user_id, version, room_id, session_id, key_data).await?;
     Ok(write_response(version, 1))
 }
 
@@ -576,7 +574,7 @@ async fn delete_all_rooms_impl(
     version: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.backup_service.delete_all_for_version(user_id, version).await?;
+    let count = state.services.e2ee.backup_service.delete_all_for_version(user_id, version).await?;
     Ok(write_response(version, count))
 }
 
@@ -605,7 +603,7 @@ async fn delete_room_impl(
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.backup_service.delete_room_for_version(user_id, version, room_id).await?;
+    let count = state.services.e2ee.backup_service.delete_room_for_version(user_id, version, room_id).await?;
     Ok(write_response(version, count))
 }
 
@@ -636,7 +634,7 @@ async fn delete_session_impl(
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
+    let count = state.services.e2ee.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
     Ok(write_response(version, count))
 }
 
@@ -682,7 +680,7 @@ async fn recover_keys(
         return Err(crate::error::ApiError::bad_request(e.to_string()));
     }
 
-    let response = state.services.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
+    let response = state.services.e2ee.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
 
     Ok(Json(serde_json::to_value(response)?))
 }
@@ -693,7 +691,7 @@ async fn get_recovery_progress(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let progress = state.services.backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
+    let progress = state.services.e2ee.backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(progress)?))
 }
@@ -704,7 +702,7 @@ async fn verify_backup(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let verification = state.services.backup_service.verify_backup(&auth_user.user_id, &version).await?;
+    let verification = state.services.e2ee.backup_service.verify_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(verification)?))
 }
@@ -720,8 +718,7 @@ async fn batch_recover_keys(
     }
 
     let response = state
-        .services
-        .backup_service
+        .services.e2ee.backup_service
         .batch_recover_keys(
             &auth_user.user_id,
             crate::e2ee::backup::models::BatchRecoveryRequest {
@@ -741,7 +738,7 @@ async fn recover_room_keys(
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let keys = state.services.backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
+    let keys = state.services.e2ee.backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -756,7 +753,7 @@ async fn recover_session_key(
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let key =
-        state.services.backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
+        state.services.e2ee.backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
 
     match key {
         Some(k) => Ok(Json(serde_json::json!({
@@ -779,7 +776,7 @@ async fn export_keys(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+    let backup_keys = state.services.e2ee.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -809,7 +806,7 @@ async fn export_keys_by_version(
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
+    let backup_keys = state.services.e2ee.backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -866,7 +863,7 @@ async fn import_keys(
                 forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+            if state.services.e2ee.backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;
@@ -917,7 +914,7 @@ async fn import_keys_by_version(
                 forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state.services.backup_service.upload_backup_key(params).await.is_ok() {
+            if state.services.e2ee.backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;

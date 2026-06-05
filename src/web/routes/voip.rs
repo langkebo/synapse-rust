@@ -173,8 +173,7 @@ pub async fn call_invite(
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .create_event(
             crate::storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -228,8 +227,7 @@ pub async fn call_answer(
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .create_event(
             crate::storage::event::CreateEventParams {
                 event_id: event_id.clone(),

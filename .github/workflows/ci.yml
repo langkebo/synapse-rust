@@ -83,6 +83,15 @@ jobs:
           python3 scripts/check_migration_consistency.py \
             --json-report artifacts/migration_consistency.json
 
+      - name: Route ↔ storage boundary gate
+        run: bash scripts/ci/check_route_storage_boundary.sh
+
+      # Supply-chain hardening: cargo-deny (licenses/bans/sources) and
+      # cargo-audit (RustSec CVE database). Both must pass for the PR
+      # to merge. The ignore list lives in deny.toml and .cargo/audit.toml.
+      - name: Supply-chain gate (cargo-deny + cargo-audit)
+        run: bash scripts/ci/supply_chain_gate.sh
+
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
@@ -295,10 +304,21 @@ jobs:
         with:
           toolchain: 1.93.0
 
-      - name: Run security audit
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Run the unified supply-chain gate. This is the same script that
+      # `repo-sanity` invokes for fast PR feedback, but here we also
+      # assert that no `rand::rng()` calls leaked into the tree (the
+      # RUSTSEC-2026-0097 watch-out).
+      - name: Supply-chain gate (cargo-deny + cargo-audit)
+        run: bash scripts/ci/supply_chain_gate.sh
+
+      - name: Assert rand::rng() is unused
         run: |
-          cargo install cargo-audit --locked
-          bash scripts/run_cargo_audit.sh
           if git grep -n "rand::rng()" -- '*.rs'; then
             echo "rand::rng() is temporarily banned until RUSTSEC-2026-0097 is resolved"
             exit 1

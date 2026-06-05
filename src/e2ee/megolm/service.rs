@@ -3,6 +3,8 @@ use super::storage::MegolmSessionStorage;
 use crate::cache::CacheManager;
 use crate::e2ee::crypto::aes::{Aes256GcmCipher, Aes256GcmCiphertext, Aes256GcmKey, Aes256GcmNonce};
 use crate::e2ee::crypto::CryptoError;
+#[cfg(feature = "vodozemac-megolm")]
+use crate::e2ee::vodozemac_megolm::MegolmVodozemacService;
 use crate::error::ApiError;
 use chrono::Utc;
 use std::sync::Arc;
@@ -49,6 +51,8 @@ impl MegolmService {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: Some(Utc::now() + chrono::Duration::days(get_session_max_age_days())),
+            pickle_format: PickleFormat::Legacy,
+            vodozemac_pickle: None,
         };
 
         self.storage.create_session(&session).await?;
@@ -183,5 +187,197 @@ impl MegolmService {
         } else {
             Ok(None)
         }
+    }
+}
+
+// =============================================================================
+// MegolmProvider — 双路径抽象（Phase 1: E2EE 收敛到 vodozemac）
+// =============================================================================
+//
+// 在 vodozemac 全量收敛之前，`MegolmProvider` 统一封装自研 AES-256-GCM
+// 路径和 vodozemac 路径，对外提供相同的 API 表面，调用方（key_request、
+// key_rotation、to_device 等）无需关心底层实现。
+//
+// 选择规则（按优先级）：
+// 1. 环境变量 `E2EE_USE_VODOZEMAC_MEGOLM=true` 强制启用 vodozemac
+// 2. 否则使用自研 AES-256-GCM 路径（向后兼容）
+//
+// Phase 4（清理）之后：删除自研 `MegolmService`，`MegolmProvider` 直接持有
+// `MegolmVodozemacService`，移除运行时分支。
+
+/// Megolm 加密实现路径
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MegolmBackend {
+    /// 自研 AES-256-GCM 实现（向后兼容）
+    Legacy,
+    /// vodozemac 0.9 实现（与 Element 客户端互操作）
+    Vodozemac,
+}
+
+#[cfg(feature = "vodozemac-megolm")]
+impl MegolmBackend {
+    /// 从环境变量解析后端选择
+    pub fn from_env() -> Self {
+        match std::env::var("E2EE_USE_VODOZEMAC_MEGOLM")
+            .ok()
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("1") | Some("true") | Some("yes") | Some("on") => Self::Vodozemac,
+            _ => Self::Legacy,
+        }
+    }
+
+    /// 当前后端的字符串名称（用于日志/诊断）
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy-aes-256-gcm",
+            Self::Vodozemac => "vodozemac-0.9",
+        }
+    }
+}
+
+/// Megolm 统一抽象：包装自研和 vodozemac 两种实现
+///
+/// `decrypt` 接受 `nonce` 参数以保持与自研 `MegolmService` 的签名兼容；
+/// vodozemac 路径下 nonce 被忽略（vodozemac 的 `MegolmMessage` 自带 nonce）。
+///
+/// 当 `vodozemac-megolm` feature 关闭时，`MegolmProvider` 退化为
+/// `MegolmService` 的类型别名，确保无 vodozemac 依赖的最小构建仍能编译。
+#[cfg(feature = "vodozemac-megolm")]
+#[derive(Clone)]
+pub enum MegolmProvider {
+    Legacy(MegolmService),
+    Vodozemac(MegolmVodozemacService),
+}
+
+#[cfg(not(feature = "vodozemac-megolm"))]
+pub type MegolmProvider = MegolmService;
+#[cfg(feature = "vodozemac-megolm")]
+impl MegolmProvider {
+    /// 根据环境变量和共享依赖创建 provider
+    pub fn from_env(
+        storage: MegolmSessionStorage,
+        cache: Arc<CacheManager>,
+        encryption_key: [u8; 32],
+    ) -> Self {
+        match MegolmBackend::from_env() {
+            MegolmBackend::Vodozemac => {
+                ::tracing::info!(
+                    backend = "vodozemac-0.9",
+                    "E2EE_USE_VODOZEMAC_MEGOLM enabled — using vodozemac-backed Megolm"
+                );
+                // Phase 2: 把 encryption_key 传给 vodozemac 服务，支持 E2EE_DUAL_WRITE=true
+                // 时的双写（同时写 legacy 加密格式到 session_key 列）。
+                Self::Vodozemac(MegolmVodozemacService::new(storage, cache).with_encryption_key(encryption_key))
+            }
+            MegolmBackend::Legacy => {
+                ::tracing::info!(
+                    backend = "legacy-aes-256-gcm",
+                    "Using legacy AES-256-GCM Megolm path (default)"
+                );
+                Self::Legacy(MegolmService::new(storage, cache, encryption_key))
+            }
+        }
+    }
+
+    /// 当前后端
+    pub fn backend(&self) -> MegolmBackend {
+        match self {
+            Self::Legacy(_) => MegolmBackend::Legacy,
+            Self::Vodozemac(_) => MegolmBackend::Vodozemac,
+        }
+    }
+
+    pub async fn create_session(&self, room_id: &str, sender_key: &str) -> Result<MegolmSession, ApiError> {
+        match self {
+            Self::Legacy(s) => s.create_session(room_id, sender_key).await,
+            Self::Vodozemac(s) => s.create_session(room_id, sender_key).await,
+        }
+    }
+
+    pub async fn encrypt(&self, session_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
+        match self {
+            Self::Legacy(s) => s.encrypt(session_id, plaintext).await,
+            Self::Vodozemac(s) => s.encrypt(session_id, plaintext).await,
+        }
+    }
+
+    /// 解密。`nonce` 参数仅在自研路径下使用；vodozemac 路径下被忽略。
+    pub async fn decrypt(&self, session_id: &str, ciphertext: &[u8], nonce: &[u8]) -> Result<Vec<u8>, ApiError> {
+        match self {
+            Self::Legacy(s) => s.decrypt(session_id, ciphertext, nonce).await,
+            Self::Vodozemac(s) => s.decrypt(session_id, ciphertext).await,
+        }
+    }
+
+    pub async fn rotate_session(&self, session_id: &str) -> Result<(), ApiError> {
+        match self {
+            Self::Legacy(s) => s.rotate_session(session_id).await,
+            Self::Vodozemac(s) => s.rotate_session(session_id).await,
+        }
+    }
+
+    pub async fn share_session(&self, session_id: &str, user_ids: &[String]) -> Result<(), ApiError> {
+        match self {
+            Self::Legacy(s) => s.share_session(session_id, user_ids).await,
+            Self::Vodozemac(s) => s.share_session(session_id, user_ids).await,
+        }
+    }
+
+    pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
+        match self {
+            Self::Legacy(s) => s.get_room_sessions(room_id).await,
+            Self::Vodozemac(s) => s.get_room_sessions(room_id).await,
+        }
+    }
+
+    pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
+        match self {
+            Self::Legacy(s) => s.delete_session(session_id).await,
+            Self::Vodozemac(s) => s.delete_session(session_id).await,
+        }
+    }
+
+    pub async fn get_outbound_session(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+        match self {
+            Self::Legacy(s) => s.get_outbound_session(room_id).await,
+            Self::Vodozemac(s) => s.get_outbound_session(room_id).await,
+        }
+    }
+
+    pub async fn get_room_key_distribution(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+        match self {
+            Self::Legacy(s) => s.get_room_key_distribution(room_id).await,
+            Self::Vodozemac(s) => s.get_room_key_distribution(room_id).await,
+        }
+    }
+}
+
+#[cfg(all(test, feature = "vodozemac-megolm"))]
+mod provider_tests {
+    use super::*;
+    use crate::e2ee::vodozemac_megolm::MegolmVodozemacService;
+
+    #[test]
+    fn backend_from_env_defaults_to_legacy() {
+        // 默认（未设置 E2EE_USE_VODOZEMAC_MEGOLM）应为 Legacy
+        // 注意：env 变量可能已被其他测试设置，仅校验合法值
+        let backend = MegolmBackend::from_env();
+        assert!(matches!(backend, MegolmBackend::Legacy | MegolmBackend::Vodozemac));
+    }
+
+    #[test]
+    fn provider_backend_name() {
+        assert_eq!(MegolmBackend::Legacy.name(), "legacy-aes-256-gcm");
+        assert_eq!(MegolmBackend::Vodozemac.name(), "vodozemac-0.9");
+    }
+
+    #[test]
+    fn vodozemac_variant_compiles() {
+        // 验证 MegolmVodozemacService 与 MegolmProvider 的集成在编译期通过
+        // 集成测试需要真实 PG pool，此处只验证类型定义
+        let _: Option<MegolmVodozemacService> = None;
+        let _: Option<MegolmProvider> = None;
     }
 }

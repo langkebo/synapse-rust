@@ -1,3 +1,4 @@
+use crate::cache::{FederationSignatureCache, KeyRotationEvent};
 use crate::common::ApiError;
 use crate::common::key_encryption::{encrypt_key, decrypt_key, is_encrypted};
 use crate::federation::signing::sign_json;
@@ -5,10 +6,12 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use ed25519_dalek::Verifier;
 use serde_json::json;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
+use parking_lot::RwLock as ParkingLotRwLock;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration as TokioDuration};
 
@@ -57,6 +60,21 @@ pub struct SigningKey {
     pub ts_valid_until_ms: i64,
 }
 
+/// Wrapper struct for `query_as!` of `SELECT DISTINCT server_name` from `federation_servers`.
+/// `query_as!` requires a struct with named fields; tuples cannot be used directly.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct FederationServerName {
+    pub server_name: String,
+}
+
+/// Wrapper struct for `query_as!` of `SELECT public_key, expires_at` from `federation_signing_keys`.
+/// Used by `verify_from_database` to look up historical signing keys.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct FederationKeyRecord {
+    pub public_key: String,
+    pub expires_at: i64,
+}
+
 type CachedKeyEntry = (String, i64);
 
 #[derive(Debug, Clone)]
@@ -71,6 +89,7 @@ pub struct KeyRotationManager {
     signing_key_path: Option<String>,
     master_key: Option<Vec<u8>>,
     rotation_config: Arc<RwLock<FederationRotationConfig>>,
+    signature_cache: Arc<ParkingLotRwLock<Option<Arc<FederationSignatureCache>>>>,
 }
 
 impl KeyRotationManager {
@@ -109,6 +128,7 @@ impl KeyRotationManager {
             signing_key_path,
             master_key,
             rotation_config: Arc::new(RwLock::new(FederationRotationConfig::default())),
+            signature_cache: Arc::new(ParkingLotRwLock::new(None)),
         }
     }
 
@@ -221,30 +241,27 @@ impl KeyRotationManager {
     pub async fn load_rotation_config(&self) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
-        let interval_days: i64 = sqlx::query_scalar(
-            r"SELECT value FROM key_rotation_config WHERE key = 'rotation_interval_days'",
+        let interval_days: i64 = sqlx::query_scalar!(
+            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'rotation_interval_days'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
-        .flatten()
         .and_then(|v: String| v.parse().ok())
         .unwrap_or(DEFAULT_KEY_ROTATION_INTERVAL_DAYS);
 
-        let threshold_days: i64 = sqlx::query_scalar(
-            r"SELECT value FROM key_rotation_config WHERE key = 'rotation_threshold_days'",
+        let threshold_days: i64 = sqlx::query_scalar!(
+            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'rotation_threshold_days'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
-        .flatten()
         .and_then(|v: String| v.parse().ok())
         .unwrap_or(DEFAULT_KEY_ROTATION_THRESHOLD_DAYS);
 
-        let grace_period_minutes: i64 = sqlx::query_scalar(
-            r"SELECT value FROM key_rotation_config WHERE key = 'grace_period_minutes'",
+        let grace_period_minutes: i64 = sqlx::query_scalar!(
+            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'grace_period_minutes'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
-        .flatten()
         .and_then(|v: String| v.parse().ok())
         .unwrap_or(DEFAULT_KEY_GRACE_PERIOD_MINUTES);
 
@@ -269,15 +286,15 @@ impl KeyRotationManager {
     pub async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO key_rotation_config (key, value)
             VALUES ($1, $2)
             ON CONFLICT (key) DO UPDATE SET value = $2
             ",
+            key,
+            value,
         )
-        .bind(key)
-        .bind(value)
         .execute(&*self.pool)
         .await?;
 
@@ -453,7 +470,7 @@ impl KeyRotationManager {
             "public_key": signing_key.public_key
         });
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_ts, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -466,16 +483,16 @@ impl KeyRotationManager {
                 ts_added_ms = EXCLUDED.ts_added_ms,
                 ts_valid_until_ms = EXCLUDED.ts_valid_until_ms
             ",
+            self.server_name,
+            signing_key.key_id,
+            stored_secret_key,
+            signing_key.public_key,
+            signing_key.created_ts,
+            signing_key.expires_at,
+            key_json,
+            signing_key.created_ts,
+            signing_key.expires_at,
         )
-        .bind(&self.server_name)
-        .bind(&signing_key.key_id)
-        .bind(&stored_secret_key)
-        .bind(&signing_key.public_key)
-        .bind(signing_key.created_ts)
-        .bind(signing_key.expires_at)
-        .bind(key_json)
-        .bind(signing_key.created_ts)
-        .bind(signing_key.expires_at)
         .execute(&*self.pool)
         .await?;
 
@@ -498,6 +515,11 @@ impl KeyRotationManager {
     }
 
     pub async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError> {
+        let old_key_id = {
+            let current = self.current_key.read().await;
+            current.as_ref().map(|key| key.key_id.clone())
+        };
+
         let current = self.current_key.read().await;
         if let Some(key) = current.as_ref() {
             self.historical_keys
@@ -514,6 +536,21 @@ impl KeyRotationManager {
 
         if let Err(e) = self.broadcast_key_change_to_federation().await {
             tracing::warn!("Failed to broadcast key change: {}", e);
+        }
+
+        // Notify signature cache about key rotation so that cached
+        // signature verification results for the old key are invalidated.
+        if let Some(old_key_id) = old_key_id {
+            if let Some(cache) = self.signature_cache.read().as_ref() {
+                let event = KeyRotationEvent {
+                    origin: self.server_name.clone(),
+                    old_key_id,
+                    new_key_id: key_id,
+                    timestamp: Instant::now(),
+                };
+                cache.notify_key_rotation(&event);
+                tracing::info!("Notified signature cache of key rotation");
+            }
         }
 
         Ok(())
@@ -618,18 +655,18 @@ impl KeyRotationManager {
     ) -> Result<bool, ApiError> {
         self.ensure_signing_keys_table().await?;
 
-        let key_record: Option<sqlx::postgres::PgRow> = sqlx::query(
-            r"
-            SELECT public_key, expires_at FROM federation_signing_keys WHERE key_id = $1
-            ",
+        let key_record: Option<FederationKeyRecord> = sqlx::query_as!(
+            FederationKeyRecord,
+            r#"SELECT public_key AS "public_key!", expires_at AS "expires_at!"
+               FROM federation_signing_keys WHERE key_id = $1"#,
+            key_id,
         )
-        .bind(key_id)
         .fetch_optional(&*self.pool)
         .await?;
 
         match key_record {
             Some(record) => {
-                let expires_at: i64 = record.get("expires_at");
+                let expires_at = record.expires_at;
                 let now = Utc::now().timestamp_millis();
 
                 if expires_at > 0 {
@@ -642,7 +679,7 @@ impl KeyRotationManager {
                     }
                 }
 
-                let public_key: String = record.get("public_key");
+                let public_key = record.public_key;
                 self
                     .verify_signature(&public_key, signature, content)
                     .map(|_| true)
@@ -732,17 +769,18 @@ impl KeyRotationManager {
     }
 
     async fn get_known_federation_servers(&self) -> Result<Vec<String>, ApiError> {
-        let servers: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT server_name FROM federation_servers WHERE server_name != $1",
+        let servers: Vec<FederationServerName> = sqlx::query_as!(
+            FederationServerName,
+            "SELECT DISTINCT server_name AS \"server_name!\" FROM federation_servers WHERE server_name != $1",
+            self.server_name,
         )
-        .bind(&self.server_name)
         .fetch_all(&*self.pool)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to fetch known federation servers: {e}");
             Vec::new()
         });
-        Ok(servers.into_iter().map(|(s,)| s).collect())
+        Ok(servers.into_iter().map(|s| s.server_name).collect())
     }
 
     /// Revoke a specific key by marking it as expired in the database
@@ -821,6 +859,14 @@ impl KeyRotationManager {
             "rotation_threshold_days": config.rotation_threshold_days,
             "grace_period_minutes": config.grace_period_minutes
         })
+    }
+
+    /// Set the federation signature cache for key rotation invalidation notifications.
+    ///
+    /// When keys are rotated, the cache will be notified so that cached
+    /// signature verification results for the old key are invalidated.
+    pub fn set_signature_cache(&self, cache: Arc<FederationSignatureCache>) {
+        *self.signature_cache.write() = Some(cache);
     }
 }
 

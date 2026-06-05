@@ -87,6 +87,7 @@ pub async fn enable_burn(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
+        .rooms
         .room_service
         .room_exists(&room_id)
         .await
@@ -122,6 +123,7 @@ pub async fn get_burn_settings(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
+        .rooms
         .room_service
         .room_exists(&room_id)
         .await
@@ -159,6 +161,7 @@ pub async fn mark_burn_read(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
+        .rooms
         .room_service
         .room_exists(&room_id)
         .await
@@ -208,6 +211,7 @@ pub async fn get_pending_burns(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
+        .rooms
         .room_service
         .room_exists(&room_id)
         .await
@@ -249,6 +253,7 @@ pub async fn cancel_burn(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
         .services
+        .rooms
         .room_service
         .room_exists(&room_id)
         .await

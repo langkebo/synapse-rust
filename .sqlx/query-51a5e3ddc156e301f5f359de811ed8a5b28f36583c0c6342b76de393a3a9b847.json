@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_blacklist_log (\n                server_name, action, old_status, new_status, reason, performed_by, ip_address, user_agent, metadata\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING\n                id AS \"id!\",\n                server_name AS \"server_name!\",\n                action AS \"action!\",\n                old_status AS \"old_status?\",\n                new_status AS \"new_status?\",\n                reason AS \"reason?\",\n                performed_by AS \"performed_by!\",\n                performed_ts AS \"performed_ts!\",\n                ip_address AS \"ip_address?\",\n                user_agent AS \"user_agent?\",\n                metadata AS \"metadata!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "action!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "old_status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "new_status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "performed_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "performed_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ip_address?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_agent?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "metadata!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "51a5e3ddc156e301f5f359de811ed8a5b28f36583c0c6342b76de393a3a9b847"
+}

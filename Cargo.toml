@@ -31,6 +31,12 @@ runtime-ddl = []
 performance-tests = []
 test-utils = []
 
+# P0: vodozemac-based Megolm (default-enabled for production).
+# Disable only during migration if the legacy AES-GCM megolm path is
+# still needed. Once all deployments have migrated, the legacy path
+# should be removed and this feature becomes unconditional.
+vodozemac-megolm = []
+
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
 friends = []
@@ -53,7 +59,8 @@ all-extensions = [
     "saml-sso", "cas-sso",
     "beacons", "voip-tracking", "widgets", "server-notifications",
     "burn-after-read", "privacy-ext", "external-services",
-    "builtin-oidc", "geo-ip"
+    "builtin-oidc", "geo-ip",
+    "vodozemac-megolm"
 ]
 
 [dependencies]
@@ -81,6 +88,7 @@ rand = "0.8.5"
 sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
+hkdf = "0.12"
 base64 = "0.22"
 zeroize = "1"
 
@@ -102,7 +110,7 @@ subtle = "2.5"
 
 metrics = "0.23"
 
-tracing = "0.1"
+tracing = { version = "0.1", features = ["attributes"] }
 tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }

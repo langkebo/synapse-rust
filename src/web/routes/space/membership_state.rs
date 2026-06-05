@@ -6,7 +6,7 @@ pub(super) async fn get_space_members(
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let members = state.services.space_service.get_space_members(&space.space_id).await?;
+        let members = state.services.rooms.space_service.get_space_members(&space.space_id).await?;
 
         Ok(json_vec_from::<_, SpaceMemberResponse>(members))
     })
@@ -19,7 +19,7 @@ pub(super) async fn get_space_rooms(
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let children = state.services.space_service.get_space_children(&space.space_id).await?;
+        let children = state.services.rooms.space_service.get_space_children(&space.space_id).await?;
 
         let rooms: Vec<String> = children.into_iter().map(|child| child.room_id).collect();
 
@@ -38,7 +38,7 @@ pub(super) async fn get_space_state(
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
         let space_state =
-            state.services.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await?;
+            state.services.rooms.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await?;
 
         Ok(Json(space_state))
     })
@@ -55,7 +55,7 @@ pub(super) async fn invite_user(
 
     with_resolved_space(state, space_id, |state, space| async move {
         let member =
-            state.services.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
+            state.services.rooms.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
 
         Ok(created_json_from::<_, SpaceMemberResponse>(member))
     })
@@ -68,7 +68,7 @@ pub(super) async fn join_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(state, space_id, |state, space| async move {
-        let member = state.services.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
+        let member = state.services.rooms.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceMemberResponse>(member))
     })
@@ -81,7 +81,7 @@ pub(super) async fn leave_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(state, space_id, |state, space| async move {
-        state.services.space_service.leave_space(&space.space_id, &auth_user.user_id).await?;
+        state.services.rooms.space_service.leave_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(StatusCode::NO_CONTENT)
     })

@@ -287,8 +287,7 @@ async fn search_room_events(
     }
 
     let joined_rooms = state
-        .services
-        .member_storage
+        .services.rooms.member_storage
         .get_joined_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))?;
@@ -507,16 +506,14 @@ async fn build_room_hierarchy_response(
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
     let room_opt = state
-        .services
-        .room_storage
+        .services.rooms.room_storage
         .get_room(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
-    if let Some(space) = state.services.space_service.get_space_by_room(room_id).await? {
+    if let Some(space) = state.services.rooms.space_service.get_space_by_room(room_id).await? {
         let response = state
-            .services
-            .space_service
+            .services.rooms.space_service
             .get_space_hierarchy_v1(
                 &space.space_id,
                 max_depth.max(1),
@@ -539,8 +536,7 @@ async fn build_room_hierarchy_response(
 
             if !has_space_self || rooms <= 1 {
                 let state_events = state
-                    .services
-                    .event_storage
+                    .services.rooms.event_storage
                     .get_state_events(room_id)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
@@ -575,8 +571,7 @@ async fn build_room_hierarchy_response(
 
                 let child_rooms_map = if !child_room_ids.is_empty() {
                     let rooms_batch = state
-                        .services
-                        .room_storage
+                        .services.rooms.room_storage
                         .get_rooms_batch(&child_room_ids)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
@@ -586,7 +581,7 @@ async fn build_room_hierarchy_response(
                     }
 
                     let state_batch =
-                        state.services.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
+                        state.services.rooms.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
 
                     let mut child_rooms = Vec::new();
                     for rid in &child_room_ids {
@@ -671,8 +666,7 @@ async fn build_room_hierarchy_response(
     let world_readable = room.history_visibility == "world_readable";
 
     let state_events = state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .get_state_events(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
@@ -714,8 +708,7 @@ async fn build_room_hierarchy_response(
 
     let child_rooms = if !child_room_ids.is_empty() {
         let rooms_batch = state
-            .services
-            .room_storage
+            .services.rooms.room_storage
             .get_rooms_batch(&child_room_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
@@ -725,7 +718,7 @@ async fn build_room_hierarchy_response(
         }
 
         let state_batch =
-            state.services.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
+            state.services.rooms.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
 
         let mut result = Vec::new();
         for rid in &child_room_ids {
@@ -896,8 +889,7 @@ async fn get_event_context(
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let target_event = state
-        .services
-        .event_storage
+        .services.rooms.event_storage
         .get_event(&event_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
@@ -915,7 +907,7 @@ async fn get_event_context(
     .bind(&room_id)
     .bind(target_ts)
     .bind(limit as i64)
-    .fetch_all(&*state.services.event_storage.pool)
+    .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -925,7 +917,7 @@ async fn get_event_context(
     .bind(&room_id)
     .bind(target_ts)
     .bind(limit as i64)
-    .fetch_all(&*state.services.event_storage.pool)
+    .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -1309,7 +1301,7 @@ async fn search_rooms(
     .bind(&search_pattern)
     .bind(&auth_user.user_id)
     .bind(limit)
-    .fetch_all(&*state.services.room_storage.pool)
+    .fetch_all(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
