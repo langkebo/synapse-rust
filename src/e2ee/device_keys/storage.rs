@@ -480,11 +480,11 @@ impl DeviceKeyStorage {
 
     pub async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
         let count: i64 = sqlx::query_scalar!(
-            r"
+            r#"
             SELECT COUNT(DISTINCT device_id) AS "count!"
             FROM device_keys
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
-            ",
+            "#,
             user_id,
         )
         .fetch_one(&*self.pool)
