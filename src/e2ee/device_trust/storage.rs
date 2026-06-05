@@ -3,7 +3,7 @@
 
 use crate::e2ee::device_trust::models::*;
 use crate::error::ApiError;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 
 pub struct DeviceTrustStorage {
@@ -25,14 +25,24 @@ impl DeviceTrustStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Option<DeviceTrustStatus>, ApiError> {
-        let result = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
-            "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_ts, updated_ts
-             FROM device_trust_status
-             WHERE user_id = $1 AND device_id = $2",
+        let result = sqlx::query_as!(
+            SqlxDeviceTrustStatus,
+            r#"
+            SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                trust_level AS "trust_level!",
+                verified_by_device_id AS "verified_by_device_id?",
+                verified_at AS "verified_at?",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts?"
+            FROM device_trust_status
+            WHERE user_id = $1 AND device_id = $2
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -40,28 +50,28 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(Into::into))
     }
 
     /// Create or update device trust status
     pub async fn upsert_device_trust(&self, status: &DeviceTrustStatus) -> Result<(), ApiError> {
-        sqlx::query(
-            "INSERT INTO device_trust_status (user_id, device_id, trust_level,
+        sqlx::query!(
+            r#"INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_ts, updated_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
              verified_at = EXCLUDED.verified_at,
-             updated_ts = EXCLUDED.updated_ts",
+             updated_ts = EXCLUDED.updated_ts"#,
+            status.user_id,
+            status.device_id,
+            status.trust_level.to_string(),
+            status.verified_by_device_id,
+            status.verified_at,
+            status.created_ts,
+            status.updated_ts,
         )
-        .bind(&status.user_id)
-        .bind(&status.device_id)
-        .bind(status.trust_level.to_string())
-        .bind(&status.verified_by_device_id)
-        .bind(status.verified_at)
-        .bind(status.created_ts)
-        .bind(status.updated_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -83,23 +93,23 @@ impl DeviceTrustStorage {
         let now = chrono::Utc::now();
         let now_ts = now.timestamp_millis();
 
-        sqlx::query(
-            "INSERT INTO device_trust_status (user_id, device_id, trust_level,
+        sqlx::query!(
+            r#"INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_ts, updated_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
              verified_at = CASE WHEN EXCLUDED.trust_level = 'verified' THEN EXCLUDED.verified_at ELSE device_trust_status.verified_at END,
-             updated_ts = EXCLUDED.updated_ts"
+             updated_ts = EXCLUDED.updated_ts"#,
+            user_id,
+            device_id,
+            level.to_string(),
+            verified_by,
+            if matches!(level, DeviceTrustLevel::Verified) { Some(now) } else { None },
+            now_ts,
+            now_ts,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(level.to_string())
-        .bind(verified_by)
-        .bind(if matches!(level, DeviceTrustLevel::Verified) { Some(now) } else { None })
-        .bind(now_ts)
-        .bind(now_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
@@ -109,13 +119,23 @@ impl DeviceTrustStorage {
 
     /// Get all devices for a user with trust status
     pub async fn get_all_devices_with_trust(&self, user_id: &str) -> Result<Vec<DeviceTrustStatus>, ApiError> {
-        let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
-            "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_ts, updated_ts
-             FROM device_trust_status
-             WHERE user_id = $1",
+        let results = sqlx::query_as!(
+            SqlxDeviceTrustStatus,
+            r#"
+            SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                trust_level AS "trust_level!",
+                verified_by_device_id AS "verified_by_device_id?",
+                verified_at AS "verified_at?",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts?"
+            FROM device_trust_status
+            WHERE user_id = $1
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -123,18 +143,28 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Get verified devices only
     pub async fn get_verified_devices(&self, user_id: &str) -> Result<Vec<DeviceTrustStatus>, ApiError> {
-        let results = sqlx::query_as::<_, SqlxDeviceTrustStatus>(
-            "SELECT id, user_id, device_id, trust_level, verified_by_device_id,
-             verified_at, created_ts, updated_ts
-             FROM device_trust_status
-             WHERE user_id = $1 AND trust_level = 'verified'",
+        let results = sqlx::query_as!(
+            SqlxDeviceTrustStatus,
+            r#"
+            SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                trust_level AS "trust_level!",
+                verified_by_device_id AS "verified_by_device_id?",
+                verified_at AS "verified_at?",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts?"
+            FROM device_trust_status
+            WHERE user_id = $1 AND trust_level = 'verified'
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -142,20 +172,21 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Count devices by trust level
     pub async fn count_devices_by_trust(&self, user_id: &str) -> Result<(i64, i64, i64), ApiError> {
-        let row = sqlx::query(
-            "SELECT
-             COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) as verified,
-             COUNT(CASE WHEN trust_level = 'unverified' THEN 1 END) as unverified,
-             COUNT(CASE WHEN trust_level = 'blocked' THEN 1 END) as blocked
-             FROM device_trust_status
-             WHERE user_id = $1",
+        let row: DeviceTrustCount = sqlx::query_as!(
+            DeviceTrustCount,
+            r#"SELECT
+                COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) AS "verified!",
+                COUNT(CASE WHEN trust_level = 'unverified' THEN 1 END) AS "unverified!",
+                COUNT(CASE WHEN trust_level = 'blocked' THEN 1 END) AS "blocked!"
+            FROM device_trust_status
+            WHERE user_id = $1"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {
@@ -163,11 +194,7 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        let verified: i64 = row.get("verified");
-        let unverified: i64 = row.get("unverified");
-        let blocked: i64 = row.get("blocked");
-
-        Ok((verified, unverified, blocked))
+        Ok((row.verified, row.unverified, row.blocked))
     }
 
     // =====================================================
@@ -176,23 +203,23 @@ impl DeviceTrustStorage {
 
     /// Create a new verification request
     pub async fn create_verification_request(&self, request: &DeviceVerificationRequest) -> Result<(), ApiError> {
-        sqlx::query(
-            "INSERT INTO device_verification_request
+        sqlx::query!(
+            r#"INSERT INTO device_verification_request
              (user_id, new_device_id, requesting_device_id, verification_method,
               status, request_token, commitment, pubkey, created_ts, expires_at, completed_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+            request.user_id,
+            request.new_device_id,
+            request.requesting_device_id,
+            request.verification_method.to_string(),
+            request.status.to_string(),
+            request.request_token,
+            request.commitment,
+            request.pubkey,
+            request.created_ts,
+            request.expires_at,
+            request.completed_at,
         )
-        .bind(&request.user_id)
-        .bind(&request.new_device_id)
-        .bind(&request.requesting_device_id)
-        .bind(request.verification_method.to_string())
-        .bind(request.status.to_string())
-        .bind(&request.request_token)
-        .bind(&request.commitment)
-        .bind(&request.pubkey)
-        .bind(request.created_ts)
-        .bind(request.expires_at)
-        .bind(request.completed_at)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -205,13 +232,25 @@ impl DeviceTrustStorage {
 
     /// Get verification request by token
     pub async fn get_request_by_token(&self, token: &str) -> Result<Option<DeviceVerificationRequest>, ApiError> {
-        let result = sqlx::query_as::<_, SqlxVerificationRequest>(
-            "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
-             status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
-             FROM device_verification_request
-             WHERE request_token = $1",
+        let result = sqlx::query_as!(
+            SqlxVerificationRequest,
+            r#"SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                new_device_id AS "new_device_id!",
+                requesting_device_id AS "requesting_device_id?",
+                verification_method AS "verification_method!",
+                status AS "status!",
+                request_token AS "request_token!",
+                commitment AS "commitment?",
+                pubkey AS "pubkey?",
+                created_ts AS "created_ts!",
+                expires_at AS "expires_at!",
+                completed_at AS "completed_at?"
+            FROM device_verification_request
+            WHERE request_token = $1"#,
+            token,
         )
-        .bind(token)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -219,7 +258,7 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(Into::into))
     }
 
     /// Get pending verification request for user and device
@@ -228,14 +267,26 @@ impl DeviceTrustStorage {
         user_id: &str,
         new_device_id: &str,
     ) -> Result<Option<DeviceVerificationRequest>, ApiError> {
-        let result = sqlx::query_as::<_, SqlxVerificationRequest>(
-            "SELECT id, user_id, new_device_id, requesting_device_id, verification_method,
-             status, request_token, commitment, pubkey, created_ts, expires_at, completed_at
-             FROM device_verification_request
-             WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()",
+        let result = sqlx::query_as!(
+            SqlxVerificationRequest,
+            r#"SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                new_device_id AS "new_device_id!",
+                requesting_device_id AS "requesting_device_id?",
+                verification_method AS "verification_method!",
+                status AS "status!",
+                request_token AS "request_token!",
+                commitment AS "commitment?",
+                pubkey AS "pubkey?",
+                created_ts AS "created_ts!",
+                expires_at AS "expires_at!",
+                completed_at AS "completed_at?"
+            FROM device_verification_request
+            WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()"#,
+            user_id,
+            new_device_id,
         )
-        .bind(user_id)
-        .bind(new_device_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -243,21 +294,21 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(Into::into))
     }
 
     /// Update verification request status
     pub async fn update_request_status(&self, token: &str, status: VerificationRequestStatus) -> Result<(), ApiError> {
         let now = chrono::Utc::now();
 
-        sqlx::query(
-            "UPDATE device_verification_request
+        sqlx::query!(
+            r#"UPDATE device_verification_request
              SET status = $1, completed_at = $2
-             WHERE request_token = $3",
+             WHERE request_token = $3"#,
+            status.to_string(),
+            now,
+            token,
         )
-        .bind(status.to_string())
-        .bind(now)
-        .bind(token)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -270,14 +321,14 @@ impl DeviceTrustStorage {
 
     /// Update verification request with verification data
     pub async fn update_request_with_data(&self, token: &str, commitment: &str, pubkey: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            "UPDATE device_verification_request
+        sqlx::query!(
+            r#"UPDATE device_verification_request
              SET commitment = $1, pubkey = $2
-             WHERE request_token = $3",
+             WHERE request_token = $3"#,
+            commitment,
+            pubkey,
+            token,
         )
-        .bind(commitment)
-        .bind(pubkey)
-        .bind(token)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -290,10 +341,10 @@ impl DeviceTrustStorage {
 
     /// Clean up expired verification requests
     pub async fn cleanup_expired_requests(&self) -> Result<i64, ApiError> {
-        let result = sqlx::query(
-            "UPDATE device_verification_request
+        let result = sqlx::query!(
+            r#"UPDATE device_verification_request
              SET status = 'expired', completed_at = NOW()
-             WHERE status = 'pending' AND expires_at < NOW()",
+             WHERE status = 'pending' AND expires_at < NOW()"#,
         )
         .execute(&*self.pool)
         .await
@@ -311,19 +362,19 @@ impl DeviceTrustStorage {
 
     /// Log a key rotation event
     pub async fn log_key_rotation(&self, log: &KeyRotationLog) -> Result<(), ApiError> {
-        sqlx::query(
-            "INSERT INTO key_rotation_log
+        sqlx::query!(
+            r#"INSERT INTO key_rotation_log
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            log.user_id,
+            log.device_id,
+            log.room_id,
+            log.rotation_type,
+            log.old_key_id,
+            log.new_key_id,
+            log.reason,
+            log.rotated_at,
         )
-        .bind(&log.user_id)
-        .bind(&log.device_id)
-        .bind(&log.room_id)
-        .bind(&log.rotation_type)
-        .bind(&log.old_key_id)
-        .bind(&log.new_key_id)
-        .bind(&log.reason)
-        .bind(log.rotated_at)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -340,18 +391,18 @@ impl DeviceTrustStorage {
 
     /// Log a security event
     pub async fn log_security_event(&self, event: &E2eeSecurityEvent) -> Result<(), ApiError> {
-        sqlx::query(
-            "INSERT INTO e2ee_security_events
+        sqlx::query!(
+            r#"INSERT INTO e2ee_security_events
              (user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+            event.user_id,
+            event.device_id,
+            event.event_type,
+            event.event_data.as_ref().map(|v| v.to_string()),
+            event.ip_address,
+            event.user_agent,
+            event.created_ts,
         )
-        .bind(&event.user_id)
-        .bind(&event.device_id)
-        .bind(&event.event_type)
-        .bind(event.event_data.as_ref().map(|v| v.to_string()))
-        .bind(&event.ip_address)
-        .bind(&event.user_agent)
-        .bind(event.created_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -368,15 +419,24 @@ impl DeviceTrustStorage {
         user_id: &str,
         limit: i64,
     ) -> Result<Vec<E2eeSecurityEvent>, ApiError> {
-        let results = sqlx::query_as::<_, SqlxSecurityEvent>(
-            "SELECT id, user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts
-             FROM e2ee_security_events
-             WHERE user_id = $1
-             ORDER BY created_ts DESC
-             LIMIT $2",
+        let results = sqlx::query_as!(
+            SqlxSecurityEvent,
+            r#"SELECT
+                id AS "id!",
+                user_id AS "user_id!",
+                device_id AS "device_id?",
+                event_type AS "event_type!",
+                event_data AS "event_data?",
+                ip_address AS "ip_address?",
+                user_agent AS "user_agent?",
+                created_ts AS "created_ts!"
+            FROM e2ee_security_events
+            WHERE user_id = $1
+            ORDER BY created_ts DESC
+            LIMIT $2"#,
+            user_id,
+            limit,
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -384,7 +444,7 @@ impl DeviceTrustStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     // =====================================================
@@ -400,22 +460,22 @@ impl DeviceTrustStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            "INSERT INTO cross_signing_trust
+        sqlx::query!(
+            r#"INSERT INTO cross_signing_trust
              (user_id, target_user_id, master_key_id, is_trusted, trusted_at, created_ts, updated_ts)
              VALUES ($1, $2, (SELECT key_data FROM cross_signing_keys WHERE user_id = $2 AND key_type = 'master' LIMIT 1), $3, $4, $5, $6)
              ON CONFLICT (user_id, target_user_id) DO UPDATE SET
              is_trusted = EXCLUDED.is_trusted,
              master_key_id = COALESCE(EXCLUDED.master_key_id, cross_signing_trust.master_key_id),
              trusted_at = CASE WHEN EXCLUDED.is_trusted = TRUE THEN EXCLUDED.trusted_at ELSE cross_signing_trust.trusted_at END,
-             updated_ts = EXCLUDED.updated_ts"
+             updated_ts = EXCLUDED.updated_ts"#,
+            user_id,
+            target_user_id,
+            is_trusted,
+            if is_trusted { Some(chrono::Utc::now()) } else { None },
+            now,
+            now,
         )
-        .bind(user_id)
-        .bind(target_user_id)
-        .bind(is_trusted)
-        .bind(if is_trusted { Some(chrono::Utc::now()) } else { None })
-        .bind(now)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
@@ -425,11 +485,12 @@ impl DeviceTrustStorage {
 
     /// Check if user has cross-signing master key
     pub async fn has_cross_signing_master_key(&self, user_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM cross_signing_keys
-             WHERE user_id = $1 AND key_type = 'master'",
+        let result = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!"
+            FROM cross_signing_keys
+            WHERE user_id = $1 AND key_type = 'master'"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {
@@ -456,6 +517,15 @@ struct SqlxDeviceTrustStatus {
     created_ts: i64,
     updated_ts: Option<i64>,
 }
+
+/// Wrapper for `query_as!` count_devices_by_trust — 3 COUNT columns.
+#[derive(sqlx::FromRow)]
+struct DeviceTrustCount {
+    verified: i64,
+    unverified: i64,
+    blocked: i64,
+}
+
 impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
     fn from(row: SqlxDeviceTrustStatus) -> Self {
         Self {

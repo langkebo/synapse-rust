@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                request_id,\n                user_id,\n                device_id,\n                room_id,\n                session_id,\n                algorithm,\n                action,\n                created_ts,\n                COALESCE(is_fulfilled, FALSE) AS \"is_fulfilled!\",\n                fulfilled_by_device AS \"fulfilled_by_device?\",\n                fulfilled_ts AS \"fulfilled_ts?\"\n            FROM e2ee_key_requests\n            WHERE request_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "request_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_fulfilled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "fulfilled_by_device?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "fulfilled_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "21c90296b3b1642bbd6720f2dd99be8ee3988f3171dd3e9a45c750afb78eb02d"
+}

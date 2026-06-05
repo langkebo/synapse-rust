@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO key_rotation_log\n             (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ffb5fe276bd9b2f7a0ba9b68bafda1707a206527b8c80016088d025664636d3b"
+}
