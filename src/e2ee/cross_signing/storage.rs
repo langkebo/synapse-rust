@@ -1,8 +1,88 @@
 use super::models::*;
 use crate::error::ApiError;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Internal row struct for `cross_signing_keys` (BIGINT added_ts maps to
+/// DateTime<Utc> in the public model via helper).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CrossSigningKeyRow {
+    pub user_id: String,
+    pub key_type: String,
+    pub key_data: String,
+    pub signatures: Option<serde_json::Value>,
+    pub added_ts: i64,
+}
+
+impl CrossSigningKeyRow {
+    fn into_key(self) -> CrossSigningKey {
+        let key_json: Option<serde_json::Value> = serde_json::from_str(&self.key_data).ok();
+
+        let public_key = key_json
+            .as_ref()
+            .and_then(|j| j.get("keys"))
+            .and_then(|k| k.as_object())
+            .and_then(|obj| obj.values().next())
+            .and_then(|v| v.as_str())
+            .unwrap_or(&self.key_data)
+            .to_string();
+
+        let usage = key_json
+            .as_ref()
+            .and_then(|j| j.get("usage"))
+            .and_then(|u| u.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let added_ts_dt =
+            chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
+
+        CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: self.user_id,
+            key_type: self.key_type,
+            public_key,
+            usage,
+            signatures: self.signatures.unwrap_or(serde_json::json!({})),
+            key_json,
+            created_ts: added_ts_dt,
+            updated_ts: added_ts_dt,
+        }
+    }
+}
+
+/// Internal row struct for `device_signatures`.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DeviceSignatureRow {
+    pub user_id: String,
+    pub device_id: String,
+    pub target_user_id: String,
+    pub target_device_id: String,
+    pub algorithm: String,
+    pub signature: String,
+    pub created_ts: i64,
+}
+
+impl DeviceSignatureRow {
+    fn into_signature(self) -> DeviceSignature {
+        DeviceSignature {
+            user_id: self.user_id,
+            device_id: self.device_id,
+            signing_key_id: self.algorithm.clone(),
+            target_user_id: self.target_user_id,
+            target_device_id: self.target_device_id,
+            target_key_id: self.algorithm,
+            signature: self.signature,
+            created_ts: chrono::DateTime::from_timestamp_millis(self.created_ts)
+                .unwrap_or_default(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct CrossSigningStorage {
@@ -18,7 +98,7 @@ impl CrossSigningStorage {
         let added_ts = chrono::Utc::now().timestamp_millis();
         let key_json_str = key.key_json.as_ref().map(|v| v.to_string()).unwrap_or_default();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO cross_signing_keys (user_id, key_type, key_data, signatures, added_ts)
             VALUES ($1, $2, $3, $4, $5)
@@ -27,14 +107,18 @@ impl CrossSigningStorage {
                 signatures = EXCLUDED.signatures,
                 added_ts = EXCLUDED.added_ts
             ",
+            key.user_id,
+            key.key_type,
+            key_json_str,
+            key.signatures,
+            added_ts,
         )
-        .bind(&key.user_id)
-        .bind(&key.key_type)
-        .bind(&key_json_str)
-        .bind(&key.signatures)
-        .bind(added_ts)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save cross signing key: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -44,103 +128,57 @@ impl CrossSigningStorage {
         user_id: &str,
         key_type: &str,
     ) -> Result<Option<CrossSigningKey>, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT user_id, key_type, key_data, signatures, added_ts
+        let row: Option<CrossSigningKeyRow> = sqlx::query_as!(
+            CrossSigningKeyRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                key_type AS "key_type!",
+                key_data AS "key_data!",
+                signatures AS "signatures?",
+                added_ts AS "added_ts!"
             FROM cross_signing_keys
             WHERE user_id = $1 AND key_type = $2
-            ",
+            "#,
+            user_id,
+            key_type,
         )
-        .bind(user_id)
-        .bind(key_type)
         .fetch_optional(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load cross signing key: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(row.map(|row| {
-            let key_data: String = row.get("key_data");
-            let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
-            let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
-
-            let public_key = key_json
-                .as_ref()
-                .and_then(|j| j.get("keys"))
-                .and_then(|k| k.as_object())
-                .and_then(|obj| obj.values().next())
-                .and_then(|v| v.as_str())
-                .unwrap_or(&key_data)
-                .to_string();
-
-            let usage = key_json
-                .as_ref()
-                .and_then(|j| j.get("usage"))
-                .and_then(|u| u.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-                .unwrap_or_default();
-
-            CrossSigningKey {
-                id: uuid::Uuid::new_v4(),
-                user_id: row.get("user_id"),
-                key_type: row.get("key_type"),
-                public_key,
-                usage,
-                signatures,
-                key_json,
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
-            }
-        }))
+        Ok(row.map(CrossSigningKeyRow::into_key))
     }
 
-    pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<Vec<CrossSigningKey>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, key_type, key_data, signatures, added_ts
+    pub async fn get_cross_signing_keys(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<CrossSigningKey>, ApiError> {
+        let rows: Vec<CrossSigningKeyRow> = sqlx::query_as!(
+            CrossSigningKeyRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                key_type AS "key_type!",
+                key_data AS "key_data!",
+                signatures AS "signatures?",
+                added_ts AS "added_ts!"
             FROM cross_signing_keys
             WHERE user_id = $1
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load cross signing keys: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let key_data: String = row.get("key_data");
-                let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
-                let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
-
-                let public_key = key_json
-                    .as_ref()
-                    .and_then(|j| j.get("keys"))
-                    .and_then(|k| k.as_object())
-                    .and_then(|obj| obj.values().next())
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&key_data)
-                    .to_string();
-
-                let usage = key_json
-                    .as_ref()
-                    .and_then(|j| j.get("usage"))
-                    .and_then(|u| u.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-                    .unwrap_or_default();
-
-                CrossSigningKey {
-                    id: uuid::Uuid::new_v4(),
-                    user_id: row.get("user_id"),
-                    key_type: row.get("key_type"),
-                    public_key,
-                    usage,
-                    signatures,
-                    key_json,
-                    created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                        .unwrap_or_default(),
-                    updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts"))
-                        .unwrap_or_default(),
-                }
-            })
-            .collect())
+        Ok(rows.into_iter().map(CrossSigningKeyRow::into_key).collect())
     }
 
     pub async fn get_cross_signing_keys_batch(
@@ -151,52 +189,31 @@ impl CrossSigningStorage {
             return Ok(HashMap::new());
         }
 
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, key_type, key_data, signatures, added_ts
+        let rows: Vec<CrossSigningKeyRow> = sqlx::query_as!(
+            CrossSigningKeyRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                key_type AS "key_type!",
+                key_data AS "key_data!",
+                signatures AS "signatures?",
+                added_ts AS "added_ts!"
             FROM cross_signing_keys
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            user_ids,
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load cross signing keys batch: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let mut result: HashMap<String, Vec<CrossSigningKey>> = HashMap::new();
         for row in rows {
-            let user_id: String = row.get("user_id");
-            let key_data: String = row.get("key_data");
-            let signatures: serde_json::Value = row.try_get("signatures").unwrap_or(serde_json::json!({}));
-            let key_json: Option<serde_json::Value> = serde_json::from_str(&key_data).ok();
-
-            let public_key = key_json
-                .as_ref()
-                .and_then(|j| j.get("keys"))
-                .and_then(|k| k.as_object())
-                .and_then(|obj| obj.values().next())
-                .and_then(|v| v.as_str())
-                .unwrap_or(&key_data)
-                .to_string();
-
-            let usage = key_json
-                .as_ref()
-                .and_then(|j| j.get("usage"))
-                .and_then(|u| u.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-                .unwrap_or_default();
-
-            let key = CrossSigningKey {
-                id: uuid::Uuid::new_v4(),
-                user_id: user_id.clone(),
-                key_type: row.get("key_type"),
-                public_key,
-                usage,
-                signatures,
-                key_json,
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
-                updated_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("added_ts")).unwrap_or_default(),
-            };
-
+            let user_id = row.user_id.clone();
+            let key = row.into_key();
             result.entry(user_id).or_default().push(key);
         }
 
@@ -211,32 +228,33 @@ impl CrossSigningStorage {
             return Ok(HashMap::new());
         }
 
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, device_id, target_user_id, target_device_id,
-                   algorithm, signature, created_ts
+        let rows: Vec<DeviceSignatureRow> = sqlx::query_as!(
+            DeviceSignatureRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                target_user_id AS "target_user_id!",
+                target_device_id AS "target_device_id!",
+                algorithm AS "algorithm!",
+                signature AS "signature!",
+                created_ts AS "created_ts!"
             FROM device_signatures
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            user_ids,
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load device signatures batch: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         let mut result: HashMap<String, Vec<DeviceSignature>> = HashMap::new();
         for row in rows {
-            let user_id: String = row.get("user_id");
-            let sig = DeviceSignature {
-                user_id: user_id.clone(),
-                device_id: row.get("device_id"),
-                signing_key_id: row.get("algorithm"),
-                target_user_id: row.get("target_user_id"),
-                target_device_id: row.get("target_device_id"),
-                target_key_id: row.get("algorithm"),
-                signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
-                    .unwrap_or_default(),
-            };
+            let user_id = row.user_id.clone();
+            let sig = row.into_signature();
             result.entry(user_id).or_default().push(sig);
         }
 
@@ -245,30 +263,41 @@ impl CrossSigningStorage {
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_json_str = key.key_json.as_ref().map_or_else(|| key.public_key.clone(), |v| v.to_string());
+        let key_json_str = key
+            .key_json
+            .as_ref()
+            .map_or_else(|| key.public_key.clone(), |v| v.to_string());
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE cross_signing_keys SET key_data = $1, signatures = $2, added_ts = $3
             WHERE user_id = $4 AND key_type = $5
             ",
+            key_json_str,
+            key.signatures,
+            added_ts,
+            key.user_id,
+            key.key_type,
         )
-        .bind(&key_json_str)
-        .bind(&key.signatures)
-        .bind(added_ts)
-        .bind(&key.user_id)
-        .bind(&key.key_type)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update cross signing key: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
+        let key_id = format!(
+            "{}:{}",
+            key.algorithm,
+            key.public_key.split(':').next().unwrap_or(&key.public_key)
+        );
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, key_data, added_ts, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -277,25 +306,29 @@ impl CrossSigningStorage {
                 key_data = EXCLUDED.key_data,
                 updated_ts = EXCLUDED.updated_ts
             ",
+            key.user_id,
+            key.device_id,
+            key.algorithm,
+            key_id,
+            key.public_key,
+            key.public_key,
+            added_ts,
+            added_ts,
+            added_ts,
         )
-        .bind(&key.user_id)
-        .bind(&key.device_id)
-        .bind(&key.algorithm)
-        .bind(&key_id)
-        .bind(&key.public_key)
-        .bind(&key.public_key)
-        .bind(added_ts)
-        .bind(added_ts)
-        .bind(added_ts)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save device key for cross signing: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     pub async fn save_device_signature(&self, sig: &DeviceSignature) -> Result<(), ApiError> {
         let created_ts = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO device_signatures
             (user_id, device_id, target_user_id, target_device_id, algorithm, signature, created_ts)
@@ -304,47 +337,49 @@ impl CrossSigningStorage {
                 signature = EXCLUDED.signature,
                 created_ts = EXCLUDED.created_ts
             ",
+            sig.user_id,
+            sig.device_id,
+            sig.target_user_id,
+            sig.target_device_id,
+            sig.signing_key_id,
+            sig.signature,
+            created_ts,
         )
-        .bind(&sig.user_id)
-        .bind(&sig.device_id)
-        .bind(&sig.target_user_id)
-        .bind(&sig.target_device_id)
-        .bind(&sig.signing_key_id)
-        .bind(&sig.signature)
-        .bind(created_ts)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save device signature: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     pub async fn get_user_signatures(&self, user_id: &str) -> Result<Vec<DeviceSignature>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, device_id, target_user_id, target_device_id,
-                   algorithm, signature, created_ts
+        let rows: Vec<DeviceSignatureRow> = sqlx::query_as!(
+            DeviceSignatureRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                target_user_id AS "target_user_id!",
+                target_device_id AS "target_device_id!",
+                algorithm AS "algorithm!",
+                signature AS "signature!",
+                created_ts AS "created_ts!"
             FROM device_signatures
             WHERE user_id = $1
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load user signatures: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| DeviceSignature {
-                user_id: row.get("user_id"),
-                device_id: row.get("device_id"),
-                signing_key_id: row.get("algorithm"),
-                target_user_id: row.get("target_user_id"),
-                target_device_id: row.get("target_device_id"),
-                target_key_id: row.get("algorithm"),
-                signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
-                    .unwrap_or_default(),
-            })
-            .collect())
+        Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
 
     pub async fn get_device_signatures(
@@ -352,33 +387,31 @@ impl CrossSigningStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<DeviceSignature>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, device_id, target_user_id, target_device_id,
-                   algorithm, signature, created_ts
+        let rows: Vec<DeviceSignatureRow> = sqlx::query_as!(
+            DeviceSignatureRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                target_user_id AS "target_user_id!",
+                target_device_id AS "target_device_id!",
+                algorithm AS "algorithm!",
+                signature AS "signature!",
+                created_ts AS "created_ts!"
             FROM device_signatures
             WHERE user_id = $1 AND target_device_id = $2
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load device signatures: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| DeviceSignature {
-                user_id: row.get("user_id"),
-                device_id: row.get("device_id"),
-                signing_key_id: row.get("algorithm"),
-                target_user_id: row.get("target_user_id"),
-                target_device_id: row.get("target_device_id"),
-                target_key_id: row.get("algorithm"),
-                signature: row.get("signature"),
-                created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts"))
-                    .unwrap_or_default(),
-            })
-            .collect())
+        Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
 
     pub async fn get_signature(
@@ -387,50 +420,60 @@ impl CrossSigningStorage {
         key_id: &str,
         signing_key_id: &str,
     ) -> Result<Option<DeviceSignature>, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT user_id, device_id, target_user_id, target_device_id,
-                   algorithm, signature, created_ts
+        let row: Option<DeviceSignatureRow> = sqlx::query_as!(
+            DeviceSignatureRow,
+            r#"
+            SELECT
+                user_id AS "user_id!",
+                device_id AS "device_id!",
+                target_user_id AS "target_user_id!",
+                target_device_id AS "target_device_id!",
+                algorithm AS "algorithm!",
+                signature AS "signature!",
+                created_ts AS "created_ts!"
             FROM device_signatures
             WHERE user_id = $1 AND algorithm = $2 AND device_id = $3
-            ",
+            "#,
+            user_id,
+            key_id,
+            signing_key_id,
         )
-        .bind(user_id)
-        .bind(key_id)
-        .bind(signing_key_id)
         .fetch_optional(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load signature: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(row.map(|row| DeviceSignature {
-            user_id: row.get("user_id"),
-            device_id: row.get("device_id"),
-            signing_key_id: row.get("algorithm"),
-            target_user_id: row.get("target_user_id"),
-            target_device_id: row.get("target_device_id"),
-            target_key_id: row.get("algorithm"),
-            signature: row.get("signature"),
-            created_ts: chrono::DateTime::from_timestamp_millis(row.get::<i64, _>("created_ts")).unwrap_or_default(),
-        }))
+        Ok(row.map(DeviceSignatureRow::into_signature))
     }
 
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM cross_signing_keys WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete cross signing keys: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM device_signatures WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete device signatures: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -571,7 +614,12 @@ mod tests {
 
     #[test]
     fn test_cross_signing_key_usage_values() {
-        let usages = vec![vec!["master"], vec!["self_signing"], vec!["user_signing"], vec!["master", "self_signing"]];
+        let usages = vec![
+            vec!["master"],
+            vec!["self_signing"],
+            vec!["user_signing"],
+            vec!["master", "self_signing"],
+        ];
 
         for usage in usages {
             let key = CrossSigningKey {

@@ -1,9 +1,54 @@
 use super::models::*;
 use crate::error::ApiError;
 use chrono::Utc;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
+
+/// Internal row struct for `megolm_sessions` (matches DB column types exactly,
+/// including BIGINT timestamps that the public model converts to DateTime<Utc>).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MegolmSessionRow {
+    pub id: uuid::Uuid,
+    pub session_id: String,
+    pub room_id: String,
+    pub sender_key: String,
+    pub session_key: String,
+    pub algorithm: String,
+    pub message_index: i64,
+    pub created_ts: i64,
+    pub last_used_ts: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub pickle_format: String,
+    pub vodozemac_pickle: Option<String>,
+}
+
+impl From<MegolmSessionRow> for MegolmSession {
+    fn from(row: MegolmSessionRow) -> Self {
+        let created_ts_dt =
+            chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
+        let last_used_ts_dt = row
+            .last_used_ts
+            .and_then(chrono::DateTime::from_timestamp_millis)
+            .unwrap_or(created_ts_dt);
+        let expires_at_dt = row.expires_at.and_then(chrono::DateTime::from_timestamp_millis);
+
+        MegolmSession {
+            id: row.id,
+            session_id: row.session_id,
+            room_id: row.room_id,
+            sender_key: row.sender_key,
+            session_key: row.session_key,
+            algorithm: row.algorithm,
+            message_index: row.message_index,
+            created_ts: created_ts_dt,
+            last_used_ts: last_used_ts_dt,
+            expires_at: expires_at_dt,
+            pickle_format: PickleFormat::from_str(&row.pickle_format).unwrap_or(PickleFormat::Legacy),
+            vodozemac_pickle: row.vodozemac_pickle,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct MegolmSessionStorage {
@@ -16,7 +61,7 @@ impl MegolmSessionStorage {
     }
 
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO megolm_sessions (
                 id, session_id, room_id, sender_key, session_key, algorithm,
@@ -25,114 +70,95 @@ impl MegolmSessionStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ",
+            session.id,
+            session.session_id,
+            session.room_id,
+            session.sender_key,
+            session.session_key,
+            session.algorithm,
+            session.message_index,
+            session.created_ts.timestamp_millis(),
+            session.last_used_ts.timestamp_millis(),
+            session.expires_at.map(|t| t.timestamp_millis()),
+            session.pickle_format.as_str(),
+            session.vodozemac_pickle.as_deref(),
         )
-        .bind(session.id)
-        .bind(&session.session_id)
-        .bind(&session.room_id)
-        .bind(&session.sender_key)
-        .bind(&session.session_key)
-        .bind(&session.algorithm)
-        .bind(session.message_index)
-        .bind(session.created_ts.timestamp_millis())
-        .bind(session.last_used_ts.timestamp_millis())
-        .bind(session.expires_at.map(|t| t.timestamp_millis()))
-        .bind(session.pickle_format.as_str())
-        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create megolm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<Option<MegolmSession>, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
+        let row: Option<MegolmSessionRow> = sqlx::query_as!(
+            MegolmSessionRow,
+            r#"
+            SELECT
+                id AS "id!",
+                session_id AS "session_id!",
+                room_id AS "room_id!",
+                sender_key AS "sender_key!",
+                session_key AS "session_key!",
+                algorithm AS "algorithm!",
+                message_index AS "message_index!",
+                created_ts AS "created_ts!",
+                last_used_ts AS "last_used_ts?",
+                expires_at AS "expires_at?",
+                pickle_format AS "pickle_format!",
+                vodozemac_pickle AS "vodozemac_pickle?"
             FROM megolm_sessions
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
         )
-        .bind(session_id)
         .fetch_optional(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load megolm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(row.map(|row| {
-            let created_ts: i64 = row.get("created_ts");
-            let last_used_ts: Option<i64> = row.get("last_used_ts");
-            let expires_at: Option<i64> = row.get("expires_at");
-            let pickle_format: String = row.get("pickle_format");
-            let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
-
-            let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-            let last_used_ts_dt =
-                last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
-            let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
-
-            MegolmSession {
-                id: row.get("id"),
-                session_id: row.get("session_id"),
-                room_id: row.get("room_id"),
-                sender_key: row.get("sender_key"),
-                session_key: row.get("session_key"),
-                algorithm: row.get("algorithm"),
-                message_index: row.get("message_index"),
-                created_ts: created_ts_dt,
-                last_used_ts: last_used_ts_dt,
-                expires_at: expires_at_dt,
-                pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
-                vodozemac_pickle,
-            }
-        }))
+        Ok(row.map(Into::into))
     }
 
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                   created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
+        let rows: Vec<MegolmSessionRow> = sqlx::query_as!(
+            MegolmSessionRow,
+            r#"
+            SELECT
+                id AS "id!",
+                session_id AS "session_id!",
+                room_id AS "room_id!",
+                sender_key AS "sender_key!",
+                session_key AS "session_key!",
+                algorithm AS "algorithm!",
+                message_index AS "message_index!",
+                created_ts AS "created_ts!",
+                last_used_ts AS "last_used_ts?",
+                expires_at AS "expires_at?",
+                pickle_format AS "pickle_format!",
+                vodozemac_pickle AS "vodozemac_pickle?"
             FROM megolm_sessions
             WHERE room_id = $1
-            ",
+            "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load megolm sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let created_ts: i64 = row.get("created_ts");
-                let last_used_ts: Option<i64> = row.get("last_used_ts");
-                let expires_at: Option<i64> = row.get("expires_at");
-                let pickle_format: String = row.get("pickle_format");
-                let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
-
-                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-                let last_used_ts_dt =
-                    last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
-                let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
-
-                MegolmSession {
-                    id: row.get("id"),
-                    session_id: row.get("session_id"),
-                    room_id: row.get("room_id"),
-                    sender_key: row.get("sender_key"),
-                    session_key: row.get("session_key"),
-                    algorithm: row.get("algorithm"),
-                    message_index: row.get("message_index"),
-                    created_ts: created_ts_dt,
-                    last_used_ts: last_used_ts_dt,
-                    expires_at: expires_at_dt,
-                    pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
-                    vodozemac_pickle,
-                }
-            })
-            .collect())
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 
     pub async fn update_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE megolm_sessions
             SET session_key = $2,
@@ -143,30 +169,37 @@ impl MegolmSessionStorage {
                 vodozemac_pickle = $7
             WHERE session_id = $1
             ",
+            session.session_id,
+            session.session_key,
+            session.message_index,
+            session.last_used_ts.timestamp_millis(),
+            session.expires_at.map(|t| t.timestamp_millis()),
+            session.pickle_format.as_str(),
+            session.vodozemac_pickle.as_deref(),
         )
-        .bind(&session.session_id)
-        .bind(&session.session_key)
-        .bind(session.message_index)
-        .bind(session.last_used_ts.timestamp_millis())
-        .bind(session.expires_at.map(|t| t.timestamp_millis()))
-        .bind(session.pickle_format.as_str())
-        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::Database(e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("Failed to update megolm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
         Ok(())
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM megolm_sessions
             WHERE session_id = $1
             ",
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete megolm session: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -183,22 +216,27 @@ impl MegolmSessionStorage {
         delta: i64,
         now_ms: i64,
     ) -> Result<Option<i64>, ApiError> {
-        let row = sqlx::query(
-            r"
+        let row: Option<MegolmIncrementRow> = sqlx::query_as!(
+            MegolmIncrementRow,
+            r#"
             UPDATE megolm_sessions
             SET message_index = message_index + $2,
                 last_used_ts = $3
             WHERE session_id = $1
-            RETURNING message_index
-            ",
+            RETURNING message_index AS "message_index!"
+            "#,
+            session_id,
+            delta,
+            now_ms,
         )
-        .bind(session_id)
-        .bind(delta)
-        .bind(now_ms)
         .fetch_optional(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to increment megolm message index: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(row.map(|r| r.get::<i64, _>("message_index")))
+        Ok(row.map(|r| r.message_index))
     }
 
     /// 更新 vodozemac pickle 副本（Phase 2 双写：encrypt/decrypt 后持久化新 ratchet state）
@@ -210,19 +248,23 @@ impl MegolmSessionStorage {
         vodozemac_pickle: &str,
         now_ms: i64,
     ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE megolm_sessions
             SET vodozemac_pickle = $2,
                 last_used_ts = $3
             WHERE session_id = $1
             ",
+            session_id,
+            vodozemac_pickle,
+            now_ms,
         )
-        .bind(session_id)
-        .bind(vodozemac_pickle)
-        .bind(now_ms)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update vodozemac pickle: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -242,7 +284,7 @@ impl MegolmSessionStorage {
 
         let mut total: u64 = 0;
         for user_id in user_ids {
-            let result = sqlx::query(
+            let result = sqlx::query!(
                 r"
                 INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)
                 VALUES ($1, $2, $3, $4, $5)
@@ -251,14 +293,18 @@ impl MegolmSessionStorage {
                     created_ts = EXCLUDED.created_ts,
                     expires_at = EXCLUDED.expires_at
                 ",
+                user_id,
+                session_id,
+                encrypted_key,
+                created_ts,
+                expires_at,
             )
-            .bind(user_id)
-            .bind(session_id)
-            .bind(encrypted_key)
-            .bind(created_ts)
-            .bind(expires_at)
             .execute(&*self.pool)
-            .await?;
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to upsert megolm session key: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?;
             total += result.rows_affected();
         }
         Ok(total)
@@ -270,19 +316,24 @@ impl MegolmSessionStorage {
         user_id: &str,
         session_id: &str,
     ) -> Result<Option<String>, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT encrypted_key
+        let row: Option<MegolmSessionKeyRow> = sqlx::query_as!(
+            MegolmSessionKeyRow,
+            r#"
+            SELECT encrypted_key AS "encrypted_key!"
             FROM megolm_session_keys
             WHERE user_id = $1 AND session_id = $2
-            ",
+            "#,
+            user_id,
+            session_id,
         )
-        .bind(user_id)
-        .bind(session_id)
         .fetch_optional(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load megolm session key: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(row.map(|r| r.get::<String, _>("encrypted_key")))
+        Ok(row.map(|r| r.encrypted_key))
     }
 
     // ========================================================================
@@ -299,7 +350,7 @@ impl MegolmSessionStorage {
         vodozemac_pickle: &str,
         now_ms: i64,
     ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE megolm_sessions
             SET pickle_format = 'dual',
@@ -309,12 +360,16 @@ impl MegolmSessionStorage {
               AND pickle_format = 'legacy'
               AND vodozemac_pickle IS NULL
             ",
+            session_id,
+            vodozemac_pickle,
+            now_ms,
         )
-        .bind(session_id)
-        .bind(vodozemac_pickle)
-        .bind(now_ms)
         .execute(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to promote megolm session to dual: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -328,90 +383,100 @@ impl MegolmSessionStorage {
         limit: i64,
     ) -> Result<Vec<MegolmSession>, ApiError> {
         let limit = limit.clamp(1, 1000);
-        let rows = match after_session_id {
-            Some(cursor) => {
-                sqlx::query(
-                    r"
-                    SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                           created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
-                    FROM megolm_sessions
-                    WHERE pickle_format = 'legacy'
-                      AND session_id > $1
-                    ORDER BY session_id ASC
-                    LIMIT $2
-                    ",
-                )
-                .bind(cursor)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
-            None => {
-                sqlx::query(
-                    r"
-                    SELECT id, session_id, room_id, sender_key, session_key, algorithm, message_index,
-                           created_ts, last_used_ts, expires_at, pickle_format, vodozemac_pickle
-                    FROM megolm_sessions
-                    WHERE pickle_format = 'legacy'
-                    ORDER BY session_id ASC
-                    LIMIT $1
-                    ",
-                )
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
+        let rows: Vec<MegolmSessionRow> = match after_session_id {
+            Some(cursor) => sqlx::query_as!(
+                MegolmSessionRow,
+                r#"
+                SELECT
+                    id AS "id!",
+                    session_id AS "session_id!",
+                    room_id AS "room_id!",
+                    sender_key AS "sender_key!",
+                    session_key AS "session_key!",
+                    algorithm AS "algorithm!",
+                    message_index AS "message_index!",
+                    created_ts AS "created_ts!",
+                    last_used_ts AS "last_used_ts?",
+                    expires_at AS "expires_at?",
+                    pickle_format AS "pickle_format!",
+                    vodozemac_pickle AS "vodozemac_pickle?"
+                FROM megolm_sessions
+                WHERE pickle_format = 'legacy'
+                  AND session_id > $1
+                ORDER BY session_id ASC
+                LIMIT $2
+                "#,
+                cursor,
+                limit,
+            )
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to list legacy megolm sessions: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?,
+            None => sqlx::query_as!(
+                MegolmSessionRow,
+                r#"
+                SELECT
+                    id AS "id!",
+                    session_id AS "session_id!",
+                    room_id AS "room_id!",
+                    sender_key AS "sender_key!",
+                    session_key AS "session_key!",
+                    algorithm AS "algorithm!",
+                    message_index AS "message_index!",
+                    created_ts AS "created_ts!",
+                    last_used_ts AS "last_used_ts?",
+                    expires_at AS "expires_at?",
+                    pickle_format AS "pickle_format!",
+                    vodozemac_pickle AS "vodozemac_pickle?"
+                FROM megolm_sessions
+                WHERE pickle_format = 'legacy'
+                ORDER BY session_id ASC
+                LIMIT $1
+                "#,
+                limit,
+            )
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to list legacy megolm sessions: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?,
         };
 
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let created_ts: i64 = row.get("created_ts");
-                let last_used_ts: Option<i64> = row.get("last_used_ts");
-                let expires_at: Option<i64> = row.get("expires_at");
-                let pickle_format: String = row.get("pickle_format");
-                let vodozemac_pickle: Option<String> = row.get("vodozemac_pickle");
-
-                let created_ts_dt = chrono::DateTime::from_timestamp_millis(created_ts).unwrap_or_else(Utc::now);
-                let last_used_ts_dt =
-                    last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
-                let expires_at_dt = expires_at.and_then(chrono::DateTime::from_timestamp_millis);
-
-                MegolmSession {
-                    id: row.get("id"),
-                    session_id: row.get("session_id"),
-                    room_id: row.get("room_id"),
-                    sender_key: row.get("sender_key"),
-                    session_key: row.get("session_key"),
-                    algorithm: row.get("algorithm"),
-                    message_index: row.get("message_index"),
-                    created_ts: created_ts_dt,
-                    last_used_ts: last_used_ts_dt,
-                    expires_at: expires_at_dt,
-                    pickle_format: PickleFormat::from_str(&pickle_format).unwrap_or(PickleFormat::Legacy),
-                    vodozemac_pickle,
-                }
-            })
-            .collect())
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 
     /// 统计各 pickle_format 的 session 数量（监控/迁移进度）
     pub async fn count_by_pickle_format(&self) -> Result<Vec<(String, i64)>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT pickle_format, COUNT(*) AS cnt
+        let rows = sqlx::query!(
+            r#"
+            SELECT pickle_format AS "pickle_format!", COUNT(*) AS "cnt!"
             FROM megolm_sessions
             GROUP BY pickle_format
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to count megolm sessions by pickle format: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| (r.get::<String, _>("pickle_format"), r.get::<i64, _>("cnt")))
-            .collect())
+        Ok(rows.into_iter().map(|r| (r.pickle_format, r.cnt)).collect())
     }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct MegolmIncrementRow {
+    message_index: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct MegolmSessionKeyRow {
+    encrypted_key: String,
 }
 
 #[cfg(test)]

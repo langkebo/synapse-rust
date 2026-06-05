@@ -46,7 +46,7 @@ impl SecureBackupService {
         };
 
         // 5. Store backup metadata
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
             VALUES ($1, $2, $3, $4, $5, 0)
@@ -55,12 +55,12 @@ impl SecureBackupService {
                 auth_data = EXCLUDED.auth_data,
                 updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             ",
+            user_id,
+            backup_id,
+            version,
+            "m.megolm_backup.v1.secure",
+            serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?,
         )
-        .bind(user_id)
-        .bind(&backup_id)
-        .bind(&version)
-        .bind("m.megolm_backup.v1.secure")
-        .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -98,7 +98,7 @@ impl SecureBackupService {
         };
 
         // Store backup metadata
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
             VALUES ($1, $2, $3, $4, $5, 0)
@@ -107,12 +107,12 @@ impl SecureBackupService {
                 auth_data = EXCLUDED.auth_data,
                 updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             ",
+            user_id,
+            backup_id,
+            version,
+            algorithm,
+            serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?,
         )
-        .bind(user_id)
-        .bind(&backup_id)
-        .bind(&version)
-        .bind(algorithm)
-        .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -132,17 +132,23 @@ impl SecureBackupService {
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
         // 1. Get backup auth data
-        let auth_data_str: String =
-            sqlx::query_scalar("SELECT auth_data FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-                .bind(user_id)
-                .bind(backup_id)
-                .fetch_optional(&*self.pool)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Database error: {e}");
-                    ApiError::database("A database error occurred".to_string())
-                })?
-                .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+        let auth_data_str: Option<String> = sqlx::query_scalar!(
+            r#"
+            SELECT auth_data AS "auth_data!"
+            FROM secure_key_backups
+            WHERE user_id = $1 AND backup_id = $2
+            "#,
+            user_id,
+            backup_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        let auth_data_str = auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(|e| {
             tracing::error!("Invalid auth data: {e}");
