@@ -24,17 +24,11 @@ pub struct DeviceKeyRow {
 
 impl DeviceKeyRow {
     fn into_device_key(self) -> DeviceKey {
-        let parsed: serde_json::Value = self
-            .key_data
-            .as_deref()
-            .and_then(|k| serde_json::from_str(k).ok())
-            .unwrap_or_default();
+        let parsed: serde_json::Value =
+            self.key_data.as_deref().and_then(|k| serde_json::from_str(k).ok()).unwrap_or_default();
 
         let created_ts = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
-        let updated_ts = self
-            .ts_updated_ms
-            .and_then(|ms| chrono::DateTime::from_timestamp_millis(ms))
-            .unwrap_or_default();
+        let updated_ts = self.ts_updated_ms.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or_default();
 
         DeviceKey {
             id: 0,
@@ -46,12 +40,9 @@ impl DeviceKeyRow {
             algorithm: self.algorithm,
             key_id: self.key_id,
             public_key: self.public_key,
-            signatures: self.signatures.unwrap_or_else(|| {
-                parsed
-                    .get("signatures")
-                    .cloned()
-                    .unwrap_or(serde_json::json!({}))
-            }),
+            signatures: self
+                .signatures
+                .unwrap_or_else(|| parsed.get("signatures").cloned().unwrap_or(serde_json::json!({}))),
             created_ts,
             updated_ts,
         }
@@ -268,11 +259,7 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn get_unused_fallback_key_types(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<String>, ApiError> {
+    pub async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query!(
             r"
             SELECT DISTINCT algorithm
@@ -340,11 +327,7 @@ impl DeviceKeyStorage {
         Ok(row.map(DeviceKeyRow::into_device_key))
     }
 
-    pub async fn get_device_keys(
-        &self,
-        user_id: &str,
-        device_ids: &[String],
-    ) -> Result<Vec<DeviceKey>, ApiError> {
+    pub async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError> {
         let rows: Vec<DeviceKeyRow> = sqlx::query_as!(
             DeviceKeyRow,
             r#"
@@ -453,12 +436,7 @@ impl DeviceKeyStorage {
         Ok(result)
     }
 
-    pub async fn delete_device_key(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        algorithm: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError> {
         sqlx::query!(
             r"
             DELETE FROM device_keys
@@ -666,11 +644,7 @@ impl DeviceKeyStorage {
         })?;
 
         if fallback_row.is_some() {
-            tracing::warn!(
-                "No OTK available for {}:{}, using fallback key",
-                user_id,
-                device_id
-            );
+            tracing::warn!("No OTK available for {}:{}, using fallback key", user_id, device_id);
         }
 
         tx.commit().await.map_err(|e| {

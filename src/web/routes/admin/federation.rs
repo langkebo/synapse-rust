@@ -173,7 +173,7 @@ pub async fn get_destinations(
 
     let dest_list: Vec<Value> = destinations
         .iter()
-        .map(|row| build_destination_json_from_row(row))
+        .map(build_destination_json_from_row)
         .collect();
 
     let next_from = if offset + (limit as i64) < total { Some(offset + (limit as i64)) } else { None };

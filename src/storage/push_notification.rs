@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -72,9 +72,9 @@ pub struct PushNotificationQueue {
     pub status: String,
     pub attempts: i32,
     pub max_attempts: i32,
-    pub next_attempt_at: i64,
+    pub next_attempt_at: DateTime<Utc>,
     pub created_ts: i64,
-    pub sent_at: Option<i64>,
+    pub sent_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
 }
 
@@ -87,7 +87,7 @@ pub struct PushNotificationLog {
     pub room_id: Option<String>,
     pub notification_type: Option<String>,
     pub push_type: String,
-    pub sent_at: i64,
+    pub sent_at: DateTime<Utc>,
     pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
@@ -425,7 +425,8 @@ impl PushNotificationStorage {
         &self,
         request: QueueNotificationRequest,
     ) -> Result<PushNotificationQueue, ApiError> {
-        let now_ts = Utc::now().timestamp_millis();
+        let now = Utc::now();
+        let now_ts = now.timestamp_millis();
 
         let row = sqlx::query_as!(
             PushNotificationQueue,
@@ -449,7 +450,7 @@ impl PushNotificationStorage {
             request.notification_type.as_deref(),
             &request.content,
             request.priority,
-            now_ts,
+            now,
             now_ts,
         )
         .fetch_one(&*self.pool)
@@ -460,7 +461,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn get_pending_notifications(&self, limit: i64) -> Result<Vec<PushNotificationQueue>, ApiError> {
-        let now_ts = Utc::now().timestamp_millis();
+        let now = Utc::now();
 
         let rows = sqlx::query_as!(
             PushNotificationQueue,
@@ -478,7 +479,7 @@ impl PushNotificationStorage {
             LIMIT $2
             FOR UPDATE SKIP LOCKED
             "#,
-            now_ts,
+            now,
             limit
         )
         .fetch_all(&*self.pool)
@@ -489,9 +490,9 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
-        let now_ts = Utc::now().timestamp_millis();
+        let now = Utc::now();
 
-        sqlx::query!("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2", now_ts, id)
+        sqlx::query!("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2", now, id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to mark notification sent", &e))?;
@@ -500,13 +501,13 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
-        let now_ts = Utc::now().timestamp_millis();
+        let now = Utc::now();
 
         if retry {
             sqlx::query!(
                 r#"UPDATE push_notification_queue SET status = 'pending', attempts = attempts + 1, error_message = $1, next_attempt_at = $2 WHERE id = $3 AND attempts < max_attempts"#,
                 error,
-                now_ts + 60_000,
+                now + chrono::Duration::seconds(60),
                 id
             )
             .execute(&*self.pool)
@@ -554,7 +555,7 @@ impl PushNotificationStorage {
             request.error_message.as_deref(),
             request.provider_response.as_deref(),
             request.response_time_ms,
-            Utc::now().timestamp_millis(),
+            Utc::now(),
         )
         .fetch_one(&*self.pool)
         .await
@@ -591,7 +592,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
-        let cutoff = Utc::now().timestamp_millis() - (days as i64 * 86_400_000);
+        let cutoff = Utc::now() - chrono::Duration::days(days as i64);
 
         let result = sqlx::query!("DELETE FROM push_notification_log WHERE sent_at < $1", cutoff)
             .execute(&*self.pool)
@@ -880,6 +881,7 @@ mod tests {
         let valid_statuses = vec!["pending", "sent", "failed"];
 
         for status in valid_statuses {
+            let now = Utc::now();
             let queue_item = PushNotificationQueue {
                 id: 1,
                 user_id: "@alice:example.com".to_string(),
@@ -892,8 +894,8 @@ mod tests {
                 status: status.to_string(),
                 attempts: 0,
                 max_attempts: 3,
-                next_attempt_at: 1700000000000,
-                created_ts: 1700000000000,
+                next_attempt_at: now,
+                created_ts: now.timestamp_millis(),
                 sent_at: None,
                 error_message: None,
             };
@@ -916,8 +918,8 @@ mod tests {
             status: "pending".to_string(),
             attempts: 2,
             max_attempts: 5,
-            next_attempt_at: Utc::now().timestamp_millis(),
-            created_ts: 1700000000000,
+            next_attempt_at: Utc::now(),
+            created_ts: Utc::now().timestamp_millis(),
             sent_at: None,
             error_message: Some("Temporary failure".to_string()),
         };
@@ -937,7 +939,7 @@ mod tests {
             room_id: Some("!room123:example.com".to_string()),
             notification_type: Some("m.room.message".to_string()),
             push_type: "apns".to_string(),
-            sent_at: 1700000000000,
+            sent_at: Utc::now(),
             is_success: true,
             error_message: None,
             provider_response: Some("{\"status\": \"ok\"}".to_string()),
@@ -960,7 +962,7 @@ mod tests {
             room_id: None,
             notification_type: None,
             push_type: "fcm".to_string(),
-            sent_at: 1700000000000,
+            sent_at: Utc::now(),
             is_success: false,
             error_message: Some("InvalidRegistration".to_string()),
             provider_response: Some("{\"error\": \"InvalidRegistration\"}".to_string()),

@@ -69,8 +69,7 @@ impl DatabaseMaintenance {
             .await
             .ok()
             .flatten()
-            .map(|r| r.modifications)
-            .unwrap_or(0);
+            .map_or(0, |r| r.modifications);
 
             if modifications < MIN_MODIFICATIONS {
                 debug!("VACUUM {} skipped: only {} modifications since last analyze", table, modifications);
