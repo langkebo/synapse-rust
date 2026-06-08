@@ -150,8 +150,7 @@ impl DatabaseMonitor {
         .await?;
 
         let (xact_commit, xact_rollback, blks_hit, blks_read, deadlocks, stats_reset) =
-            db_stats_row.map(|r| (r.xact_commit, r.xact_rollback, r.blks_hit, r.blks_read, r.deadlocks, r.stats_reset))
-            .unwrap_or((0, 0, 0, 0, 0, None));
+            db_stats_row.map_or((0, 0, 0, 0, 0, None), |r| (r.xact_commit, r.xact_rollback, r.blks_hit, r.blks_read, r.deadlocks, r.stats_reset));
 
         let cache_hit_ratio =
             if blks_hit + blks_read > 0 { blks_hit as f64 / (blks_hit + blks_read) as f64 } else { 0.0 };
