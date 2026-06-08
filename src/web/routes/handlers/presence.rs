@@ -81,7 +81,7 @@ pub(crate) async fn get_presence(
             let presence_enum = PresenceState::from(presence_state.as_str());
             let (last_active_ago, currently_active) = derive_activity(&presence_enum, last_active_ts);
             Ok(Json(json!({
-                "presence": presence_state.to_string(),
+                "presence": presence_state,
                 "status_msg": status_msg,
                 "last_active_ago": last_active_ago,
                 "currently_active": currently_active,

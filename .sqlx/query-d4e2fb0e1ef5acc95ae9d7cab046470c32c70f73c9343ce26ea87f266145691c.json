@@ -41,7 +41,7 @@
       {
         "ordinal": 7,
         "name": "sent_at!",
-        "type_info": "Timestamptz"
+        "type_info": "Int8"
       },
       {
         "ordinal": 8,
@@ -81,7 +81,7 @@
         "Text",
         "Text",
         "Int4",
-        "Timestamptz"
+        "Int8"
       ]
     },
     "nullable": [
