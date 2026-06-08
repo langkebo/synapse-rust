@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                relation_type,\n                content->>'body' as key,\n                COUNT(*)::BIGINT as \"count!\",\n                NULL::text as sender\n            FROM event_relations\n            WHERE room_id = $1 AND relates_to_event_id = $2\n              AND relation_type = 'm.annotation'\n              AND is_redacted = FALSE\n            GROUP BY relation_type, content->>'body'\n            ORDER BY 3 DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "relation_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "312c9531c791135a1d435f0509cd330585195346d1a22095a2e27e38d18ae2f6"
+}

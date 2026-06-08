@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 1 AS hit FROM devices\n                WHERE user_id = $1 AND device_id = $2\n            UNION ALL\n            SELECT 1 AS hit FROM dehydrated_devices\n                WHERE user_id = $1 AND device_id = $2\n                  AND (expires_at IS NULL OR expires_at > $3)\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hit",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2dc6a3876d90f6a99e779f9fbf38f682621c1b4cde3fe8b93aaab9a13e166077"
+}

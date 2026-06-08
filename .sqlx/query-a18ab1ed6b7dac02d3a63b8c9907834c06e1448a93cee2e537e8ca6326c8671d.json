@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT room_id AS \"room_id!\" FROM room_memberships WHERE user_id = $1 AND membership = 'join' ORDER BY room_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a18ab1ed6b7dac02d3a63b8c9907834c06e1448a93cee2e537e8ca6326c8671d"
+}

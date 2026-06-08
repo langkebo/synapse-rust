@@ -16,7 +16,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
-use sqlx::Row;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 /// Manifest of every `(method, absolute_path)` tuple the assembled top-level
@@ -477,18 +476,19 @@ async fn load_extended_profile_document(
     state: &AppState,
     user_id: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
-    let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
-        .bind(user_id)
-        .bind(EXTENDED_PROFILE_DATA_TYPE)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = sqlx::query!("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
+        user_id,
+        EXTENDED_PROFILE_DATA_TYPE
+    )
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let Some(row) = result else {
         return Ok(serde_json::Map::new());
     };
 
-    let content = row.get::<Option<serde_json::Value>, _>("content").unwrap_or(json!({}));
+    let content = row.content;
 
     match content {
         serde_json::Value::Object(map) => Ok(map),
@@ -511,17 +511,17 @@ async fn save_extended_profile_document(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
-        r"
+    sqlx::query!(
+        r#"
         INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
-        ",
+        "#,
+        user_id,
+        EXTENDED_PROFILE_DATA_TYPE,
+        &content,
+        now
     )
-    .bind(user_id)
-    .bind(EXTENDED_PROFILE_DATA_TYPE)
-    .bind(&content)
-    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to save extended profile data", &e))?;
@@ -792,6 +792,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), shadow_ban_middleware))
+        .merge(crate::web::api_doc::swagger_ui_router(state.clone()))
         .with_state(state)
 }
 

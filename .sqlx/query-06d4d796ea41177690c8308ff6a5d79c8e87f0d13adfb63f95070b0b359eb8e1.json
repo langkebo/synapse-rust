@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE federation_signing_keys\n               SET expires_at = $1,\n                   key_json = COALESCE(key_json, '{}'::jsonb) || $2::jsonb\n               WHERE key_id = $3 AND server_name = $4 AND (expires_at = 0 OR expires_at > $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06d4d796ea41177690c8308ff6a5d79c8e87f0d13adfb63f95070b0b359eb8e1"
+}

@@ -2,13 +2,8 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::Signer;
 use serde_json::Value;
+use synapse_rust::common::crypto::decode_base64_32;
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
-
-fn decode_base64_32(s: &str) -> Option<[u8; 32]> {
-    let decoded = STANDARD_NO_PAD.decode(s).ok()?;
-    let bytes: [u8; 32] = decoded.try_into().ok()?;
-    Some(bytes)
-}
 
 fn main() {
     let method = std::env::args().nth(1).unwrap_or_default();

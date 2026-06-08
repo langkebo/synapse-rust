@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM e2ee_audit_log WHERE created_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac3d16b80cba81aa4ea3b1f7a0c9edeb254b60c0fa2c0038a27c0b838a677f0e"
+}

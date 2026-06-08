@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserId {
@@ -99,22 +100,100 @@ impl fmt::Display for Membership {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Presence {
+/// Unified presence state enum used across the entire codebase.
+///
+/// Replaces the previously scattered `Presence` (common/types.rs),
+/// `PresenceState` (worker/protocol.rs), and raw string comparisons
+/// (`"online"`, `"offline"`, `"unavailable"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "TEXT", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum PresenceState {
     Online,
-    Offline,
     Unavailable,
+    Offline,
+    Busy,
 }
 
-impl fmt::Display for Presence {
+impl PresenceState {
+    /// Derive `last_active_ago` and `currently_active` from the presence
+    /// state and an optional absolute timestamp (ms).
+    ///
+    /// - `offline` → both fields `None`
+    /// - `online`  → `currently_active` = true when within 5 min of `now`
+    /// - others    → `currently_active` = false
+    pub fn derive_activity(
+        &self,
+        last_active_ts: Option<i64>,
+        now_ts: i64,
+    ) -> (Option<i64>, Option<bool>) {
+        const CURRENTLY_ACTIVE_THRESHOLD_MS: i64 = 5 * 60 * 1000;
+        match self {
+            PresenceState::Offline => (None, None),
+            PresenceState::Online => {
+                let last_active_ago = last_active_ts.map(|ts| (now_ts - ts).max(0));
+                let currently_active =
+                    Some(last_active_ts.is_some_and(|ts| (now_ts - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS));
+                (last_active_ago, currently_active)
+            }
+            PresenceState::Unavailable | PresenceState::Busy => {
+                let last_active_ago = last_active_ts.map(|ts| (now_ts - ts).max(0));
+                (last_active_ago, Some(false))
+            }
+        }
+    }
+
+    /// Whether this state represents an active (non-offline) user.
+    pub fn is_active(&self) -> bool {
+        !matches!(self, PresenceState::Offline)
+    }
+
+    /// All valid presence status strings (for validation).
+    pub fn valid_strs() -> &'static [&'static str] {
+        &["online", "offline", "unavailable", "away", "busy"]
+    }
+
+    /// Attempt to parse a presence string, returning `None` for unknown values.
+    /// Maps `"away"` to `Unavailable` for compatibility.
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "online" => Some(PresenceState::Online),
+            "offline" => Some(PresenceState::Offline),
+            "unavailable" | "away" => Some(PresenceState::Unavailable),
+            "busy" => Some(PresenceState::Busy),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for PresenceState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Online => write!(f, "online"),
             Self::Offline => write!(f, "offline"),
             Self::Unavailable => write!(f, "unavailable"),
+            Self::Busy => write!(f, "busy"),
         }
     }
 }
+
+impl FromStr for PresenceState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_opt(s).ok_or_else(|| format!("Invalid presence state: {}", s))
+    }
+}
+
+impl From<&str> for PresenceState {
+    fn from(s: &str) -> Self {
+        Self::from_str_opt(s).unwrap_or(PresenceState::Offline)
+    }
+}
+
+/// Backward-compatible alias so existing `Presence` references can be
+/// updated incrementally if desired.
+pub type Presence = PresenceState;
 
 #[derive(Clone, Default)]
 pub struct SecretString(String);
@@ -247,9 +326,59 @@ mod tests {
 
     #[test]
     fn test_presence_display() {
-        assert_eq!(format!("{}", Presence::Online), "online");
-        assert_eq!(format!("{}", Presence::Offline), "offline");
-        assert_eq!(format!("{}", Presence::Unavailable), "unavailable");
+        assert_eq!(format!("{}", PresenceState::Online), "online");
+        assert_eq!(format!("{}", PresenceState::Offline), "offline");
+        assert_eq!(format!("{}", PresenceState::Unavailable), "unavailable");
+        assert_eq!(format!("{}", PresenceState::Busy), "busy");
+    }
+
+    #[test]
+    fn test_presence_from_str() {
+        assert_eq!("online".parse::<PresenceState>(), Ok(PresenceState::Online));
+        assert_eq!("offline".parse::<PresenceState>(), Ok(PresenceState::Offline));
+        assert_eq!("unavailable".parse::<PresenceState>(), Ok(PresenceState::Unavailable));
+        assert_eq!("away".parse::<PresenceState>(), Ok(PresenceState::Unavailable));
+        assert_eq!("busy".parse::<PresenceState>(), Ok(PresenceState::Busy));
+        assert!("unknown".parse::<PresenceState>().is_err());
+    }
+
+    #[test]
+    fn test_presence_from_str_opt() {
+        assert_eq!(PresenceState::from_str_opt("online"), Some(PresenceState::Online));
+        assert_eq!(PresenceState::from_str_opt("away"), Some(PresenceState::Unavailable));
+        assert_eq!(PresenceState::from_str_opt("unknown"), None);
+    }
+
+    #[test]
+    fn test_presence_derive_activity() {
+        let now = 1_000_000_000_000i64;
+
+        // Offline: both None
+        let (ago, active) = PresenceState::Offline.derive_activity(Some(now - 1000), now);
+        assert_eq!(ago, None);
+        assert_eq!(active, None);
+
+        // Online within 5 min
+        let (ago, active) = PresenceState::Online.derive_activity(Some(now - 1000), now);
+        assert_eq!(ago, Some(1000));
+        assert_eq!(active, Some(true));
+
+        // Online outside 5 min
+        let (_ago, active) = PresenceState::Online.derive_activity(Some(now - 400_000), now);
+        assert_eq!(active, Some(false));
+
+        // Unavailable
+        let (ago, active) = PresenceState::Unavailable.derive_activity(Some(now - 1000), now);
+        assert_eq!(ago, Some(1000));
+        assert_eq!(active, Some(false));
+    }
+
+    #[test]
+    fn test_presence_is_active() {
+        assert!(PresenceState::Online.is_active());
+        assert!(PresenceState::Unavailable.is_active());
+        assert!(PresenceState::Busy.is_active());
+        assert!(!PresenceState::Offline.is_active());
     }
 
     #[test]

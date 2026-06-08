@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT krp.room_id AS \"room_id!\"\n            FROM key_rotation_pending krp\n            INNER JOIN room_memberships rm ON krp.room_id = rm.room_id\n            WHERE rm.user_id = $1\n              AND rm.membership = 'join'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d6d22f103e846005f7885a7aead333b2fd9c8b79b930baff86d8a63ad64d47b5"
+}

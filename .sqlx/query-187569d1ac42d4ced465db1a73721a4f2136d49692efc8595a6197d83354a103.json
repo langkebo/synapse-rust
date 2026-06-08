@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO olm_accounts (\n                user_id, device_id, identity_key, serialized_account,\n                is_one_time_keys_published, is_fallback_key_published, created_ts, updated_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (user_id, device_id) DO UPDATE SET\n                identity_key = EXCLUDED.identity_key,\n                serialized_account = EXCLUDED.serialized_account,\n                is_one_time_keys_published = EXCLUDED.is_one_time_keys_published,\n                is_fallback_key_published = EXCLUDED.is_fallback_key_published,\n                updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "187569d1ac42d4ced465db1a73721a4f2136d49692efc8595a6197d83354a103"
+}

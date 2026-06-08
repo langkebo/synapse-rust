@@ -392,7 +392,7 @@ async fn test_room_key_distribution_contract_rejects_members_even_with_session()
     invite_user(&app, &owner_token, &room_id, &member_user_id).await;
     join_room(&app, &member_token, &room_id).await;
 
-    services.megolm_service.create_session(&room_id, &owner_user_id).await.unwrap();
+    services.e2ee.megolm_service.create_session(&room_id, &owner_user_id).await.unwrap();
 
     let encoded_room_id = encode_room_id(&room_id);
     for (token, expected_status) in [(&owner_token, StatusCode::FORBIDDEN), (&member_token, StatusCode::FORBIDDEN)] {
@@ -502,6 +502,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     let sid_int: i64 = sid.parse().expect("sid should parse to i64");
 
     let verification_token = services
+        .admin
         .email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await
@@ -556,6 +557,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     assert_eq!(change_password_response.status(), StatusCode::OK);
 
     let consumed_session = services
+        .admin
         .email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await

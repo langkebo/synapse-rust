@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH candidate_matches AS (\n                SELECT\n                    user_id,\n                    MIN(match_priority) AS match_priority,\n                    MAX(match_similarity) AS match_similarity\n                FROM (\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN username ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN username ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN username ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_priority,\n                        similarity(username, $4) AS match_similarity\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND (\n                            username ILIKE $1 ESCAPE '\\'\n                            OR username ILIKE $2 ESCAPE '\\'\n                            OR username ILIKE $3 ESCAPE '\\'\n                            OR (char_length($4) >= 3 AND username % $4)\n                      )\n\n                    UNION ALL\n\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN user_id ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN user_id ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN user_id ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_priority,\n                        similarity(user_id, $4) AS match_similarity\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND (\n                            user_id ILIKE $1 ESCAPE '\\'\n                            OR user_id ILIKE $2 ESCAPE '\\'\n                            OR user_id ILIKE $3 ESCAPE '\\'\n                            OR (char_length($4) >= 3 AND user_id % $4)\n                      )\n\n                    UNION ALL\n\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN displayname ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN displayname ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN displayname ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_priority,\n                        COALESCE(similarity(displayname, $4), 0.0) AS match_similarity\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND displayname IS NOT NULL\n                      AND (\n                            displayname ILIKE $1 ESCAPE '\\'\n                            OR displayname ILIKE $2 ESCAPE '\\'\n                            OR displayname ILIKE $3 ESCAPE '\\'\n                            OR (char_length($4) >= 3 AND displayname % $4)\n                      )\n                ) AS matches\n                GROUP BY user_id\n            )\n            SELECT\n                u.user_id AS \"user_id!\",\n                u.username AS \"username!\",\n                COALESCE(u.displayname, u.username) AS \"displayname!\",\n                u.avatar_url AS \"avatar_url?\",\n                u.created_ts AS \"created_ts!\",\n                p.presence AS \"presence?\",\n                p.last_active_ts AS \"last_active_ts?\"\n            FROM candidate_matches cm\n            JOIN users u ON u.user_id = cm.user_id\n            LEFT JOIN presence p ON u.user_id = p.user_id\n            ORDER BY\n                cm.match_priority ASC,\n                cm.match_similarity DESC,\n                u.created_ts DESC\n            LIMIT $5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "displayname!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "presence?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_active_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "33fa063883e6cd69a6038584495a6e71931314a192cb1971b17b31044201659e"
+}

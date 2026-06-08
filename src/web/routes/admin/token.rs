@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 
 pub fn create_token_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -125,14 +124,14 @@ pub async fn create_registration_token(
     let token = body.token.unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
     let max_uses = body.uses_allowed.unwrap_or(0);
 
-    sqlx::query(
-        "INSERT INTO registration_tokens (token, max_uses, uses_count, is_used, is_enabled, created_ts, updated_ts, expires_at, created_by) VALUES ($1, $2, 0, FALSE, TRUE, $3, $3, $4, $5)"
+    sqlx::query!(
+        "INSERT INTO registration_tokens (token, max_uses, uses_count, is_used, is_enabled, created_ts, updated_ts, expires_at, created_by) VALUES ($1, $2, 0, FALSE, TRUE, $3, $3, $4, $5)",
+        &token,
+        max_uses,
+        now,
+        body.expiry_time,
+        &admin.user_id,
     )
-    .bind(&token)
-    .bind(max_uses)
-    .bind(now)
-    .bind(body.expiry_time)
-    .bind(admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -153,24 +152,24 @@ pub async fn get_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "SELECT token, max_uses, uses_count, expires_at, created_ts FROM registration_tokens WHERE token = $1",
+    let result = sqlx::query!(
+        r#"SELECT token AS "token!", COALESCE(max_uses, 0) AS "max_uses!", COALESCE(uses_count, 0) AS "uses_count!", expires_at, created_ts AS "created_ts!" FROM registration_tokens WHERE token = $1"#,
+        &token,
     )
-    .bind(&token)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => {
-            let max_uses = row.get::<i32, _>("max_uses");
+            let max_uses = row.max_uses;
             Ok(Json(json!({
-                "token": row.get::<Option<String>, _>("token"),
+                "token": &row.token,
                 "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
                 "pending": 0,
-                "completed": row.get::<i32, _>("uses_count"),
-                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts")
+                "completed": row.uses_count,
+                "expiry_time": row.expires_at,
+                "created_ts": row.created_ts
             })))
         }
         None => Err(ApiError::not_found("Token not found".to_string())),
@@ -183,8 +182,7 @@ pub async fn delete_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM registration_tokens WHERE token = $1")
-        .bind(&token)
+    let result = sqlx::query!("DELETE FROM registration_tokens WHERE token = $1", &token)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -203,27 +201,27 @@ pub async fn update_registration_token(
     Path(token): Path<String>,
     Json(body): Json<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "UPDATE registration_tokens SET max_uses = COALESCE($2, max_uses), expires_at = COALESCE($3, expires_at), updated_ts = $4 WHERE token = $1 RETURNING token, max_uses, uses_count, expires_at, created_ts"
+    let result = sqlx::query!(
+        r#"UPDATE registration_tokens SET max_uses = COALESCE($2, max_uses), expires_at = COALESCE($3, expires_at), updated_ts = $4 WHERE token = $1 RETURNING token AS "token!", COALESCE(max_uses, 0) AS "max_uses!", COALESCE(uses_count, 0) AS "uses_count!", expires_at, created_ts AS "created_ts!""#,
+        &token,
+        body.uses_allowed,
+        body.expiry_time,
+        chrono::Utc::now().timestamp_millis(),
     )
-    .bind(&token)
-    .bind(body.uses_allowed)
-    .bind(body.expiry_time)
-    .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => {
-            let max_uses = row.get::<i32, _>("max_uses");
+            let max_uses = row.max_uses;
             Ok(Json(json!({
-                "token": row.get::<Option<String>, _>("token"),
+                "token": &row.token,
                 "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
                 "pending": 0,
-                "completed": row.get::<i32, _>("uses_count"),
-                "expiry_time": row.get::<Option<i64>, _>("expires_at"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts")
+                "completed": row.uses_count,
+                "expiry_time": row.expires_at,
+                "created_ts": row.created_ts
             })))
         }
         None => Err(ApiError::not_found("Token not found".to_string())),
@@ -238,10 +236,10 @@ pub async fn get_user_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = sqlx::query(
-        "SELECT id, device_id, created_ts, expires_at, is_revoked FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
+    let tokens = sqlx::query!(
+        r#"SELECT id AS "id!", device_id, created_ts AS "created_ts!", expires_at, COALESCE(is_revoked, FALSE) AS "is_revoked!" FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"#,
+        &user_id,
     )
-    .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -250,11 +248,11 @@ pub async fn get_user_tokens(
         .iter()
         .map(|row| {
             json!({
-                "id": row.get::<Option<i64>, _>("id"),
-                "device_id": row.get::<Option<String>, _>("device_id"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "expires_at": row.get::<Option<i64>, _>("expires_at"),
-                "is_revoked": row.get::<Option<bool>, _>("is_revoked").unwrap_or(false)
+                "id": row.id,
+                "device_id": row.device_id,
+                "created_ts": row.created_ts,
+                "expires_at": row.expires_at,
+                "is_revoked": row.is_revoked
             })
         })
         .collect();
@@ -270,9 +268,7 @@ pub async fn delete_user_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let result = sqlx::query("DELETE FROM access_tokens WHERE id = $1 AND user_id = $2")
-        .bind(token_id)
-        .bind(&user_id)
+    let result = sqlx::query!("DELETE FROM access_tokens WHERE id = $1 AND user_id = $2", token_id, &user_id)
         .execute(&*state.services.token_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -292,10 +288,10 @@ pub async fn get_user_refresh_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = sqlx::query(
-        "SELECT id, device_id, created_ts, expires_at, is_revoked FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"
+    let tokens = sqlx::query!(
+        r#"SELECT id AS "id!", device_id, created_ts AS "created_ts!", expires_at, COALESCE(is_revoked, FALSE) AS "is_revoked!" FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"#,
+        &user_id,
     )
-    .bind(&user_id)
     .fetch_all(&*state.services.token_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -304,11 +300,11 @@ pub async fn get_user_refresh_tokens(
         .iter()
         .map(|row| {
             json!({
-                "id": row.get::<Option<i64>, _>("id"),
-                "device_id": row.get::<Option<String>, _>("device_id"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "expires_at": row.get::<Option<i64>, _>("expires_at"),
-                "is_revoked": row.get::<Option<bool>, _>("is_revoked").unwrap_or(false)
+                "id": row.id,
+                "device_id": row.device_id,
+                "created_ts": row.created_ts,
+                "expires_at": row.expires_at,
+                "is_revoked": row.is_revoked
             })
         })
         .collect();
@@ -324,9 +320,7 @@ pub async fn delete_refresh_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let result = sqlx::query("DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2")
-        .bind(token_id)
-        .bind(&user_id)
+    let result = sqlx::query!("DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2", token_id, &user_id)
         .execute(&*state.services.token_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

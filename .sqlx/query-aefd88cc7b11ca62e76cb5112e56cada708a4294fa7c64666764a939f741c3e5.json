@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason\n            FROM room_memberships\n            WHERE room_id = ANY($1) AND membership = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "membership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "invite_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "joined_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "left_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "banned_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "ban_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "banned_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "join_reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "aefd88cc7b11ca62e76cb5112e56cada708a4294fa7c64666764a939f741c3e5"
+}

@@ -1,0 +1,620 @@
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool};
+use std::sync::Arc;
+use synapse_common::error::ApiError;
+use tracing::info;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FederationBlacklistCursor {
+    pub created_ts: i64,
+    pub server_name: String,
+}
+
+pub fn encode_federation_blacklist_cursor(cursor: &FederationBlacklistCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.server_name)
+}
+
+pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<FederationBlacklistCursor> {
+    let cursor = cursor?;
+    let (created_ts, server_name) = cursor.split_once('|')?;
+    let created_ts = created_ts.parse::<i64>().ok()?;
+    if server_name.is_empty() {
+        return None;
+    }
+    Some(FederationBlacklistCursor { created_ts, server_name: server_name.to_string() })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct FederationBlacklist {
+    pub id: i64,
+    pub server_name: String,
+    pub block_type: String,
+    pub reason: Option<String>,
+    pub blocked_by: String,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+    pub expires_at: Option<i64>,
+    pub is_enabled: bool,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct FederationBlacklistLog {
+    pub id: i64,
+    pub server_name: String,
+    pub action: String,
+    pub old_status: Option<String>,
+    pub new_status: Option<String>,
+    pub reason: Option<String>,
+    pub performed_by: String,
+    pub performed_ts: i64,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct FederationAccessStats {
+    pub id: i64,
+    pub server_name: String,
+    pub total_requests: i64,
+    pub successful_requests: i64,
+    pub failed_requests: i64,
+    pub last_request_ts: Option<i64>,
+    pub last_success_ts: Option<i64>,
+    pub last_failure_ts: Option<i64>,
+    pub average_response_time_ms: f64,
+    pub error_rate: f64,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct FederationBlacklistRule {
+    pub id: i64,
+    pub rule_name: String,
+    pub rule_type: String,
+    pub pattern: String,
+    pub action: String,
+    pub priority: i32,
+    pub is_enabled: bool,
+    pub description: Option<String>,
+    pub created_ts: i64,
+    pub updated_ts: i64,
+    pub created_by: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddBlacklistRequest {
+    pub server_name: String,
+    pub block_type: String,
+    pub reason: Option<String>,
+    pub blocked_by: String,
+    pub expires_at: Option<i64>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateLogRequest {
+    pub server_name: String,
+    pub action: String,
+    pub old_status: Option<String>,
+    pub new_status: Option<String>,
+    pub reason: Option<String>,
+    pub performed_by: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateStatsRequest {
+    pub server_name: String,
+    #[serde(rename = "success")]
+    pub is_success: bool,
+    pub response_time_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateRuleRequest {
+    pub rule_name: String,
+    pub rule_type: String,
+    pub pattern: String,
+    pub action: String,
+    pub priority: i32,
+    pub description: Option<String>,
+    pub created_by: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FederationBlacklistStorage {
+    pool: Arc<PgPool>,
+}
+
+impl FederationBlacklistStorage {
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self { pool: pool.clone() }
+    }
+
+    pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
+        let now = Utc::now().timestamp_millis();
+        let metadata = request.metadata.unwrap_or(serde_json::json!({}));
+
+        let row = sqlx::query_as!(
+            FederationBlacklist,
+            r#"
+            INSERT INTO federation_blacklist (
+                server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)
+            ON CONFLICT (server_name) DO UPDATE SET
+                block_type = $2,
+                reason = $3,
+                blocked_by = $4,
+                updated_ts = $5,
+                expires_at = $6,
+                is_enabled = true,
+                metadata = $7
+            RETURNING id, server_name, block_type, reason, blocked_by as "blocked_by!", created_ts as "created_ts!", updated_ts as "updated_ts!", expires_at, is_enabled, metadata
+            "#,
+            &request.server_name,
+            &request.block_type,
+            request.reason.as_deref(),
+            &request.blocked_by,
+            now,
+            request.expires_at,
+            &metadata
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
+
+        info!("Added server {} to blacklist", request.server_name);
+        Ok(row)
+    }
+
+    pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
+        let now = Utc::now().timestamp_millis();
+
+        sqlx::query!(
+            r#"
+            UPDATE federation_blacklist
+            SET is_enabled = false, updated_ts = $1
+            WHERE server_name = $2
+            "#,
+            now,
+            server_name
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to remove from blacklist", &e))?;
+
+        self.create_log(CreateLogRequest {
+            server_name: server_name.to_string(),
+            action: "remove".to_string(),
+            old_status: Some("active".to_string()),
+            new_status: Some("inactive".to_string()),
+            reason: None,
+            performed_by: performed_by.to_string(),
+            ip_address: None,
+            user_agent: None,
+            metadata: None,
+        })
+        .await?;
+
+        info!("Removed server {} from blacklist", server_name);
+        Ok(())
+    }
+
+    pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
+        let row = sqlx::query_as!(
+            FederationBlacklist,
+            r#"
+            SELECT
+                id,
+                server_name,
+                'blacklist' AS "block_type!",
+                reason,
+                COALESCE(added_by, 'system') AS "blocked_by!",
+                added_ts AS "created_ts!",
+                COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                NULL::BIGINT AS expires_at,
+                TRUE AS "is_enabled!",
+                '{}'::jsonb AS "metadata!"
+            FROM federation_blacklist
+            WHERE server_name = $1
+            "#,
+            server_name
+        )
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get blacklist entry", &e))?;
+
+        Ok(row)
+    }
+
+    pub async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError> {
+        let entry = self.get_blacklist_entry(server_name).await?;
+
+        if let Some(entry) = entry {
+            if let Some(expires_at) = entry.expires_at {
+                let now = Utc::now().timestamp_millis();
+                if expires_at < now {
+                    return Ok(false);
+                }
+            }
+            return Ok(entry.block_type == "blacklist");
+        }
+
+        Ok(false)
+    }
+
+    pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
+        let exists = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM federation_blacklist
+                WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
+            ) AS "exists!"
+            "#,
+            server_name
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check whitelist", &e))?;
+
+        Ok(exists)
+    }
+
+    pub async fn get_all_blacklist(
+        &self,
+        limit: i32,
+        from: Option<FederationBlacklistCursor>,
+    ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
+        let rows = if let Some(cursor) = from {
+            sqlx::query_as!(
+                FederationBlacklist,
+                r#"
+                SELECT
+                    id,
+                    server_name,
+                    'blacklist' AS "block_type!",
+                    reason,
+                    COALESCE(added_by, 'system') AS "blocked_by!",
+                    added_ts AS "created_ts!",
+                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                    NULL::BIGINT AS expires_at,
+                    TRUE AS "is_enabled!",
+                    '{}'::jsonb AS "metadata!"
+                FROM federation_blacklist
+                WHERE (added_ts, server_name) < ($1, $2)
+                ORDER BY added_ts DESC, server_name DESC
+                LIMIT $3
+                "#,
+                cursor.created_ts,
+                cursor.server_name,
+                (limit as i64 + 1)
+            )
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
+        } else {
+            sqlx::query_as!(
+                FederationBlacklist,
+                r#"
+                SELECT
+                    id,
+                    server_name,
+                    'blacklist' AS "block_type!",
+                    reason,
+                    COALESCE(added_by, 'system') AS "blocked_by!",
+                    added_ts AS "created_ts!",
+                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                    NULL::BIGINT AS expires_at,
+                    TRUE AS "is_enabled!",
+                    '{}'::jsonb AS "metadata!"
+                FROM federation_blacklist
+                ORDER BY added_ts DESC, server_name DESC
+                LIMIT $1
+                "#,
+                (limit as i64 + 1)
+            )
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
+        };
+
+        let next_batch = if rows.len() > limit as usize {
+            rows.get(limit as usize).map(|last| {
+                encode_federation_blacklist_cursor(&FederationBlacklistCursor {
+                    created_ts: last.created_ts,
+                    server_name: last.server_name.clone(),
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok((rows.into_iter().take(limit as usize).collect(), next_batch))
+    }
+
+    pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
+        let metadata = request.metadata.unwrap_or(serde_json::json!({}));
+
+        let row = sqlx::query_as!(
+            FederationBlacklistLog,
+            r#"
+            INSERT INTO federation_blacklist_log (
+                server_name, action, old_status, new_status, reason, performed_by, ip_address, user_agent, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, server_name, action, old_status, new_status, reason, performed_by, performed_ts, ip_address, user_agent, metadata
+            "#,
+            &request.server_name,
+            &request.action,
+            request.old_status.as_deref(),
+            request.new_status.as_deref(),
+            request.reason.as_deref(),
+            &request.performed_by,
+            request.ip_address.as_deref(),
+            request.user_agent.as_deref(),
+            &metadata
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create log", &e))?;
+
+        Ok(row)
+    }
+
+    pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as!(
+            FederationAccessStats,
+            r#"
+            INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests,
+                last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
+            VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
+            ON CONFLICT (server_name) DO UPDATE SET
+                total_requests = federation_access_stats.total_requests + 1,
+                successful_requests = federation_access_stats.successful_requests + $2,
+                failed_requests = federation_access_stats.failed_requests + $3,
+                last_request_ts = $4,
+                last_success_ts = COALESCE($5, federation_access_stats.last_success_ts),
+                last_failure_ts = COALESCE($6, federation_access_stats.last_failure_ts),
+                average_response_time_ms = CASE
+                    WHEN $7 IS NOT NULL THEN (federation_access_stats.average_response_time_ms + $7) / 2
+                    ELSE federation_access_stats.average_response_time_ms
+                END,
+                error_rate = CAST(federation_access_stats.failed_requests AS FLOAT) / NULLIF(federation_access_stats.total_requests, 0),
+                updated_ts = $4
+            RETURNING id, server_name, total_requests, successful_requests, failed_requests, last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts
+            "#,
+            &request.server_name,
+            if request.is_success { 1_i64 } else { 0_i64 },
+            if request.is_success { 0_i64 } else { 1_i64 },
+            now,
+            if request.is_success { Some(now) } else { None },
+            if request.is_success { None } else { Some(now) },
+            request.response_time_ms,
+            if request.is_success { 0.0_f64 } else { 1.0_f64 }
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to update access stats", &e))?;
+
+        Ok(row)
+    }
+
+    pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
+        let row = sqlx::query_as!(
+            FederationAccessStats,
+            r#"
+            SELECT id, server_name, total_requests, successful_requests, failed_requests,
+                last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts
+            FROM federation_access_stats WHERE server_name = $1
+            "#,
+            server_name
+        )
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
+
+        Ok(row)
+    }
+
+    pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as!(
+            FederationBlacklistRule,
+            r#"
+            INSERT INTO federation_blacklist_rule (
+                rule_name, rule_type, pattern, action, priority, description, created_ts, updated_ts, created_by
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
+            RETURNING id, rule_name, rule_type, pattern, action, priority, is_enabled, description, created_ts, updated_ts, created_by
+            "#,
+            &request.rule_name,
+            &request.rule_type,
+            &request.pattern,
+            &request.action,
+            request.priority,
+            request.description.as_deref(),
+            now,
+            &request.created_by
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create rule", &e))?;
+
+        info!("Created federation blacklist rule: {}", request.rule_name);
+        Ok(row)
+    }
+
+    pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
+        let rows = sqlx::query_as!(
+            FederationBlacklistRule,
+            r#"SELECT id, rule_name, rule_type, pattern, action, priority, is_enabled, description, created_ts, updated_ts, created_by
+            FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC"#
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get rules", &e))?;
+
+        Ok(rows)
+    }
+
+    pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
+        let now = Utc::now().timestamp_millis();
+        let result = sqlx::query!(
+            "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true",
+            now
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired entries", &e))?;
+
+        info!("Cleaned up {} expired blacklist entries", result.rows_affected());
+        Ok(result.rows_affected())
+    }
+
+    pub fn get_config(&self, _config_key: &str) -> Result<Option<String>, ApiError> {
+        Ok(None)
+    }
+
+    pub fn get_config_as_bool(&self, _config_key: &str, default: bool) -> Result<bool, ApiError> {
+        Ok(default)
+    }
+
+    pub fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
+        Ok(default)
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, FederationBlacklistCursor};
+
+    #[test]
+    fn federation_blacklist_cursor_round_trip() {
+        let cursor =
+            FederationBlacklistCursor { created_ts: 1_746_700_000_000, server_name: "matrix.example.com".to_string() };
+
+        let encoded = encode_federation_blacklist_cursor(&cursor);
+        assert_eq!(decode_federation_blacklist_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn federation_blacklist_cursor_rejects_invalid_values() {
+        assert_eq!(decode_federation_blacklist_cursor(None), None);
+        assert_eq!(decode_federation_blacklist_cursor(Some("bad")), None);
+        assert_eq!(decode_federation_blacklist_cursor(Some("123|")), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_federation_blacklist_creation() {
+        let blacklist = FederationBlacklist {
+            id: 1,
+            server_name: "evil-server.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Malicious activity".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            expires_at: None,
+            is_enabled: true,
+            metadata: serde_json::json!({}),
+        };
+        assert_eq!(blacklist.server_name, "evil-server.com");
+        assert!(blacklist.is_enabled);
+    }
+
+    #[test]
+    fn test_federation_blacklist_expired() {
+        let blacklist = FederationBlacklist {
+            id: 2,
+            server_name: "expired-server.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Temporary block".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            created_ts: 1234567890,
+            updated_ts: 1234567890,
+            expires_at: Some(1234567990),
+            is_enabled: false,
+            metadata: serde_json::json!({}),
+        };
+        assert!(!blacklist.is_enabled);
+    }
+
+    #[test]
+    fn test_federation_blacklist_log_creation() {
+        let log = FederationBlacklistLog {
+            id: 1,
+            server_name: "evil-server.com".to_string(),
+            action: "add".to_string(),
+            old_status: None,
+            new_status: Some("blocked".to_string()),
+            reason: Some("Spam".to_string()),
+            performed_by: "@admin:example.com".to_string(),
+            performed_ts: 1234567890,
+            ip_address: Some("192.168.1.1".to_string()),
+            user_agent: None,
+            metadata: serde_json::json!({}),
+        };
+        assert_eq!(log.action, "add");
+    }
+
+    #[test]
+    fn test_federation_access_stats_creation() {
+        let stats = FederationAccessStats {
+            id: 1,
+            server_name: "example.com".to_string(),
+            total_requests: 1000,
+            successful_requests: 950,
+            failed_requests: 50,
+            last_request_ts: Some(1234567890),
+            last_success_ts: Some(1234567890),
+            last_failure_ts: None,
+            average_response_time_ms: 50.0,
+            error_rate: 0.05,
+            created_ts: 1234567800,
+            updated_ts: 1234567890,
+        };
+        assert_eq!(stats.total_requests, 1000);
+    }
+
+    #[test]
+    fn test_add_blacklist_request() {
+        let request = AddBlacklistRequest {
+            server_name: "new-evil.com".to_string(),
+            block_type: "server".to_string(),
+            reason: Some("Test block".to_string()),
+            blocked_by: "@admin:example.com".to_string(),
+            expires_at: Some(1234567990),
+            metadata: None,
+        };
+        assert_eq!(request.server_name, "new-evil.com");
+    }
+
+    #[test]
+    fn test_create_rule_request() {
+        let request = CreateRuleRequest {
+            rule_name: "block-malware".to_string(),
+            rule_type: "domain".to_string(),
+            pattern: "*.evil.com".to_string(),
+            action: "block".to_string(),
+            priority: 100,
+            description: Some("Block malware domains".to_string()),
+            created_by: "@admin:example.com".to_string(),
+        };
+        assert_eq!(request.rule_type, "domain");
+    }
+}

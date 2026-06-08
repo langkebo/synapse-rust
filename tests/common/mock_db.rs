@@ -32,8 +32,8 @@ pub async fn setup_test_schema(pool: &Pool<Postgres>) -> Result<(), sqlx::Error>
             appservice_id TEXT,
             user_type TEXT,
             is_shadow_banned BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
-            update_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+            creation_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+            update_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
         )
     "#,
     )
@@ -49,8 +49,8 @@ pub async fn setup_test_schema(pool: &Pool<Postgres>) -> Result<(), sqlx::Error>
             device_key JSONB,
             last_seen_ts BIGINT,
             last_seen_ip TEXT,
-            created_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
-            first_seen_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+            created_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+            first_seen_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
             appservice_id TEXT,
             ignored_user_list TEXT
         )
@@ -74,8 +74,8 @@ pub async fn setup_test_schema(pool: &Pool<Postgres>) -> Result<(), sqlx::Error>
             is_public BOOLEAN DEFAULT FALSE,
             member_count BIGINT DEFAULT 0,
             history_visibility TEXT DEFAULT 'joined',
-            creation_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
-            last_activity_ts BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+            creation_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+            last_activity_ts BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
         )
     "#,
     )

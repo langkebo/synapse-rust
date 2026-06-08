@@ -84,13 +84,13 @@ impl TcpReplicationServer {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(provided_secret.as_bytes());
-            let provided_hash = hex::encode(hasher.finalize());
+            let provided_hash = crate::common::crypto::encode_hex(hasher.finalize());
 
             let mut expected_hasher = Sha256::new();
             expected_hasher.update(shared_secret.as_bytes());
-            let expected_hash = hex::encode(expected_hasher.finalize());
+            let expected_hash = crate::common::crypto::encode_hex(expected_hasher.finalize());
 
-            if provided_hash != expected_hash {
+            if !crate::common::crypto::secure_compare(&provided_hash, &expected_hash) {
                 tracing::warn!("Replication connection rejected: invalid authentication");
                 return Err(ReplicationError::IoError("Authentication failed".to_string()));
             }

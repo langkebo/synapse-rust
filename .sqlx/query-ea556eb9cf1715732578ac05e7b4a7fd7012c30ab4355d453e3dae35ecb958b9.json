@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, job_name, total_updates AS \"total_updates!\",\n                completed_updates AS \"completed_updates!\",\n                failed_updates AS \"failed_updates!\",\n                last_run_ts, next_run_ts,\n                average_duration_ms AS \"average_duration_ms!\",\n                created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\"\n            FROM background_update_stats ORDER BY created_ts DESC LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_updates!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "completed_updates!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_updates!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_run_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "next_run_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "average_duration_ms!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ea556eb9cf1715732578ac05e7b4a7fd7012c30ab4355d453e3dae35ecb958b9"
+}

@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE device_id = ANY($1) ORDER BY last_seen_ts DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_key",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_seen_ip",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "first_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "user_agent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "appservice_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "ignored_user_list",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5a7303b7d69919e966e9833f7b9a7d797b3905675b7a6e8134346ca3604a5eb5"
+}

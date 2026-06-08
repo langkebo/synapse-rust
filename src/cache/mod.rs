@@ -972,6 +972,14 @@ impl CacheManager {
         }
     }
 
+    /// Returns `true` when the cache manager has a working Redis backend.
+    ///
+    /// This is used by the rate-limit layer to decide whether token-bucket
+    /// state is shared across workers (Redis) or process-local (in-memory).
+    pub fn is_redis_enabled(&self) -> bool {
+        self.use_redis
+    }
+
     pub async fn rate_limit_token_bucket_take(
         &self,
         key: &str,
@@ -992,6 +1000,19 @@ impl CacheManager {
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 return Ok(redis.token_bucket_take(key, now_ms, rate_per_second, burst_size, ttl_seconds).await?);
+            }
+        }
+
+        // Local in-memory fallback: rate-limit state is NOT shared across workers.
+        // Log a one-time warning so operators are aware of the inconsistency risk.
+        {
+            static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(
+                    "Rate limiting is using in-memory token bucket (Redis not available). \
+                     In multi-worker deployments, rate-limit state will NOT be shared across workers. \
+                     Enable Redis for consistent rate limiting."
+                );
             }
         }
 
@@ -1129,15 +1150,14 @@ mod tests {
         let manager = CacheManager::new(&config);
 
         let now = chrono::Utc::now().timestamp();
-        let claims = Claims {
-            sub: "test_subject".to_string(),
-            user_id: "@test:example.com".to_string(),
-            jti: "test-jti-cache-ops".to_string(),
-            is_admin: false,
-            device_id: Some("DEVICE123".to_string()),
-            exp: now + 3600,
-            iat: now,
-        };
+        let claims = crate::auth::ClaimsBuilder::new()
+            .sub("test_subject".to_string())
+            .user_id("@test:example.com".to_string())
+            .jti("test-jti-cache-ops".to_string())
+            .device_id(Some("DEVICE123".to_string()))
+            .exp(now + 3600)
+            .iat(now)
+            .build();
 
         manager.set_token("test_token", &claims, 3600).await;
         let result = manager.get_token("test_token").await;
@@ -1151,15 +1171,14 @@ mod tests {
 
     #[test]
     fn test_claims_struct() {
-        let claims = Claims {
-            sub: "user_subject".to_string(),
-            user_id: "@user:example.com".to_string(),
-            jti: "test-jti-claims-struct".to_string(),
-            is_admin: false,
-            device_id: Some("DEVICE456".to_string()),
-            exp: 1234567890,
-            iat: 1234567890,
-        };
+        let claims = crate::auth::ClaimsBuilder::new()
+            .sub("user_subject".to_string())
+            .user_id("@user:example.com".to_string())
+            .jti("test-jti-claims-struct".to_string())
+            .device_id(Some("DEVICE456".to_string()))
+            .exp(1234567890)
+            .iat(1234567890)
+            .build();
         assert_eq!(claims.user_id, "@user:example.com");
         assert_eq!(claims.device_id, Some("DEVICE456".to_string()));
     }

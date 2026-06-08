@@ -139,59 +139,74 @@ impl ModerationStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple());
 
-        sqlx::query_as::<_, ModerationRule>(
-            r"
-            INSERT INTO moderation_rules
+        sqlx::query_as!(
+            ModerationRule,
+            r##"INSERT INTO moderation_rules
                 (rule_id, server_id, rule_type, pattern, action, reason, created_by, created_ts, updated_ts, is_active, priority)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, true, $9)
-            RETURNING *
-            ",
+            RETURNING id AS "id!", rule_id AS "rule_id!", server_id AS "server_id?",
+                rule_type AS "rule_type!", pattern AS "pattern!", action AS "action!",
+                reason AS "reason?", created_by AS "created_by!", created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!", is_active AS "is_active!", priority AS "priority!"
+            "##,
+            &rule_id,
+            params.server_id.as_deref(),
+            params.rule_type.as_str(),
+            &params.pattern,
+            params.action.as_str(),
+            params.reason.as_deref(),
+            &params.created_by,
+            now,
+            params.priority.unwrap_or(100)
         )
-        .bind(&rule_id)
-        .bind(&params.server_id)
-        .bind(params.rule_type.as_str())
-        .bind(&params.pattern)
-        .bind(params.action.as_str())
-        .bind(&params.reason)
-        .bind(&params.created_by)
-        .bind(now)
-        .bind(params.priority.unwrap_or(100))
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationRule>(
-            r"
-            SELECT * FROM moderation_rules WHERE rule_id = $1 AND is_active = true
-            ",
+        sqlx::query_as!(
+            ModerationRule,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", server_id AS "server_id?",
+                rule_type AS "rule_type!", pattern AS "pattern!", action AS "action!",
+                reason AS "reason?", created_by AS "created_by!", created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!", is_active AS "is_active!", priority AS "priority!"
+            FROM moderation_rules WHERE rule_id = $1 AND is_active = true
+            "##,
+            rule_id
         )
-        .bind(rule_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationRule>(
-            r"
-            SELECT * FROM moderation_rules
+        sqlx::query_as!(
+            ModerationRule,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", server_id AS "server_id?",
+                rule_type AS "rule_type!", pattern AS "pattern!", action AS "action!",
+                reason AS "reason?", created_by AS "created_by!", created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!", is_active AS "is_active!", priority AS "priority!"
+            FROM moderation_rules
             WHERE is_active = true
             ORDER BY priority DESC, created_ts ASC
-            ",
+            "##,
         )
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationRule>(
-            r"
-            SELECT * FROM moderation_rules
+        sqlx::query_as!(
+            ModerationRule,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", server_id AS "server_id?",
+                rule_type AS "rule_type!", pattern AS "pattern!", action AS "action!",
+                reason AS "reason?", created_by AS "created_by!", created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!", is_active AS "is_active!", priority AS "priority!"
+            FROM moderation_rules
             WHERE rule_type = $1 AND is_active = true
             ORDER BY priority DESC, created_ts ASC
-            ",
+            "##,
+            rule_type
         )
-        .bind(rule_type)
         .fetch_all(&*self.pool)
         .await
     }
@@ -206,9 +221,9 @@ impl ModerationStorage {
     ) -> Result<ModerationRule, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query_as::<_, ModerationRule>(
-            r"
-            UPDATE moderation_rules
+        sqlx::query_as!(
+            ModerationRule,
+            r##"UPDATE moderation_rules
             SET
                 pattern = COALESCE($2, pattern),
                 action = COALESCE($3, action),
@@ -216,28 +231,31 @@ impl ModerationStorage {
                 priority = COALESCE($5, priority),
                 updated_ts = $6
             WHERE rule_id = $1
-            RETURNING *
-            ",
+            RETURNING id AS "id!", rule_id AS "rule_id!", server_id AS "server_id?",
+                rule_type AS "rule_type!", pattern AS "pattern!", action AS "action!",
+                reason AS "reason?", created_by AS "created_by!", created_ts AS "created_ts!",
+                updated_ts AS "updated_ts!", is_active AS "is_active!", priority AS "priority!"
+            "##,
+            rule_id,
+            pattern,
+            action,
+            reason,
+            priority,
+            now
         )
-        .bind(rule_id)
-        .bind(pattern)
-        .bind(action)
-        .bind(reason)
-        .bind(priority)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             UPDATE moderation_rules
             SET is_active = false
             WHERE rule_id = $1
-            ",
+            "#,
+            rule_id
         )
-        .bind(rule_id)
         .execute(&*self.pool)
         .await?;
 
@@ -281,21 +299,21 @@ impl ModerationLogStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO moderation_logs
                 (rule_id, event_id, room_id, sender, content_hash, action_taken, confidence, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
+            "#,
+            rule_id,
+            event_id,
+            room_id,
+            sender,
+            content_hash,
+            action_taken,
+            confidence,
+            now
         )
-        .bind(rule_id)
-        .bind(event_id)
-        .bind(room_id)
-        .bind(sender)
-        .bind(content_hash)
-        .bind(action_taken)
-        .bind(confidence)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -303,38 +321,49 @@ impl ModerationLogStorage {
     }
 
     pub async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationLog>(
-            r"
-            SELECT * FROM moderation_logs WHERE event_id = $1 ORDER BY created_ts DESC
-            ",
+        sqlx::query_as!(
+            ModerationLog,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", event_id AS "event_id!",
+                room_id AS "room_id!", sender AS "sender!", content_hash AS "content_hash!",
+                action_taken AS "action_taken!", confidence AS "confidence!", created_ts AS "created_ts!"
+            FROM moderation_logs WHERE event_id = $1 ORDER BY created_ts DESC
+            "##,
+            event_id
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationLog>(
-            r"
-            SELECT * FROM moderation_logs WHERE room_id = $1
+        let limit = limit as i64;
+        sqlx::query_as!(
+            ModerationLog,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", event_id AS "event_id!",
+                room_id AS "room_id!", sender AS "sender!", content_hash AS "content_hash!",
+                action_taken AS "action_taken!", confidence AS "confidence!", created_ts AS "created_ts!"
+            FROM moderation_logs WHERE room_id = $1
             ORDER BY created_ts DESC LIMIT $2
-            ",
+            "##,
+            room_id,
+            limit
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
-        sqlx::query_as::<_, ModerationLog>(
-            r"
-            SELECT * FROM moderation_logs WHERE sender = $1
+        let limit = limit as i64;
+        sqlx::query_as!(
+            ModerationLog,
+            r##"SELECT id AS "id!", rule_id AS "rule_id!", event_id AS "event_id!",
+                room_id AS "room_id!", sender AS "sender!", content_hash AS "content_hash!",
+                action_taken AS "action_taken!", confidence AS "confidence!", created_ts AS "created_ts!"
+            FROM moderation_logs WHERE sender = $1
             ORDER BY created_ts DESC LIMIT $2
-            ",
+            "##,
+            sender,
+            limit
         )
-        .bind(sender)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -342,12 +371,12 @@ impl ModerationLogStorage {
     pub async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
         let cutoff_ts = chrono::Utc::now().timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM moderation_logs WHERE created_ts < $1
-            ",
+            "#,
+            cutoff_ts
         )
-        .bind(cutoff_ts)
         .execute(&*self.pool)
         .await?;
 

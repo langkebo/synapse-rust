@@ -465,15 +465,17 @@ async fn search_friend_directory(
         if !visibility.get(&result.user_id).copied().unwrap_or(true) {
             continue;
         }
-        let presence = result.presence.unwrap_or_else(|| "offline".to_string());
-        let online = presence == "online";
+        let presence_str = result.presence.unwrap_or_else(|| "offline".to_string());
+        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
+            .unwrap_or(crate::common::PresenceState::Offline);
+        let online = presence_state == crate::common::PresenceState::Online;
 
         visible.push(json!({
             "user_id": result.user_id,
             "username": result.username,
             "displayname": result.displayname,
             "avatar_url": result.avatar_url,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "online": online,
             "last_active_ts": result.last_active_ts,
             "last_seen_ts": result.last_active_ts,

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", rule_id AS \"rule_id!\", event_id AS \"event_id!\",\n                room_id AS \"room_id!\", sender AS \"sender!\", content_hash AS \"content_hash!\",\n                action_taken AS \"action_taken!\", confidence AS \"confidence!\", created_ts AS \"created_ts!\"\n            FROM moderation_logs WHERE room_id = $1\n            ORDER BY created_ts DESC LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "rule_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "content_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "action_taken!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "confidence!",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cd0bb0c58d8362818d6948ce51d160f91b8c22c0ba8c2b4f2e81022a021e9e8c"
+}

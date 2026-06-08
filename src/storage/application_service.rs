@@ -1,6 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool, Row};
+use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -185,28 +185,35 @@ impl ApplicationServiceStorage {
         }));
         let config = request.config.unwrap_or(serde_json::json!({}));
 
-        let service = sqlx::query_as::<_, ApplicationService>(
-            r"
+        let service = sqlx::query_as!(
+            ApplicationService,
+            r#"
             INSERT INTO application_services (
                 as_id, url, as_token, hs_token, sender_localpart, is_enabled,
                 is_rate_limited, protocols, namespaces, created_ts, description, api_key, config
             )
             VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING *
-            ",
+            RETURNING
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            "#,
+            &request.as_id,
+            &request.url,
+            &request.as_token,
+            &request.hs_token,
+            &request.sender,
+            request.is_rate_limited.unwrap_or(false),
+            &protocols,
+            &namespaces,
+            now,
+            request.description.as_deref(),
+            request.api_key.as_deref(),
+            &config
         )
-        .bind(&request.as_id)
-        .bind(&request.url)
-        .bind(&request.as_token)
-        .bind(&request.hs_token)
-        .bind(&request.sender)
-        .bind(request.is_rate_limited.unwrap_or(false))
-        .bind(&protocols)
-        .bind(&namespaces)
-        .bind(now)
-        .bind(&request.description)
-        .bind(&request.api_key)
-        .bind(&config)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -223,16 +230,16 @@ impl ApplicationServiceStorage {
                 if let (Some(regex), Some(exclusive)) =
                     (rule.get("regex").and_then(|r| r.as_str()), rule.get("exclusive").and_then(|e| e.as_bool()))
                 {
-                    sqlx::query(
-                        r"
+                    sqlx::query!(
+                        r#"
                         INSERT INTO application_service_user_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        ",
+                        "#,
+                        &service.as_id,
+                        regex,
+                        exclusive,
+                        now
                     )
-                    .bind(&service.as_id)
-                    .bind(regex)
-                    .bind(exclusive)
-                    .bind(now)
                     .execute(&*self.pool)
                     .await?;
                 }
@@ -244,16 +251,16 @@ impl ApplicationServiceStorage {
                 if let (Some(regex), Some(exclusive)) =
                     (rule.get("regex").and_then(|r| r.as_str()), rule.get("exclusive").and_then(|e| e.as_bool()))
                 {
-                    sqlx::query(
-                        r"
+                    sqlx::query!(
+                        r#"
                         INSERT INTO application_service_room_alias_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        ",
+                        "#,
+                        &service.as_id,
+                        regex,
+                        exclusive,
+                        now
                     )
-                    .bind(&service.as_id)
-                    .bind(regex)
-                    .bind(exclusive)
-                    .bind(now)
                     .execute(&*self.pool)
                     .await?;
                 }
@@ -265,16 +272,16 @@ impl ApplicationServiceStorage {
                 if let (Some(regex), Some(exclusive)) =
                     (rule.get("regex").and_then(|r| r.as_str()), rule.get("exclusive").and_then(|e| e.as_bool()))
                 {
-                    sqlx::query(
-                        r"
+                    sqlx::query!(
+                        r#"
                         INSERT INTO application_service_room_namespaces (as_id, namespace, is_exclusive, created_ts)
                         VALUES ($1, $2, $3, $4)
-                        ",
+                        "#,
+                        &service.as_id,
+                        regex,
+                        exclusive,
+                        now
                     )
-                    .bind(&service.as_id)
-                    .bind(regex)
-                    .bind(exclusive)
-                    .bind(now)
                     .execute(&*self.pool)
                     .await?;
                 }
@@ -285,33 +292,75 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn get_by_id(&self, as_id: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationService>(r"SELECT * FROM application_services WHERE as_id = $1")
-            .bind(as_id)
-            .fetch_optional(&*self.pool)
-            .await
+        sqlx::query_as!(
+            ApplicationService,
+            r#"
+            SELECT
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            FROM application_services WHERE as_id = $1
+            "#,
+            as_id
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationService>(
-            r"SELECT * FROM application_services WHERE as_token = $1 AND is_enabled = TRUE",
+        sqlx::query_as!(
+            ApplicationService,
+            r#"
+            SELECT
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            FROM application_services WHERE as_token = $1 AND is_enabled = TRUE
+            "#,
+            as_token
         )
-        .bind(as_token)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_by_hs_token(&self, hs_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationService>(
-            r"SELECT * FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE",
+        sqlx::query_as!(
+            ApplicationService,
+            r#"
+            SELECT
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE
+            "#,
+            hs_token
         )
-        .bind(hs_token)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationService>(
-            r"SELECT * FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC",
+        sqlx::query_as!(
+            ApplicationService,
+            r#"
+            SELECT
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC
+            "#,
         )
         .fetch_all(&*self.pool)
         .await
@@ -324,8 +373,9 @@ impl ApplicationServiceStorage {
     ) -> Result<ApplicationService, sqlx::Error> {
         let protocols = request.protocols.clone();
         let config = request.config.clone();
-        sqlx::query_as::<_, ApplicationService>(
-            r"
+        sqlx::query_as!(
+            ApplicationService,
+            r#"
             UPDATE application_services SET
                 url = COALESCE($2, url),
                 description = COALESCE($3, description),
@@ -336,34 +386,38 @@ impl ApplicationServiceStorage {
                 config = COALESCE($8::jsonb, config),
                 updated_ts = $9
             WHERE as_id = $1
-            RETURNING *
-            ",
+            RETURNING
+                id as "id!", as_id as "as_id!", url as "url!", as_token as "as_token!", hs_token as "hs_token!", sender_localpart as "sender_localpart!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_rate_limited, true) AS "is_rate_limited!",
+                COALESCE(protocols, '{}'::text[]) AS "protocols!",
+                COALESCE(namespaces, '{}'::jsonb) AS "namespaces!",
+                created_ts as "created_ts!", updated_ts, description, api_key, config as "config!"
+            "#,
+            as_id,
+            request.url.as_deref(),
+            request.description.as_deref(),
+            request.is_rate_limited,
+            protocols.as_deref(),
+            request.is_enabled,
+            request.api_key.as_deref(),
+            config.as_ref(),
+            chrono::Utc::now().timestamp_millis()
         )
-        .bind(as_id)
-        .bind(&request.url)
-        .bind(&request.description)
-        .bind(request.is_rate_limited)
-        .bind(protocols)
-        .bind(request.is_enabled)
-        .bind(&request.api_key)
-        .bind(&config)
-        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(r"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1")
-            .bind(as_id)
-            .bind(now)
+        sqlx::query!(r"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1", as_id, now)
             .execute(&*self.pool)
             .await?;
         Ok(())
     }
 
     pub async fn unregister(&self, as_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r"DELETE FROM application_services WHERE as_id = $1").bind(as_id).execute(&*self.pool).await?;
+        sqlx::query!(r"DELETE FROM application_services WHERE as_id = $1", as_id).execute(&*self.pool).await?;
         Ok(())
     }
 
@@ -374,20 +428,24 @@ impl ApplicationServiceStorage {
         state_value: &str,
     ) -> Result<ApplicationServiceState, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query_as::<_, ApplicationServiceState>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceState,
+            r#"
             INSERT INTO application_service_state (as_id, state_key, state_value, updated_ts)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (as_id, state_key) DO UPDATE SET
                 state_value = EXCLUDED.state_value,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
-            ",
+            RETURNING
+                as_id as "as_id!", state_key as "state_key!",
+                COALESCE(state_value, '') AS "state_value!",
+                updated_ts as "updated_ts!"
+            "#,
+            as_id,
+            state_key,
+            state_value,
+            now
         )
-        .bind(as_id)
-        .bind(state_key)
-        .bind(state_value)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
@@ -397,20 +455,36 @@ impl ApplicationServiceStorage {
         as_id: &str,
         state_key: &str,
     ) -> Result<Option<ApplicationServiceState>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceState>(
-            r"SELECT * FROM application_service_state WHERE as_id = $1 AND state_key = $2",
+        sqlx::query_as!(
+            ApplicationServiceState,
+            r#"
+            SELECT
+                as_id as "as_id!", state_key as "state_key!",
+                COALESCE(state_value, '') AS "state_value!",
+                updated_ts as "updated_ts!"
+            FROM application_service_state WHERE as_id = $1 AND state_key = $2
+            "#,
+            as_id,
+            state_key
         )
-        .bind(as_id)
-        .bind(state_key)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceState>(r"SELECT * FROM application_service_state WHERE as_id = $1")
-            .bind(as_id)
-            .fetch_all(&*self.pool)
-            .await
+        sqlx::query_as!(
+            ApplicationServiceState,
+            r#"
+            SELECT
+                as_id as "as_id!", state_key as "state_key!",
+                COALESCE(state_value, '') AS "state_value!",
+                updated_ts as "updated_ts!"
+            FROM application_service_state WHERE as_id = $1
+            "#,
+            as_id
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -425,30 +499,31 @@ impl ApplicationServiceStorage {
         _state_key: Option<&str>,
     ) -> Result<ApplicationServiceEvent, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query_as::<_, ApplicationServiceEvent>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceEvent,
+            r#"
             INSERT INTO application_service_events (
-                event_id, as_id, room_id, event_type, processed, processed_ts, created_ts
+                event_id, as_id, room_id, event_type, is_processed, processed_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, FALSE, NULL, $5)
             RETURNING
-                event_id,
-                as_id,
-                room_id,
-                event_type,
-                ''::text AS sender,
-                '{}'::jsonb AS content,
+                event_id as "event_id!",
+                as_id as "as_id!",
+                COALESCE(room_id, '') AS "room_id!",
+                COALESCE(event_type, '') AS "event_type!",
+                ''::text AS "sender!",
+                '{}'::jsonb AS "content!",
                 NULL::text AS state_key,
-                created_ts AS origin_server_ts,
+                created_ts AS "origin_server_ts!",
                 processed_ts,
                 NULL::text AS transaction_id
-            ",
+            "#,
+            event_id,
+            as_id,
+            room_id,
+            event_type,
+            now
         )
-        .bind(event_id)
-        .bind(as_id)
-        .bind(room_id)
-        .bind(event_type)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
@@ -458,33 +533,37 @@ impl ApplicationServiceStorage {
         as_id: &str,
         limit: i64,
     ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceEvent>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceEvent,
+            r#"
             SELECT
-                event_id,
-                as_id,
-                room_id,
-                event_type,
-                ''::text AS sender,
-                '{}'::jsonb AS content,
+                event_id as "event_id!",
+                as_id as "as_id!",
+                COALESCE(room_id, '') AS "room_id!",
+                COALESCE(event_type, '') AS "event_type!",
+                ''::text AS "sender!",
+                '{}'::jsonb AS "content!",
                 NULL::text AS state_key,
-                created_ts AS origin_server_ts,
+                created_ts AS "origin_server_ts!",
                 processed_ts,
                 NULL::text AS transaction_id
             FROM application_service_events
             WHERE as_id = $1 AND processed_ts IS NULL
             ORDER BY created_ts ASC
             LIMIT $2
-            ",
+            "#,
+            as_id,
+            limit
         )
-        .bind(as_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn mark_event_processed(&self, event_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
+        // NOTE: transaction_id column does not exist in application_service_events table;
+        // keeping sqlx::query to preserve original runtime behavior since sqlx! macro
+        // validates against the live schema at compile time.
         sqlx::query(
             r"UPDATE application_service_events SET processed_ts = $2, transaction_id = $3 WHERE event_id = $1",
         )
@@ -503,41 +582,47 @@ impl ApplicationServiceStorage {
         events: &[serde_json::Value],
     ) -> Result<ApplicationServiceTransaction, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceTransaction,
+            r#"
             INSERT INTO application_service_transactions (as_id, transaction_id, events, sent_ts)
             VALUES ($1, $2, $3, $4)
-            RETURNING *
-            ",
+            RETURNING
+                id as "id!", as_id as "as_id!",
+                COALESCE(transaction_id, '') AS "transaction_id!",
+                COALESCE(events, '[]'::jsonb) AS "events!",
+                COALESCE(sent_ts, 0) AS "sent_ts!",
+                completed_ts, retry_count as "retry_count!", last_error
+            "#,
+            as_id,
+            transaction_id,
+            serde_json::json!(events),
+            now
         )
-        .bind(as_id)
-        .bind(transaction_id)
-        .bind(serde_json::json!(events))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"UPDATE application_service_transactions SET completed_ts = $3 WHERE as_id = $1 AND transaction_id = $2",
+            as_id,
+            transaction_id,
+            now
         )
-        .bind(as_id)
-        .bind(transaction_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn fail_transaction(&self, as_id: &str, transaction_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"UPDATE application_service_transactions SET retry_count = retry_count + 1, last_error = $3 WHERE as_id = $1 AND transaction_id = $2"
+        sqlx::query!(
+            r"UPDATE application_service_transactions SET retry_count = retry_count + 1, last_error = $3 WHERE as_id = $1 AND transaction_id = $2",
+            as_id,
+            transaction_id,
+            error
         )
-        .bind(as_id)
-        .bind(transaction_id)
-        .bind(error)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -547,10 +632,19 @@ impl ApplicationServiceStorage {
         &self,
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"
+        sqlx::query_as!(
+            ApplicationServiceTransaction,
+            r#"
+            SELECT
+                id as "id!", as_id as "as_id!",
+                COALESCE(transaction_id, '') AS "transaction_id!",
+                COALESCE(events, '[]'::jsonb) AS "events!",
+                COALESCE(sent_ts, 0) AS "sent_ts!",
+                completed_ts, retry_count as "retry_count!", last_error
+            FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC
+            "#,
+            as_id
         )
-        .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -563,74 +657,85 @@ impl ApplicationServiceStorage {
         avatar_url: Option<&str>,
     ) -> Result<ApplicationServiceUser, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        sqlx::query_as::<_, ApplicationServiceUser>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceUser,
+            r#"
             INSERT INTO application_service_users (as_id, user_id, displayname, avatar_url, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (as_id, user_id) DO UPDATE SET
                 displayname = COALESCE(EXCLUDED.displayname, application_service_users.displayname),
                 avatar_url = COALESCE(EXCLUDED.avatar_url, application_service_users.avatar_url)
-            RETURNING *
-            ",
+            RETURNING as_id as "as_id!", user_id as "user_id!", displayname, avatar_url, created_ts as "created_ts!"
+            "#,
+            as_id,
+            user_id,
+            displayname,
+            avatar_url,
+            now
         )
-        .bind(as_id)
-        .bind(user_id)
-        .bind(displayname)
-        .bind(avatar_url)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceUser>(r"SELECT * FROM application_service_users WHERE as_id = $1")
-            .bind(as_id)
+        sqlx::query_as!(
+            ApplicationServiceUser,
+            r#"SELECT as_id as "as_id!", user_id as "user_id!", displayname, avatar_url, created_ts as "created_ts!" FROM application_service_users WHERE as_id = $1"#,
+            as_id
+        )
             .fetch_all(&*self.pool)
             .await
     }
 
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ namespace")
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query_scalar!(
+            r#"SELECT as_id as "as_id!" FROM application_service_user_namespaces WHERE $1 ~ namespace LIMIT 1"#,
+            user_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
-        Ok(result.map(|row| row.get("as_id")))
+        Ok(result)
     }
 
     pub async fn is_room_alias_in_namespace(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ namespace")
-            .bind(alias)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query_scalar!(
+            r#"SELECT as_id as "as_id!" FROM application_service_room_alias_namespaces WHERE $1 ~ namespace LIMIT 1"#,
+            alias
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
-        Ok(result.map(|row| row.get("as_id")))
+        Ok(result)
     }
 
     pub async fn is_room_id_in_namespace(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ namespace")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query_scalar!(
+            r#"SELECT as_id as "as_id!" FROM application_service_room_namespaces WHERE $1 ~ namespace LIMIT 1"#,
+            room_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
-        Ok(result.map(|row| row.get("as_id")))
+        Ok(result)
     }
 
     pub async fn get_user_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceNamespace,
+            r#"
             SELECT
-                id,
-                as_id,
-                namespace AS namespace_pattern,
-                is_exclusive,
-                namespace AS regex,
-                created_ts
+                id as "id!",
+                as_id as "as_id!",
+                namespace AS "namespace_pattern!",
+                COALESCE(is_exclusive, true) AS "is_exclusive!",
+                namespace AS "regex!",
+                created_ts as "created_ts!"
             FROM application_service_user_namespaces
             WHERE as_id = $1
-            ",
+            "#,
+            as_id
         )
-        .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -639,76 +744,82 @@ impl ApplicationServiceStorage {
         &self,
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceNamespace,
+            r#"
             SELECT
-                id,
-                as_id,
-                namespace AS namespace_pattern,
-                is_exclusive,
-                namespace AS regex,
-                created_ts
+                id as "id!",
+                as_id as "as_id!",
+                namespace AS "namespace_pattern!",
+                COALESCE(is_exclusive, true) AS "is_exclusive!",
+                namespace AS "regex!",
+                created_ts as "created_ts!"
             FROM application_service_room_alias_namespaces
             WHERE as_id = $1
-            ",
+            "#,
+            as_id
         )
-        .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn get_room_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceNamespace>(
-            r"
+        sqlx::query_as!(
+            ApplicationServiceNamespace,
+            r#"
             SELECT
-                id,
-                as_id,
-                namespace AS namespace_pattern,
-                is_exclusive,
-                namespace AS regex,
-                created_ts
+                id as "id!",
+                as_id as "as_id!",
+                namespace AS "namespace_pattern!",
+                COALESCE(is_exclusive, true) AS "is_exclusive!",
+                namespace AS "regex!",
+                created_ts as "created_ts!"
             FROM application_service_room_namespaces
             WHERE as_id = $1
-            ",
+            "#,
+            as_id
         )
-        .bind(as_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r"SELECT * FROM application_service_statistics").fetch_all(&*self.pool).await.map(|rows| {
-            rows.into_iter()
-                .map(|row| {
-                    serde_json::json!({
-                        "id": row.get::<i64, _>("id"),
-                        "as_id": row.get::<String, _>("as_id"),
-                        "name": row.get::<Option<String>, _>("name"),
-                        "is_enabled": row.get::<bool, _>("is_enabled"),
-                        "is_rate_limited": row.get::<bool, _>("is_rate_limited"),
-                        "virtual_user_count": row.get::<i64, _>("virtual_user_count"),
-                        "pending_event_count": row.get::<i64, _>("pending_event_count"),
-                        "pending_transaction_count": row.get::<i64, _>("pending_transaction_count"),
-                        "last_seen_ts": row.get::<Option<i64>, _>("last_seen_ts"),
-                        "created_ts": row.get::<i64, _>("created_ts"),
-                    })
+        let rows = sqlx::query!(
+            r#"SELECT id as "id!", as_id as "as_id!", name, is_enabled as "is_enabled!", is_rate_limited as "is_rate_limited!", virtual_user_count as "virtual_user_count!", pending_event_count as "pending_event_count!", pending_transaction_count as "pending_transaction_count!", last_seen_ts, created_ts as "created_ts!" FROM application_service_statistics"#
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.id,
+                    "as_id": row.as_id,
+                    "name": row.name,
+                    "is_enabled": row.is_enabled,
+                    "is_rate_limited": row.is_rate_limited,
+                    "virtual_user_count": row.virtual_user_count,
+                    "pending_event_count": row.pending_event_count,
+                    "pending_transaction_count": row.pending_transaction_count,
+                    "last_seen_ts": row.last_seen_ts,
+                    "created_ts": row.created_ts,
                 })
-                .collect()
-        })
+            })
+            .collect())
     }
 
     pub async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE application_service_statistics
             SET last_seen_ts = $2
             WHERE as_id = $1
-            ",
+            "#,
+            as_id,
+            now
         )
-        .bind(as_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 

@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO thread_replies (\n                room_id, thread_id, event_id, root_event_id, sender,\n                in_reply_to_event_id, content, origin_server_ts, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING id as \"id!\", room_id as \"room_id!\", thread_id as \"thread_id!\", event_id as \"event_id!\", root_event_id as \"root_event_id!\", sender as \"sender!\",\n                      in_reply_to_event_id, content as \"content!\", origin_server_ts as \"origin_server_ts!\", is_edited as \"is_edited!\", is_redacted as \"is_redacted!\", created_ts as \"created_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "root_event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "in_reply_to_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "origin_server_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_edited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_redacted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b1acf819b84b88b45911a05d7ae68e3816b89e005bdbe2ba0abf5405518d2332"
+}

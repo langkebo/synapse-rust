@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE application_service_statistics\n            SET last_seen_ts = $2\n            WHERE as_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7f69614a599d3a7f742c65fd78cc1714ef80d8c38c5493eb7fbb1b15fce44f81"
+}

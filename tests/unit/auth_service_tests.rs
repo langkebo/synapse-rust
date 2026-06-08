@@ -55,7 +55,6 @@ fn test_auth_service_register_invalid_username() {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -94,7 +93,6 @@ fn test_auth_service_login_invalid_credentials() {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -130,7 +128,6 @@ fn test_password_migration_on_login() {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -206,7 +203,6 @@ fn test_password_migration_preserves_login_ability() {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());
@@ -266,7 +262,6 @@ fn test_no_migration_for_argon2_hash() {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let metrics = Arc::new(MetricsCollector::new());

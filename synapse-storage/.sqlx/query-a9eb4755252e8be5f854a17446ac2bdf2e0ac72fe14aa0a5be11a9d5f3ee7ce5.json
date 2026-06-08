@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_blacklist (\n                server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata\n            )\n            VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)\n            ON CONFLICT (server_name) DO UPDATE SET\n                block_type = $2,\n                reason = $3,\n                blocked_by = $4,\n                updated_ts = $5,\n                expires_at = $6,\n                is_enabled = true,\n                metadata = $7\n            RETURNING id, server_name, block_type, reason, blocked_by as \"blocked_by!\", created_ts as \"created_ts!\", updated_ts as \"updated_ts!\", expires_at, is_enabled, metadata\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "block_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "blocked_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a9eb4755252e8be5f854a17446ac2bdf2e0ac72fe14aa0a5be11a9d5f3ee7ce5"
+}

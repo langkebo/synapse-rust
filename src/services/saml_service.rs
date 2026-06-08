@@ -354,8 +354,8 @@ impl SamlService {
                 request_id: request_id.clone(),
                 session_id: Some(session_id.to_string()),
                 user_id: Some(session.user_id.clone()),
-                name_id: session.name_id.clone(),
-                issuer: session.issuer.clone(),
+                name_id: Some(session.name_id.clone()),
+                issuer: Some(session.issuer.clone()),
                 reason: reason.map(|s| s.to_string()),
             })
             .await?;
@@ -575,7 +575,7 @@ impl SamlService {
             hasher.finalize().to_vec()
         };
 
-        if !Self::constant_time_compare(&digest_bytes, &computed_digest) {
+        if !crate::common::crypto::secure_compare_bytes(&digest_bytes, &computed_digest) {
             return Err("SAML digest verification failed - response may be tampered with".to_string());
         }
 
@@ -611,17 +611,6 @@ impl SamlService {
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
-    }
-
-    fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
-        if a.len() != b.len() {
-            return false;
-        }
-        let mut result = 0u8;
-        for (x, y) in a.iter().zip(b.iter()) {
-            result |= x ^ y;
-        }
-        result == 0
     }
 
     fn verify_rsa_signature(cert_der: &[u8], signature: &[u8], signed_data: &[u8]) -> Result<(), String> {
@@ -679,7 +668,7 @@ impl SamlService {
     }
 
     fn build_logout_request(&self, request_id: &str, session: &SamlSession) -> String {
-        let name_id = session.name_id.as_deref().unwrap_or("");
+        let name_id = &session.name_id;
         let sp_entity_id = &self.config.sp_entity_id;
 
         let request = format!(
@@ -695,7 +684,7 @@ impl SamlService {
             Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
             sp_entity_id,
             name_id,
-            session.session_index.as_deref().unwrap_or("")
+            session.session_index.as_str()
         );
 
         general_purpose::STANDARD.encode(request.as_bytes())

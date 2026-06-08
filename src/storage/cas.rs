@@ -578,9 +578,9 @@ impl CasStorage {
                 service_url_pattern AS "service_url_pattern!",
                 allowed_attributes AS "allowed_attributes!",
                 allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
-                is_enabled AS "is_enabled!",
-                is_require_secure AS "is_require_secure!",
-                is_single_logout AS "is_single_logout!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_require_secure, true) AS "is_require_secure!",
+                COALESCE(is_single_logout, false) AS "is_single_logout!",
                 created_ts AS "created_ts!",
                 updated_ts AS "updated_ts?"
             "#,
@@ -613,9 +613,9 @@ impl CasStorage {
                 service_url_pattern AS "service_url_pattern!",
                 allowed_attributes AS "allowed_attributes!",
                 allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
-                is_enabled AS "is_enabled!",
-                is_require_secure AS "is_require_secure!",
-                is_single_logout AS "is_single_logout!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_require_secure, true) AS "is_require_secure!",
+                COALESCE(is_single_logout, false) AS "is_single_logout!",
                 created_ts AS "created_ts!",
                 updated_ts AS "updated_ts?"
             FROM cas_services
@@ -642,9 +642,9 @@ impl CasStorage {
                 service_url_pattern AS "service_url_pattern!",
                 allowed_attributes AS "allowed_attributes!",
                 allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
-                is_enabled AS "is_enabled!",
-                is_require_secure AS "is_require_secure!",
-                is_single_logout AS "is_single_logout!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_require_secure, true) AS "is_require_secure!",
+                COALESCE(is_single_logout, false) AS "is_single_logout!",
                 created_ts AS "created_ts!",
                 updated_ts AS "updated_ts?"
             FROM cas_services
@@ -671,9 +671,9 @@ impl CasStorage {
                 service_url_pattern AS "service_url_pattern!",
                 allowed_attributes AS "allowed_attributes!",
                 allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
-                is_enabled AS "is_enabled!",
-                is_require_secure AS "is_require_secure!",
-                is_single_logout AS "is_single_logout!",
+                COALESCE(is_enabled, false) AS "is_enabled!",
+                COALESCE(is_require_secure, true) AS "is_require_secure!",
+                COALESCE(is_single_logout, false) AS "is_single_logout!",
                 created_ts AS "created_ts!",
                 updated_ts AS "updated_ts?"
             FROM cas_services

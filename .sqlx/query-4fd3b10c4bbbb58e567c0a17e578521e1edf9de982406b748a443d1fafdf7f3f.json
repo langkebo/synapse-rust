@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO sliding_sync_lists\n                (user_id, device_id, conn_id, list_key, sort, filters, room_subscription, ranges, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)\n            ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''), list_key) DO UPDATE SET\n                sort = EXCLUDED.sort,\n                filters = EXCLUDED.filters,\n                room_subscription = EXCLUDED.room_subscription,\n                ranges = EXCLUDED.ranges,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING\n                id as \"id!\", user_id as \"user_id!\", device_id as \"device_id!\",\n                conn_id, list_key as \"list_key!\",\n                COALESCE(sort, '[]'::jsonb) AS \"sort!\",\n                filters,\n                room_subscription,\n                ranges,\n                created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "list_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sort!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "filters",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "room_subscription",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "ranges",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4fd3b10c4bbbb58e567c0a17e578521e1edf9de982406b748a443d1fafdf7f3f"
+}

@@ -254,23 +254,28 @@ impl ModuleStorage {
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, Module>(
-            r"
+        let row = sqlx::query_as!(Module,
+            r#"
             INSERT INTO modules (
                 module_name, module_type, version, description, is_enabled, priority, config, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
-            RETURNING *
-            ",
+            RETURNING id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?"
+            "#,
+            &request.module_name,
+            &request.module_type,
+            &request.version,
+            request.description.as_deref(),
+            request.is_enabled.unwrap_or(true),
+            request.priority.unwrap_or(100),
+            request.config.as_ref(),
+            now
         )
-        .bind(&request.module_name)
-        .bind(&request.module_type)
-        .bind(&request.version)
-        .bind(&request.description)
-        .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.priority.unwrap_or(100))
-        .bind(&request.config)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -280,20 +285,32 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error> {
-        let row = sqlx::query_as::<_, Module>("SELECT * FROM modules WHERE module_name = $1")
-            .bind(module_name)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(Module,
+            r#"SELECT id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?" FROM modules WHERE module_name = $1"#,
+            module_name
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
 
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, Module>(
-            "SELECT * FROM modules WHERE module_type = $1 AND is_enabled = true ORDER BY priority ASC",
+        let rows = sqlx::query_as!(Module,
+            r#"SELECT id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?" FROM modules WHERE module_type = $1 AND is_enabled = true ORDER BY priority ASC"#,
+            module_type
         )
-        .bind(module_type)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -310,19 +327,24 @@ impl ModuleStorage {
         let cursor_module_type = decoded.map(|(module_type, _, _)| module_type);
         let cursor_priority = decoded.map(|(_, priority, _)| priority);
         let cursor_module_name = decoded.map(|(_, _, module_name)| module_name);
-        let rows = sqlx::query_as::<_, Module>(
-            "SELECT * FROM modules
+        let rows = sqlx::query_as!(Module,
+            r#"SELECT id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?" FROM modules
              WHERE ($2::TEXT IS NULL AND $3::INT4 IS NULL AND $4::TEXT IS NULL)
                 OR module_type > $2
                 OR (module_type = $2 AND priority > $3)
                 OR (module_type = $2 AND priority = $3 AND module_name > $4)
              ORDER BY module_type ASC, priority ASC, module_name ASC
-             LIMIT $1",
+             LIMIT $1"#,
+            limit,
+            cursor_module_type,
+            cursor_priority,
+            cursor_module_name
         )
-        .bind(limit)
-        .bind(cursor_module_type)
-        .bind(cursor_priority)
-        .bind(cursor_module_name)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -341,15 +363,20 @@ impl ModuleStorage {
         module_name: &str,
         config: serde_json::Value,
     ) -> Result<Module, sqlx::Error> {
-        let row = sqlx::query_as::<_, Module>(
-            r"
+        let row = sqlx::query_as!(Module,
+            r#"
             UPDATE modules SET config = $2
             WHERE module_name = $1
-            RETURNING *
-            ",
+            RETURNING id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?"
+            "#,
+            module_name,
+            Some(&config)
         )
-        .bind(module_name)
-        .bind(&config)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -358,15 +385,20 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error> {
-        let row = sqlx::query_as::<_, Module>(
-            r"
+        let row = sqlx::query_as!(Module,
+            r#"
             UPDATE modules SET is_enabled = $2
             WHERE module_name = $1
-            RETURNING *
-            ",
+            RETURNING id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      version as "version!", description as "description?", is_enabled as "is_enabled!",
+                      priority as "priority!", config as "config?", created_ts as "created_ts!",
+                      updated_ts as "updated_ts!", last_executed_ts as "last_executed_ts?",
+                      execution_count as "execution_count!", error_count as "error_count!",
+                      last_error as "last_error?"
+            "#,
+            module_name,
+            is_enabled
         )
-        .bind(module_name)
-        .bind(is_enabled)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -375,7 +407,7 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM modules WHERE module_name = $1").bind(module_name).execute(&*self.pool).await?;
+        sqlx::query!("DELETE FROM modules WHERE module_name = $1", module_name).execute(&*self.pool).await?;
 
         info!("Deleted module: {}", module_name);
         Ok(())
@@ -390,7 +422,7 @@ impl ModuleStorage {
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE modules SET
                 last_executed_ts = $2,
@@ -399,11 +431,11 @@ impl ModuleStorage {
                 last_error = $4
             WHERE module_name = $1
             ",
+            module_name,
+            now,
+            success,
+            error
         )
-        .bind(module_name)
-        .bind(now)
-        .bind(success)
-        .bind(error)
         .execute(&*self.pool)
         .await?;
 
@@ -417,41 +449,31 @@ impl ModuleStorage {
     ) -> Result<SpamCheckResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let score = request.score.unwrap_or(0);
-        let is_spam = !matches!(request.result.as_str(), "ok" | "allow" | "pass" | "clean");
-        let check_details = serde_json::json!({
-            "event_type": request.event_type,
-            "content": request.content,
-            "result": request.result,
-            "reason": request.reason,
-            "checker_module": request.checker_module,
-            "action_taken": request.action_taken,
-        });
 
-        let row = sqlx::query_as::<_, SpamCheckResult>(
-            r"
+        let row = sqlx::query_as!(SpamCheckResult,
+            r#"
             INSERT INTO spam_check_results (
-                event_id, room_id, user_id, sender, event_type, content, result, score,
-                spam_score, is_spam, check_details, reason, checker_module, checked_ts,
-                action_taken, created_ts
+                event_id, room_id, sender, event_type, content, result, score,
+                reason, checker_module, checked_ts, action_taken, created_ts
             )
-            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12, $13, $12)
-            RETURNING id, event_id, room_id, sender, event_type, content, result, score,
-                reason, checker_module, checked_ts, action_taken
-            ",
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10)
+            RETURNING id as "id!", event_id as "event_id!", room_id as "room_id!", sender as "sender!",
+                      event_type as "event_type!", content as "content?", result as "result!",
+                      score as "score!", reason as "reason?", checker_module as "checker_module!",
+                      checked_ts as "checked_ts!", action_taken as "action_taken?"
+            "#,
+            &request.event_id,
+            &request.room_id,
+            &request.sender,
+            &request.event_type,
+            &request.content,
+            &request.result,
+            score,
+            request.reason.as_deref(),
+            &request.checker_module,
+            now,
+            request.action_taken.as_deref()
         )
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.sender)
-        .bind(&request.event_type)
-        .bind(&request.content)
-        .bind(&request.result)
-        .bind(score)
-        .bind(is_spam)
-        .bind(check_details)
-        .bind(&request.reason)
-        .bind(&request.checker_module)
-        .bind(now)
-        .bind(&request.action_taken)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -460,17 +482,19 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
-        sqlx::query_as::<_, SpamCheckResult>(
-            r"
-            SELECT id, event_id, room_id, sender, event_type, content, result, score,
-                reason, checker_module, checked_ts, action_taken
+        sqlx::query_as!(SpamCheckResult,
+            r#"
+            SELECT id as "id!", event_id as "event_id!", room_id as "room_id!", sender as "sender!",
+                   event_type as "event_type!", content as "content?", result as "result!",
+                   score as "score!", reason as "reason?", checker_module as "checker_module!",
+                   checked_ts as "checked_ts!", action_taken as "action_taken?"
             FROM spam_check_results
             WHERE event_id = $1
             ORDER BY checked_ts DESC, id DESC
             LIMIT 1
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -481,18 +505,20 @@ impl ModuleStorage {
         sender: &str,
         limit: i64,
     ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
-        sqlx::query_as::<_, SpamCheckResult>(
-            r"
-            SELECT id, event_id, room_id, sender, event_type, content, result, score,
-                reason, checker_module, checked_ts, action_taken
+        sqlx::query_as!(SpamCheckResult,
+            r#"
+            SELECT id as "id!", event_id as "event_id!", room_id as "room_id!", sender as "sender!",
+                   event_type as "event_type!", content as "content?", result as "result!",
+                   score as "score!", reason as "reason?", checker_module as "checker_module!",
+                   checked_ts as "checked_ts!", action_taken as "action_taken?"
             FROM spam_check_results
             WHERE sender = $1
             ORDER BY checked_ts DESC, id DESC
             LIMIT $2
-            ",
+            "#,
+            sender,
+            limit
         )
-        .bind(sender)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -503,34 +529,29 @@ impl ModuleStorage {
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        let rule_details = serde_json::json!({
-            "event_type": request.event_type,
-            "rule_name": request.rule_name,
-            "reason": request.reason,
-            "modified_content": request.modified_content,
-        });
 
-        let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
-            r"
+        let row = sqlx::query_as!(ThirdPartyRuleResult,
+            r#"
             INSERT INTO third_party_rule_results (
-                rule_type, event_id, room_id, user_id, sender, event_type, rule_name,
-                is_allowed, rule_details, reason, modified_content, checked_ts, created_ts
+                event_id, room_id, sender, event_type, rule_name,
+                is_allowed, reason, modified_content, checked_ts, created_ts
             )
-            VALUES ($1, $2, $3, $4, $4, $5, $1, $6, $7, $8, $9, $10, $10)
-            RETURNING id, event_id, room_id, sender, event_type, rule_name,
-                is_allowed, reason, modified_content, checked_ts
-            ",
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            RETURNING id as "id!", event_id as "event_id!", room_id as "room_id!", sender as "sender!",
+                      event_type as "event_type!", rule_name as "rule_name!",
+                      is_allowed as "is_allowed!", reason as "reason?",
+                      modified_content as "modified_content?", checked_ts as "checked_ts!"
+            "#,
+            &request.event_id,
+            &request.room_id,
+            &request.sender,
+            &request.event_type,
+            &request.rule_name,
+            request.is_allowed,
+            request.reason.as_deref(),
+            request.modified_content.as_ref(),
+            now
         )
-        .bind(&request.rule_name)
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.sender)
-        .bind(&request.event_type)
-        .bind(request.is_allowed)
-        .bind(rule_details)
-        .bind(&request.reason)
-        .bind(&request.modified_content)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -539,16 +560,18 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
-        sqlx::query_as::<_, ThirdPartyRuleResult>(
-            r"
-            SELECT id, event_id, room_id, sender, event_type, rule_name,
-                is_allowed, reason, modified_content, checked_ts
+        sqlx::query_as!(ThirdPartyRuleResult,
+            r#"
+            SELECT id as "id!", event_id as "event_id!", room_id as "room_id!", sender as "sender!",
+                   event_type as "event_type!", rule_name as "rule_name!",
+                   is_allowed as "is_allowed!", reason as "reason?",
+                   modified_content as "modified_content?", checked_ts as "checked_ts!"
             FROM third_party_rule_results
             WHERE event_id = $1
             ORDER BY checked_ts DESC, id DESC
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -560,24 +583,28 @@ impl ModuleStorage {
     ) -> Result<ModuleExecutionLog, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, ModuleExecutionLog>(
-            r"
+        let row = sqlx::query_as!(ModuleExecutionLog,
+            r#"
             INSERT INTO module_execution_logs (
                 module_name, module_type, event_id, room_id, execution_time_ms, is_success, error_message, metadata, executed_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            ",
+            RETURNING id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      event_id as "event_id?", room_id as "room_id?",
+                      execution_time_ms as "execution_time_ms!", is_success as "is_success!",
+                      error_message as "error_message?", metadata as "metadata?",
+                      executed_ts as "executed_ts!"
+            "#,
+            &request.module_name,
+            &request.module_type,
+            request.event_id.as_deref(),
+            request.room_id.as_deref(),
+            request.execution_time_ms,
+            request.is_success,
+            request.error_message.as_deref(),
+            request.metadata.as_ref(),
+            now
         )
-        .bind(&request.module_name)
-        .bind(&request.module_type)
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(request.execution_time_ms)
-        .bind(request.is_success)
-        .bind(&request.error_message)
-        .bind(&request.metadata)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -590,11 +617,16 @@ impl ModuleStorage {
         module_name: &str,
         limit: i64,
     ) -> Result<Vec<ModuleExecutionLog>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, ModuleExecutionLog>(
-            "SELECT * FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC LIMIT $2",
+        let rows = sqlx::query_as!(ModuleExecutionLog,
+            r#"SELECT id as "id!", module_name as "module_name!", module_type as "module_type!",
+                      event_id as "event_id?", room_id as "room_id?",
+                      execution_time_ms as "execution_time_ms!", is_success as "is_success!",
+                      error_message as "error_message?", metadata as "metadata?",
+                      executed_ts as "executed_ts!"
+               FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC LIMIT $2"#,
+            module_name,
+            limit
         )
-        .bind(module_name)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -608,8 +640,8 @@ impl ModuleStorage {
     ) -> Result<AccountValidity, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, AccountValidity>(
-            r"
+        let row = sqlx::query_as!(AccountValidity,
+            r#"
             INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
@@ -617,19 +649,20 @@ impl ModuleStorage {
                 is_valid = EXCLUDED.is_valid,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING
-                user_id,
-                expiration_at,
-                last_check_at,
-                renewal_token,
-                is_valid,
-                created_ts,
-                COALESCE(updated_ts, created_ts) AS updated_ts
-            ",
+                user_id as "user_id!",
+                expiration_at as "expiration_at!",
+                last_check_at as "email_sent_ts?",
+                renewal_token as "renewal_token?",
+                NULL::BIGINT as "renewal_token_ts?",
+                is_valid as "is_valid!",
+                created_ts as "created_ts!",
+                COALESCE(updated_ts, created_ts) as "updated_ts!"
+            "#,
+            &request.user_id,
+            request.expiration_at,
+            request.is_valid.unwrap_or(true),
+            now
         )
-        .bind(&request.user_id)
-        .bind(request.expiration_at)
-        .bind(request.is_valid.unwrap_or(true))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -638,21 +671,22 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
-        let row = sqlx::query_as::<_, AccountValidity>(
-            r"
+        let row = sqlx::query_as!(AccountValidity,
+            r#"
             SELECT
-                user_id,
-                expiration_at,
-                last_check_at,
-                renewal_token,
-                is_valid,
-                created_ts,
-                COALESCE(updated_ts, created_ts) AS updated_ts
+                user_id as "user_id!",
+                expiration_at as "expiration_at!",
+                last_check_at as "email_sent_ts?",
+                renewal_token as "renewal_token?",
+                NULL::BIGINT as "renewal_token_ts?",
+                is_valid as "is_valid!",
+                created_ts as "created_ts!",
+                COALESCE(updated_ts, created_ts) as "updated_ts!"
             FROM account_validity
             WHERE user_id = $1
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -666,26 +700,27 @@ impl ModuleStorage {
         renewal_token: &str,
         new_expiration_at: i64,
     ) -> Result<AccountValidity, sqlx::Error> {
-        let row = sqlx::query_as::<_, AccountValidity>(
-            r"
+        let row = sqlx::query_as!(AccountValidity,
+            r#"
             UPDATE account_validity SET
                 expiration_at = $3,
                 renewal_token = NULL,
                 is_valid = true
             WHERE user_id = $1 AND renewal_token = $2
             RETURNING
-                user_id,
-                expiration_at,
-                last_check_at,
-                renewal_token,
-                is_valid,
-                created_ts,
-                COALESCE(updated_ts, created_ts) AS updated_ts
-            ",
+                user_id as "user_id!",
+                expiration_at as "expiration_at!",
+                last_check_at as "email_sent_ts?",
+                renewal_token as "renewal_token?",
+                NULL::BIGINT as "renewal_token_ts?",
+                is_valid as "is_valid!",
+                created_ts as "created_ts!",
+                COALESCE(updated_ts, created_ts) as "updated_ts!"
+            "#,
+            user_id,
+            renewal_token,
+            new_expiration_at
         )
-        .bind(user_id)
-        .bind(renewal_token)
-        .bind(new_expiration_at)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -694,9 +729,7 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1")
-            .bind(user_id)
-            .bind(token)
+        sqlx::query!("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1", user_id, token)
             .execute(&*self.pool)
             .await?;
 
@@ -705,21 +738,22 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, AccountValidity>(
-            r"
+        let rows = sqlx::query_as!(AccountValidity,
+            r#"
             SELECT
-                user_id,
-                expiration_at,
-                last_check_at,
-                renewal_token,
-                is_valid,
-                created_ts,
-                COALESCE(updated_ts, created_ts) AS updated_ts
+                user_id as "user_id!",
+                expiration_at as "expiration_at!",
+                last_check_at as "email_sent_ts?",
+                renewal_token as "renewal_token?",
+                NULL::BIGINT as "renewal_token_ts?",
+                is_valid as "is_valid!",
+                created_ts as "created_ts!",
+                COALESCE(updated_ts, created_ts) as "updated_ts!"
             FROM account_validity
             WHERE expiration_at < $1 AND is_valid = true
-            ",
+            "#,
+            before_ts
         )
-        .bind(before_ts)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -746,24 +780,27 @@ impl ModuleStorage {
     ) -> Result<MediaCallback, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, MediaCallback>(
-            r"
+        let row = sqlx::query_as!(MediaCallback,
+            r#"
             INSERT INTO media_callbacks (
                 callback_name, callback_type, url, method, headers, is_enabled, timeout_ms, retry_count, created_ts, updated_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-            RETURNING *
-            ",
+            RETURNING id as "id!", callback_type as "callback_type!", media_id as "media_id!",
+                      user_id as "user_id!", status as "status!", result as "result?",
+                      created_ts as "created_ts!", completed_ts as "completed_ts?",
+                      is_enabled as "is_enabled!"
+            "#,
+            &request.callback_name,
+            &request.callback_type,
+            &request.url,
+            request.method.as_deref().unwrap_or("POST"),
+            request.headers.as_ref(),
+            request.is_enabled.unwrap_or(true),
+            request.timeout_ms.unwrap_or(5000),
+            request.retry_count.unwrap_or(3),
+            now
         )
-        .bind(&request.callback_name)
-        .bind(&request.callback_type)
-        .bind(&request.url)
-        .bind(request.method.unwrap_or_else(|| "POST".to_string()))
-        .bind(&request.headers)
-        .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.timeout_ms.unwrap_or(5000))
-        .bind(request.retry_count.unwrap_or(3))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -773,16 +810,26 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
         let rows = if let Some(cb_type) = callback_type {
-            sqlx::query_as::<_, MediaCallback>(
-                "SELECT id, callback_type, media_id, user_id, status, result, created_ts, completed_ts, is_enabled FROM media_callbacks WHERE is_enabled = true AND callback_type = $1",
+            sqlx::query_as!(MediaCallback,
+                r#"SELECT id as "id!", callback_type as "callback_type!", media_id as "media_id!",
+                          user_id as "user_id!", status as "status!", result as "result?",
+                          created_ts as "created_ts!", completed_ts as "completed_ts?",
+                          is_enabled as "is_enabled!"
+                   FROM media_callbacks WHERE is_enabled = true AND callback_type = $1"#,
+                cb_type
             )
-            .bind(cb_type)
             .fetch_all(&*self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, MediaCallback>("SELECT id, callback_type, media_id, user_id, status, result, created_ts, completed_ts, is_enabled FROM media_callbacks WHERE is_enabled = true")
-                .fetch_all(&*self.pool)
-                .await?
+            sqlx::query_as!(MediaCallback,
+                r#"SELECT id as "id!", callback_type as "callback_type!", media_id as "media_id!",
+                          user_id as "user_id!", status as "status!", result as "result?",
+                          created_ts as "created_ts!", completed_ts as "completed_ts?",
+                          is_enabled as "is_enabled!"
+                   FROM media_callbacks WHERE is_enabled = true"#
+            )
+            .fetch_all(&*self.pool)
+            .await?
         };
 
         Ok(rows)
@@ -795,6 +842,7 @@ impl ModuleStorage {
     ) -> Result<AccountDataCallback, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
+        // SKIP: table schema doesn't match struct fields — keep as runtime sqlx::query_as
         let row = sqlx::query_as::<_, AccountDataCallback>(
             r"
             INSERT INTO account_data_callbacks (
@@ -818,6 +866,7 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
+        // SKIP: table schema doesn't match struct fields — keep as runtime sqlx::query_as
         let rows = sqlx::query_as::<_, AccountDataCallback>(
             "SELECT id, callback_type, user_id, data_type, result, created_ts, is_enabled FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
         )

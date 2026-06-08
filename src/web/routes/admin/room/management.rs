@@ -187,7 +187,7 @@ pub async fn make_room_admin(
 
 #[axum::debug_handler]
 pub async fn purge_history(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -207,6 +207,16 @@ pub async fn purge_history(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
+    // P2 #33: 审计日志 - purge_history 操作
+    tracing::warn!(
+        action = "admin.purge_history",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        purge_up_to_ts = timestamp,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin purge history operation"
+    );
+
     let deleted_count = state
         .services.rooms.event_storage
         .delete_events_before(room_id, timestamp)
@@ -221,7 +231,7 @@ pub async fn purge_history(
 
 #[axum::debug_handler]
 pub async fn purge_history_by_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
@@ -234,12 +244,12 @@ pub async fn purge_history_by_room(
         _ => json!({ "room_id": room_id }),
     };
 
-    purge_history(_admin, State(state), Json(merged_body)).await
+    purge_history(admin, State(state), Json(merged_body)).await
 }
 
 #[axum::debug_handler]
 pub async fn purge_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -254,6 +264,15 @@ pub async fn purge_room(
     })? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
+
+    // P2 #33: 审计日志 - delete_room 操作
+    tracing::warn!(
+        action = "admin.delete_room",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin delete room operation"
+    );
 
     state
         .services.rooms.room_storage

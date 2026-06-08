@@ -78,14 +78,15 @@ impl AuditEventStorage {
     }
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
-        sqlx::query_as::<_, AuditEvent>(
+        sqlx::query_as!(
+            AuditEvent,
             r"
             SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
             FROM audit_events
             WHERE event_id = $1
             ",
+            event_id,
         )
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -175,13 +176,13 @@ impl AuditEventStorage {
     }
 
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM audit_events
             WHERE created_ts < $1
             ",
+            cutoff_ts,
         )
-        .bind(cutoff_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -198,7 +199,8 @@ async fn insert_audit_event<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query_as::<_, AuditEvent>(
+    sqlx::query_as!(
+        AuditEvent,
         r"
         INSERT INTO audit_events (
             event_id,
@@ -214,16 +216,16 @@ where
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
         ",
+        event_id,
+        &request.actor_id,
+        &request.action,
+        &request.resource_type,
+        &request.resource_id,
+        &request.result,
+        &request.request_id,
+        request.details.clone().unwrap_or_else(|| serde_json::json!({})),
+        created_ts,
     )
-    .bind(event_id)
-    .bind(&request.actor_id)
-    .bind(&request.action)
-    .bind(&request.resource_type)
-    .bind(&request.resource_id)
-    .bind(&request.result)
-    .bind(&request.request_id)
-    .bind(request.details.clone().unwrap_or_else(|| serde_json::json!({})))
-    .bind(created_ts)
     .fetch_one(executor)
     .await
 }

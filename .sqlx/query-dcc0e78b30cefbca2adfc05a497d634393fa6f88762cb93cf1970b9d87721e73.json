@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(COUNT(*), 0)::BIGINT AS \"count!\"\n            FROM backup_keys bk\n            JOIN key_backups kb ON kb.backup_id = bk.backup_id\n            WHERE kb.user_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dcc0e78b30cefbca2adfc05a497d634393fa6f88762cb93cf1970b9d87721e73"
+}

@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", module_name as \"module_name!\", module_type as \"module_type!\",\n                      event_id as \"event_id?\", room_id as \"room_id?\",\n                      execution_time_ms as \"execution_time_ms!\", is_success as \"is_success!\",\n                      error_message as \"error_message?\", metadata as \"metadata?\",\n                      executed_ts as \"executed_ts!\"\n               FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "module_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "module_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "room_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "execution_time_ms!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "error_message?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "metadata?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "executed_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "9121360744dc65509f9bb2b3710ae3f9732e3001af9ab6df2c3e41c3799b4607"
+}

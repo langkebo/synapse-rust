@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT algorithm AS \"algorithm!\", COUNT(*) AS \"count!\"\n            FROM device_keys\n            WHERE user_id = $1 AND device_id = $2\n              AND (is_fallback = FALSE OR is_fallback IS NULL)\n              AND algorithm NOT IN ('ed25519', 'curve25519')\n            GROUP BY algorithm\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "algorithm!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "1e1fb9219a3c14fcd4b7a5884642eff5215d0f8d6463a1da481295f964333f4f"
+}

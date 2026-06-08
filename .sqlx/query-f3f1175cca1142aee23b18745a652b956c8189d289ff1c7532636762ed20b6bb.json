@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT worker_type as \"worker_type!\", total_count as \"total_count!\",\n                      running_count as \"running_count!\", starting_count as \"starting_count!\",\n                      stopping_count as \"stopping_count!\", stopped_count as \"stopped_count!\",\n                      avg_cpu_usage as \"avg_cpu_usage?\",\n                      avg_memory_usage as \"avg_memory_usage?\",\n                      total_connections as \"total_connections?\"\n               FROM worker_type_statistics",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "running_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "starting_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "stopping_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "stopped_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "avg_cpu_usage?",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "avg_memory_usage?",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 8,
+        "name": "total_connections?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f3f1175cca1142aee23b18745a652b956c8189d289ff1c7532636762ed20b6bb"
+}

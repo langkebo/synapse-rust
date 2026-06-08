@@ -60,25 +60,25 @@ impl SchemaValidator {
     }
 
     pub async fn validate_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.tables \
-             WHERE table_name = $1 AND table_schema = current_schema()",
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = current_schema()"#,
+            table_name
         )
-        .bind(table_name)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        .unwrap_or(0);
         Ok(count > 0)
     }
 
     pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.columns \
-             WHERE table_name = $1 AND column_name = $2",
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2"#,
+            table_name,
+            column_name
         )
-        .bind(table_name)
-        .bind(column_name)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        .unwrap_or(0);
         Ok(count > 0)
     }
 

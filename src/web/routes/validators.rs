@@ -1,4 +1,4 @@
-use crate::common::ApiError;
+use crate::common::{ApiError, PresenceState};
 
 pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     if user_id.is_empty() {
@@ -93,12 +93,10 @@ pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
 }
 
 pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
-    // "busy" 对应 MSC3026 以及 SDK PresenceManager 的 PresenceState 枚举。
-    let valid_statuses = ["online", "offline", "unavailable", "away", "busy"];
-    if !valid_statuses.contains(&presence) {
+    if !PresenceState::valid_strs().contains(&presence) {
         return Err(ApiError::invalid_input(format!(
             "Invalid presence status. Must be one of: {}",
-            valid_statuses.join(", ")
+            PresenceState::valid_strs().join(", ")
         )));
     }
     Ok(())

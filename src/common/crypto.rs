@@ -202,6 +202,52 @@ pub fn decode_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
     URL_SAFE_NO_PAD.decode(s)
 }
 
+/// Decode a base64 string into a fixed-size 32-byte array.
+/// Tries multiple base64 engines (STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD)
+/// to maximize compatibility with various key formats.
+pub fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE};
+    let value = value.trim();
+    let try_decode = |engine: &base64::engine::general_purpose::GeneralPurpose| -> Option<[u8; 32]> {
+        let bytes = engine.decode(value).ok()?;
+        if bytes.len() == 32 {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&bytes);
+            Some(out)
+        } else {
+            None
+        }
+    };
+    try_decode(&STANDARD)
+        .or_else(|| try_decode(&STANDARD_NO_PAD))
+        .or_else(|| try_decode(&URL_SAFE))
+        .or_else(|| try_decode(&URL_SAFE_NO_PAD))
+}
+
+/// Constant-time comparison for byte slices.
+/// Returns `true` if `a` and `b` are equal in both length and content.
+/// The comparison runs in time proportional to the longer slice, preventing timing attacks.
+pub fn secure_compare_bytes(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
+}
+
+/// Encode binary data as a lowercase hexadecimal string.
+pub fn encode_hex(data: impl AsRef<[u8]>) -> String {
+    hex::encode(data.as_ref())
+}
+
+/// Decode a hexadecimal string into bytes.
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, hex::FromHexError> {
+    hex::decode(s)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerSigningKey {
     pub key_id: String,

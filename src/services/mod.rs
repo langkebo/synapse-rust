@@ -23,6 +23,7 @@ pub mod content_scanner;
 pub mod database_initializer;
 pub mod dehydrated_device_service;
 pub mod e2ee;
+pub mod event_notifier;
 pub mod event_report_service;
 pub mod feature_flag_service;
 pub mod federation_blacklist_service;

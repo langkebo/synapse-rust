@@ -14,6 +14,7 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest};
 use synapse_rust::storage::{CreateOpenIdTokenRequest, OpenIdTokenStorage};
 use synapse_rust::web::AppState;
+use synapse_rust::PresenceState;
 use tower::ServiceExt;
 
 async fn setup_federation_ingress_app_with<F>(
@@ -108,7 +109,7 @@ async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, 
     .bind(room_id)
     .bind(user_id)
     .bind(joined_ts)
-    .execute(&*state.services.room_storage.pool)
+    .execute(&*state.services.rooms.room_storage.pool)
     .await
     .unwrap();
 }
@@ -118,6 +119,7 @@ async fn upload_test_device_keys(state: &AppState, user_id: &str, device_id: &st
 
     state
         .services
+        .e2ee
         .device_keys_service
         .upload_keys(
             KeyUploadRequest {
@@ -154,7 +156,7 @@ async fn upload_test_device_keys(state: &AppState, user_id: &str, device_id: &st
 }
 
 async fn create_shared_room_for_users(state: &AppState, room_id: &str, creator_user_id: &str, other_user_id: &str) {
-    state.services.room_storage.create_room(room_id, creator_user_id, "public", "10", false).await.unwrap();
+    state.services.rooms.room_storage.create_room(room_id, creator_user_id, "public", "10", false).await.unwrap();
 
     let joined_ts = chrono::Utc::now().timestamp_millis();
     insert_join_membership(state, room_id, creator_user_id, joined_ts).await;
@@ -309,7 +311,7 @@ async fn test_federation_exchange_third_party_invite_rejects_sender_domain_misma
     let room_id = format!("!thirdparty:{}", server_name);
     let creator = "@creator:test.example.com".to_string();
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/exchange_third_party_invite/{}", room_id);
     let body = json!({
@@ -347,7 +349,7 @@ async fn test_federation_thirdparty_invite_rejects_sender_domain_mismatch() {
     let room_id = format!("!thirdpartyinvite:{}", server_name);
     let creator = "@creator:test.example.com".to_string();
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
 
     let uri = "/_matrix/federation/v1/thirdparty/invite";
     let body = json!({
@@ -492,8 +494,8 @@ async fn test_federation_get_state_rejects_server_without_joined_member() {
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -523,9 +525,15 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
     state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
+        .await
+        .unwrap();
 
     for (event_id, event_type, content, ts) in [
         ("$power-shape", "m.room.power_levels", json!({ "users_default": 0 }), 200_i64),
@@ -535,6 +543,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     ] {
         state
             .services
+            .rooms
             .event_storage
             .create_event(
                 synapse_rust::storage::event::CreateEventParams {
@@ -561,6 +570,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
     ] {
         state
             .services
+            .rooms
             .event_storage
             .create_event(
                 synapse_rust::storage::event::CreateEventParams {
@@ -753,20 +763,34 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
         state.services.user_storage.create_user(user_id, user_id, None, false).await.unwrap();
     }
 
-    state.services.room_storage.create_room(&target_room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&target_room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&target_room_id, &creator, "invite", "1", false).await.unwrap();
     state
         .services
+        .rooms
+        .member_storage
+        .add_member(&target_room_id, &creator, "join", None, None, None, None)
+        .await
+        .unwrap();
+    state
+        .services
+        .rooms
         .member_storage
         .add_member(&target_room_id, &remote_member, "join", None, None, None, None)
         .await
         .unwrap();
 
-    state.services.room_storage.create_room(&other_room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&other_room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&other_room_id, &creator, "invite", "1", false).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&other_room_id, &creator, "join", None, None, None, None)
+        .await
+        .unwrap();
 
     state
         .services
+        .rooms
         .event_storage
         .create_event(
             synapse_rust::storage::event::CreateEventParams {
@@ -828,8 +852,8 @@ async fn test_federation_get_user_devices_omits_sensitive_metadata() {
     let room_id = format!("!device-share:{}", server_name);
     state.services.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
     state.services.device_storage.create_device("ALICEDEVICE", &user_id, Some("Alice device")).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &user_id, "private", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &user_id, "private", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/user/devices/{}", user_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -889,8 +913,14 @@ async fn test_federation_keys_query_filters_local_users_without_shared_rooms() {
 
     state.services.user_storage.create_user(&shared_user_id, "query-shared", None, false).await.unwrap();
     state.services.user_storage.create_user(&isolated_user_id, "query-isolated", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &shared_user_id, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
+        .await
+        .unwrap();
 
     upload_test_device_keys(&state, &shared_user_id, "SHAREDQUERY", false).await;
     upload_test_device_keys(&state, &isolated_user_id, "ISOLATEDQUERY", false).await;
@@ -940,8 +970,14 @@ async fn test_federation_keys_claim_filters_local_users_without_shared_rooms() {
 
     state.services.user_storage.create_user(&shared_user_id, "claim-shared", None, false).await.unwrap();
     state.services.user_storage.create_user(&isolated_user_id, "claim-isolated", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &shared_user_id, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &shared_user_id, "private", "1", false).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &shared_user_id, "join", None, None, None, None)
+        .await
+        .unwrap();
 
     upload_test_device_keys(&state, &shared_user_id, "SHAREDCLAIM", true).await;
     upload_test_device_keys(&state, &isolated_user_id, "ISOLATEDCLAIM", true).await;
@@ -993,8 +1029,8 @@ async fn test_federation_get_room_members_rejects_server_without_joined_member()
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/members/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1023,10 +1059,11 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
     let event_id = "$topic-check";
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
     state
         .services
+        .rooms
         .event_storage
         .create_event(
             synapse_rust::storage::event::CreateEventParams {
@@ -1072,11 +1109,18 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
 
     state.services.user_storage.create_user(&creator, "owner", None, false).await.unwrap();
     state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
     state
         .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
+        .await
+        .unwrap();
+    state
+        .services
+        .rooms
         .event_storage
         .create_event(
             synapse_rust::storage::event::CreateEventParams {
@@ -1155,8 +1199,8 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/get_missing_events/{}", room_id);
     let content = json!({
@@ -1190,8 +1234,8 @@ async fn test_federation_timestamp_to_event_rejects_server_without_joined_member
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/timestamp_to_event/{}?ts=1717171717000", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1219,8 +1263,8 @@ async fn test_federation_get_joining_rules_rejects_unjoined_server_for_invite_ro
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/get_joining_rules/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1250,11 +1294,18 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
     state.services.user_storage.create_user(&remote_member, "member", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &remote_member, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
     state
         .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
+        .await
+        .unwrap();
+    state
+        .services
+        .rooms
         .event_storage
         .create_event(
             synapse_rust::storage::event::CreateEventParams {
@@ -1330,10 +1381,11 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
     let child_room_id = format!("!federation-space-child:{}", server_name);
 
     state.services.user_storage.create_user(&creator, "spaceadmin", None, false).await.unwrap();
-    state.services.room_storage.create_room(&root_room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.room_storage.create_room(&child_room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.room_storage.create_room(&root_room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.room_storage.create_room(&child_room_id, &creator, "public", "1", true).await.unwrap();
     state
         .services
+        .rooms
         .space_storage
         .create_space(CreateSpaceRequest {
             room_id: root_room_id.clone(),
@@ -1348,9 +1400,10 @@ async fn test_federation_hierarchy_returns_space_hierarchy_shape_instead_of_plac
         })
         .await
         .unwrap();
-    let root_space = state.services.space_service.get_space_by_room(&root_room_id).await.unwrap().unwrap();
+    let root_space = state.services.rooms.space_service.get_space_by_room(&root_room_id).await.unwrap().unwrap();
     state
         .services
+        .rooms
         .space_storage
         .add_child(AddChildRequest {
             space_id: root_space.space_id.clone(),
@@ -1392,8 +1445,8 @@ async fn test_federation_room_directory_query_rejects_unjoined_server_for_privat
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/directory/room/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1421,8 +1474,8 @@ async fn test_federation_state_rejects_unjoined_server_for_private_room() {
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1450,8 +1503,8 @@ async fn test_federation_state_ids_rejects_unjoined_server_for_private_room() {
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/state_ids/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1479,8 +1532,8 @@ async fn test_federation_backfill_rejects_unjoined_server_for_private_room() {
     let creator = "@creator:local.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/backfill/{}?v=$seed:test.example.com&limit=10", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1509,9 +1562,9 @@ async fn test_federation_query_directory_rejects_unjoined_server_for_private_ali
     let room_alias = format!("#private-alias:{}", server_name);
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.room_service.set_room_alias(&room_id, &room_alias, &creator).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_service.set_room_alias(&room_id, &room_alias, &creator).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/directory?room_alias={}", urlencoding::encode(&room_alias));
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1540,9 +1593,9 @@ async fn test_federation_query_directory_rejects_non_local_alias() {
     let remote_alias = "#spoofed:evil.example".to_string();
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.room_service.set_room_alias(&room_id, &remote_alias, &creator).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_service.set_room_alias(&room_id, &remote_alias, &creator).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/directory?room_alias={}", urlencoding::encode(&remote_alias));
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -2021,7 +2074,7 @@ async fn test_federation_send_join_v2_persists_join_event() {
     assert_eq!(json["room_id"], room_id);
 
     let stored_event =
-        state.services.event_storage.get_event(event_id).await.unwrap().expect("join event should be persisted");
+        state.services.rooms.event_storage.get_event(event_id).await.unwrap().expect("join event should be persisted");
     assert_eq!(stored_event.room_id, room_id);
     assert_eq!(stored_event.user_id, joiner);
     assert_eq!(stored_event.origin_server_ts, origin_server_ts);
@@ -2029,6 +2082,7 @@ async fn test_federation_send_join_v2_persists_join_event() {
 
     let stored_member = state
         .services
+        .rooms
         .member_storage
         .get_room_member(&room_id, &joiner)
         .await
@@ -2057,8 +2111,8 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
     state.services.user_storage.create_user(&invitee, "remotejoiner", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
     let event_id_v1 = "$invite-only-v1";
     let content_v1 = json!({
@@ -2114,8 +2168,8 @@ async fn test_federation_send_join_rejects_uninvited_user_for_invite_only_room()
         .unwrap();
     assert_eq!(response_v2.status(), StatusCode::FORBIDDEN);
 
-    let stored_v1 = state.services.event_storage.get_event(event_id_v1).await.unwrap();
-    let stored_v2 = state.services.event_storage.get_event(event_id_v2).await.unwrap();
+    let stored_v1 = state.services.rooms.event_storage.get_event(event_id_v1).await.unwrap();
+    let stored_v2 = state.services.rooms.event_storage.get_event(event_id_v2).await.unwrap();
     assert!(stored_v1.is_none());
     assert!(stored_v2.is_none());
 }
@@ -2208,7 +2262,7 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
     assert_eq!(response.status(), StatusCode::OK);
 
     let presence = state.services.presence_storage.get_presence(&user_id).await.unwrap().unwrap();
-    assert_eq!(presence.0, "online");
+    assert_eq!(presence.0, PresenceState::Online);
     assert_eq!(presence.1.as_deref(), Some("ready"));
 
     let processed = state.services.metrics.get_counter("federation_inbound_presence_processed_total").unwrap().get();
@@ -2234,9 +2288,9 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
 
     state.services.user_storage.create_user(&creator, "creator", None, false).await.unwrap();
     state.services.user_storage.create_user(&member, "member", None, false).await.unwrap();
-    state.services.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
-    state.services.member_storage.add_member(&room_id, &member, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
+    state.services.rooms.member_storage.add_member(&room_id, &member, "join", None, None, None, None).await.unwrap();
 
     let uri = "/_matrix/federation/v1/send/txn-state-default";
     let event_id = "$txn-topic";
@@ -2267,7 +2321,7 @@ async fn test_federation_send_transaction_rejects_member_state_event_without_pow
     assert_eq!(json["results"][0]["event_id"], event_id);
     assert!(json["results"][0]["error"].as_str().is_some());
 
-    let stored = state.services.event_storage.get_event(event_id).await.unwrap();
+    let stored = state.services.rooms.event_storage.get_event(event_id).await.unwrap();
     assert!(stored.is_none());
 }
 

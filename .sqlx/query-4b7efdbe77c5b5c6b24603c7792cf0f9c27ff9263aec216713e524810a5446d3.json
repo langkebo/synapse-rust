@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                id,\n                invite_code AS \"invite_code!\",\n                room_id,\n                inviter_user_id AS \"inviter_user_id!\",\n                invitee_email,\n                invitee_user_id,\n                is_used,\n                is_revoked,\n                expires_at,\n                created_ts,\n                used_ts,\n                revoked_at,\n                revoked_reason\n            FROM room_invites WHERE invite_code = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "invite_code!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "inviter_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "invitee_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "invitee_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_used",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_revoked",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "used_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "revoked_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "revoked_reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4b7efdbe77c5b5c6b24603c7792cf0f9c27ff9263aec216713e524810a5446d3"
+}

@@ -113,21 +113,21 @@ impl RendezvousStorage {
         let key = Self::generate_key();
         let expires_at = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
 
-        sqlx::query_as::<_, RendezvousSession>(
-            r"
+        sqlx::query_as!(RendezvousSession,
+            r#"
             INSERT INTO rendezvous_session
                 (session_id, intent, transport, transport_data, key, created_ts, expires_at, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-            RETURNING *
-            ",
+            RETURNING id as "id!", session_id as "session_id!", user_id, device_id, intent, transport, transport_data, key, created_ts as "created_ts!", expires_at as "expires_at!", status
+            "#,
+            &session_id,
+            params.intent.as_str(),
+            params.transport.as_str(),
+            params.transport_data,
+            &key,
+            now,
+            expires_at
         )
-        .bind(&session_id)
-        .bind(params.intent.as_str())
-        .bind(params.transport.as_str())
-        .bind(&params.transport_data)
-        .bind(&key)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
     }
@@ -135,28 +135,29 @@ impl RendezvousStorage {
     pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query_as::<_, RendezvousSession>(
-            r"
-            SELECT * FROM rendezvous_session
+        sqlx::query_as!(RendezvousSession,
+            r#"
+            SELECT id as "id!", session_id as "session_id!", user_id, device_id, intent, transport, transport_data, key, created_ts as "created_ts!", expires_at as "expires_at!", status
+            FROM rendezvous_session
             WHERE session_id = $1 AND expires_at > $2
-            ",
+            "#,
+            session_id,
+            now
         )
-        .bind(session_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE rendezvous_session
             SET status = $2
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
+            status
         )
-        .bind(session_id)
-        .bind(status)
         .execute(&*self.pool)
         .await?;
 
@@ -169,16 +170,16 @@ impl RendezvousStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE rendezvous_session
             SET user_id = $2, device_id = $3, status = 'connected'
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
+            user_id,
+            device_id
         )
-        .bind(session_id)
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await?;
 
@@ -186,14 +187,14 @@ impl RendezvousStorage {
     }
 
     pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE rendezvous_session
             SET status = 'completed'
             WHERE session_id = $1
-            ",
+            "#,
+            session_id
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 
@@ -201,12 +202,12 @@ impl RendezvousStorage {
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM rendezvous_session WHERE session_id = $1
-            ",
+            "#,
+            session_id
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 
@@ -216,12 +217,12 @@ impl RendezvousStorage {
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM rendezvous_session WHERE expires_at < $1
-            ",
+            "#,
+            now
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -264,18 +265,18 @@ impl RendezvousMessageStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO rendezvous_messages
                 (session_id, direction, message_type, content, created_ts)
             VALUES ($1, $2, $3, $4, $5)
-            ",
+            "#,
+            session_id,
+            direction,
+            &message.message_type,
+            &message.content,
+            now
         )
-        .bind(session_id)
-        .bind(direction)
-        .bind(&message.message_type)
-        .bind(&message.content)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -289,27 +290,29 @@ impl RendezvousMessageStorage {
     ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
         match after_id {
             Some(after) => {
-                sqlx::query_as::<_, StoredRendezvousMessage>(
-                    r"
-                    SELECT * FROM rendezvous_messages
+                sqlx::query_as!(StoredRendezvousMessage,
+                    r#"
+                    SELECT id as "id!", session_id as "session_id!", direction as "direction!", message_type as "message_type!", content as "content!", created_ts as "created_ts!"
+                    FROM rendezvous_messages
                     WHERE session_id = $1 AND id > $2
                     ORDER BY id ASC
-                    ",
+                    "#,
+                    session_id,
+                    after
                 )
-                .bind(session_id)
-                .bind(after)
                 .fetch_all(&*self.pool)
                 .await
             }
             None => {
-                sqlx::query_as::<_, StoredRendezvousMessage>(
-                    r"
-                    SELECT * FROM rendezvous_messages
+                sqlx::query_as!(StoredRendezvousMessage,
+                    r#"
+                    SELECT id as "id!", session_id as "session_id!", direction as "direction!", message_type as "message_type!", content as "content!", created_ts as "created_ts!"
+                    FROM rendezvous_messages
                     WHERE session_id = $1
                     ORDER BY id ASC
-                    ",
+                    "#,
+                    session_id
                 )
-                .bind(session_id)
                 .fetch_all(&*self.pool)
                 .await
             }
@@ -317,12 +320,12 @@ impl RendezvousMessageStorage {
     }
 
     pub async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM rendezvous_messages WHERE session_id = $1
-            ",
+            "#,
+            session_id
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 

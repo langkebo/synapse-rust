@@ -24,7 +24,7 @@ impl AiConnectionStorage {
     }
 
     pub async fn create_connection(&self, conn: &AiConnection) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO ai_connections (id, user_id, provider, config, is_active, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -33,14 +33,14 @@ impl AiConnectionStorage {
                 is_active = EXCLUDED.is_active,
                 updated_ts = EXCLUDED.updated_ts
             "#,
+            &conn.id,
+            &conn.user_id,
+            &conn.provider,
+            conn.config.as_ref(),
+            conn.is_active,
+            conn.created_ts,
+            conn.updated_ts,
         )
-        .bind(&conn.id)
-        .bind(&conn.user_id)
-        .bind(&conn.provider)
-        .bind(&conn.config)
-        .bind(conn.is_active)
-        .bind(conn.created_ts)
-        .bind(conn.updated_ts)
         .execute(&*self.db)
         .await?;
 
@@ -48,28 +48,30 @@ impl AiConnectionStorage {
     }
 
     pub async fn get_connection(&self, id: &str) -> Result<Option<AiConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AiConnection>(
+        sqlx::query_as!(
+            AiConnection,
             r#"
-            SELECT id, user_id, provider, config, is_active, created_ts, updated_ts
+            SELECT id, user_id, provider, config, is_active AS "is_active!", created_ts, updated_ts
             FROM ai_connections
             WHERE id = $1
             "#,
+            id,
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
 
     pub async fn get_user_connections(&self, user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AiConnection>(
+        sqlx::query_as!(
+            AiConnection,
             r#"
-            SELECT id, user_id, provider, config, is_active, created_ts, updated_ts
+            SELECT id, user_id, provider, config, is_active AS "is_active!", created_ts, updated_ts
             FROM ai_connections
             WHERE user_id = $1
             ORDER BY created_ts DESC
             "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.db)
         .await
     }
@@ -79,33 +81,34 @@ impl AiConnectionStorage {
         user_id: &str,
         provider: &str,
     ) -> Result<Option<AiConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AiConnection>(
+        sqlx::query_as!(
+            AiConnection,
             r#"
-            SELECT id, user_id, provider, config, is_active, created_ts, updated_ts
+            SELECT id, user_id, provider, config, is_active AS "is_active!", created_ts, updated_ts
             FROM ai_connections
             WHERE user_id = $1 AND provider = $2 AND is_active = true
             ORDER BY created_ts DESC
             LIMIT 1
             "#,
+            user_id,
+            provider,
         )
-        .bind(user_id)
-        .bind(provider)
         .fetch_optional(&*self.db)
         .await
     }
 
     pub async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE ai_connections
             SET is_active = $1, updated_ts = $2
             WHERE id = $3
             "#,
+            is_active,
+            now,
+            id,
         )
-        .bind(is_active)
-        .bind(now)
-        .bind(id)
         .execute(&*self.db)
         .await?;
 
@@ -113,13 +116,13 @@ impl AiConnectionStorage {
     }
 
     pub async fn delete_connection(&self, id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM ai_connections
             WHERE id = $1
             "#,
+            id,
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 

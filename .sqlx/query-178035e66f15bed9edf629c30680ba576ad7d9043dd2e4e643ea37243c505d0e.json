@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_summaries\n            SET member_count = member_count + 1,\n                joined_member_count = joined_member_count + 1,\n                updated_ts = $2\n            WHERE room_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "178035e66f15bed9edf629c30680ba576ad7d9043dd2e4e643ea37243c505d0e"
+}

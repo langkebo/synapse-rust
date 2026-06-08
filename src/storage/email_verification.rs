@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -8,8 +8,8 @@ pub struct EmailVerificationToken {
     pub user_id: Option<String>,
     pub email: String,
     pub token: String,
-    pub expires_at: DateTime<Utc>,
-    pub created_ts: DateTime<Utc>,
+    pub expires_at: i64,
+    pub created_ts: i64,
     pub is_used: bool,
     pub session_data: Option<serde_json::Value>,
 }
@@ -32,23 +32,21 @@ impl EmailVerificationStorage {
         user_id: Option<&str>,
         session_data: Option<serde_json::Value>,
     ) -> Result<i64, sqlx::Error> {
-        let now = Utc::now();
-        let expires_at = now + Duration::seconds(expires_in_seconds);
-        let created_ts = now;
+        let now = Utc::now().timestamp_millis();
+        let expires_at = now + (expires_in_seconds * 1000);
 
-        let row = sqlx::query_as::<_, TokenIdRow>(
-            r"
-            INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, is_used, user_id, session_data)
+        let row = sqlx::query_as!(
+            TokenIdRow,
+            r#"INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, is_used, user_id, session_data)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
-            RETURNING id
-            ",
+            RETURNING id"#,
+            email,
+            token,
+            expires_at,
+            now,
+            user_id,
+            session_data,
         )
-        .bind(email)
-        .bind(token)
-        .bind(expires_at)
-        .bind(created_ts)
-        .bind(user_id)
-        .bind(session_data)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -56,18 +54,17 @@ impl EmailVerificationStorage {
     }
 
     pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
+        let token_record = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"SELECT id, user_id, email, token, expires_at, created_ts, is_used AS "is_used!: bool", session_data
             FROM email_verification_tokens
-            WHERE email = $1 AND token = $2 AND is_used = FALSE AND expires_at > $3
-            ",
+            WHERE email = $1 AND token = $2 AND is_used = FALSE AND expires_at > $3"#,
+            email,
+            token,
+            now,
         )
-        .bind(email)
-        .bind(token)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -75,12 +72,10 @@ impl EmailVerificationStorage {
     }
 
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE email_verification_tokens SET is_used = TRUE WHERE id = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE email_verification_tokens SET is_used = TRUE WHERE id = $1"#,
+            token_id,
         )
-        .bind(token_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -90,14 +85,12 @@ impl EmailVerificationStorage {
         &self,
         token_id: i64,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
-            FROM email_verification_tokens
-            WHERE id = $1
-            ",
+        let token_record = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"SELECT id, user_id, email, token, expires_at, created_ts, is_used AS "is_used!: bool", session_data
+            FROM email_verification_tokens WHERE id = $1"#,
+            token_id,
         )
-        .bind(token_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -105,12 +98,10 @@ impl EmailVerificationStorage {
     }
 
     pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM email_verification_tokens WHERE id = $1
-            ",
+        sqlx::query!(
+            r#"DELETE FROM email_verification_tokens WHERE id = $1"#,
+            token_id,
         )
-        .bind(token_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -125,16 +116,15 @@ impl EmailVerificationStorage {
     /// （client_secret、purpose 等）。一旦此函数返回 `Some`，行就已物理
     /// 删除，无法被重放。
     pub async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = Utc::now();
-        let row = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            DELETE FROM email_verification_tokens
+        let now = Utc::now().timestamp_millis();
+        let row = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"DELETE FROM email_verification_tokens
             WHERE id = $1 AND is_used = TRUE AND expires_at > $2
-            RETURNING id, user_id, email, token, expires_at, created_ts, is_used, session_data
-            ",
+            RETURNING id, user_id, email, token, expires_at, created_ts, is_used AS "is_used!: bool", session_data"#,
+            token_id,
+            now,
         )
-        .bind(token_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -142,32 +132,29 @@ impl EmailVerificationStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = Utc::now();
-        let result = sqlx::query(
-            r"
-            DELETE FROM email_verification_tokens WHERE expires_at < $1
-            ",
+        let now = Utc::now().timestamp_millis();
+        let result = sqlx::query!(
+            r#"DELETE FROM email_verification_tokens WHERE expires_at < $1"#,
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected() as i64)
     }
 
     pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
+        let token_record = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"SELECT id, user_id, email, token, expires_at, created_ts, is_used AS "is_used!: bool", session_data
             FROM email_verification_tokens
             WHERE email = $1 AND is_used = FALSE AND expires_at > $2
             ORDER BY created_ts DESC
-            LIMIT 1
-            ",
+            LIMIT 1"#,
+            email,
+            now,
         )
-        .bind(email)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -186,13 +173,14 @@ mod tests {
 
     #[test]
     fn test_email_verification_token_struct() {
+        let now = Utc::now().timestamp_millis();
         let token = EmailVerificationToken {
             id: 1,
             user_id: Some("@test:example.com".to_string()),
             email: "test@example.com".to_string(),
             token: "abc123".to_string(),
-            expires_at: Utc::now(),
-            created_ts: Utc::now(),
+            expires_at: now + 3600000,
+            created_ts: now,
             is_used: false,
             session_data: None,
         };
@@ -204,13 +192,14 @@ mod tests {
 
     #[test]
     fn test_email_verification_token_with_session_data() {
+        let now = Utc::now().timestamp_millis();
         let token = EmailVerificationToken {
             id: 2,
             user_id: Some("@user:example.com".to_string()),
             email: "user@example.com".to_string(),
             token: "token456".to_string(),
-            expires_at: Utc::now(),
-            created_ts: Utc::now(),
+            expires_at: now + 3600000,
+            created_ts: now,
             is_used: false,
             session_data: Some(serde_json::json!({"key": "value"})),
         };
@@ -219,29 +208,30 @@ mod tests {
 
     #[test]
     fn test_email_verification_token_expired() {
-        let current_ts = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let token = EmailVerificationToken {
             id: 3,
             user_id: Some("@expired:example.com".to_string()),
             email: "expired@example.com".to_string(),
             token: "expired_token".to_string(),
-            expires_at: current_ts - Duration::seconds(3600),
-            created_ts: current_ts - Duration::seconds(7200),
+            expires_at: now - 3600000,
+            created_ts: now - 7200000,
             is_used: false,
             session_data: None,
         };
-        assert!(token.expires_at < current_ts);
+        assert!(token.expires_at < now);
     }
 
     #[test]
     fn test_email_verification_token_already_used() {
+        let now = Utc::now().timestamp_millis();
         let token = EmailVerificationToken {
             id: 4,
             user_id: Some("@used:example.com".to_string()),
             email: "used@example.com".to_string(),
             token: "used_token".to_string(),
-            expires_at: Utc::now(),
-            created_ts: Utc::now(),
+            expires_at: now + 3600000,
+            created_ts: now,
             is_used: true,
             session_data: None,
         };

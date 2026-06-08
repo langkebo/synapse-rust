@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO user_notification_settings (user_id, is_enabled) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET is_enabled = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "91eac31743ec30d2b04d343e7d0e562cf5073cbe3c4191371a863fb3cf061817"
+}

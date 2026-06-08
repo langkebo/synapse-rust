@@ -168,26 +168,29 @@ impl RefreshTokenStorage {
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, RefreshToken>(
-            r"
+        let row = sqlx::query_as!(
+            RefreshToken,
+            r#"
             INSERT INTO refresh_tokens (
                 token_hash, user_id, device_id, access_token_id, scope, created_ts,
                 expires_at, client_info, ip_address, user_agent
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING *
-            ",
+            RETURNING id, token_hash, user_id, device_id, access_token_id, scope,
+                created_ts AS "created_ts!", expires_at, last_used_ts, use_count AS "use_count!",
+                is_revoked AS "is_revoked!", revoked_reason, client_info, ip_address, user_agent
+            "#,
+            &request.token_hash,
+            &request.user_id,
+            request.device_id.as_deref(),
+            request.access_token_id.as_deref(),
+            request.scope.as_deref(),
+            now,
+            request.expires_at,
+            request.client_info.as_ref(),
+            request.ip_address.as_deref(),
+            request.user_agent.as_deref(),
         )
-        .bind(&request.token_hash)
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&request.access_token_id)
-        .bind(&request.scope)
-        .bind(now)
-        .bind(request.expires_at)
-        .bind(&request.client_info)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -195,28 +198,44 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshToken>("SELECT * FROM refresh_tokens WHERE token_hash = $1")
-            .bind(token_hash)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RefreshToken,
+            r#"SELECT id, token_hash, user_id, device_id, access_token_id, scope,
+                created_ts AS "created_ts!", expires_at, last_used_ts, use_count AS "use_count!",
+                is_revoked AS "is_revoked!", revoked_reason, client_info, ip_address, user_agent
+            FROM refresh_tokens WHERE token_hash = $1"#,
+            token_hash
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
 
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshToken>("SELECT * FROM refresh_tokens WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RefreshToken,
+            r#"SELECT id, token_hash, user_id, device_id, access_token_id, scope,
+                created_ts AS "created_ts!", expires_at, last_used_ts, use_count AS "use_count!",
+                is_revoked AS "is_revoked!", revoked_reason, client_info, ip_address, user_agent
+            FROM refresh_tokens WHERE id = $1"#,
+            id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
 
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RefreshToken>(
-            "SELECT * FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC",
+        let rows = sqlx::query_as!(
+            RefreshToken,
+            r#"SELECT id, token_hash, user_id, device_id, access_token_id, scope,
+                created_ts AS "created_ts!", expires_at, last_used_ts, use_count AS "use_count!",
+                is_revoked AS "is_revoked!", revoked_reason, client_info, ip_address, user_agent
+            FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -226,17 +245,19 @@ impl RefreshTokenStorage {
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let rows = sqlx::query_as::<_, RefreshToken>(
-            r"
-            SELECT * FROM refresh_tokens
+        let rows = sqlx::query_as!(
+            RefreshToken,
+            r#"SELECT id, token_hash, user_id, device_id, access_token_id, scope,
+                created_ts AS "created_ts!", expires_at, last_used_ts, use_count AS "use_count!",
+                is_revoked AS "is_revoked!", revoked_reason, client_info, ip_address, user_agent
+            FROM refresh_tokens
             WHERE user_id = $1
             AND is_revoked = FALSE
             AND expires_at > $2
-            ORDER BY created_ts DESC
-            ",
+            ORDER BY created_ts DESC"#,
+            user_id,
+            now
         )
-        .bind(user_id)
-        .bind(now)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -244,16 +265,11 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $2
-            WHERE token_hash = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $2 WHERE token_hash = $1"#,
+            token_hash,
+            reason
         )
-        .bind(token_hash)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -261,16 +277,11 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $2
-            WHERE token_hash = $1 AND is_revoked = FALSE
-            ",
+        let result = sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $2 WHERE token_hash = $1 AND is_revoked = FALSE"#,
+            token_hash,
+            reason
         )
-        .bind(token_hash)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -278,16 +289,11 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $2
-            WHERE id = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $2 WHERE id = $1"#,
+            id,
+            reason
         )
-        .bind(id)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -295,16 +301,11 @@ impl RefreshTokenStorage {
     }
 
     pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $2
-            WHERE user_id = $1 AND is_revoked = FALSE
-            ",
+        let result = sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $2 WHERE user_id = $1 AND is_revoked = FALSE"#,
+            user_id,
+            reason
         )
-        .bind(user_id)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -317,17 +318,12 @@ impl RefreshTokenStorage {
         device_id: &str,
         reason: &str,
     ) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $3
-            WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE
-            ",
+        let result = sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $3 WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE"#,
+            user_id,
+            device_id,
+            reason
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -338,17 +334,12 @@ impl RefreshTokenStorage {
     ///
     /// 单设备登出时调用：仅清掉该设备的令牌族，不影响用户在其他设备的会话。
     pub async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                is_revoked = TRUE,
-                revoked_reason = $3
-            WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE
-            ",
+        let result = sqlx::query!(
+            r#"UPDATE refresh_tokens SET is_revoked = TRUE, revoked_reason = $3 WHERE user_id = $1 AND device_id = $2 AND is_revoked = FALSE"#,
+            user_id,
+            device_id,
+            reason
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -358,18 +349,12 @@ impl RefreshTokenStorage {
     pub async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            UPDATE refresh_tokens SET
-                access_token_id = $2,
-                last_used_ts = $3,
-                use_count = use_count + 1
-            WHERE token_hash = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE refresh_tokens SET access_token_id = $2, last_used_ts = $3, use_count = use_count + 1 WHERE token_hash = $1"#,
+            token_hash,
+            access_token_id,
+            now
         )
-        .bind(token_hash)
-        .bind(access_token_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -379,24 +364,19 @@ impl RefreshTokenStorage {
     pub async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO refresh_token_usage (
-                refresh_token_id, user_id, old_access_token_id, new_access_token_id,
-                used_ts, ip_address, user_agent, is_success, error_message
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ",
+        sqlx::query!(
+            r#"INSERT INTO refresh_token_usage (refresh_token_id, user_id, old_access_token_id, new_access_token_id, used_ts, ip_address, user_agent, is_success, error_message)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            request.refresh_token_id,
+            &request.user_id,
+            request.old_access_token_id.as_deref(),
+            &request.new_access_token_id,
+            now,
+            request.ip_address.as_deref(),
+            request.user_agent.as_deref(),
+            request.success,
+            request.error_message.as_deref(),
         )
-        .bind(request.refresh_token_id)
-        .bind(&request.user_id)
-        .bind(&request.old_access_token_id)
-        .bind(&request.new_access_token_id)
-        .bind(now)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .bind(request.success)
-        .bind(&request.error_message)
         .execute(&*self.pool)
         .await?;
 
@@ -411,17 +391,18 @@ impl RefreshTokenStorage {
     ) -> Result<RefreshTokenFamily, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, RefreshTokenFamily>(
-            r"
-            INSERT INTO refresh_token_families (family_id, user_id, device_id, created_ts)
+        let row = sqlx::query_as!(
+            RefreshTokenFamily,
+            r#"INSERT INTO refresh_token_families (family_id, user_id, device_id, created_ts)
             VALUES ($1, $2, $3, $4)
-            RETURNING *
-            ",
+            RETURNING id, family_id, user_id, device_id,
+                created_ts AS "created_ts!", last_refresh_ts, refresh_count AS "refresh_count!",
+                is_compromised AS "is_compromised!", compromised_at AS "compromised_ts?""#,
+            family_id,
+            user_id,
+            device_id,
+            now
         )
-        .bind(family_id)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -429,10 +410,16 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_family(&self, family_id: &str) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshTokenFamily>("SELECT * FROM refresh_token_families WHERE family_id = $1")
-            .bind(family_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RefreshTokenFamily,
+            r#"SELECT id, family_id, user_id, device_id,
+                created_ts AS "created_ts!", last_refresh_ts, refresh_count AS "refresh_count!",
+                is_compromised AS "is_compromised!", compromised_at AS "compromised_ts?"
+            FROM refresh_token_families WHERE family_id = $1"#,
+            family_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
@@ -440,16 +427,11 @@ impl RefreshTokenStorage {
     pub async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            UPDATE refresh_token_families SET
-                is_compromised = TRUE,
-                compromised_ts = $2
-            WHERE family_id = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE refresh_token_families SET is_compromised = TRUE, compromised_at = $2 WHERE family_id = $1"#,
+            family_id,
+            now
         )
-        .bind(family_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -465,30 +447,23 @@ impl RefreshTokenStorage {
     ) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO refresh_token_rotations (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
-            VALUES ($1, $2, $3, $4, $5)
-            ",
+        sqlx::query!(
+            r#"INSERT INTO refresh_token_rotations (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
+            VALUES ($1, $2, $3, $4, $5)"#,
+            family_id,
+            old_token_hash,
+            new_token_hash,
+            now,
+            reason
         )
-        .bind(family_id)
-        .bind(old_token_hash)
-        .bind(new_token_hash)
-        .bind(now)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
-            r"
-            UPDATE refresh_token_families SET
-                last_refresh_ts = $2,
-                refresh_count = refresh_count + 1
-            WHERE family_id = $1
-            ",
+        sqlx::query!(
+            r#"UPDATE refresh_token_families SET last_refresh_ts = $2, refresh_count = refresh_count + 1 WHERE family_id = $1"#,
+            family_id,
+            now
         )
-        .bind(family_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -496,10 +471,13 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RefreshTokenRotation>(
-            "SELECT * FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC",
+        let rows = sqlx::query_as!(
+            RefreshTokenRotation,
+            r#"SELECT id, family_id, old_token_hash, new_token_hash,
+                rotated_ts AS "rotated_ts!", rotation_reason
+            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC"#,
+            family_id
         )
-        .bind(family_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -514,18 +492,16 @@ impl RefreshTokenStorage {
         expires_at: i64,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            INSERT INTO token_blacklist (token_hash, token_type, user_id, is_revoked, expires_at, reason)
+        sqlx::query!(
+            r#"INSERT INTO token_blacklist (token_hash, token_type, user_id, is_revoked, expires_at, reason)
             VALUES ($1, $2, $3, TRUE, $4, $5)
-            ON CONFLICT (token_hash) DO NOTHING
-            ",
+            ON CONFLICT (token_hash) DO NOTHING"#,
+            token_hash,
+            token_type,
+            user_id,
+            expires_at,
+            reason
         )
-        .bind(token_hash)
-        .bind(token_type)
-        .bind(user_id)
-        .bind(expires_at)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -535,12 +511,13 @@ impl RefreshTokenStorage {
     pub async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM token_blacklist WHERE token_hash = $1 AND expires_at > $2")
-                .bind(token_hash)
-                .bind(now)
-                .fetch_one(&*self.pool)
-                .await?;
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*)::BIGINT AS "count!" FROM token_blacklist WHERE token_hash = $1 AND expires_at > $2"#,
+            token_hash,
+            now
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         Ok(count > 0)
     }
@@ -548,10 +525,12 @@ impl RefreshTokenStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE")
-            .bind(now)
-            .execute(&*self.pool)
-            .await?;
+        let result = sqlx::query!(
+            r#"DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE"#,
+            now
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -559,28 +538,31 @@ impl RefreshTokenStorage {
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result =
-            sqlx::query("DELETE FROM token_blacklist WHERE expires_at < $1").bind(now).execute(&*self.pool).await?;
+        let result = sqlx::query!(
+            r#"DELETE FROM token_blacklist WHERE expires_at < $1"#,
+            now
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(result.rows_affected() as i64)
     }
 
     pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RefreshTokenStats>(
-            r"
-            SELECT
+        let row = sqlx::query_as!(
+            RefreshTokenStats,
+            r#"SELECT
                 user_id,
-                COUNT(*) as total_tokens,
-                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW()) * 1000) as active_tokens,
-                COUNT(*) FILTER (WHERE is_revoked = TRUE) as revoked_tokens,
-                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW()) * 1000) as expired_tokens,
-                COALESCE(SUM(use_count), 0) as total_uses
+                COUNT(*) as "total_tokens!",
+                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW()) * 1000) as "active_tokens!",
+                COUNT(*) FILTER (WHERE is_revoked = TRUE) as "revoked_tokens!",
+                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW()) * 1000) as "expired_tokens!",
+                COALESCE(SUM(use_count), 0) as "total_uses!"
             FROM refresh_tokens
             WHERE user_id = $1
-            GROUP BY user_id
-            ",
+            GROUP BY user_id"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -588,11 +570,15 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RefreshTokenUsage>(
-            "SELECT * FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2",
+        let rows = sqlx::query_as!(
+            RefreshTokenUsage,
+            r#"SELECT id, refresh_token_id, user_id, old_access_token_id, new_access_token_id,
+                used_ts AS "used_ts!", ip_address, user_agent,
+                is_success AS "success!: bool", error_message
+            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2"#,
+            user_id,
+            limit
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -600,14 +586,23 @@ impl RefreshTokenStorage {
     }
 
     pub async fn delete_token(&self, token_hash: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1").bind(token_hash).execute(&*self.pool).await?;
+        sqlx::query!(
+            r#"DELETE FROM refresh_tokens WHERE token_hash = $1"#,
+            token_hash
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(())
     }
 
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        let result =
-            sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
+        let result = sqlx::query!(
+            r#"DELETE FROM refresh_tokens WHERE user_id = $1"#,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
 
         Ok(result.rows_affected() as i64)
     }

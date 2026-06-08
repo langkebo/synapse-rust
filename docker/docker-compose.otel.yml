@@ -1,0 +1,57 @@
+# OTel Dev Observability Stack
+# Usage: docker compose -f docker-compose.otel.yml up -d
+# Then start synapse-rust with default OTLP endpoint (http://localhost:4317)
+# Traces → Jaeger UI at http://localhost:16686
+# Metrics → Prometheus at http://localhost:9090
+
+version: "3.8"
+
+services:
+  # OpenTelemetry Collector - receives OTLP from synapse-rust
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.125.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - otel-net
+
+  # Jaeger - trace visualization
+  jaeger:
+    image: jaegertracing/all-in-one:1.68
+    container_name: jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "16685:16685"  # gRPC query
+      - "14250:14250"  # gRPC model.proto
+      - "14268:14268"  # HTTP collector
+      - "9411:9411"    # Zipkin collector
+    networks:
+      - otel-net
+
+  # Prometheus - metrics storage
+  prometheus:
+    image: prom/prometheus:v2.55.3
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - otel-net
+
+networks:
+  otel-net:
+    driver: bridge

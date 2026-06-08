@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -61,21 +61,21 @@ impl E2eeAuditService {
     }
 
     pub async fn log_key_operation(&self, event: KeyEvent) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO e2ee_audit_log
             (user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
+            "#,
+            event.user_id,
+            event.device_id,
+            event.operation,
+            event.key_id,
+            event.room_id,
+            event.details,
+            event.ip_address,
+            event.timestamp
         )
-        .bind(&event.user_id)
-        .bind(&event.device_id)
-        .bind(&event.operation)
-        .bind(&event.key_id)
-        .bind(&event.room_id)
-        .bind(&event.details)
-        .bind(&event.ip_address)
-        .bind(event.timestamp)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to log key operation", &e))?;
@@ -85,31 +85,33 @@ impl E2eeAuditService {
     }
 
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT * FROM e2ee_audit_log
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id as "id!", user_id as "user_id!", device_id, operation as "operation!", key_id, room_id, details, ip_address, created_ts as "created_ts!" FROM e2ee_audit_log
             WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT 100
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
     }
 
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT * FROM e2ee_audit_log
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id as "id!", user_id as "user_id!", device_id, operation as "operation!", key_id, room_id, details, ip_address, created_ts as "created_ts!" FROM e2ee_audit_log
             WHERE operation = $1
             ORDER BY created_ts DESC
             LIMIT $2
-            ",
+            "#,
+            operation,
+            limit
         )
-        .bind(operation)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get operations", &e))
@@ -120,16 +122,17 @@ impl E2eeAuditService {
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT * FROM e2ee_audit_log
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id as "id!", user_id as "user_id!", device_id, operation as "operation!", key_id, room_id, details, ip_address, created_ts as "created_ts!" FROM e2ee_audit_log
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts DESC
             LIMIT 50
-            ",
+            "#,
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get device history", &e))
@@ -138,8 +141,7 @@ impl E2eeAuditService {
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
         let cutoff_ts = chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
 
-        let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")
-            .bind(cutoff_ts)
+        let result = sqlx::query!("DELETE FROM e2ee_audit_log WHERE created_ts < $1", cutoff_ts)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup logs", &e))?;
@@ -247,22 +249,22 @@ impl CrossSigningVerificationService {
     }
 
     pub async fn mark_device_verified(&self, user_id: &str, device_id: &str, method: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now_dt = chrono::Utc::now();
+        let now_ms = now_dt.timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO device_trust_status (user_id, device_id, is_verified, verification_method, verified_ts)
-            VALUES ($1, $2, TRUE, $4, $3)
+        sqlx::query!(
+            r#"
+            INSERT INTO device_trust_status (user_id, device_id, trust_level, verified_by_device_id, verified_at, created_ts)
+            VALUES ($1, $2, 'verified', $3, $4, $5)
             ON CONFLICT (user_id, device_id) DO UPDATE SET
-                is_verified = TRUE,
-                verification_method = $4,
-                verified_ts = $3
-            ",
+                trust_level = 'verified', verified_by_device_id = $3, verified_at = $4, updated_ts = $5
+            "#,
+            user_id,
+            device_id,
+            method,
+            now_dt,
+            now_ms,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
-        .bind(method)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark device verified", &e))?;
@@ -278,7 +280,7 @@ impl CrossSigningVerificationService {
                     "method": method,
                 })),
                 ip_address: None,
-                timestamp: now,
+                timestamp: now_ms,
             })
             .await?;
 
@@ -287,20 +289,19 @@ impl CrossSigningVerificationService {
     }
 
     pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now_ms = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO device_trust_status (user_id, device_id, is_verified, verification_method, verified_ts)
-            VALUES ($1, $2, FALSE, NULL, NULL)
+        sqlx::query!(
+            r#"
+            INSERT INTO device_trust_status (user_id, device_id, trust_level, verified_by_device_id, verified_at, created_ts)
+            VALUES ($1, $2, 'unverified', NULL, NULL, $3)
             ON CONFLICT (user_id, device_id) DO UPDATE SET
-                is_verified = FALSE,
-                verification_method = NULL,
-                verified_ts = NULL
-            ",
+                trust_level = 'unverified', verified_by_device_id = NULL, verified_at = NULL, updated_ts = $3
+            "#,
+            user_id,
+            device_id,
+            now_ms,
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark device unverified", &e))?;
@@ -316,7 +317,7 @@ impl CrossSigningVerificationService {
                     "reason": reason,
                 })),
                 ip_address: None,
-                timestamp: now,
+                timestamp: now_ms,
             })
             .await?;
 
@@ -325,16 +326,17 @@ impl CrossSigningVerificationService {
     }
 
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT d.device_id, d.user_id, d.display_name,
-                   dt.is_verified, dt.verified_ts, dt.verification_method
+        let rows = sqlx::query!(
+            r#"
+            SELECT d.device_id AS "device_id!", d.user_id AS "user_id!", d.display_name,
+                   (EXTRACT(EPOCH FROM dt.verified_at) * 1000)::BIGINT AS last_verified_ts,
+                   dt.verified_by_device_id AS verification_method
             FROM devices d
             LEFT JOIN device_trust_status dt ON d.user_id = dt.user_id AND d.device_id = dt.device_id
             WHERE d.user_id = $1
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get devices", &e))?;
@@ -342,46 +344,37 @@ impl CrossSigningVerificationService {
         Ok(rows
             .iter()
             .map(|row| DeviceInfo {
-                device_id: row.get("device_id"),
-                user_id: row.get("user_id"),
-                display_name: row.get("display_name"),
-                last_verified_ts: row.get("verified_ts"),
-                verification_method: row.get("verification_method"),
+                device_id: row.device_id.clone(),
+                user_id: row.user_id.clone(),
+                display_name: row.display_name.clone(),
+                last_verified_ts: row.last_verified_ts,
+                verification_method: row.verification_method.clone(),
             })
             .collect())
     }
 
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        let result: Option<Option<bool>> = sqlx::query_scalar(
-            r"
-            SELECT signature_valid FROM device_signatures
-            WHERE device_id = $1
-            ORDER BY created_ts DESC
-            LIMIT 1
-            ",
+        let row = sqlx::query!(
+            r#"SELECT EXISTS(SELECT 1 FROM device_signatures WHERE device_id = $1) AS "signature_exists!""#,
+            &device.device_id
         )
-        .bind(&device.device_id)
-        .fetch_optional(&*self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check signature", &e))?;
 
-        Ok(result.flatten().unwrap_or(false))
+        Ok(row.signature_exists)
     }
 
     async fn check_cross_signing(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        let result: Option<Option<bool>> = sqlx::query_scalar(
-            r"
-            SELECT cross_signed FROM cross_signing_keys
-            WHERE user_id = $1 AND device_id = $2
-            ",
+        let row = sqlx::query!(
+            r#"SELECT EXISTS(SELECT 1 FROM cross_signing_keys WHERE user_id = $1) AS "cross_signed!""#,
+            &device.user_id
         )
-        .bind(&device.user_id)
-        .bind(&device.device_id)
-        .fetch_optional(&*self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check cross signing", &e))?;
 
-        Ok(result.flatten().unwrap_or(false))
+        Ok(row.cross_signed)
     }
 }
 

@@ -1,7 +1,7 @@
 use super::models::ThirdPartyId;
 use crate::common::error::ApiError;
 use crate::storage::{CreateThreepidRequest, ThreepidStorage};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -59,28 +59,29 @@ impl IdentityStorage {
     }
 
     pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r"
-            SELECT address, medium, user_id, validated_ts, added_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT address, medium AS "medium!", user_id AS "user_id!", validated_at AS "validated_at?",
+                added_ts AS "added_ts!"
             FROM user_threepids
-            WHERE validated_ts < added_ts
+            WHERE validated_at < added_ts
             ORDER BY added_ts DESC
             LIMIT 100
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get pending 3PID validations", &e))?;
 
         Ok(rows
-            .into_iter()
+            .iter()
             .map(|r| {
                 serde_json::json!({
-                    "address": r.get::<Option<String>, _>("address"),
-                    "medium": r.get::<String, _>("medium"),
-                    "user_id": r.get::<String, _>("user_id"),
-                    "validated_ts": r.get::<Option<i64>, _>("validated_ts"),
-                    "added_ts": r.get::<i64, _>("added_ts")
+                    "address": r.address,
+                    "medium": r.medium,
+                    "user_id": r.user_id,
+                    "validated_ts": r.validated_at,
+                    "added_ts": r.added_ts
                 })
             })
             .collect())

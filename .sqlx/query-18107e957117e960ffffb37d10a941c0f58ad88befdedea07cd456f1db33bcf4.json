@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_type AS \"event_type!\", user_id AS \"user_id!\", content AS \"content!\"\n            FROM room_ephemeral\n            WHERE room_id = $1\n            AND (expires_at IS NULL OR expires_at > $2)\n            ORDER BY stream_id DESC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_type!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "content!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "18107e957117e960ffffb37d10a941c0f58ad88befdedea07cd456f1db33bcf4"
+}

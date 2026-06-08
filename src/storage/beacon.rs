@@ -77,27 +77,40 @@ impl BeaconStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = if params.timeout > 0 { Some(params.created_ts + params.timeout) } else { None };
 
-        let row = sqlx::query_as::<_, BeaconInfo>(
+        let row = sqlx::query_as!(
+            BeaconInfo,
             r#"
             INSERT INTO beacon_info (
                 room_id, event_id, state_key, sender, description,
                 timeout, is_live, asset_type, created_ts, updated_ts, expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *
+            RETURNING
+                id AS "id!",
+                room_id AS "room_id!",
+                event_id AS "event_id!",
+                state_key AS "state_key!",
+                sender AS "sender!",
+                description AS "description?",
+                timeout AS "timeout!",
+                is_live AS "is_live!",
+                asset_type AS "asset_type!",
+                created_ts AS "created_ts!",
+                updated_ts AS "updated_ts?",
+                expires_at AS "expires_at?"
             "#,
+            &params.room_id,
+            &params.event_id,
+            &params.state_key,
+            &params.sender,
+            params.description.as_deref(),
+            params.timeout,
+            params.is_live,
+            &params.asset_type,
+            params.created_ts,
+            now,
+            expires_at,
         )
-        .bind(&params.room_id)
-        .bind(&params.event_id)
-        .bind(&params.state_key)
-        .bind(&params.sender)
-        .bind(&params.description)
-        .bind(params.timeout)
-        .bind(params.is_live)
-        .bind(&params.asset_type)
-        .bind(params.created_ts)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -106,30 +119,29 @@ impl BeaconStorage {
 
     pub async fn deactivate_beacons_by_state_key(&self, room_id: &str, state_key: &str) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE beacon_info
             SET is_live = false, updated_ts = $3
             WHERE room_id = $1 AND state_key = $2 AND is_live = true
             "#,
+            room_id,
+            state_key,
+            now,
         )
-        .bind(room_id)
-        .bind(state_key)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
     }
 
     pub async fn get_beacon_info(&self, room_id: &str, event_id: &str) -> Result<Option<BeaconInfo>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BeaconInfo>(
-            r#"
-            SELECT * FROM beacon_info
-            WHERE room_id = $1 AND event_id = $2
-            "#,
+        let row = sqlx::query_as!(
+            BeaconInfo,
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info
+            WHERE room_id = $1 AND event_id = $2"#,
+            room_id,
+            event_id,
         )
-        .bind(room_id)
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -141,15 +153,14 @@ impl BeaconStorage {
         room_id: &str,
         state_key: &str,
     ) -> Result<Vec<BeaconInfo>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BeaconInfo>(
-            r#"
-            SELECT * FROM beacon_info
+        let rows = sqlx::query_as!(
+            BeaconInfo,
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info
             WHERE room_id = $1 AND state_key = $2
-            ORDER BY created_ts DESC
-            "#,
+            ORDER BY created_ts DESC"#,
+            room_id,
+            state_key,
         )
-        .bind(room_id)
-        .bind(state_key)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -159,17 +170,16 @@ impl BeaconStorage {
     pub async fn get_active_beacons(&self, room_id: &str) -> Result<Vec<BeaconInfo>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let rows = sqlx::query_as::<_, BeaconInfo>(
-            r#"
-            SELECT * FROM beacon_info
+        let rows = sqlx::query_as!(
+            BeaconInfo,
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info
             WHERE room_id = $1
               AND is_live = true
               AND (expires_at IS NULL OR expires_at > $2)
-            ORDER BY created_ts DESC
-            "#,
+            ORDER BY created_ts DESC"#,
+            room_id,
+            now,
         )
-        .bind(room_id)
-        .bind(now)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -187,21 +197,20 @@ impl BeaconStorage {
 
         let expires_at = timeout.map(|t| now + t);
 
-        let row = sqlx::query_as::<_, BeaconInfo>(
-            r#"
-            UPDATE beacon_info
+        let row = sqlx::query_as!(
+            BeaconInfo,
+            r#"UPDATE beacon_info
             SET is_live = $3, timeout = COALESCE($4, timeout),
                 expires_at = COALESCE($5, expires_at), updated_ts = $6
             WHERE room_id = $1 AND event_id = $2
-            RETURNING *
-            "#,
+            RETURNING id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?""#,
+            room_id,
+            event_id,
+            is_live,
+            timeout,
+            expires_at,
+            now,
         )
-        .bind(room_id)
-        .bind(event_id)
-        .bind(is_live)
-        .bind(timeout)
-        .bind(expires_at)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -209,14 +218,14 @@ impl BeaconStorage {
     }
 
     pub async fn delete_beacon_info(&self, room_id: &str, event_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             DELETE FROM beacon_info
             WHERE room_id = $1 AND event_id = $2
             "#,
+            room_id,
+            event_id,
         )
-        .bind(room_id)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
 
@@ -227,25 +236,24 @@ impl BeaconStorage {
         &self,
         params: CreateBeaconLocationParams,
     ) -> Result<BeaconLocation, sqlx::Error> {
-        let row = sqlx::query_as::<_, BeaconLocation>(
-            r#"
-            INSERT INTO beacon_locations (
+        let row = sqlx::query_as!(
+            BeaconLocation,
+            r#"INSERT INTO beacon_locations (
                 room_id, event_id, beacon_info_id, sender, uri,
                 description, timestamp, accuracy, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            "#,
+            RETURNING id AS "id!", room_id AS "room_id!", event_id AS "event_id!", beacon_info_id AS "beacon_info_id!", sender AS "sender!", uri AS "uri!", description AS "description?", timestamp AS "timestamp!", accuracy AS "accuracy?", created_ts AS "created_ts!""#,
+            &params.room_id,
+            &params.event_id,
+            &params.beacon_info_id,
+            &params.sender,
+            &params.uri,
+            params.description.as_deref(),
+            params.timestamp,
+            params.accuracy,
+            params.created_ts,
         )
-        .bind(&params.room_id)
-        .bind(&params.event_id)
-        .bind(&params.beacon_info_id)
-        .bind(&params.sender)
-        .bind(&params.uri)
-        .bind(&params.description)
-        .bind(params.timestamp)
-        .bind(params.accuracy)
-        .bind(params.created_ts)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -257,24 +265,23 @@ impl BeaconStorage {
     }
 
     async fn update_beacon_expiry(&self, beacon_info_id: &str, location_ts: i64) -> Result<(), sqlx::Error> {
-        let beacon_info = sqlx::query_as::<_, BeaconInfo>("SELECT * FROM beacon_info WHERE event_id = $1")
-            .bind(beacon_info_id)
+        let beacon_info = sqlx::query_as!(BeaconInfo, r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info WHERE event_id = $1"#, beacon_info_id)
             .fetch_optional(&*self.pool)
             .await?;
 
         if let Some(info) = beacon_info {
             if info.timeout > 0 {
                 let new_expiry = location_ts + info.timeout;
-                sqlx::query(
+                sqlx::query!(
                     r#"
                     UPDATE beacon_info
                     SET expires_at = $2, updated_ts = $3
                     WHERE event_id = $1
                     "#,
+                    beacon_info_id,
+                    new_expiry,
+                    chrono::Utc::now().timestamp_millis(),
                 )
-                .bind(beacon_info_id)
-                .bind(new_expiry)
-                .bind(chrono::Utc::now().timestamp_millis())
                 .execute(&*self.pool)
                 .await?;
             }
@@ -290,16 +297,15 @@ impl BeaconStorage {
     ) -> Result<Vec<BeaconLocation>, sqlx::Error> {
         let limit = limit.unwrap_or(100);
 
-        let rows = sqlx::query_as::<_, BeaconLocation>(
-            r#"
-            SELECT * FROM beacon_locations
+        let rows = sqlx::query_as!(
+            BeaconLocation,
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", beacon_info_id AS "beacon_info_id!", sender AS "sender!", uri AS "uri!", description AS "description?", timestamp AS "timestamp!", accuracy AS "accuracy?", created_ts AS "created_ts!" FROM beacon_locations
             WHERE beacon_info_id = $1
             ORDER BY timestamp DESC
-            LIMIT $2
-            "#,
+            LIMIT $2"#,
+            beacon_info_id,
+            limit,
         )
-        .bind(beacon_info_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -307,15 +313,14 @@ impl BeaconStorage {
     }
 
     pub async fn get_latest_location(&self, beacon_info_id: &str) -> Result<Option<BeaconLocation>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BeaconLocation>(
-            r#"
-            SELECT * FROM beacon_locations
+        let row = sqlx::query_as!(
+            BeaconLocation,
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", beacon_info_id AS "beacon_info_id!", sender AS "sender!", uri AS "uri!", description AS "description?", timestamp AS "timestamp!", accuracy AS "accuracy?", created_ts AS "created_ts!" FROM beacon_locations
             WHERE beacon_info_id = $1
             ORDER BY timestamp DESC
-            LIMIT 1
-            "#,
+            LIMIT 1"#,
+            beacon_info_id,
         )
-        .bind(beacon_info_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -323,17 +328,14 @@ impl BeaconStorage {
     }
 
     pub async fn count_locations_in_room_since(&self, room_id: &str, since_ts: i64) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*)
-            FROM beacon_locations
-            WHERE room_id = $1 AND created_ts >= $2
-            "#,
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) FROM beacon_locations WHERE room_id = $1 AND created_ts >= $2"#,
+            room_id,
+            since_ts,
         )
-        .bind(room_id)
-        .bind(since_ts)
         .fetch_one(&*self.pool)
         .await
+        .map(|v| v.unwrap_or(0))
     }
 
     pub async fn count_locations_in_room_by_sender_since(
@@ -342,29 +344,22 @@ impl BeaconStorage {
         sender: &str,
         since_ts: i64,
     ) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*)
-            FROM beacon_locations
-            WHERE room_id = $1 AND sender = $2 AND created_ts >= $3
-            "#,
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) FROM beacon_locations WHERE room_id = $1 AND sender = $2 AND created_ts >= $3"#,
+            room_id,
+            sender,
+            since_ts,
         )
-        .bind(room_id)
-        .bind(sender)
-        .bind(since_ts)
         .fetch_one(&*self.pool)
         .await
+        .map(|v| v.unwrap_or(0))
     }
 
     pub async fn get_joined_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COALESCE(COUNT(*), 0)
-            FROM room_memberships
-            WHERE room_id = $1 AND membership = 'join'
-            "#,
+        sqlx::query_scalar!(
+            r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join'"#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await
     }
@@ -387,13 +382,13 @@ impl BeaconStorage {
     pub async fn cleanup_expired_beacons(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             DELETE FROM beacon_info
             WHERE expires_at IS NOT NULL AND expires_at < $1
             "#,
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -408,27 +403,25 @@ impl BeaconStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         let beacon_infos = if include_expired {
-            sqlx::query_as::<_, BeaconInfo>(
-                r#"
-                SELECT * FROM beacon_info
+            sqlx::query_as!(
+                BeaconInfo,
+                r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info
                 WHERE room_id = $1
-                ORDER BY created_ts DESC
-                "#,
+                ORDER BY created_ts DESC"#,
+                room_id,
             )
-            .bind(room_id)
             .fetch_all(&*self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, BeaconInfo>(
-                r#"
-                SELECT * FROM beacon_info
+            sqlx::query_as!(
+                BeaconInfo,
+                r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", state_key AS "state_key!", sender AS "sender!", description AS "description?", timeout AS "timeout!", is_live AS "is_live!", asset_type AS "asset_type!", created_ts AS "created_ts!", updated_ts AS "updated_ts?", expires_at AS "expires_at?" FROM beacon_info
                 WHERE room_id = $1
                   AND (expires_at IS NULL OR expires_at > $2)
-                ORDER BY created_ts DESC
-                "#,
+                ORDER BY created_ts DESC"#,
+                room_id,
+                now,
             )
-            .bind(room_id)
-            .bind(now)
             .fetch_all(&*self.pool)
             .await?
         };

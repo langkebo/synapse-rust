@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::PresenceStorage;
+use synapse_rust::PresenceState;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
@@ -652,7 +653,7 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
         let presence = presence.clone();
         handles.push(tokio::spawn(async move {
             for iteration in 0..5 {
-                let state = if iteration % 2 == 0 { "online" } else { "unavailable" };
+                let state = if iteration % 2 == 0 { PresenceState::Online } else { PresenceState::Unavailable };
                 presence.set_presence(&user_id, state, Some("stable under concurrency")).await.unwrap();
                 let current = presence.get_presence(&user_id).await.unwrap();
                 assert!(current.is_some());

@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE modules SET config = $2\n            WHERE module_name = $1\n            RETURNING id as \"id!\", module_name as \"module_name!\", module_type as \"module_type!\",\n                      version as \"version!\", description as \"description?\", is_enabled as \"is_enabled!\",\n                      priority as \"priority!\", config as \"config?\", created_ts as \"created_ts!\",\n                      updated_ts as \"updated_ts!\", last_executed_ts as \"last_executed_ts?\",\n                      execution_count as \"execution_count!\", error_count as \"error_count!\",\n                      last_error as \"last_error?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "module_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "module_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "version!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "config?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_executed_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "execution_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "error_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b9fd2bd9454702936981bd28697f3d2e254f506f3f01a15847faac1a5745082a"
+}

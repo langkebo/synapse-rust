@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO registration_tokens (\n                    token, token_type, description, max_uses, expires_at, created_by,\n                    created_ts, updated_ts\n                )\n                VALUES ($1, 'single_use', $2, 1, $3, $4, $5, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4a87e5e9e2bc03835428cf8b3c9dc6d0d876ce8c44024e6ef6947e737de0be1"
+}

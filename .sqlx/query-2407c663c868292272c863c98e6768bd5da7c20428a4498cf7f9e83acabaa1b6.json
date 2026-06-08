@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE modules SET\n                last_executed_ts = $2,\n                execution_count = execution_count + 1,\n                error_count = CASE WHEN $3 THEN error_count ELSE error_count + 1 END,\n                last_error = $4\n            WHERE module_name = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2407c663c868292272c863c98e6768bd5da7c20428a4498cf7f9e83acabaa1b6"
+}

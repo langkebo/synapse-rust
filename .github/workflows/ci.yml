@@ -93,8 +93,19 @@ jobs:
         run: bash scripts/ci/supply_chain_gate.sh
 
   test:
-    name: Test & Lint
+    name: Test & Lint (${{ matrix.rust-toolchain }}, ${{ matrix.features-label }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rust-toolchain: [stable, 1.93.0]
+        features-args: ["", "--all-features"]
+        include:
+          - features-args: ""
+            features-label: default-features
+          - features-args: "--all-features"
+            features-label: all-features
 
     services:
       postgres:
@@ -125,41 +136,40 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (${{ matrix.rust-toolchain }})
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.93.0
+          toolchain: ${{ matrix.rust-toolchain }}
           components: rustfmt, clippy
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          key: ${{ matrix.rust-toolchain }}-${{ matrix.features-label }}
 
       - name: Check formatting
+        if: matrix.rust-toolchain == 'stable' && matrix.features-args == ''
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-features --locked -- -D warnings
+        run: cargo clippy ${{ matrix.features-args }} --locked -- -D warnings
 
       - name: Install sqlx-cli
+        if: matrix.features-args == '--all-features'
         run: cargo install sqlx-cli --locked --no-default-features --features postgres
 
       - name: Install cargo-nextest
+        if: matrix.features-args == '--all-features'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
       - name: Build forward-only sqlx migration source
+        if: matrix.features-args == '--all-features'
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
       - name: Set up test database
+        if: matrix.features-args == '--all-features'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
@@ -167,9 +177,11 @@ jobs:
           sqlx migrate run --source artifacts/sqlx-migrations
 
       - name: Run doc tests
+        if: matrix.features-args == '--all-features'
         run: cargo test --doc --locked
 
       - name: Run unit tests
+        if: matrix.features-args == '--all-features'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -228,16 +240,8 @@ jobs:
         with:
           toolchain: 1.93.0
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked --no-default-features --features postgres
@@ -324,6 +328,27 @@ jobs:
             exit 1
           fi
 
+      # m-2: Track outdated dependencies for security-relevant crates.
+      # Non-blocking: only warns, does not fail the pipeline.
+      # Focus on crypto crates that may need patch-level bumps.
+      - name: Check outdated dependencies (cargo-outdated)
+        continue-on-error: true
+        run: |
+          cargo install cargo-outdated --locked
+          echo "=== Outdated dependencies (focus: crypto) ==="
+          cargo outdated --root-deps-only 2>&1 | tee artifacts/outdated-deps.txt
+          echo ""
+          echo "=== Security-relevant crate status ==="
+          cargo outdated 2>&1 | grep -E '(x25519-dalek|ed25519-dalek|curve25519-dalek|aes-gcm|chacha20poly1305|ring|openssl|rustls)' || echo "No updates available for tracked security crates."
+
+      - name: Upload outdated-deps report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outdated-deps-report
+          path: artifacts/outdated-deps.txt
+          retention-days: 14
+
   build:
     name: Build Check
     runs-on: ubuntu-latest
@@ -351,17 +376,10 @@ jobs:
         with:
           toolchain: 1.93.0
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.profile.name }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.profile.name }}-
-            ${{ runner.os }}-cargo-
+          key: ${{ matrix.profile.name }}
 
       - name: Build ${{ matrix.profile.name }}
         run: cargo build --release --no-default-features --features ${{ matrix.profile.features }} --locked
@@ -404,6 +422,9 @@ jobs:
         with:
           toolchain: 1.93.0
           components: llvm-tools-preview
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin --locked

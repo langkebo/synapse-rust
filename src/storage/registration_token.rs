@@ -149,29 +149,46 @@ impl RegistrationTokenStorage {
         let token = request.token.unwrap_or_else(Self::generate_token);
         let token_type = request.token_type.unwrap_or_else(|| "single_use".to_string());
 
-        let row = sqlx::query_as::<_, RegistrationToken>(
-            r"
-            INSERT INTO registration_tokens (
+        let row = sqlx::query_as!(
+            RegistrationToken,
+            r#"INSERT INTO registration_tokens (
                 token, token_type, description, max_uses, expires_at, created_by,
                 created_ts, updated_ts, allowed_email_domains, allowed_user_ids,
                 auto_join_rooms, display_name, email
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)
-            RETURNING *
-            ",
+            RETURNING
+                id, token,
+                token_type AS "token_type!",
+                description,
+                max_uses AS "max_uses!",
+                uses_count AS "uses_count!",
+                is_used AS "is_used!",
+                is_enabled AS "is_enabled!",
+                created_ts,
+                updated_ts AS "updated_ts!",
+                expires_at,
+                last_used_ts,
+                created_by,
+                allowed_email_domains,
+                allowed_user_ids,
+                auto_join_rooms,
+                display_name,
+                email
+            "#,
+            &token,
+            &token_type,
+            request.description.as_deref(),
+            request.max_uses.unwrap_or(1),
+            request.expires_at,
+            request.created_by.as_deref(),
+            now,
+            request.allowed_email_domains.as_deref(),
+            request.allowed_user_ids.as_deref(),
+            request.auto_join_rooms.as_deref(),
+            request.display_name.as_deref(),
+            request.email.as_deref(),
         )
-        .bind(&token)
-        .bind(&token_type)
-        .bind(&request.description)
-        .bind(request.max_uses.unwrap_or(1))
-        .bind(request.expires_at)
-        .bind(&request.created_by)
-        .bind(now)
-        .bind(&request.allowed_email_domains)
-        .bind(&request.allowed_user_ids)
-        .bind(&request.auto_join_rooms)
-        .bind(&request.display_name)
-        .bind(&request.email)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -187,19 +204,61 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationToken>("SELECT * FROM registration_tokens WHERE token = $1")
-            .bind(token)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RegistrationToken,
+            r#"SELECT
+                id, token,
+                token_type AS "token_type!",
+                description,
+                max_uses AS "max_uses!",
+                uses_count AS "uses_count!",
+                is_used AS "is_used!",
+                is_enabled AS "is_enabled!",
+                created_ts,
+                updated_ts AS "updated_ts!",
+                expires_at,
+                last_used_ts,
+                created_by,
+                allowed_email_domains,
+                allowed_user_ids,
+                auto_join_rooms,
+                display_name,
+                email
+            FROM registration_tokens WHERE token = $1"#,
+            token,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
 
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RegistrationToken>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationToken>("SELECT * FROM registration_tokens WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RegistrationToken,
+            r#"SELECT
+                id, token,
+                token_type AS "token_type!",
+                description,
+                max_uses AS "max_uses!",
+                uses_count AS "uses_count!",
+                is_used AS "is_used!",
+                is_enabled AS "is_enabled!",
+                created_ts,
+                updated_ts AS "updated_ts!",
+                expires_at,
+                last_used_ts,
+                created_by,
+                allowed_email_domains,
+                allowed_user_ids,
+                auto_join_rooms,
+                display_name,
+                email
+            FROM registration_tokens WHERE id = $1"#,
+            id,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
@@ -209,22 +268,39 @@ impl RegistrationTokenStorage {
         id: i64,
         request: UpdateRegistrationTokenRequest,
     ) -> Result<RegistrationToken, sqlx::Error> {
-        let row = sqlx::query_as::<_, RegistrationToken>(
-            r"
-            UPDATE registration_tokens SET
+        let row = sqlx::query_as!(
+            RegistrationToken,
+            r#"UPDATE registration_tokens SET
                 description = COALESCE($2, description),
                 max_uses = COALESCE($3, max_uses),
                 is_enabled = COALESCE($4, is_enabled),
                 expires_at = COALESCE($5, expires_at)
             WHERE id = $1
-            RETURNING *
-            ",
+            RETURNING
+                id, token,
+                token_type AS "token_type!",
+                description,
+                max_uses AS "max_uses!",
+                uses_count AS "uses_count!",
+                is_used AS "is_used!",
+                is_enabled AS "is_enabled!",
+                created_ts,
+                updated_ts AS "updated_ts!",
+                expires_at,
+                last_used_ts,
+                created_by,
+                allowed_email_domains,
+                allowed_user_ids,
+                auto_join_rooms,
+                display_name,
+                email
+            "#,
+            id,
+            request.description.as_deref(),
+            request.max_uses,
+            request.is_enabled,
+            request.expires_at,
         )
-        .bind(id)
-        .bind(&request.description)
-        .bind(request.max_uses)
-        .bind(request.is_enabled)
-        .bind(request.expires_at)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -232,7 +308,9 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn delete_token(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM registration_tokens WHERE id = $1").bind(id).execute(&*self.pool).await?;
+        sqlx::query!("DELETE FROM registration_tokens WHERE id = $1", id)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }
@@ -311,35 +389,31 @@ impl RegistrationTokenStorage {
         };
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            UPDATE registration_tokens
+        sqlx::query!(
+            r#"UPDATE registration_tokens
             SET uses_count = uses_count + 1,
                 is_used = CASE WHEN token_type = 'single_use' THEN TRUE ELSE is_used END,
                 last_used_ts = $2
-            WHERE id = $1
-            ",
+            WHERE id = $1"#,
+            token_id,
+            now,
         )
-        .bind(token_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
-            r"
-            INSERT INTO registration_token_usage (
+        sqlx::query!(
+            r#"INSERT INTO registration_token_usage (
                 token_id, token, user_id, username, email, ip_address, user_agent, used_ts
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            token_id,
+            token,
+            user_id,
+            username,
+            email,
+            ip_address,
+            user_agent,
+            now,
         )
-        .bind(token_id)
-        .bind(token)
-        .bind(user_id)
-        .bind(username)
-        .bind(email)
-        .bind(ip_address)
-        .bind(user_agent)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -352,24 +426,62 @@ impl RegistrationTokenStorage {
         from: Option<RegistrationTokenCursor>,
     ) -> Result<(Vec<RegistrationToken>, Option<String>), sqlx::Error> {
         let rows = if let Some(cursor) = from {
-            sqlx::query_as::<_, RegistrationToken>(
-                "SELECT * FROM registration_tokens \
-                 WHERE (created_ts, id) < ($1, $2) \
-                 ORDER BY created_ts DESC, id DESC \
-                 LIMIT $3",
+            sqlx::query_as!(
+                RegistrationToken,
+                r#"SELECT
+                    id, token,
+                    token_type AS "token_type!",
+                    description,
+                    max_uses AS "max_uses!",
+                    uses_count AS "uses_count!",
+                    is_used AS "is_used!",
+                    is_enabled AS "is_enabled!",
+                    created_ts,
+                    updated_ts AS "updated_ts!",
+                    expires_at,
+                    last_used_ts,
+                    created_by,
+                    allowed_email_domains,
+                    allowed_user_ids,
+                    auto_join_rooms,
+                    display_name,
+                    email
+                FROM registration_tokens
+                WHERE (created_ts, id) < ($1, $2)
+                ORDER BY created_ts DESC, id DESC
+                LIMIT $3"#,
+                cursor.created_ts,
+                cursor.id,
+                limit + 1,
             )
-            .bind(cursor.created_ts)
-            .bind(cursor.id)
-            .bind(limit + 1)
             .fetch_all(&*self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, RegistrationToken>(
-                "SELECT * FROM registration_tokens \
-                 ORDER BY created_ts DESC, id DESC \
-                 LIMIT $1",
+            sqlx::query_as!(
+                RegistrationToken,
+                r#"SELECT
+                    id, token,
+                    token_type AS "token_type!",
+                    description,
+                    max_uses AS "max_uses!",
+                    uses_count AS "uses_count!",
+                    is_used AS "is_used!",
+                    is_enabled AS "is_enabled!",
+                    created_ts,
+                    updated_ts AS "updated_ts!",
+                    expires_at,
+                    last_used_ts,
+                    created_by,
+                    allowed_email_domains,
+                    allowed_user_ids,
+                    auto_join_rooms,
+                    display_name,
+                    email
+                FROM registration_tokens
+                ORDER BY created_ts DESC, id DESC
+                LIMIT $1"#,
+                limit + 1,
             )
-            .bind(limit + 1)
             .fetch_all(&*self.pool)
             .await?
         };
@@ -416,16 +528,33 @@ impl RegistrationTokenStorage {
     pub async fn get_active_tokens(&self) -> Result<Vec<RegistrationToken>, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let rows = sqlx::query_as::<_, RegistrationToken>(
-            r"
-            SELECT * FROM registration_tokens
+        let rows = sqlx::query_as!(
+            RegistrationToken,
+            r#"SELECT
+                id, token,
+                token_type AS "token_type!",
+                description,
+                max_uses AS "max_uses!",
+                uses_count AS "uses_count!",
+                is_used AS "is_used!",
+                is_enabled AS "is_enabled!",
+                created_ts,
+                updated_ts AS "updated_ts!",
+                expires_at,
+                last_used_ts,
+                created_by,
+                allowed_email_domains,
+                allowed_user_ids,
+                auto_join_rooms,
+                display_name,
+                email
+            FROM registration_tokens
             WHERE is_enabled = TRUE
             AND (expires_at IS NULL OR expires_at > $1)
             AND (max_uses = 0 OR uses_count < max_uses)
-            ORDER BY created_ts DESC
-            ",
+            ORDER BY created_ts DESC"#,
+            now,
         )
-        .bind(now)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -433,10 +562,23 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RegistrationTokenUsage>(
-            "SELECT * FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC",
+        let rows = sqlx::query_as!(
+            RegistrationTokenUsage,
+            r#"SELECT
+                id,
+                token_id AS "token_id!",
+                token AS "token!",
+                user_id,
+                username,
+                email,
+                ip_address,
+                user_agent,
+                used_ts,
+                is_success,
+                error_message
+            FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC"#,
+            token_id,
         )
-        .bind(token_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -444,8 +586,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn deactivate_token(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1")
-            .bind(id)
+        sqlx::query!("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1", id)
             .execute(&*self.pool)
             .await?;
 
@@ -455,10 +596,10 @@ impl RegistrationTokenStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             "UPDATE registration_tokens SET is_enabled = FALSE WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_enabled = TRUE",
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -469,21 +610,34 @@ impl RegistrationTokenStorage {
         let now = Utc::now().timestamp_millis();
         let invite_code = Self::generate_token();
 
-        let row = sqlx::query_as::<_, RoomInvite>(
-            r"
-            INSERT INTO room_invites (
+        let row = sqlx::query_as!(
+            RoomInvite,
+            r#"INSERT INTO room_invites (
                 invite_code, room_id, inviter_user_id, invitee_email, expires_at, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
-            ",
+            RETURNING
+                id,
+                invite_code AS "invite_code!",
+                room_id,
+                inviter_user_id AS "inviter_user_id!",
+                invitee_email,
+                invitee_user_id,
+                is_used,
+                is_revoked,
+                expires_at,
+                created_ts,
+                used_ts,
+                revoked_at,
+                revoked_reason
+            "#,
+            &invite_code,
+            &request.room_id,
+            &request.inviter_user_id,
+            request.invitee_email.as_deref(),
+            request.expires_at,
+            now,
         )
-        .bind(&invite_code)
-        .bind(&request.room_id)
-        .bind(&request.inviter_user_id)
-        .bind(&request.invitee_email)
-        .bind(request.expires_at)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -491,10 +645,27 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn get_room_invite(&self, invite_code: &str) -> Result<Option<RoomInvite>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomInvite>("SELECT * FROM room_invites WHERE invite_code = $1")
-            .bind(invite_code)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            RoomInvite,
+            r#"SELECT
+                id,
+                invite_code AS "invite_code!",
+                room_id,
+                inviter_user_id AS "inviter_user_id!",
+                invitee_email,
+                invitee_user_id,
+                is_used,
+                is_revoked,
+                expires_at,
+                created_ts,
+                used_ts,
+                revoked_at,
+                revoked_reason
+            FROM room_invites WHERE invite_code = $1"#,
+            invite_code,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
@@ -518,18 +689,16 @@ impl RegistrationTokenStorage {
 
                 let now = Utc::now().timestamp_millis();
 
-                sqlx::query(
-                    r"
-                    UPDATE room_invites SET
+                sqlx::query!(
+                    r#"UPDATE room_invites SET
                         is_used = TRUE,
                         invitee_user_id = $2,
                         used_ts = $3
-                    WHERE invite_code = $1
-                    ",
+                    WHERE invite_code = $1"#,
+                    invite_code,
+                    invitee_user_id,
+                    now,
                 )
-                .bind(invite_code)
-                .bind(invitee_user_id)
-                .bind(now)
                 .execute(&*self.pool)
                 .await?;
 
@@ -541,18 +710,16 @@ impl RegistrationTokenStorage {
     pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            UPDATE room_invites SET
+        sqlx::query!(
+            r#"UPDATE room_invites SET
                 is_revoked = TRUE,
                 revoked_at = $2,
                 revoked_reason = $3
-            WHERE invite_code = $1
-            ",
+            WHERE invite_code = $1"#,
+            invite_code,
+            now,
+            reason,
         )
-        .bind(invite_code)
-        .bind(now)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
 
@@ -562,42 +729,39 @@ impl RegistrationTokenStorage {
     pub async fn create_batch(&self, batch: &RegistrationTokenBatch, tokens: &[String]) -> Result<i64, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, RegistrationTokenBatch>(
-            r"
-            INSERT INTO registration_token_batches (
+        let row = sqlx::query_as!(
+            RegistrationTokenBatch,
+            r#"INSERT INTO registration_token_batches (
                 batch_id, description, token_count, created_by, created_ts, expires_at,
                 allowed_email_domains, auto_join_rooms
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
-            ",
+            RETURNING *"#,
+            &batch.batch_id,
+            batch.description.as_deref(),
+            batch.token_count,
+            batch.created_by.as_deref(),
+            now,
+            batch.expires_at,
+            batch.allowed_email_domains.as_deref(),
+            batch.auto_join_rooms.as_deref(),
         )
-        .bind(&batch.batch_id)
-        .bind(&batch.description)
-        .bind(batch.token_count)
-        .bind(&batch.created_by)
-        .bind(now)
-        .bind(batch.expires_at)
-        .bind(&batch.allowed_email_domains)
-        .bind(&batch.auto_join_rooms)
         .fetch_one(&*self.pool)
         .await?;
 
         for token in tokens {
-            sqlx::query(
-                r"
-                INSERT INTO registration_tokens (
+            sqlx::query!(
+                r#"INSERT INTO registration_tokens (
                     token, token_type, description, max_uses, expires_at, created_by,
                     created_ts, updated_ts
                 )
-                VALUES ($1, 'single_use', $2, 1, $3, $4, $5, $5)
-                ",
+                VALUES ($1, 'single_use', $2, 1, $3, $4, $5, $5)"#,
+                token,
+                batch.description.as_deref(),
+                batch.expires_at,
+                batch.created_by.as_deref(),
+                now,
             )
-            .bind(token)
-            .bind(&batch.description)
-            .bind(batch.expires_at)
-            .bind(&batch.created_by)
-            .bind(now)
             .execute(&*self.pool)
             .await?;
         }
@@ -606,11 +770,13 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
-        let row =
-            sqlx::query_as::<_, RegistrationTokenBatch>("SELECT * FROM registration_token_batches WHERE batch_id = $1")
-                .bind(batch_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let row = sqlx::query_as!(
+            RegistrationTokenBatch,
+            "SELECT * FROM registration_token_batches WHERE batch_id = $1",
+            batch_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }

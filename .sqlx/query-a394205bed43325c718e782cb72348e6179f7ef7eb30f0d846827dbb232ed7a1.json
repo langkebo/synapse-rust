@@ -1,0 +1,99 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    WITH visible_spaces AS (\n                        SELECT DISTINCT s.space_id\n                        FROM spaces s\n                        LEFT JOIN space_members sm\n                            ON sm.space_id = s.space_id AND sm.user_id = $5 AND sm.membership = 'join'\n                        WHERE s.is_public = TRUE OR s.creator = $5 OR sm.user_id IS NOT NULL\n                    ),\n                    candidate_matches AS (\n                        SELECT\n                            space_id,\n                            MIN(match_priority) AS match_priority,\n                            MAX(match_similarity) AS match_similarity\n                        FROM (\n                            SELECT\n                                s.space_id,\n                                CASE\n                                    WHEN s.name ILIKE $1 ESCAPE '\\' THEN 0\n                                    WHEN s.name ILIKE $2 ESCAPE '\\' THEN 1\n                                    WHEN s.name ILIKE $3 ESCAPE '\\' THEN 2\n                                    ELSE 3\n                                END AS match_priority,\n                                COALESCE(similarity(s.name, $4), 0.0) AS match_similarity\n                            FROM spaces s\n                            JOIN visible_spaces vs ON vs.space_id = s.space_id\n                            WHERE s.name IS NOT NULL\n                              AND (\n                                    s.name ILIKE $1 ESCAPE '\\'\n                                    OR s.name ILIKE $2 ESCAPE '\\'\n                                    OR s.name ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($4) >= 3 AND s.name % $4)\n                              )\n\n                            UNION ALL\n\n                            SELECT\n                                s.space_id,\n                                CASE\n                                    WHEN s.topic ILIKE $1 ESCAPE '\\' THEN 0\n                                    WHEN s.topic ILIKE $2 ESCAPE '\\' THEN 1\n                                    WHEN s.topic ILIKE $3 ESCAPE '\\' THEN 2\n                                    ELSE 3\n                                END AS match_priority,\n                                COALESCE(similarity(s.topic, $4), 0.0) AS match_similarity\n                            FROM spaces s\n                            JOIN visible_spaces vs ON vs.space_id = s.space_id\n                            WHERE s.topic IS NOT NULL\n                              AND (\n                                    s.topic ILIKE $1 ESCAPE '\\'\n                                    OR s.topic ILIKE $2 ESCAPE '\\'\n                                    OR s.topic ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($4) >= 3 AND s.topic % $4)\n                              )\n                        ) AS matches\n                        GROUP BY space_id\n                    )\n                    SELECT\n                        s.space_id AS \"space_id!\",\n                        COALESCE(s.room_id, '') AS \"room_id!\",\n                        s.name AS \"name?\",\n                        s.topic AS \"topic?\",\n                        s.avatar_url AS \"avatar_url?\",\n                        s.creator AS \"creator!\",\n                        COALESCE(s.join_rule, 'invite') AS \"join_rule!\",\n                        s.visibility AS \"visibility?\",\n                        s.created_ts AS \"created_ts!\",\n                        s.updated_ts AS \"updated_ts?\",\n                        COALESCE(s.is_public, false) AS \"is_public!\",\n                        s.parent_space_id AS \"parent_space_id?\",\n                        s.room_type AS \"room_type?\"\n                    FROM candidate_matches cm\n                    JOIN spaces s ON s.space_id = cm.space_id\n                    ORDER BY\n                        cm.match_priority ASC,\n                        cm.match_similarity DESC,\n                        s.created_ts DESC\n                    LIMIT $6\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "topic?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "creator!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "join_rule!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "visibility?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_public!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "parent_space_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "room_type?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      true,
+      false,
+      null,
+      true,
+      false,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "a394205bed43325c718e782cb72348e6179f7ef7eb30f0d846827dbb232ed7a1"
+}

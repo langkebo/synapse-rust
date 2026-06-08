@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE widgets SET is_active = FALSE, updated_ts = $2 WHERE widget_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fadca3beddd4add945cc4ff8ededec33ce752b9708de662174a7b231b4282430"
+}

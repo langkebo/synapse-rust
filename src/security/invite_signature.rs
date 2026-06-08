@@ -28,6 +28,8 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+use crate::common::crypto::{decode_hex, encode_hex};
+
 type HmacSha256 = Hmac<Sha256>;
 
 /// Domain-separated signing payload. The exact byte layout is part of the
@@ -56,7 +58,7 @@ pub fn sign_invite(
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");
     mac.update(&build_signing_payload(invite_code, room_id, inviter_user_id, expires_at, created_ts));
     let bytes = mac.finalize().into_bytes();
-    hex::encode(bytes)
+    encode_hex(bytes)
 }
 
 /// Constant-time verify. The runtime cost is identical to a non-MAC
@@ -70,7 +72,7 @@ pub fn verify_invite_signature(
     created_ts: i64,
     provided_hex: &str,
 ) -> bool {
-    let Ok(provided) = hex::decode(provided_hex) else {
+    let Ok(provided) = decode_hex(provided_hex) else {
         return false;
     };
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");

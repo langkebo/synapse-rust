@@ -154,30 +154,32 @@ async fn delete_tag(
 }
 
 async fn get_room_tags(pool: &PgPool, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as::<_, RoomTag>(
-        r"
-        SELECT user_id, room_id, tag, order_value, created_ts
+    sqlx::query_as!(
+        RoomTag,
+        r#"
+        SELECT user_id, room_id, tag, order_value AS "order", created_ts
         FROM room_tags
         WHERE user_id = $1 AND room_id = $2
         ORDER BY tag
-        ",
+        "#,
+        user_id,
+        room_id
     )
-    .bind(user_id)
-    .bind(room_id)
     .fetch_all(pool)
     .await
 }
 
 async fn get_all_user_tags(pool: &PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as::<_, RoomTag>(
-        r"
-        SELECT user_id, room_id, tag, order_value, created_ts
+    sqlx::query_as!(
+        RoomTag,
+        r#"
+        SELECT user_id, room_id, tag, order_value AS "order", created_ts
         FROM room_tags
         WHERE user_id = $1
         ORDER BY room_id, tag
-        ",
+        "#,
+        user_id
     )
-    .bind(user_id)
     .fetch_all(pool)
     .await
 }
@@ -190,19 +192,19 @@ async fn upsert_room_tag(
     order: Option<f64>,
     created_ts: i64,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r"
+    sqlx::query!(
+        r#"
         INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (user_id, room_id, tag)
         DO UPDATE SET order_value = $4, created_ts = $5
-        ",
+        "#,
+        user_id,
+        room_id,
+        tag,
+        order,
+        created_ts
     )
-    .bind(user_id)
-    .bind(room_id)
-    .bind(tag)
-    .bind(order)
-    .bind(created_ts)
     .execute(pool)
     .await?;
 
@@ -210,15 +212,15 @@ async fn upsert_room_tag(
 }
 
 async fn delete_room_tag(pool: &PgPool, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r"
+    sqlx::query!(
+        r#"
         DELETE FROM room_tags
         WHERE user_id = $1 AND room_id = $2 AND tag = $3
-        ",
+        "#,
+        user_id,
+        room_id,
+        tag
     )
-    .bind(user_id)
-    .bind(room_id)
-    .bind(tag)
     .execute(pool)
     .await?;
 

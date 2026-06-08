@@ -1,0 +1,434 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum MetricsError {
+    #[error("Histogram value comparison error: {0}")]
+    ValueComparisonError(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct Metric {
+    pub name: String,
+    pub value: f64,
+    pub timestamp: Instant,
+    pub labels: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Counter {
+    name: String,
+    value: Arc<AtomicU64>,
+    labels: HashMap<String, String>,
+}
+
+impl Counter {
+    pub fn new(name: String) -> Self {
+        Self { name, value: Arc::new(AtomicU64::new(0)), labels: HashMap::new() }
+    }
+
+    pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
+        Self { name, value: Arc::new(AtomicU64::new(0)), labels }
+    }
+
+    pub fn inc(&self) {
+        self.value.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inc_by(&self, delta: u64) {
+        self.value.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> u64 {
+        self.value.load(Ordering::Relaxed)
+    }
+
+    pub fn reset(&self) {
+        self.value.store(0, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Gauge {
+    name: String,
+    value: Arc<AtomicU64>,
+    labels: HashMap<String, String>,
+}
+
+impl Gauge {
+    pub fn new(name: String) -> Self {
+        Self { name, value: Arc::new(AtomicU64::new(0.0f64.to_bits())), labels: HashMap::new() }
+    }
+
+    pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
+        Self { name, value: Arc::new(AtomicU64::new(0.0f64.to_bits())), labels }
+    }
+
+    pub fn set(&self, value: f64) {
+        self.value.store(value.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn inc(&self) {
+        self.add(1.0);
+    }
+
+    pub fn dec(&self) {
+        self.sub(1.0);
+    }
+
+    pub fn add(&self, delta: f64) {
+        self.update(|current| current + delta);
+    }
+
+    pub fn sub(&self, delta: f64) {
+        self.update(|current| current - delta);
+    }
+
+    pub fn get(&self) -> f64 {
+        f64::from_bits(self.value.load(Ordering::Relaxed))
+    }
+
+    fn update(&self, f: impl Fn(f64) -> f64) {
+        let mut current = self.value.load(Ordering::Relaxed);
+        loop {
+            let current_value = f64::from_bits(current);
+            let next = f(current_value).to_bits();
+            match self.value.compare_exchange(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Histogram {
+    name: String,
+    values: Arc<parking_lot::Mutex<Vec<f64>>>,
+    labels: HashMap<String, String>,
+}
+
+impl Histogram {
+    pub fn new(name: String) -> Self {
+        Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels: HashMap::new() }
+    }
+
+    pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
+        Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels }
+    }
+
+    pub fn observe(&self, value: f64) {
+        let mut values = self.values.lock();
+        values.push(value);
+    }
+
+    pub fn get_values(&self) -> Vec<f64> {
+        let values = self.values.lock();
+        values.clone()
+    }
+
+    pub fn get_count(&self) -> usize {
+        let values = self.values.lock();
+        values.len()
+    }
+
+    pub fn get_sum(&self) -> f64 {
+        let values = self.values.lock();
+        values.iter().sum()
+    }
+
+    pub fn get_avg(&self) -> f64 {
+        let values = self.values.lock();
+        if values.is_empty() {
+            0.0
+        } else {
+            values.iter().sum::<f64>() / values.len() as f64
+        }
+    }
+
+    pub fn get_percentile(&self, percentile: f64) -> Result<f64, MetricsError> {
+        let mut values = self.values.lock();
+        if values.is_empty() {
+            return Ok(0.0);
+        }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let index = ((percentile / 100.0) * (values.len() - 1) as f64).floor() as usize;
+        Ok(values[index.min(values.len() - 1)])
+    }
+
+    pub fn reset(&self) {
+        let mut values = self.values.lock();
+        values.clear();
+    }
+}
+
+pub struct MetricsCollector {
+    counters: Arc<parking_lot::Mutex<HashMap<String, Counter>>>,
+    gauges: Arc<parking_lot::Mutex<HashMap<String, Gauge>>>,
+    histograms: Arc<parking_lot::Mutex<HashMap<String, Histogram>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MetricInventory {
+    pub total_counters: usize,
+    pub total_gauges: usize,
+    pub total_histograms: usize,
+}
+
+impl MetricsCollector {
+    pub fn new() -> Self {
+        Self {
+            counters: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            gauges: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            histograms: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn register_counter(&self, name: String) -> Counter {
+        let counter = Counter::new(name.clone());
+        let mut counters = self.counters.lock();
+        counters.insert(name, counter.clone());
+        counter
+    }
+
+    pub fn register_counter_with_labels(&self, name: String, labels: HashMap<String, String>) -> Counter {
+        let counter = Counter::with_labels(name.clone(), labels);
+        let mut counters = self.counters.lock();
+        counters.insert(name, counter.clone());
+        counter
+    }
+
+    pub fn register_gauge(&self, name: String) -> Gauge {
+        let gauge = Gauge::new(name.clone());
+        let mut gauges = self.gauges.lock();
+        gauges.insert(name, gauge.clone());
+        gauge
+    }
+
+    pub fn register_gauge_with_labels(&self, name: String, labels: HashMap<String, String>) -> Gauge {
+        let gauge = Gauge::with_labels(name.clone(), labels);
+        let mut gauges = self.gauges.lock();
+        gauges.insert(name, gauge.clone());
+        gauge
+    }
+
+    pub fn register_histogram(&self, name: String) -> Histogram {
+        let histogram = Histogram::new(name.clone());
+        let mut histograms = self.histograms.lock();
+        histograms.insert(name, histogram.clone());
+        histogram
+    }
+
+    pub fn register_histogram_with_labels(&self, name: String, labels: HashMap<String, String>) -> Histogram {
+        let histogram = Histogram::with_labels(name.clone(), labels);
+        let mut histograms = self.histograms.lock();
+        histograms.insert(name, histogram.clone());
+        histogram
+    }
+
+    pub fn get_counter(&self, name: &str) -> Option<Counter> {
+        let counters = self.counters.lock();
+        counters.get(name).cloned()
+    }
+
+    pub fn get_gauge(&self, name: &str) -> Option<Gauge> {
+        let gauges = self.gauges.lock();
+        gauges.get(name).cloned()
+    }
+
+    pub fn get_histogram(&self, name: &str) -> Option<Histogram> {
+        let histograms = self.histograms.lock();
+        histograms.get(name).cloned()
+    }
+
+    pub fn collect_metrics(&self) -> Vec<Metric> {
+        let mut metrics = Vec::new();
+
+        let counters = self.counters.lock();
+        for counter in counters.values() {
+            metrics.push(Metric {
+                name: counter.name.clone(),
+                value: counter.get() as f64,
+                timestamp: Instant::now(),
+                labels: counter.labels.clone(),
+            });
+        }
+
+        let gauges = self.gauges.lock();
+        for gauge in gauges.values() {
+            metrics.push(Metric {
+                name: gauge.name.clone(),
+                value: gauge.get(),
+                timestamp: Instant::now(),
+                labels: gauge.labels.clone(),
+            });
+        }
+
+        let histograms = self.histograms.lock();
+        for histogram in histograms.values() {
+            metrics.push(Metric {
+                name: format!("{}_count", histogram.name),
+                value: histogram.get_count() as f64,
+                timestamp: Instant::now(),
+                labels: histogram.labels.clone(),
+            });
+            metrics.push(Metric {
+                name: format!("{}_sum", histogram.name),
+                value: histogram.get_sum(),
+                timestamp: Instant::now(),
+                labels: histogram.labels.clone(),
+            });
+            metrics.push(Metric {
+                name: format!("{}_avg", histogram.name),
+                value: histogram.get_avg(),
+                timestamp: Instant::now(),
+                labels: histogram.labels.clone(),
+            });
+        }
+
+        metrics
+    }
+
+    pub fn inventory(&self) -> MetricInventory {
+        MetricInventory {
+            total_counters: self.counters.lock().len(),
+            total_gauges: self.gauges.lock().len(),
+            total_histograms: self.histograms.lock().len(),
+        }
+    }
+
+    pub fn to_prometheus_format(&self) -> String {
+        let mut output = String::with_capacity(4096);
+
+        let counters = self.counters.lock();
+        for counter in counters.values() {
+            output.push_str(&format!("# HELP {} {}\n", counter.name, counter.name));
+            output.push_str(&format!("# TYPE {} counter\n", counter.name));
+            if counter.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", counter.name, counter.get()));
+            } else {
+                let labels: Vec<String> = counter.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+                output.push_str(&format!("{}{{{}}} {}\n", counter.name, labels.join(","), counter.get()));
+            }
+        }
+
+        let gauges = self.gauges.lock();
+        for gauge in gauges.values() {
+            output.push_str(&format!("# HELP {} {}\n", gauge.name, gauge.name));
+            output.push_str(&format!("# TYPE {} gauge\n", gauge.name));
+            if gauge.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", gauge.name, gauge.get()));
+            } else {
+                let labels: Vec<String> = gauge.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+                output.push_str(&format!("{}{{{}}} {}\n", gauge.name, labels.join(","), gauge.get()));
+            }
+        }
+
+        let histograms = self.histograms.lock();
+        for histogram in histograms.values() {
+            let count_name = format!("{}_count", histogram.name);
+            output.push_str(&format!("# HELP {count_name} {count_name}\n"));
+            output.push_str(&format!("# TYPE {count_name} counter\n"));
+            if histogram.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", count_name, histogram.get_count()));
+            } else {
+                let labels: Vec<String> = histogram.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+                output.push_str(&format!("{}{{{}}} {}\n", count_name, labels.join(","), histogram.get_count()));
+            }
+
+            let sum_name = format!("{}_sum", histogram.name);
+            output.push_str(&format!("# HELP {sum_name} {sum_name}\n"));
+            output.push_str(&format!("# TYPE {sum_name} counter\n"));
+            if histogram.labels.is_empty() {
+                output.push_str(&format!("{} {}\n", sum_name, histogram.get_sum()));
+            } else {
+                let labels: Vec<String> = histogram.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+                output.push_str(&format!("{}{{{}}} {}\n", sum_name, labels.join(","), histogram.get_sum()));
+            }
+        }
+
+        output
+    }
+}
+
+impl Default for MetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_counter() {
+        let counter = Counter::new("test_counter".to_string());
+        assert_eq!(counter.get(), 0);
+        counter.inc();
+        assert_eq!(counter.get(), 1);
+        counter.inc_by(5);
+        assert_eq!(counter.get(), 6);
+        counter.reset();
+        assert_eq!(counter.get(), 0);
+    }
+
+    #[test]
+    fn test_counter_with_labels() {
+        let mut labels = HashMap::new();
+        labels.insert("method".to_string(), "GET".to_string());
+        let counter = Counter::with_labels("test_counter".to_string(), labels);
+        counter.inc();
+        assert_eq!(counter.get(), 1);
+    }
+
+    #[test]
+    fn test_gauge() {
+        let gauge = Gauge::new("test_gauge".to_string());
+        assert_eq!(gauge.get(), 0.0);
+        gauge.set(42.0);
+        assert_eq!(gauge.get(), 42.0);
+        gauge.inc();
+        assert_eq!(gauge.get(), 43.0);
+        gauge.dec();
+        assert_eq!(gauge.get(), 42.0);
+        gauge.add(10.0);
+        assert_eq!(gauge.get(), 52.0);
+        gauge.sub(2.0);
+        assert_eq!(gauge.get(), 50.0);
+    }
+
+    #[test]
+    fn test_histogram() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        histogram.observe(1.0);
+        histogram.observe(2.0);
+        histogram.observe(3.0);
+        assert_eq!(histogram.get_count(), 3);
+        assert_eq!(histogram.get_sum(), 6.0);
+        assert_eq!(histogram.get_avg(), 2.0);
+        assert_eq!(histogram.get_percentile(50.0).unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_metrics_collector() {
+        let collector = MetricsCollector::new();
+        let counter = collector.register_counter("test_counter".to_string());
+        counter.inc();
+        assert_eq!(collector.get_counter("test_counter").unwrap().get(), 1);
+
+        let gauge = collector.register_gauge("test_gauge".to_string());
+        gauge.set(42.0);
+        assert_eq!(collector.get_gauge("test_gauge").unwrap().get(), 42.0);
+
+        let histogram = collector.register_histogram("test_histogram".to_string());
+        histogram.observe(1.0);
+        assert_eq!(collector.get_histogram("test_histogram").unwrap().get_count(), 1);
+
+        let metrics = collector.collect_metrics();
+        assert!(!metrics.is_empty());
+    }
+}

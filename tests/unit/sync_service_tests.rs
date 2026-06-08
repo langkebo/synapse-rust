@@ -14,6 +14,7 @@ use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::services::PresenceStorage;
+use synapse_rust::PresenceState;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::filter::{CreateFilterRequest, FilterStorage};
@@ -511,7 +512,7 @@ fn test_sync_offline_presence_overwrites_previous_presence_state() {
         sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None).await.unwrap();
 
         let persisted = presence_storage.get_presence("@alice:localhost").await.unwrap().unwrap();
-        assert_eq!(persisted.0, "offline");
+        assert_eq!(persisted.0, PresenceState::Offline);
     });
 }
 

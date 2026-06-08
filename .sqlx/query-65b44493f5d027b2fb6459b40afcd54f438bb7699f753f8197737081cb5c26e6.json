@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)\n            VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65b44493f5d027b2fb6459b40afcd54f438bb7699f753f8197737081cb5c26e6"
+}

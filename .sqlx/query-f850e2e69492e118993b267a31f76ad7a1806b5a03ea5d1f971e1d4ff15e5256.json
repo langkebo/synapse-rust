@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO media_usage_log (user_id, media_id, file_size_bytes, mime_type, operation, timestamp)\n            VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f850e2e69492e118993b267a31f76ad7a1806b5a03ea5d1f971e1d4ff15e5256"
+}

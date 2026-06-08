@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b1aa608dbb6b8f1702bf95d6c4eb9217e60620e33e870b7251c455c634d85c1"
+}

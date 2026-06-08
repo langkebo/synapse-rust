@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH user_rooms AS (\n                SELECT room_id FROM room_memberships\n                WHERE user_id = $1 AND membership = 'join'\n            ),\n            room_users AS (\n                SELECT\n                    rm.user_id,\n                    COUNT(DISTINCT rm.room_id) AS shared_rooms_count\n                FROM room_memberships rm\n                JOIN user_rooms ur ON rm.room_id = ur.room_id\n                WHERE rm.user_id != $1\n                AND rm.membership = 'join'\n                AND rm.user_id NOT IN (\n                    SELECT DISTINCT jsonb_array_elements(content->'friends')->>'user_id'\n                    FROM events\n                    WHERE event_type = 'm.friends.list'\n                    AND sender = $1\n                )\n                GROUP BY rm.user_id\n                ORDER BY shared_rooms_count DESC\n                LIMIT $2\n            )\n            SELECT\n                ru.user_id,\n                ru.shared_rooms_count,\n                u.displayname,\n                u.avatar_url\n            FROM room_users ru\n            LEFT JOIN users u ON u.user_id = ru.user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "shared_rooms_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "displayname",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "e4429d23c2151448fbf01ba28470908309322cf8916d8dc619e2cad240a3374a"
+}

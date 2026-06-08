@@ -327,15 +327,35 @@ impl Config {
             );
         }
 
-        if let Err(e) = crate::common::argon2_config::Argon2Config::from(&self.security).validate_owasp() {
+        // Argon2 参数下限校验：低于强制下限时自动提升并打印 warning
+        let argon2_config = crate::common::argon2_config::Argon2Config::from(&self.security);
+        if argon2_config.m_cost != self.security.argon2_m_cost
+            || argon2_config.t_cost != self.security.argon2_t_cost
+            || argon2_config.p_cost != self.security.argon2_p_cost
+        {
+            tracing::warn!(
+                "Argon2 parameters were below enforced floor and have been automatically raised. \
+                 Config: m_cost={}, t_cost={}, p_cost={}. \
+                 Effective: m_cost={}, t_cost={}, p_cost={}.",
+                self.security.argon2_m_cost,
+                self.security.argon2_t_cost,
+                self.security.argon2_p_cost,
+                argon2_config.m_cost,
+                argon2_config.t_cost,
+                argon2_config.p_cost
+            );
+        }
+
+        // 低于 OWASP 推荐值但高于强制下限时，打印 warning
+        if let Err(e) = argon2_config.validate_owasp() {
             tracing::warn!(
                 "Argon2 parameters do not meet OWASP recommendations: {}. \
                  Current: m_cost={}, t_cost={}, p_cost={}. \
                  Recommended minimum: m_cost=65536, t_cost=3, p_cost=1.",
                 e,
-                self.security.argon2_m_cost,
-                self.security.argon2_t_cost,
-                self.security.argon2_p_cost
+                argon2_config.m_cost,
+                argon2_config.t_cost,
+                argon2_config.p_cost
             );
         }
 

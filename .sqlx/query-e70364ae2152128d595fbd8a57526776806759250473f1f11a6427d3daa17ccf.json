@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT room_id AS \"room_id!\" FROM room_sticky_events\n            WHERE user_id = $1 AND is_sticky = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e70364ae2152128d595fbd8a57526776806759250473f1f11a6427d3daa17ccf"
+}

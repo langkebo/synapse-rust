@@ -58,15 +58,13 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
-        sqlx::query_as::<_, BurnSettingsRow>(
-            r"
-            SELECT user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
-            FROM burn_after_read_settings
-            WHERE user_id = $1 AND room_id = $2
-            ",
+        sqlx::query_as!(
+            BurnSettingsRow,
+            r#"SELECT user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
+            FROM burn_after_read_settings WHERE user_id = $1 AND room_id = $2"#,
+            user_id,
+            room_id,
         )
-        .bind(user_id)
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -80,22 +78,21 @@ impl BurnAfterReadStorage {
     ) -> Result<BurnSettingsRow, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, BurnSettingsRow>(
-            r"
-            INSERT INTO burn_after_read_settings (user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts)
+        let row = sqlx::query_as!(
+            BurnSettingsRow,
+            r#"INSERT INTO burn_after_read_settings (user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $5)
             ON CONFLICT (user_id, room_id) DO UPDATE SET
                 is_enabled = EXCLUDED.is_enabled,
                 burn_after_ms = EXCLUDED.burn_after_ms,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
-            ",
+            RETURNING user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts"#,
+            user_id,
+            room_id,
+            is_enabled,
+            burn_after_ms,
+            now,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(is_enabled)
-        .bind(burn_after_ms)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -111,21 +108,22 @@ impl BurnAfterReadStorage {
     ) -> Result<BurnPendingRow, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, BurnPendingRow>(
-            r"
-            INSERT INTO burn_after_read_pending (user_id, room_id, event_id, created_ts, delete_at)
+        let row = sqlx::query_as!(
+            BurnPendingRow,
+            r#"
+            INSERT INTO burn_after_read_pending (user_id, room_id, event_id, created_ts, delete_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (user_id, room_id, event_id) DO UPDATE SET
-                delete_at = EXCLUDED.delete_at,
+                delete_ts = EXCLUDED.delete_ts,
                 created_ts = EXCLUDED.created_ts
-            RETURNING id, user_id, room_id, event_id, created_ts, delete_at, is_processed
-            ",
+            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
+            "#,
+            user_id,
+            room_id,
+            event_id,
+            now,
+            delete_at,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(event_id)
-        .bind(now)
-        .bind(delete_at)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -133,16 +131,14 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE burn_after_read_pending
+        sqlx::query!(
+            r#"UPDATE burn_after_read_pending
             SET is_processed = TRUE
-            WHERE user_id = $1 AND room_id = $2 AND event_id = $3 AND is_processed = FALSE
-            ",
+            WHERE user_id = $1 AND room_id = $2 AND event_id = $3 AND is_processed = FALSE"#,
+            user_id,
+            room_id,
+            event_id,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
 
@@ -150,16 +146,17 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BurnPendingRow>(
-            r"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_at, is_processed
+        let rows = sqlx::query_as!(
+            BurnPendingRow,
+            r#"
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
             FROM burn_after_read_pending
             WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE
-            ORDER BY delete_at ASC
-            ",
+            ORDER BY delete_ts ASC
+            "#,
+            user_id,
+            room_id,
         )
-        .bind(user_id)
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -167,15 +164,16 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BurnPendingRow>(
-            r"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_at, is_processed
+        let rows = sqlx::query_as!(
+            BurnPendingRow,
+            r#"
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
             FROM burn_after_read_pending
-            WHERE delete_at <= $1 AND is_processed = FALSE
-            ORDER BY delete_at ASC
-            ",
+            WHERE delete_ts <= $1 AND is_processed = FALSE
+            ORDER BY delete_ts ASC
+            "#,
+            now_ms,
         )
-        .bind(now_ms)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -183,8 +181,7 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1")
-            .bind(id)
+        sqlx::query!("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1", id)
             .execute(&*self.pool)
             .await?;
 
@@ -198,16 +195,14 @@ impl BurnAfterReadStorage {
         event_id: &str,
         burned_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)
-            VALUES ($1, $2, $3, $4)
-            ",
+        sqlx::query!(
+            r#"INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)
+            VALUES ($1, $2, $3, $4)"#,
+            user_id,
+            room_id,
+            event_id,
+            burned_ts,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(event_id)
-        .bind(burned_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -215,15 +210,15 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
-        let row = sqlx::query_as::<_, BurnStatsRow>(
-            r"
-            SELECT
-                COALESCE((SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1), 0) AS total_burned,
-                COALESCE((SELECT COUNT(*) FROM burn_after_read_pending WHERE user_id = $1 AND is_processed = FALSE), 0) AS total_pending,
-                COALESCE((SELECT COUNT(*) FROM burn_after_read_settings WHERE user_id = $1 AND is_enabled = TRUE), 0) AS rooms_enabled
-            ",
+        let row = sqlx::query_as!(
+            BurnStatsRow,
+            r#"SELECT
+                COALESCE((SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1), 0) AS "total_burned!",
+                COALESCE((SELECT COUNT(*) FROM burn_after_read_pending WHERE user_id = $1 AND is_processed = FALSE), 0) AS "total_pending!",
+                COALESCE((SELECT COUNT(*) FROM burn_after_read_settings WHERE user_id = $1 AND is_enabled = TRUE), 0) AS "rooms_enabled!"
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -231,14 +226,12 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BurnUserDefaultsRow>(
-            r"
-            SELECT user_id, default_burn_ms, created_ts, updated_ts
-            FROM burn_after_read_user_defaults
-            WHERE user_id = $1
-            ",
+        let row = sqlx::query_as!(
+            BurnUserDefaultsRow,
+            r#"SELECT user_id, default_burn_ms, created_ts, updated_ts
+            FROM burn_after_read_user_defaults WHERE user_id = $1"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -248,18 +241,16 @@ impl BurnAfterReadStorage {
     pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO burn_after_read_user_defaults (user_id, default_burn_ms, created_ts, updated_ts)
+        sqlx::query!(
+            r#"INSERT INTO burn_after_read_user_defaults (user_id, default_burn_ms, created_ts, updated_ts)
             VALUES ($1, $2, $3, $3)
             ON CONFLICT (user_id) DO UPDATE SET
                 default_burn_ms = EXCLUDED.default_burn_ms,
-                updated_ts = EXCLUDED.updated_ts
-            ",
+                updated_ts = EXCLUDED.updated_ts"#,
+            user_id,
+            default_burn_ms,
+            now,
         )
-        .bind(user_id)
-        .bind(default_burn_ms)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 

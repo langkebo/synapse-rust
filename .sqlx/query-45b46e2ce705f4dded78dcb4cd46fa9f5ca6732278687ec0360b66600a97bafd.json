@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", session_id as \"session_id!\", user_id as \"user_id!\",\n                COALESCE(name_id, '') as \"name_id!\",\n                COALESCE(issuer, '') as \"issuer!\",\n                COALESCE(session_index, '') as \"session_index!\",\n                COALESCE(attributes, '{}'::jsonb) as \"attributes!\",\n                created_ts as \"created_ts!\", expires_at as \"expires_at!\", last_used_ts as \"last_used_ts!\",\n                COALESCE(status, 'active') as \"status!\"\n                FROM saml_sessions WHERE session_id = $1 AND status = 'active'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "issuer!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_index!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "attributes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_used_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "status!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "45b46e2ce705f4dded78dcb4cd46fa9f5ca6732278687ec0360b66600a97bafd"
+}

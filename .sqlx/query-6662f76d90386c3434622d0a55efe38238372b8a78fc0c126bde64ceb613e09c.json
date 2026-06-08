@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM event_relations\n            WHERE room_id = $1 AND event_id = $2 AND sender = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6662f76d90386c3434622d0a55efe38238372b8a78fc0c126bde64ceb613e09c"
+}

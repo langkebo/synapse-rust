@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, alert_type, threshold_percent AS \"threshold_percent!\",\n                    current_usage_bytes AS \"current_usage_bytes!\",\n                    quota_limit_bytes AS \"quota_limit_bytes!\",\n                    message, is_read AS \"is_read!\", created_ts AS \"created_ts!\"\n                FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_ts DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alert_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "threshold_percent!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "current_usage_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "quota_limit_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_read!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "42ed1c125a936e6a295a9d8141ab595c5217b312abce7688765e0aa020269ff6"
+}

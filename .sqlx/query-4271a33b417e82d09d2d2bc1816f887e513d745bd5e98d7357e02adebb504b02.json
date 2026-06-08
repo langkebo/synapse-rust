@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE room_summary_update_queue SET status = 'processed', processed_ts = $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4271a33b417e82d09d2d2bc1816f887e513d745bd5e98d7357e02adebb504b02"
+}

@@ -32,17 +32,18 @@ impl FilterStorage {
     pub async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let filter = sqlx::query_as::<_, Filter>(
+        let filter = sqlx::query_as!(
+            Filter,
             r"
             INSERT INTO filters (user_id, filter_id, content, created_ts)
             VALUES ($1, $2, $3, $4)
             RETURNING id, user_id, filter_id, content, created_ts
             ",
+            &request.user_id,
+            &request.filter_id,
+            &request.content,
+            now,
         )
-        .bind(&request.user_id)
-        .bind(&request.filter_id)
-        .bind(&request.content)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create filter", &e))?;
@@ -51,15 +52,16 @@ impl FilterStorage {
     }
 
     pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError> {
-        let filter = sqlx::query_as::<_, Filter>(
+        let filter = sqlx::query_as!(
+            Filter,
             r"
             SELECT id, user_id, filter_id, content, created_ts
             FROM filters
             WHERE user_id = $1 AND filter_id = $2
             ",
+            user_id,
+            filter_id,
         )
-        .bind(user_id)
-        .bind(filter_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get filter", &e))?;
@@ -68,15 +70,16 @@ impl FilterStorage {
     }
 
     pub async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError> {
-        let filters = sqlx::query_as::<_, Filter>(
+        let filters = sqlx::query_as!(
+            Filter,
             r"
             SELECT id, user_id, filter_id, content, created_ts
             FROM filters
             WHERE user_id = $1
             ORDER BY created_ts DESC
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get filters", &e))?;
@@ -85,14 +88,14 @@ impl FilterStorage {
     }
 
     pub async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM filters
             WHERE user_id = $1 AND filter_id = $2
             ",
+            user_id,
+            filter_id,
         )
-        .bind(user_id)
-        .bind(filter_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete filter", &e))?;
@@ -101,13 +104,13 @@ impl FilterStorage {
     }
 
     pub async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM filters
             WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete filters", &e))?;

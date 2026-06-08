@@ -41,19 +41,19 @@ pub async fn get_ephemeral_events(
     let now = chrono::Utc::now().timestamp_millis();
 
     // Get ephemeral events (typing, receipts, etc.)
-    let rows = sqlx::query(
-        r"
+    let rows = sqlx::query!(
+        r#"
         SELECT event_type, user_id, content, stream_id, created_ts
         FROM room_ephemeral
         WHERE room_id = $1
         AND (expires_at IS NULL OR expires_at > $2)
         ORDER BY stream_id DESC
         LIMIT $3
-        ",
+        "#,
+        &room_id,
+        now,
+        params.limit
     )
-    .bind(&room_id)
-    .bind(now)
-    .bind(params.limit)
     .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
@@ -61,12 +61,11 @@ pub async fn get_ephemeral_events(
     let mut events: Vec<Value> = Vec::new();
 
     for row in rows {
-        use sqlx::Row;
-        let event_type: String = row.get("event_type");
-        let sender: String = row.get("user_id");
-        let content: Value = row.get("content");
-        let stream_id: i64 = row.get("stream_id");
-        let origin_server_ts: i64 = row.get("created_ts");
+        let event_type = row.event_type;
+        let sender = row.user_id;
+        let content = row.content;
+        let stream_id = row.stream_id;
+        let origin_server_ts = row.created_ts;
         // room_ephemeral 没有原生 event_id；按 Matrix 约定合成 `$ephemeral_{stream_id}`，
         // 保证客户端可以按 id 做幂等去重。
         let event_id = format!("$ephemeral_{stream_id}");

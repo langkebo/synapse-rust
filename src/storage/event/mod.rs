@@ -55,44 +55,47 @@ impl EventStorage {
     }
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
-        let event = sqlx::query_as::<_, RoomEvent>(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+        let event = sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT
+                event_id as "event_id!", room_id as "room_id!", sender as "user_id!",
+                event_type as "event_type!", content as "content!", state_key,
+                COALESCE(depth, 0) as "depth!", origin_server_ts as "origin_server_ts!",
+                origin_server_ts as "processed_ts!",
+                COALESCE(not_before, 0) as "not_before!",
+                status, reference_image, COALESCE(origin, 'self') as "origin!", stream_ordering
             FROM events WHERE event_id = $1
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(event)
     }
 
     pub async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             "DELETE FROM events WHERE room_id = $1 AND origin_server_ts < $2 AND event_type != 'm.room.create'",
+            room_id,
+            timestamp
         )
-        .bind(room_id)
-        .bind(timestamp)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
     }
 
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-            FROM events WHERE room_id = $1
-            ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
-            LIMIT $2
-            ",
+        let events = sqlx::query_as!(RoomEvent,
+            r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                      COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                      COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+               FROM events WHERE room_id = $1
+               ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
+               LIMIT $2"#,
+            room_id,
+            limit
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)
@@ -107,72 +110,64 @@ impl EventStorage {
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = match (direction, from) {
             ("f", Some(from_ts)) => {
-                sqlx::query_as(
-                    r"
-                    SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                           COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts > $2
-                    ORDER BY origin_server_ts ASC
-                    LIMIT $3
-                    ",
+                sqlx::query_as!(RoomEvent,
+                    r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                              COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                              COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+                       FROM events
+                       WHERE room_id = $1 AND origin_server_ts > $2
+                       ORDER BY origin_server_ts ASC
+                       LIMIT $3"#,
+                    room_id,
+                    from_ts,
+                    limit
                 )
-                .bind(room_id)
-                .bind(from_ts)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             ("f", None) => {
-                sqlx::query_as(
-                    r"
-                    SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                           COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-                    FROM events
-                    WHERE room_id = $1
-                    ORDER BY origin_server_ts ASC
-                    LIMIT $2
-                    ",
+                sqlx::query_as!(RoomEvent,
+                    r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                              COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                              COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+                       FROM events
+                       WHERE room_id = $1
+                       ORDER BY origin_server_ts ASC
+                       LIMIT $2"#,
+                    room_id,
+                    limit
                 )
-                .bind(room_id)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             (_, Some(from_ts)) => {
-                sqlx::query_as(
-                    r"
-                    SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                           COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts < $2
-                    ORDER BY origin_server_ts DESC
-                    LIMIT $3
-                    ",
+                sqlx::query_as!(RoomEvent,
+                    r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                              COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                              COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+                       FROM events
+                       WHERE room_id = $1 AND origin_server_ts < $2
+                       ORDER BY origin_server_ts DESC
+                       LIMIT $3"#,
+                    room_id,
+                    from_ts,
+                    limit
                 )
-                .bind(room_id)
-                .bind(from_ts)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             (_, None) => {
-                sqlx::query_as(
-                    r"
-                    SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                           COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-                    FROM events
-                    WHERE room_id = $1
-                    ORDER BY origin_server_ts DESC
-                    LIMIT $2
-                    ",
+                sqlx::query_as!(RoomEvent,
+                    r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                              COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                              COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+                       FROM events
+                       WHERE room_id = $1
+                       ORDER BY origin_server_ts DESC
+                       LIMIT $2"#,
+                    room_id,
+                    limit
                 )
-                .bind(room_id)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
@@ -189,39 +184,35 @@ impl EventStorage {
         ts: i64,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         // First try to find an event exactly at or before the timestamp
-        let event = sqlx::query_as::<_, (String, i64)>(
-            r"
-            SELECT event_id, origin_server_ts
+        let event = sqlx::query!(
+            r#"
+            SELECT event_id as "event_id!", origin_server_ts as "origin_server_ts!"
             FROM events
             WHERE room_id = $1
               AND origin_server_ts IS NOT NULL
               AND origin_server_ts <= $2
             ORDER BY origin_server_ts DESC
             LIMIT 1
-            ",
+            "#,
+            room_id,
+            ts
         )
-        .bind(room_id)
-        .bind(ts)
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some((event_id, origin_server_ts)) = event {
+        if let Some(row) = event {
             // Get the full event content
-            let full_event = sqlx::query_as::<_, (serde_json::Value,)>(
-                r"
-                SELECT content
-                FROM events
-                WHERE event_id = $1
-                ",
+            let full_event = sqlx::query_scalar!(
+                r#"SELECT content FROM events WHERE event_id = $1"#,
+                &row.event_id
             )
-            .bind(&event_id)
             .fetch_optional(&*self.pool)
             .await?;
 
-            if let Some((content,)) = full_event {
+            if let Some(content) = full_event {
                 let mut result = serde_json::Map::new();
-                result.insert("event_id".to_string(), serde_json::Value::String(event_id));
-                result.insert("origin_server_ts".to_string(), serde_json::Value::Number(origin_server_ts.into()));
+                result.insert("event_id".to_string(), serde_json::Value::String(row.event_id));
+                result.insert("origin_server_ts".to_string(), serde_json::Value::Number(row.origin_server_ts.into()));
                 // Merge content into result
                 if let serde_json::Value::Object(obj) = content {
                     for (k, v) in obj {
@@ -241,72 +232,62 @@ impl EventStorage {
         event_type: &str,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-            FROM events WHERE room_id = $1 AND event_type = $2
-            ORDER BY origin_server_ts DESC
-            LIMIT $3
-            ",
+        let events = sqlx::query_as!(RoomEvent,
+            r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                      COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                      COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+               FROM events WHERE room_id = $1 AND event_type = $2
+               ORDER BY origin_server_ts DESC
+               LIMIT $3"#,
+            room_id,
+            event_type,
+            limit
         )
-        .bind(room_id)
-        .bind(event_type)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)
     }
 
     pub async fn get_sender_events(&self, user_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
-            FROM events WHERE COALESCE(user_id, sender) = $1
-            ORDER BY origin_server_ts DESC
-            LIMIT $2
-            ",
+        let events = sqlx::query_as!(RoomEvent,
+            r#"SELECT event_id as "event_id!", room_id as "room_id!", COALESCE(user_id, sender) as "user_id!", event_type as "event_type!", content as "content!", state_key,
+                      COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!", COALESCE(origin_server_ts, 0) as "processed_ts!",
+                      COALESCE(not_before, 0) as "not_before!", status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as "origin!", stream_ordering
+               FROM events WHERE COALESCE(user_id, sender) = $1
+               ORDER BY origin_server_ts DESC
+               LIMIT $2"#,
+            user_id,
+            limit
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)
     }
 
     pub async fn get_room_message_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COALESCE(COUNT(*), 0) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'
-            ",
+        let count = sqlx::query_scalar!(
+            r#"SELECT COALESCE(COUNT(*), 0) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'"#,
+            room_id
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await?;
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn get_total_message_count(&self) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COALESCE(COUNT(*), 0) FROM events WHERE event_type = 'm.room.message'
-            ",
+        let count = sqlx::query_scalar!(
+            r#"SELECT COALESCE(COUNT(*), 0) FROM events WHERE event_type = 'm.room.message'"#
         )
         .fetch_one(&*self.pool)
         .await?;
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn delete_room_events(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM events WHERE room_id = $1
-            ",
+        sqlx::query!(
+            r#"DELETE FROM events WHERE room_id = $1"#,
+            room_id
         )
-        .bind(room_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -326,69 +307,74 @@ impl EventStorage {
         score: i32,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let row = sqlx::query_as::<_, EventReportId>(
-            r"
+        let row = sqlx::query_as!(
+            EventReportId,
+            r#"
             INSERT INTO event_reports (event_id, room_id, reporter_user_id, reason, score, received_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id
-            ",
+            RETURNING id as "id!"
+            "#,
+            event_id,
+            room_id,
+            reporter_user_id,
+            reason,
+            score,
+            now
         )
-        .bind(event_id)
-        .bind(room_id)
-        .bind(reporter_user_id)
-        .bind(reason)
-        .bind(score)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
         Ok(row.id)
     }
 
     pub async fn update_event_report_score(&self, report_id: i64, score: i32) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE event_reports SET score = $1 WHERE id = $2
-            ",
+        sqlx::query!(
+            r#"UPDATE event_reports SET score = $1 WHERE id = $2"#,
+            score,
+            report_id
         )
-        .bind(score)
-        .bind(report_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn update_event_report_score_by_event(&self, event_id: &str, score: i32) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE event_reports SET score = $1 WHERE event_id = $2
-            ",
+        sqlx::query!(
+            r#"UPDATE event_reports SET score = $1 WHERE event_id = $2"#,
+            score,
+            event_id
         )
-        .bind(score)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
-        sqlx::query_as::<_, EventReport>(
-            r"
-            SELECT id, event_id, room_id, reporter_user_id, reason, score, received_ts, resolved_at, resolved_by
+        sqlx::query_as!(
+            EventReport,
+            r#"
+            SELECT
+                id as "id!", event_id as "event_id!", room_id as "room_id!",
+                reporter_user_id as "reporter_user_id!", reason,
+                COALESCE(score, 0) AS "score!",
+                received_ts as "received_ts!",
+                resolved_at as "resolved_ts?", resolved_by
             FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let redacted_content = serde_json::json!({});
-        sqlx::query("UPDATE events SET content = $1, is_redacted = true WHERE event_id = $2")
-            .bind(redacted_content)
-            .bind(event_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!(
+            r#"UPDATE events SET content = $1, is_redacted = true WHERE event_id = $2"#,
+            redacted_content,
+            event_id
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -408,24 +394,24 @@ impl EventStorage {
         algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
             SET signature = EXCLUDED.signature,
                 algorithm = EXCLUDED.algorithm,
                 created_ts = EXCLUDED.created_ts
-            ",
+            "#,
+            uuid::Uuid::new_v4(),
+            event_id,
+            user_id,
+            device_id,
+            signature,
+            key_id,
+            algorithm,
+            created_ts
         )
-        .bind(uuid::Uuid::new_v4())
-        .bind(event_id)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(signature)
-        .bind(key_id)
-        .bind(algorithm)
-        .bind(created_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -433,14 +419,18 @@ impl EventStorage {
 
     /// Get all signatures for an event.
     pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error> {
-        sqlx::query_as::<_, EventSignature>(
-            r"
-            SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
+        sqlx::query_as!(
+            EventSignature,
+            r#"
+            SELECT
+                id as "id!", event_id as "event_id!", user_id as "user_id!",
+                device_id as "device_id!", signature as "signature!", key_id as "key_id!",
+                created_ts
             FROM event_signatures
             WHERE event_id = $1
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -458,19 +448,19 @@ impl EventStorage {
         origin_server_ts: i64,
         sender: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
             VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
             ON CONFLICT (event_id) DO UPDATE SET content = $4
-            ",
+            "#,
+            event_id,
+            room_id,
+            user_id,
+            content,
+            origin_server_ts,
+            sender
         )
-        .bind(event_id)
-        .bind(room_id)
-        .bind(user_id)
-        .bind(content)
-        .bind(origin_server_ts)
-        .bind(sender)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -486,31 +476,30 @@ impl EventStorage {
         before_ts: i64,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_id as "event_id!", event_type AS "type!", COALESCE(user_id, sender) AS "sender!", content as "content!", origin_server_ts as "origin_server_ts!"
             FROM events
             WHERE room_id = $1 AND origin_server_ts < $2
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            before_ts,
+            limit
         )
-        .bind(room_id)
-        .bind(before_ts)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
-        use sqlx::Row;
         Ok(rows
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<serde_json::Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                    "event_id": r.event_id,
+                    "type": r.r#type,
+                    "sender": r.sender,
+                    "content": r.content,
+                    "origin_server_ts": r.origin_server_ts
                 })
             })
             .collect())
@@ -522,31 +511,30 @@ impl EventStorage {
         after_ts: i64,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_id as "event_id!", event_type AS "type!", COALESCE(user_id, sender) AS "sender!", content as "content!", origin_server_ts as "origin_server_ts!"
             FROM events
             WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            after_ts,
+            limit
         )
-        .bind(room_id)
-        .bind(after_ts)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
-        use sqlx::Row;
         Ok(rows
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<serde_json::Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                    "event_id": r.event_id,
+                    "type": r.r#type,
+                    "sender": r.sender,
+                    "content": r.content,
+                    "origin_server_ts": r.origin_server_ts
                 })
             })
             .collect())
@@ -562,31 +550,30 @@ impl EventStorage {
         search_pattern: &str,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT event_id, event_type, sender, content, origin_server_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_id as "event_id!", event_type as "event_type!", sender as "sender!", content as "content!", origin_server_ts as "origin_server_ts!"
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2 AND is_redacted = false
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            search_pattern,
+            limit
         )
-        .bind(room_id)
-        .bind(search_pattern)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
-        use sqlx::Row;
         Ok(rows
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("event_type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<serde_json::Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                    "event_id": r.event_id,
+                    "type": r.event_type,
+                    "sender": r.sender,
+                    "content": r.content,
+                    "origin_server_ts": r.origin_server_ts
                 })
             })
             .collect())
@@ -597,8 +584,8 @@ impl EventStorage {
     // -----------------------------------------------------------------------
 
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            r"
+        let count = sqlx::query_scalar!(
+            r#"
             SELECT COUNT(*) FROM events
             WHERE room_id = $1
             AND state_key IS NOT NULL
@@ -606,12 +593,12 @@ impl EventStorage {
                 SELECT content->>'prev_event_id' FROM events
                 WHERE room_id = $1 AND content->>'prev_event_id' IS NOT NULL
             )
-            ",
+            "#,
+            room_id
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await?;
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 }
 

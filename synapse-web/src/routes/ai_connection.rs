@@ -1,0 +1,108 @@
+use axum::{
+    extract::{Path, State},
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Deserialize;
+use serde_json::Value;
+
+use synapse_common::error::{ApiError, ApiResult};
+use synapse_services::matrix_ai_connection_service::{CreateConnectionRequest, McpToolCallRequest};
+use synapse_storage::ai_connection::AiConnection;
+use crate::routes::AuthenticatedUser;
+use crate::routes::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct McpToolListQuery {
+    pub provider: String,
+}
+
+pub fn create_ai_connection_router() -> Router<AppState> {
+    Router::new()
+        // AI 连接配置管理
+        .route("/connections", get(get_connections).post(create_connection))
+        .route(
+            "/connections/{id}",
+            get(get_connection).delete(delete_connection),
+        )
+        // MCP 代理调用
+        .route("/mcp/tools", get(list_tools))
+        .route("/mcp/tools/call", post(call_tool))
+}
+
+pub fn ai_connection_route_manifest() -> Vec<crate::routes::route_ledger::RouteEntry> {
+    use crate::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+    [
+        (Method::GET, "/_matrix/client/v1/ai/connections"),
+        (Method::POST, "/_matrix/client/v1/ai/connections"),
+        (Method::GET, "/_matrix/client/v1/ai/connections/{id}"),
+        (Method::DELETE, "/_matrix/client/v1/ai/connections/{id}"),
+        (Method::GET, "/_matrix/client/v1/ai/mcp/tools"),
+        (Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"),
+        (Method::GET, "/_matrix/client/v3/ai/connections"),
+        (Method::POST, "/_matrix/client/v3/ai/connections"),
+        (Method::GET, "/_matrix/client/v3/ai/connections/{id}"),
+        (Method::DELETE, "/_matrix/client/v3/ai/connections/{id}"),
+        (Method::GET, "/_matrix/client/v3/ai/mcp/tools"),
+        (Method::POST, "/_matrix/client/v3/ai/mcp/tools/call"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "ai_connection"))
+    .collect()
+}
+
+async fn get_connections(State(state): State<AppState>, user: AuthenticatedUser) -> ApiResult<Json<Vec<AiConnection>>> {
+    let connections = state.matrix_ai_connection_service.get_user_connections(&user.user_id).await?;
+    Ok(Json(connections))
+}
+
+async fn create_connection(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<CreateConnectionRequest>,
+) -> ApiResult<Json<AiConnection>> {
+    let conn = state.matrix_ai_connection_service.create_connection(&user.user_id, req).await?;
+    Ok(Json(conn))
+}
+
+async fn get_connection(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> ApiResult<Json<AiConnection>> {
+    let conn = state
+        .matrix_ai_connection_service
+        .get_connection(&id, &user.user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Connection not found"))?;
+    Ok(Json(conn))
+}
+
+async fn delete_connection(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> ApiResult<Json<()>> {
+    state.matrix_ai_connection_service.delete_connection(&id, &user.user_id).await?;
+    Ok(Json(()))
+}
+
+// MCP 代理调用实现
+async fn list_tools(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    axum::extract::Query(params): axum::extract::Query<McpToolListQuery>,
+) -> ApiResult<Json<Value>> {
+    let result = state.matrix_ai_connection_service.list_mcp_tools(&user.user_id, &params.provider).await?;
+    Ok(Json(result))
+}
+
+async fn call_tool(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<McpToolCallRequest>,
+) -> ApiResult<Json<Value>> {
+    let result = state.matrix_ai_connection_service.call_mcp_tool(&user.user_id, req).await?;
+    Ok(Json(result))
+}

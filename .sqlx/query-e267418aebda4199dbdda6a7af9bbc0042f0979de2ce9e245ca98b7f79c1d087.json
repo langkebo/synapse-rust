@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO matrixrtc_sessions\n                (room_id, session_id, application, call_id, creator, created_ts, updated_ts, is_active, config)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)\n            ON CONFLICT (room_id, session_id) DO UPDATE SET\n                updated_ts = EXCLUDED.updated_ts,\n                is_active = true,\n                config = EXCLUDED.config\n            RETURNING id AS \"id!\", room_id AS \"room_id!\", session_id AS \"session_id!\",\n                application AS \"application!\", call_id AS \"call_id?\", creator AS \"creator!\",\n                created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\",\n                is_active AS \"is_active!\", config AS \"config!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "application!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "call_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "creator!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_active!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "config!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e267418aebda4199dbdda6a7af9bbc0042f0979de2ce9e245ca98b7f79c1d087"
+}

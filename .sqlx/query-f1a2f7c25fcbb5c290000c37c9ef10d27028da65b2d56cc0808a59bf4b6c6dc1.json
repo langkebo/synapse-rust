@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id!\", user_id as \"user_id!\", device_id, operation as \"operation!\", key_id, room_id, details, ip_address, created_ts as \"created_ts!\" FROM e2ee_audit_log\n            WHERE operation = $1\n            ORDER BY created_ts DESC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "operation!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "details",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "ip_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "f1a2f7c25fcbb5c290000c37c9ef10d27028da65b2d56cc0808a59bf4b6c6dc1"
+}

@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", callback_type as \"callback_type!\", media_id as \"media_id!\",\n                          user_id as \"user_id!\", status as \"status!\", result as \"result?\",\n                          created_ts as \"created_ts!\", completed_ts as \"completed_ts?\",\n                          is_enabled as \"is_enabled!\"\n                   FROM media_callbacks WHERE is_enabled = true AND callback_type = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "callback_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "media_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "result?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "completed_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "1c867b048ce46e62eab8d071dc66a64f1b7df6f3cf956724be79da1da0c61bb8"
+}

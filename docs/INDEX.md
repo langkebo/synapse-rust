@@ -1,6 +1,6 @@
 # synapse-rust 文档索引
 
-> 最后更新: 2026-06-06
+> 最后更新: 2026-06-07
 > 维护原则: 现行文档集中在 `docs/synapse-rust/` 与 `docs/{db,quality,sdk}/`；
 > 归档文档统一进入 `docs/archive/`，不再修改，仅供历史溯源。
 
@@ -55,13 +55,26 @@
 | [`E2EE_VODOZEMAC_MIGRATION.md`](./synapse-rust/E2EE_VODOZEMAC_MIGRATION.md) | C-5 E2EE → vodozemac 收敛（C-5 Phase 1-4） | Phase 1+2 ✅ / Phase 3 🚧 |
 | [`M3_BATCH1_EXECUTION_PLAN.md`](./synapse-rust/M3_BATCH1_EXECUTION_PLAN.md) | M-3 `sqlx::query!` 关键路径加固执行计划（A-F 阶段 5-8 天） | ⏳ 待启动 |
 | [`M3_SQLX_MIGRATION_PLAN.md`](./synapse-rust/M3_SQLX_MIGRATION_PLAN.md) | M-3 `sqlx::query!` 迁移计划（**stale** — 已被搁置/重定向到 Batch 1 计划） | ⚠️ **stale** |
+| [`M3_PROGRESS.md`](./synapse-rust/M3_PROGRESS.md) | M-3 进度报告（动态 SQL → 编译期宏迁移跟踪） | 🚧 进行中 |
 | [`ROUTE_STORAGE_MIGRATION_PLAN.md`](./synapse-rust/ROUTE_STORAGE_MIGRATION_PLAN.md) | M-4 路由层直查 storage 迁移 | ✅ |
 | [`REDUNDANCY_CLEANUP_LOG_2026-05-28.md`](./synapse-rust/REDUNDANCY_CLEANUP_LOG_2026-05-28.md) | 冗余清理变更日志 | ✅ |
 | [`REDUNDANT_TABLE_DELETION_PLAN.md`](./synapse-rust/REDUNDANT_TABLE_DELETION_PLAN.md) | 冗余表删除计划 | ✅ |
 
+### M-3 Issue Tracker
+
+| 文档 | 用途 |
+|------|------|
+| [`issues/README.md`](./synapse-rust/issues/README.md) | M-3 非阻塞 issue 索引（孤儿模块 / schema drift / nullable 审计） |
+| [`issues/M3-ISSUE-1-orphan-module-audit.md`](./synapse-rust/issues/M3-ISSUE-1-orphan-module-audit.md) | 全仓孤儿模块审计 |
+| [`issues/M3-ISSUE-2-federation-blacklist-drift.md`](./synapse-rust/issues/M3-ISSUE-2-federation-blacklist-drift.md) | federation_blacklist schema-drift |
+| [`issues/M3-ISSUE-3-e2ee-nullable-drift.md`](./synapse-rust/issues/M3-ISSUE-3-e2ee-nullable-drift.md) | E2EE 多表 nullable 性审计 |
+| [`issues/M3-ISSUE-4-media-link-signer-drift.md`](./synapse-rust/issues/M3-ISSUE-4-media-link-signer-drift.md) | media_service 字段缺失 |
+
 ---
 
 ## 五、数据库（现行：`docs/db/`）
+
+### 5.1 规范与治理
 
 | 文档 | 用途 |
 |------|------|
@@ -71,7 +84,15 @@
 | [`SCHEMA_VALIDATION_GUIDE.md`](./db/SCHEMA_VALIDATION_GUIDE.md) | Schema 校验工具使用指南 |
 | [`FIELD_MAPPING_REPORT.md`](./db/FIELD_MAPPING_REPORT.md) | 字段映射报告（_ts/_at/is_ 桥接） |
 
-历史审计报告（如 `DB_AUDIT_AND_REMEDIATION_2026-05-29.md`）保留作溯源。
+### 5.2 审计报告
+
+| 文档 | 用途 | 末次更新 |
+|------|------|----------|
+| [`DB_AUDIT_AND_REMEDIATION_2026-05-29.md`](./db/DB_AUDIT_AND_REMEDIATION_2026-05-29.md) | 数据库审计与修复记录 | 2026-05-29 |
+| [`FULL_SCHEMA_AUDIT_REPORT.md`](./db/FULL_SCHEMA_AUDIT_REPORT.md) | 全量 Schema 审计（SQL 表 vs Rust Struct 匹配） | 2026-05-29 |
+| [`SCHEMA_CODE_AUDIT_REPORT_2026-04-22.md`](./db/SCHEMA_CODE_AUDIT_REPORT_2026-04-22.md) | Schema vs Rust 代码模型审计（已完结） | 2026-04-22 |
+| [`MIGRATION_CONSOLIDATION_PLAN_2026-05-07.md`](./db/MIGRATION_CONSOLIDATION_PLAN_2026-05-07.md) | 数据库重构与迁移整合方案 | 2026-05-07 |
+| [`DB_REMEDIATION_BACKLOG_2026-05-07.md`](./db/DB_REMEDIATION_BACKLOG_2026-05-07.md) | 数据库修复待办清单 | 2026-05-07 |
 
 ---
 
@@ -84,6 +105,7 @@
 | [`API_ENDPOINTS_STATUS.md`](./quality/API_ENDPOINTS_STATUS.md) | API 端点状态 |
 | [`LOGGING_ENHANCEMENT.md`](./quality/LOGGING_ENHANCEMENT.md) | 日志增强 |
 | [`FORMAT_DRIFT_TRACKING.md`](./quality/FORMAT_DRIFT_TRACKING.md) | 格式漂移追踪 |
+| [`FORMAT_STANDARDIZATION_AUDIT_2026-05-29.md`](./quality/FORMAT_STANDARDIZATION_AUDIT_2026-05-29.md) | 格式标准化审计基线 |
 
 ---
 
@@ -161,45 +183,134 @@
 
 > **只读**。所有内容已并入或被基线报告覆盖；保留供历史溯源。新工作请勿引用。
 
-包括但不限于：
-- 2026-03-30 草稿系列（`*-review.md` / `*-test-report.md`）
-- 2026-04-15 完成报告系列（`API_CONTRACT_*_2026-04-15.md` / `OPTIMIZATION_*_2026-04-15.md`）
-- 2026-04-15 优化收尾（`ULTIMATE_FINAL_SUMMARY_2026-04-15.md` / `DAILY_SUMMARY_2026-04-15.md`）
-- 数据库早期审计（`DB_REVIEW_REPORT.md` / `MIGRATION_OPERATIONS_GUIDE.md`）
-- 各项 `*_optimization.md`（`dm-optimization.md` / `media-optimization.md` 等）
+### 11.1 根级归档文件
 
-完整列表见 `docs/archive/` 目录。
+早期草稿、完成报告、优化方案等，按时间线包括：
+
+| 类别 | 示例文件 | 说明 |
+|------|----------|------|
+| 2026-03-30 草稿系列 | `2026-03-30-review.md` / `2026-03-30-test-report.md` / `2026-03-30-diff-report.md` | 初始审查草稿 |
+| 2026-04-04 管理优化 | `ADMIN_OPTIMIZATION_SUMMARY_2026-04-04.md` / `ADMIN_VERIFICATION_MAPPING_2026-04-03.md` | 管理端优化记录 |
+| 2026-04-15 API 合约系列 | `API_CONTRACT_*_2026-04-15.md`（9 个文件） | API 合约对齐工作记录 |
+| 2026-04-15 优化收尾 | `ULTIMATE_FINAL_SUMMARY_2026-04-15.md` / `DAILY_SUMMARY_2026-04-15.md` / `OPTIMIZATION_*_2026-04-15.md` | 优化周期收尾报告 |
+| 早期数据库审计 | `DB_REVIEW_REPORT.md` / `MIGRATION_OPERATIONS_GUIDE.md` / `MIGRATION_TOOLS_GUIDE.md` | 已被 `docs/db/` 现行文档覆盖 |
+| 各模块优化方案 | `dm-optimization.md` / `media-optimization.md` / `e2ee-optimization.md` 等 | 已并入蓝图或已执行完毕 |
+| 安全审计 | `SQL_INJECTION_AUDIT_REPORT.md` / `XSS_PROTECTION_ENHANCEMENT_PLAN.md` / `SECURITY_OPTIMIZATION_PLAN_2026-04-14.md` | 已并入安全基线 |
+| 其他 | `DISASTER_RECOVERY_GUIDE.md` / `MONITORING_GUIDE.md` / `PERFORMANCE_OPTIMIZATION_GUIDE.md` | 已被现行文档覆盖或已过时 |
+
+### 11.2 `archive/quality/` — 质量与缺陷归档
+
+2026-04-26/27 权限修复与项目完成周期的工作记录，已被基线报告覆盖：
+
+| 文件 | 说明 |
+|------|------|
+| `COMPLETE_SUCCESS_REPORT.md` | 完整成功报告 |
+| `COMPLETE_FIX_RECORD.md` | 权限修复完整记录 |
+| `COMPLETE_FIX_SOLUTION.md` | 完整修复方案 |
+| `COMPLETE_FIX_SUMMARY.md` | 问题分析和修复总结 |
+| `COMPLETE_OPTIMIZATION_PLAN.md` | 完整优化方案 |
+| `COMPLETE_TEST_ANALYSIS.md` | 完整测试分析报告 |
+| `FINAL_COMPLETION_REPORT.md` | 项目完成报告 |
+| `FINAL_FIX_REPORT.md` | 权限修复最终报告 |
+| `FINAL_FIX_SUMMARY.md` | 最终修复总结 |
+| `FINAL_REPORT.md` | 项目优化完善最终报告 |
+| `FINAL_SUMMARY.md` | 项目优化与部署最终总结 |
+| `FINAL_TEST_REPORT.md` | 最终测试验证报告 |
+| `FINAL_VERIFICATION_REPORT.md` | 权限修复验证报告 |
+| `FINAL_VERIFICATION_REPORT_V2.md` | 权限修复最终验证报告 |
+| `FIXES_SUMMARY.md` | 质量缺陷修复总结 |
+| `OPTIMIZATION_SUMMARY.md` | 项目优化完善总结 |
+| `PROJECT_COMPLETION_REPORT.md` | 项目优化完成报告 |
+| `PROJECT_DEFECTS_ANALYSIS.md` | 项目缺陷分析报告 |
+| `TEST_ANALYSIS_AND_FIX_PLAN.md` | 测试结果分析和修复计划 |
+| `TEST_SKIP_ANALYSIS_AND_OPTIMIZATION.md` | 测试跳过案例分析和优化计划 |
+| `defects_api_integration.md` | API 集成测试缺陷清单 |
+| `defects_integration_test_analysis.md` | 集成测试缺陷分析 v1 |
+| `defects_integration_test_analysis_v2.md` | 集成测试缺陷分析 v2 |
+
+### 11.3 `archive/db/` — 数据库早期审计归档
+
+| 文件 | 说明 |
+|------|------|
+| `DATABASE_AUDIT_REPORT.md` | 2026-03-26 数据库审查报告（已被 `FULL_SCHEMA_AUDIT_REPORT.md` 覆盖） |
+| `DIAGNOSIS_REPORT.md` | 2026-03-28 数据库问题诊断方案（已被 `DB_AUDIT_AND_REMEDIATION_2026-05-29.md` 覆盖） |
+| `_audit_extract.json` | 审计工具产物 |
+
+### 11.4 `archive/api-option/` — API 优化方案归档
+
+| 文件 | 说明 |
+|------|------|
+| `README.md` | API 优化文档总览（2026-03-27，已完成并归档） |
 
 ---
 
-## 十二、治理规则
+## 十二、文档命名规范
 
-### 12.1 文档添加流程
+### 12.1 文件命名规则
 
-1. **现行文档**：
-   - 主题报告 → `docs/synapse-rust/`
-   - 数据库 → `docs/db/`
-   - 质量/可观测性 → `docs/quality/`
-   - SDK 对外 → `docs/sdk/`
-   - 脚本/工具 → `scripts/`（含 README）
+| 规则 | 说明 | 示例 |
+|------|------|------|
+| 使用 UPPER_SNAKE_CASE | 审计报告、计划类文档 | `COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` |
+| 日期后缀格式 `_YYYY-MM-DD` | 带日期的报告必须使用此格式 | `DB_AUDIT_AND_REMEDIATION_2026-05-29.md` |
+| 使用 kebab-case | 指南、教程类文档 | `admin-registration-guide.md` |
+| 使用小写 | 数据清单、工具产物 | `permission_matrix.csv`、`_audit_extract.json` |
+| 前缀下划线 | 工具自动生成的辅助文件 | `_audit_extract.json` |
 
-2. **不允许**：
-   - 在仓库根放散落 `.md`（除 `README.md` / `AGENTS.md` / `CLAUDE.md` / `TESTING.md` / `CHECKLIST.md`）
-   - 在 `docs/` 顶层直接放报告（必须进子目录）
-   - 在 `docs/synapse-rust/` 放 SDK/数据库/质量类文档
+### 12.2 目录组织规则
 
-3. **降级为归档**：
-   - 内容已被基线报告覆盖
-   - 时间戳早于最近一次基线重审 60 天
-   - 文件描述的代码路径已删除或重写
+| 目录 | 用途 | 允许的文档类型 |
+|------|------|----------------|
+| `docs/synapse-rust/` | 项目审查、迁移计划、协议文档 | 审计报告、迁移计划、协议面声明 |
+| `docs/synapse-rust/issues/` | M-3 非阻塞 issue 跟踪 | Issue 描述文档 |
+| `docs/db/` | 数据库规范与审计 | 字段规范、迁移治理、Schema 审计 |
+| `docs/quality/` | 质量与可观测性 | 部署指南、权限分析、格式追踪 |
+| `docs/sdk/` | 对外 SDK 文档 | API 描述、错误码、快速开始 |
+| `docs/archive/` | 历史归档（只读） | 所有已过时/已覆盖的文档 |
+| `docs/archive/quality/` | 质量类历史归档 | 完成报告、修复记录、缺陷分析 |
+| `docs/archive/db/` | 数据库类历史归档 | 早期审计报告、诊断方案 |
+| `docs/archive/api-option/` | API 优化方案历史归档 | 已完成的优化方案 |
 
-### 12.2 同步检查（PR 门禁）
+### 12.3 禁止事项
+
+- 禁止在 `docs/` 顶层直接放报告文件（必须进子目录）
+- 禁止在 `docs/synapse-rust/` 放 SDK/数据库/质量类文档
+- 禁止在仓库根放散落 `.md`（除 `README.md` / `AGENTS.md` / `CLAUDE.md` / `TESTING.md` / `CHECKLIST.md`）
+- 禁止修改 `docs/archive/` 中的任何文件
+
+---
+
+## 十三、文档维护指南
+
+### 13.1 添加新文档流程
+
+1. **确定文档类型**：审查报告 → `docs/synapse-rust/`；数据库 → `docs/db/`；质量 → `docs/quality/`；SDK → `docs/sdk/`
+2. **按命名规范命名**：报告类加日期后缀 `_YYYY-MM-DD`；指南类用 kebab-case
+3. **更新本索引**：在对应章节添加条目，填写用途和日期
+4. **提交 PR**：修改 `docs/**` 的 PR 必须更新 `docs/INDEX.md`
+
+### 13.2 文档降级为归档的条件
+
+满足以下任一条件即应移入 `docs/archive/`：
+
+1. **内容已被基线报告覆盖**：新版本审计报告已包含旧报告全部信息
+2. **时间戳早于最近一次基线重审 60 天**：且内容未被其他现行文档引用
+3. **代码路径已删除或重写**：文档描述的功能/模块已不存在
+4. **完成报告/修复记录**：特定工作周期结束后，其过程性文档应归档
+
+### 13.3 归档操作步骤
+
+1. 将文件从现行目录移动到 `docs/archive/` 对应子目录
+2. 在本索引的归档章节（十一）添加条目
+3. 从现行章节移除该条目
+4. 提交 PR 并说明归档原因
+
+### 13.4 同步检查（PR 门禁）
 
 - 修改 `src/**` 触发的 PR：必须更新 `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_*.md` 的状态行
 - 修改 `migrations/**` 触发的 PR：必须更新 `docs/db/MIGRATION_INDEX.md`
 - 修改 `docs/**` 触发的 PR：必须更新 `docs/INDEX.md`（本文档）
 
-### 12.3 与 CI 的连接
+### 13.5 与 CI 的连接
 
 - 文档质量门禁：`.github/workflows/docs-quality-gate.yml`
   - 强制：`README.md` / `INDEX.md` 存在
@@ -208,7 +319,7 @@
 
 ---
 
-## 十三、版本与同步
+## 十四、版本与同步
 
 | 项 | 值 |
 |----|----|
@@ -217,6 +328,7 @@
 | Synapse 预发布 | v1.154.0rc1 |
 | synapse-rust 当前版本 | 见 `Cargo.toml` |
 | 最近基线审查 | 2026-06-06 |
+| 文档索引版本 | 2026-06-07（m-24 审计项修复） |
 
 基线版本变更时，需同步更新：
 1. `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_*.md`（最新基线报告）

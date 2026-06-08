@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM room_ephemeral\n        WHERE room_id = $1 AND event_type = 'm.typing' AND user_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a876ec8083366ca08297653973794af3a51606ecf96ff6215a857841ab668c3f"
+}

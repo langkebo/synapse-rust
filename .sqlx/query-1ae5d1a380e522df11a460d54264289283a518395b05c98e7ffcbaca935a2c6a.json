@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    e.event_id,\n                    e.room_id,\n                    e.sender,\n                    e.event_type,\n                    e.content,\n                    e.origin_server_ts,\n                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) as rank\n                FROM events e\n                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'\n                WHERE e.event_type = 'm.room.message'\n                    AND e.stream_ordering > 0\n                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)\n                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC\n                LIMIT $3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "rank",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "1ae5d1a380e522df11a460d54264289283a518395b05c98e7ffcbaca935a2c6a"
+}

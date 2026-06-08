@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE rendezvous_session\n            SET user_id = $2, device_id = $3, status = 'connected'\n            WHERE session_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f84a174883bde91129011d81987ee6ae9e7774aa8eeea026fc9efeb2170f03d0"
+}

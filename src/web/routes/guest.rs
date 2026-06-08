@@ -24,12 +24,12 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
-    sqlx::query(
+    sqlx::query!(
         r"
         UPDATE users SET is_guest = TRUE WHERE user_id = $1
         ",
+        &user.user_id
     )
-    .bind(&user.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
@@ -107,14 +107,14 @@ pub async fn upgrade_guest(
 
             let password_hash = state.services.auth_service.hash_password_for_storage(password).await?;
 
-            sqlx::query(
+            sqlx::query!(
                 r"
                 UPDATE users SET username = $1, is_guest = FALSE, password_hash = $2 WHERE user_id = $3
                 ",
+                username,
+                &password_hash,
+                &auth_user.user_id
             )
-            .bind(username)
-            .bind(&password_hash)
-            .bind(&auth_user.user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to upgrade account", &e))?;

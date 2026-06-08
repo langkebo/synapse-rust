@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"messages_sent!\" FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "messages_sent!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b43aa83b78c3e7a97e5d80977d8342c56b3718ed47c28f1a5dafedf94849620c"
+}

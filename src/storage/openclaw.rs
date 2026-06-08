@@ -196,35 +196,38 @@ impl OpenClawStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         if params.is_default {
-            sqlx::query(
+            sqlx::query!(
                 r#"
                 UPDATE openclaw_connections
                 SET is_default = false, updated_ts = $1
                 WHERE user_id = $2 AND is_default = true
                 "#,
+                now,
+                params.user_id
             )
-            .bind(now)
-            .bind(params.user_id)
             .execute(&*self.db)
             .await?;
         }
 
-        let conn = sqlx::query_as::<_, OpenClawConnection>(
+        let conn = sqlx::query_as!(OpenClawConnection,
             r#"
             INSERT INTO openclaw_connections
                 (user_id, name, provider, base_url, encrypted_api_key, config, is_default, is_active, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $8)
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", name as "name!", provider as "provider!",
+                      base_url as "base_url!", encrypted_api_key as "encrypted_api_key?",
+                      config as "config?", is_default as "is_default!", is_active as "is_active!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            params.user_id,
+            params.name,
+            params.provider,
+            params.base_url,
+            params.encrypted_api_key,
+            params.config.as_ref(),
+            params.is_default,
+            now
         )
-        .bind(params.user_id)
-        .bind(params.name)
-        .bind(params.provider)
-        .bind(params.base_url)
-        .bind(params.encrypted_api_key)
-        .bind(&params.config)
-        .bind(params.is_default)
-        .bind(now)
         .fetch_one(&*self.db)
         .await?;
 
@@ -232,38 +235,44 @@ impl OpenClawStorage {
     }
 
     pub async fn get_connection(&self, id: i64) -> Result<Option<OpenClawConnection>, sqlx::Error> {
-        sqlx::query_as::<_, OpenClawConnection>(
-            r#"
-            SELECT * FROM openclaw_connections WHERE id = $1
-            "#,
+        sqlx::query_as!(OpenClawConnection,
+            r#"SELECT id as "id!", user_id as "user_id!", name as "name!", provider as "provider!",
+                      base_url as "base_url!", encrypted_api_key as "encrypted_api_key?",
+                      config as "config?", is_default as "is_default!", is_active as "is_active!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM openclaw_connections WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
 
     pub async fn get_user_connections(&self, user_id: &str) -> Result<Vec<OpenClawConnection>, sqlx::Error> {
-        sqlx::query_as::<_, OpenClawConnection>(
-            r#"
-            SELECT * FROM openclaw_connections
-            WHERE user_id = $1
-            ORDER BY is_default DESC, created_ts DESC
-            "#,
+        sqlx::query_as!(OpenClawConnection,
+            r#"SELECT id as "id!", user_id as "user_id!", name as "name!", provider as "provider!",
+                      base_url as "base_url!", encrypted_api_key as "encrypted_api_key?",
+                      config as "config?", is_default as "is_default!", is_active as "is_active!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM openclaw_connections
+               WHERE user_id = $1
+               ORDER BY is_default DESC, created_ts DESC"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.db)
         .await
     }
 
     pub async fn get_default_connection(&self, user_id: &str) -> Result<Option<OpenClawConnection>, sqlx::Error> {
-        sqlx::query_as::<_, OpenClawConnection>(
-            r#"
-            SELECT * FROM openclaw_connections
-            WHERE user_id = $1 AND is_default = true AND is_active = true
-            LIMIT 1
-            "#,
+        sqlx::query_as!(OpenClawConnection,
+            r#"SELECT id as "id!", user_id as "user_id!", name as "name!", provider as "provider!",
+                      base_url as "base_url!", encrypted_api_key as "encrypted_api_key?",
+                      config as "config?", is_default as "is_default!", is_active as "is_active!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM openclaw_connections
+               WHERE user_id = $1 AND is_default = true AND is_active = true
+               LIMIT 1"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.db)
         .await
     }
@@ -277,21 +286,21 @@ impl OpenClawStorage {
         if let Some(true) = params.is_default {
             let conn = self.get_connection(params.id).await?;
             if let Some(c) = conn {
-                sqlx::query(
+                sqlx::query!(
                     r#"
                     UPDATE openclaw_connections
                     SET is_default = false, updated_ts = $1
                     WHERE user_id = $2 AND is_default = true
                     "#,
+                    now,
+                    &c.user_id
                 )
-                .bind(now)
-                .bind(&c.user_id)
                 .execute(&*self.db)
                 .await?;
             }
         }
 
-        let conn = sqlx::query_as::<_, OpenClawConnection>(
+        let conn = sqlx::query_as!(OpenClawConnection,
             r#"
             UPDATE openclaw_connections
             SET
@@ -303,17 +312,20 @@ impl OpenClawStorage {
                 is_active = COALESCE($6, is_active),
                 updated_ts = $7
             WHERE id = $8
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", name as "name!", provider as "provider!",
+                      base_url as "base_url!", encrypted_api_key as "encrypted_api_key?",
+                      config as "config?", is_default as "is_default!", is_active as "is_active!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            params.name,
+            params.base_url,
+            params.encrypted_api_key,
+            params.config.as_ref(),
+            params.is_default,
+            params.is_active,
+            now,
+            params.id
         )
-        .bind(params.name)
-        .bind(params.base_url)
-        .bind(params.encrypted_api_key)
-        .bind(&params.config)
-        .bind(params.is_default)
-        .bind(params.is_active)
-        .bind(now)
-        .bind(params.id)
         .fetch_one(&*self.db)
         .await?;
 
@@ -321,12 +333,12 @@ impl OpenClawStorage {
     }
 
     pub async fn delete_connection(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM openclaw_connections WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 
@@ -339,22 +351,26 @@ impl OpenClawStorage {
     ) -> Result<AiConversation, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let conv = sqlx::query_as::<_, AiConversation>(
+        let conv = sqlx::query_as!(AiConversation,
             r#"
             INSERT INTO ai_conversations
                 (user_id, connection_id, title, model_id, system_prompt, temperature, max_tokens, is_pinned, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $8)
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", connection_id as "connection_id?",
+                      title as "title?", model_id as "model_id?", system_prompt as "system_prompt?",
+                      temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_pinned as "is_pinned!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            params.user_id,
+            params.connection_id,
+            params.title,
+            params.model_id,
+            params.system_prompt,
+            params.temperature,
+            params.max_tokens,
+            now
         )
-        .bind(params.user_id)
-        .bind(params.connection_id)
-        .bind(params.title)
-        .bind(params.model_id)
-        .bind(params.system_prompt)
-        .bind(params.temperature)
-        .bind(params.max_tokens)
-        .bind(now)
         .fetch_one(&*self.db)
         .await?;
 
@@ -362,12 +378,15 @@ impl OpenClawStorage {
     }
 
     pub async fn get_conversation(&self, id: i64) -> Result<Option<AiConversation>, sqlx::Error> {
-        sqlx::query_as::<_, AiConversation>(
-            r#"
-            SELECT * FROM ai_conversations WHERE id = $1
-            "#,
+        sqlx::query_as!(AiConversation,
+            r#"SELECT id as "id!", user_id as "user_id!", connection_id as "connection_id?",
+                      title as "title?", model_id as "model_id?", system_prompt as "system_prompt?",
+                      temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_pinned as "is_pinned!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM ai_conversations WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
@@ -379,33 +398,39 @@ impl OpenClawStorage {
         from: Option<ConversationCursor>,
     ) -> Result<(Vec<AiConversation>, Option<String>), sqlx::Error> {
         let conversations = if let Some(cursor) = from {
-            sqlx::query_as::<_, AiConversation>(
-                r#"
-                SELECT * FROM ai_conversations
-                WHERE user_id = $1
-                  AND (is_pinned, updated_ts, id) < ($2, $3, $4)
-                ORDER BY is_pinned DESC, updated_ts DESC, id DESC
-                LIMIT $5
-                "#,
+            sqlx::query_as!(AiConversation,
+                r#"SELECT id as "id!", user_id as "user_id!", connection_id as "connection_id?",
+                          title as "title?", model_id as "model_id?", system_prompt as "system_prompt?",
+                          temperature as "temperature?", max_tokens as "max_tokens?",
+                          is_pinned as "is_pinned!", metadata as "metadata?",
+                          created_ts as "created_ts!", updated_ts as "updated_ts!"
+                   FROM ai_conversations
+                   WHERE user_id = $1
+                     AND (is_pinned, updated_ts, id) < ($2, $3, $4)
+                   ORDER BY is_pinned DESC, updated_ts DESC, id DESC
+                   LIMIT $5"#,
+                user_id,
+                cursor.is_pinned,
+                cursor.updated_ts,
+                cursor.id,
+                limit + 1
             )
-            .bind(user_id)
-            .bind(cursor.is_pinned)
-            .bind(cursor.updated_ts)
-            .bind(cursor.id)
-            .bind(limit + 1)
             .fetch_all(&*self.db)
             .await?
         } else {
-            sqlx::query_as::<_, AiConversation>(
-                r#"
-                SELECT * FROM ai_conversations
-                WHERE user_id = $1
-                ORDER BY is_pinned DESC, updated_ts DESC, id DESC
-                LIMIT $2
-                "#,
+            sqlx::query_as!(AiConversation,
+                r#"SELECT id as "id!", user_id as "user_id!", connection_id as "connection_id?",
+                          title as "title?", model_id as "model_id?", system_prompt as "system_prompt?",
+                          temperature as "temperature?", max_tokens as "max_tokens?",
+                          is_pinned as "is_pinned!", metadata as "metadata?",
+                          created_ts as "created_ts!", updated_ts as "updated_ts!"
+                   FROM ai_conversations
+                   WHERE user_id = $1
+                   ORDER BY is_pinned DESC, updated_ts DESC, id DESC
+                   LIMIT $2"#,
+                user_id,
+                limit + 1
             )
-            .bind(user_id)
-            .bind(limit + 1)
             .fetch_all(&*self.db)
             .await?
         };
@@ -436,7 +461,7 @@ impl OpenClawStorage {
     ) -> Result<AiConversation, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let conv = sqlx::query_as::<_, AiConversation>(
+        let conv = sqlx::query_as!(AiConversation,
             r#"
             UPDATE ai_conversations
             SET
@@ -447,16 +472,20 @@ impl OpenClawStorage {
                 is_pinned = COALESCE($5, is_pinned),
                 updated_ts = $6
             WHERE id = $7
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", connection_id as "connection_id?",
+                      title as "title?", model_id as "model_id?", system_prompt as "system_prompt?",
+                      temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_pinned as "is_pinned!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            title,
+            system_prompt,
+            temperature,
+            max_tokens,
+            is_pinned,
+            now,
+            id
         )
-        .bind(title)
-        .bind(system_prompt)
-        .bind(temperature)
-        .bind(max_tokens)
-        .bind(is_pinned)
-        .bind(now)
-        .bind(id)
         .fetch_one(&*self.db)
         .await?;
 
@@ -464,12 +493,12 @@ impl OpenClawStorage {
     }
 
     pub async fn delete_conversation(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM ai_conversations WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 
@@ -487,31 +516,34 @@ impl OpenClawStorage {
     ) -> Result<AiMessage, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let msg = sqlx::query_as::<_, AiMessage>(
+        let msg = sqlx::query_as!(AiMessage,
             r#"
             INSERT INTO ai_messages
                 (conversation_id, role, content, token_count, tool_calls, tool_call_id, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
+            RETURNING id as "id!", conversation_id as "conversation_id!", role as "role!",
+                      content as "content!", token_count as "token_count?",
+                      tool_calls as "tool_calls?", tool_call_id as "tool_call_id?",
+                      metadata as "metadata?", created_ts as "created_ts!"
             "#,
+            conversation_id,
+            role,
+            content,
+            token_count,
+            tool_calls.as_ref(),
+            tool_call_id,
+            now
         )
-        .bind(conversation_id)
-        .bind(role)
-        .bind(content)
-        .bind(token_count)
-        .bind(&tool_calls)
-        .bind(tool_call_id)
-        .bind(now)
         .fetch_one(&*self.db)
         .await?;
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE ai_conversations SET updated_ts = $1 WHERE id = $2
             "#,
+            now,
+            conversation_id
         )
-        .bind(now)
-        .bind(conversation_id)
         .execute(&*self.db)
         .await?;
 
@@ -526,31 +558,35 @@ impl OpenClawStorage {
     ) -> Result<Vec<AiMessage>, sqlx::Error> {
         match before {
             Some(before_id) => {
-                sqlx::query_as::<_, AiMessage>(
-                    r#"
-                    SELECT * FROM ai_messages
-                    WHERE conversation_id = $1 AND id < $2
-                    ORDER BY created_ts DESC
-                    LIMIT $3
-                    "#,
+                sqlx::query_as!(AiMessage,
+                    r#"SELECT id as "id!", conversation_id as "conversation_id!", role as "role!",
+                              content as "content!", token_count as "token_count?",
+                              tool_calls as "tool_calls?", tool_call_id as "tool_call_id?",
+                              metadata as "metadata?", created_ts as "created_ts!"
+                       FROM ai_messages
+                       WHERE conversation_id = $1 AND id < $2
+                       ORDER BY created_ts DESC
+                       LIMIT $3"#,
+                    conversation_id,
+                    before_id,
+                    limit
                 )
-                .bind(conversation_id)
-                .bind(before_id)
-                .bind(limit)
                 .fetch_all(&*self.db)
                 .await
             }
             None => {
-                sqlx::query_as::<_, AiMessage>(
-                    r#"
-                    SELECT * FROM ai_messages
-                    WHERE conversation_id = $1
-                    ORDER BY created_ts DESC
-                    LIMIT $2
-                    "#,
+                sqlx::query_as!(AiMessage,
+                    r#"SELECT id as "id!", conversation_id as "conversation_id!", role as "role!",
+                              content as "content!", token_count as "token_count?",
+                              tool_calls as "tool_calls?", tool_call_id as "tool_call_id?",
+                              metadata as "metadata?", created_ts as "created_ts!"
+                       FROM ai_messages
+                       WHERE conversation_id = $1
+                       ORDER BY created_ts DESC
+                       LIMIT $2"#,
+                    conversation_id,
+                    limit
                 )
-                .bind(conversation_id)
-                .bind(limit)
                 .fetch_all(&*self.db)
                 .await
             }
@@ -558,23 +594,25 @@ impl OpenClawStorage {
     }
 
     pub async fn get_message(&self, id: i64) -> Result<Option<AiMessage>, sqlx::Error> {
-        sqlx::query_as::<_, AiMessage>(
-            r#"
-            SELECT * FROM ai_messages WHERE id = $1
-            "#,
+        sqlx::query_as!(AiMessage,
+            r#"SELECT id as "id!", conversation_id as "conversation_id!", role as "role!",
+                      content as "content!", token_count as "token_count?",
+                      tool_calls as "tool_calls?", tool_call_id as "tool_call_id?",
+                      metadata as "metadata?", created_ts as "created_ts!"
+               FROM ai_messages WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
 
     pub async fn delete_message(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM ai_messages WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 
@@ -590,19 +628,23 @@ impl OpenClawStorage {
     ) -> Result<AiGeneration, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let gen = sqlx::query_as::<_, AiGeneration>(
+        let gen = sqlx::query_as!(AiGeneration,
             r#"
             INSERT INTO ai_generations
                 (user_id, conversation_id, type, prompt, status, created_ts)
             VALUES ($1, $2, $3, $4, 'pending', $5)
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                      type as "type!", prompt as "prompt!", result_url as "result_url?",
+                      result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                      error_message as "error_message?", metadata as "metadata?",
+                      created_ts as "created_ts!", completed_ts as "completed_ts?"
             "#,
+            user_id,
+            conversation_id,
+            gen_type,
+            prompt,
+            now
         )
-        .bind(user_id)
-        .bind(conversation_id)
-        .bind(gen_type)
-        .bind(prompt)
-        .bind(now)
         .fetch_one(&*self.db)
         .await?;
 
@@ -619,7 +661,7 @@ impl OpenClawStorage {
     ) -> Result<AiGeneration, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let gen = sqlx::query_as::<_, AiGeneration>(
+        let gen = sqlx::query_as!(AiGeneration,
             r#"
             UPDATE ai_generations
             SET
@@ -629,15 +671,19 @@ impl OpenClawStorage {
                 error_message = COALESCE($4, error_message),
                 completed_ts = CASE WHEN $1 = 'completed' THEN $5 ELSE completed_ts END
             WHERE id = $6
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                      type as "type!", prompt as "prompt!", result_url as "result_url?",
+                      result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                      error_message as "error_message?", metadata as "metadata?",
+                      created_ts as "created_ts!", completed_ts as "completed_ts?"
             "#,
+            status,
+            result_url,
+            result_mxc,
+            error_message,
+            now,
+            id
         )
-        .bind(status)
-        .bind(result_url)
-        .bind(result_mxc)
-        .bind(error_message)
-        .bind(now)
-        .bind(id)
         .fetch_one(&*self.db)
         .await?;
 
@@ -645,12 +691,15 @@ impl OpenClawStorage {
     }
 
     pub async fn get_generation(&self, id: i64) -> Result<Option<AiGeneration>, sqlx::Error> {
-        sqlx::query_as::<_, AiGeneration>(
-            r#"
-            SELECT * FROM ai_generations WHERE id = $1
-            "#,
+        sqlx::query_as!(AiGeneration,
+            r#"SELECT id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                      type as "type!", prompt as "prompt!", result_url as "result_url?",
+                      result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                      error_message as "error_message?", metadata as "metadata?",
+                      created_ts as "created_ts!", completed_ts as "completed_ts?"
+               FROM ai_generations WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
@@ -664,66 +713,78 @@ impl OpenClawStorage {
     ) -> Result<(Vec<AiGeneration>, Option<String>), sqlx::Error> {
         let generations = match (gen_type, from) {
             (Some(t), Some(cursor)) => {
-                sqlx::query_as::<_, AiGeneration>(
-                    r#"
-                    SELECT * FROM ai_generations
-                    WHERE user_id = $1 AND type = $2
-                      AND (created_ts, id) < ($3, $4)
-                    ORDER BY created_ts DESC, id DESC
-                    LIMIT $5
-                    "#,
+                sqlx::query_as!(AiGeneration,
+                    r#"SELECT id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                              type as "type!", prompt as "prompt!", result_url as "result_url?",
+                              result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                              error_message as "error_message?", metadata as "metadata?",
+                              created_ts as "created_ts!", completed_ts as "completed_ts?"
+                       FROM ai_generations
+                       WHERE user_id = $1 AND type = $2
+                         AND (created_ts, id) < ($3, $4)
+                       ORDER BY created_ts DESC, id DESC
+                       LIMIT $5"#,
+                    user_id,
+                    t,
+                    cursor.created_ts,
+                    cursor.id,
+                    limit + 1
                 )
-                .bind(user_id)
-                .bind(t)
-                .bind(cursor.created_ts)
-                .bind(cursor.id)
-                .bind(limit + 1)
                 .fetch_all(&*self.db)
                 .await?
             }
             (Some(t), None) => {
-                sqlx::query_as::<_, AiGeneration>(
-                    r#"
-                    SELECT * FROM ai_generations
-                    WHERE user_id = $1 AND type = $2
-                    ORDER BY created_ts DESC, id DESC
-                    LIMIT $3
-                    "#,
+                sqlx::query_as!(AiGeneration,
+                    r#"SELECT id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                              type as "type!", prompt as "prompt!", result_url as "result_url?",
+                              result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                              error_message as "error_message?", metadata as "metadata?",
+                              created_ts as "created_ts!", completed_ts as "completed_ts?"
+                       FROM ai_generations
+                       WHERE user_id = $1 AND type = $2
+                       ORDER BY created_ts DESC, id DESC
+                       LIMIT $3"#,
+                    user_id,
+                    t,
+                    limit + 1
                 )
-                .bind(user_id)
-                .bind(t)
-                .bind(limit + 1)
                 .fetch_all(&*self.db)
                 .await?
             }
             (None, Some(cursor)) => {
-                sqlx::query_as::<_, AiGeneration>(
-                    r#"
-                    SELECT * FROM ai_generations
-                    WHERE user_id = $1
-                      AND (created_ts, id) < ($2, $3)
-                    ORDER BY created_ts DESC, id DESC
-                    LIMIT $4
-                    "#,
+                sqlx::query_as!(AiGeneration,
+                    r#"SELECT id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                              type as "type!", prompt as "prompt!", result_url as "result_url?",
+                              result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                              error_message as "error_message?", metadata as "metadata?",
+                              created_ts as "created_ts!", completed_ts as "completed_ts?"
+                       FROM ai_generations
+                       WHERE user_id = $1
+                         AND (created_ts, id) < ($2, $3)
+                       ORDER BY created_ts DESC, id DESC
+                       LIMIT $4"#,
+                    user_id,
+                    cursor.created_ts,
+                    cursor.id,
+                    limit + 1
                 )
-                .bind(user_id)
-                .bind(cursor.created_ts)
-                .bind(cursor.id)
-                .bind(limit + 1)
                 .fetch_all(&*self.db)
                 .await?
             }
             (None, None) => {
-                sqlx::query_as::<_, AiGeneration>(
-                    r#"
-                    SELECT * FROM ai_generations
-                    WHERE user_id = $1
-                    ORDER BY created_ts DESC, id DESC
-                    LIMIT $2
-                    "#,
+                sqlx::query_as!(AiGeneration,
+                    r#"SELECT id as "id!", user_id as "user_id!", conversation_id as "conversation_id?",
+                              type as "type!", prompt as "prompt!", result_url as "result_url?",
+                              result_mxc as "result_mxc?", COALESCE(status, 'pending') as "status!",
+                              error_message as "error_message?", metadata as "metadata?",
+                              created_ts as "created_ts!", completed_ts as "completed_ts?"
+                       FROM ai_generations
+                       WHERE user_id = $1
+                       ORDER BY created_ts DESC, id DESC
+                       LIMIT $2"#,
+                    user_id,
+                    limit + 1
                 )
-                .bind(user_id)
-                .bind(limit + 1)
                 .fetch_all(&*self.db)
                 .await?
             }
@@ -741,12 +802,12 @@ impl OpenClawStorage {
     }
 
     pub async fn delete_generation(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM ai_generations WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 
@@ -756,25 +817,29 @@ impl OpenClawStorage {
     pub async fn create_chat_role(&self, params: CreateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let role = sqlx::query_as::<_, AiChatRole>(
+        let role = sqlx::query_as!(AiChatRole,
             r#"
             INSERT INTO ai_chat_roles
                 (user_id, name, description, system_message, model_id, avatar_url, category, temperature, max_tokens, is_public, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", name as "name!", description as "description?",
+                      system_message as "system_message!", model_id as "model_id?", avatar_url as "avatar_url?",
+                      category as "category?", temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_public as "is_public!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            params.user_id,
+            params.name,
+            params.description,
+            params.system_message,
+            params.model_id,
+            params.avatar_url,
+            params.category,
+            params.temperature,
+            params.max_tokens,
+            params.is_public,
+            now
         )
-        .bind(params.user_id)
-        .bind(params.name)
-        .bind(params.description)
-        .bind(params.system_message)
-        .bind(params.model_id)
-        .bind(params.avatar_url)
-        .bind(params.category)
-        .bind(params.temperature)
-        .bind(params.max_tokens)
-        .bind(params.is_public)
-        .bind(now)
         .fetch_one(&*self.db)
         .await?;
 
@@ -782,25 +847,31 @@ impl OpenClawStorage {
     }
 
     pub async fn get_chat_role(&self, id: i64) -> Result<Option<AiChatRole>, sqlx::Error> {
-        sqlx::query_as::<_, AiChatRole>(
-            r#"
-            SELECT * FROM ai_chat_roles WHERE id = $1
-            "#,
+        sqlx::query_as!(AiChatRole,
+            r#"SELECT id as "id!", user_id as "user_id!", name as "name!", description as "description?",
+                      system_message as "system_message!", model_id as "model_id?", avatar_url as "avatar_url?",
+                      category as "category?", temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_public as "is_public!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM ai_chat_roles WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(&*self.db)
         .await
     }
 
     pub async fn get_user_chat_roles(&self, user_id: &str) -> Result<Vec<AiChatRole>, sqlx::Error> {
-        sqlx::query_as::<_, AiChatRole>(
-            r#"
-            SELECT * FROM ai_chat_roles
-            WHERE user_id = $1 OR is_public = true
-            ORDER BY is_public, created_ts DESC
-            "#,
+        sqlx::query_as!(AiChatRole,
+            r#"SELECT id as "id!", user_id as "user_id!", name as "name!", description as "description?",
+                      system_message as "system_message!", model_id as "model_id?", avatar_url as "avatar_url?",
+                      category as "category?", temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_public as "is_public!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
+               FROM ai_chat_roles
+               WHERE user_id = $1 OR is_public = true
+               ORDER BY is_public, created_ts DESC"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.db)
         .await
     }
@@ -808,7 +879,7 @@ impl OpenClawStorage {
     pub async fn update_chat_role(&self, params: UpdateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let role = sqlx::query_as::<_, AiChatRole>(
+        let role = sqlx::query_as!(AiChatRole,
             r#"
             UPDATE ai_chat_roles
             SET
@@ -823,20 +894,24 @@ impl OpenClawStorage {
                 is_public = COALESCE($9, is_public),
                 updated_ts = $10
             WHERE id = $11
-            RETURNING *
+            RETURNING id as "id!", user_id as "user_id!", name as "name!", description as "description?",
+                      system_message as "system_message!", model_id as "model_id?", avatar_url as "avatar_url?",
+                      category as "category?", temperature as "temperature?", max_tokens as "max_tokens?",
+                      is_public as "is_public!", metadata as "metadata?",
+                      created_ts as "created_ts!", updated_ts as "updated_ts!"
             "#,
+            params.name,
+            params.description,
+            params.system_message,
+            params.model_id,
+            params.avatar_url,
+            params.category,
+            params.temperature,
+            params.max_tokens,
+            params.is_public,
+            now,
+            params.id
         )
-        .bind(params.name)
-        .bind(params.description)
-        .bind(params.system_message)
-        .bind(params.model_id)
-        .bind(params.avatar_url)
-        .bind(params.category)
-        .bind(params.temperature)
-        .bind(params.max_tokens)
-        .bind(params.is_public)
-        .bind(now)
-        .bind(params.id)
         .fetch_one(&*self.db)
         .await?;
 
@@ -844,12 +919,12 @@ impl OpenClawStorage {
     }
 
     pub async fn delete_chat_role(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             DELETE FROM ai_chat_roles WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .execute(&*self.db)
         .await?;
 

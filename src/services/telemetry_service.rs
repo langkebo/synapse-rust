@@ -93,8 +93,9 @@ impl TelemetryService {
     }
 
     fn initialize_tracing(&self) -> Result<SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(endpoint) = self.config.otlp_endpoint.as_deref() else {
-            tracing::warn!("OTLP endpoint is not configured; tracing will not be initialized. Set the otlp_endpoint config to enable OTLP tracing.");
+        let Some(endpoint) = self.config.resolve_otlp_endpoint() else {
+            tracing::warn!("OTLP endpoint is not configured; tracing will not be initialized. \
+                Set the otlp_endpoint config or OTEL_EXPORTER_OTLP_ENDPOINT env var to enable OTLP tracing.");
             return Err("OTLP endpoint not configured".into());
         };
 

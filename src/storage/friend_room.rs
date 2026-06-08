@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -55,7 +55,7 @@ impl FriendRoomStorage {
 
     /// 查找用户的好友列表房间 ID
     pub async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r"
             SELECT e.room_id
             FROM events e
@@ -66,38 +66,36 @@ impl FriendRoomStorage {
             ORDER BY e.origin_server_ts DESC
             LIMIT 1
             ",
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|r| r.get("room_id")))
+        Ok(row.map(|r| r.room_id))
     }
 
     /// 获取房间内的所有好友列表事件内容
     pub async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row = sqlx::query(
-            r"
-            SELECT e.content
-            FROM events e
-            WHERE e.room_id = $1
-            AND e.event_type = 'm.friends.list'
-            AND e.state_key = ''
-            ORDER BY e.origin_server_ts DESC
-            LIMIT 1
-            ",
+        let row = sqlx::query!(
+            r"SELECT e.content
+               FROM events e
+               WHERE e.room_id = $1
+               AND e.event_type = 'm.friends.list'
+               AND e.state_key = ''
+               ORDER BY e.origin_server_ts DESC
+               LIMIT 1",
+            room_id
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|r| r.get("content")))
+        Ok(row.map(|r| r.content))
     }
 
     /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
     pub async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {
-        sqlx::query_as::<_, FriendDmLink>(
-            r"
+        sqlx::query_as!(FriendDmLink,
+            r#"
             WITH latest_friend_lists AS (
                 SELECT DISTINCT ON (COALESCE(sender, user_id))
                     COALESCE(sender, user_id) AS owner_user_id,
@@ -109,16 +107,16 @@ impl FriendRoomStorage {
                   AND state_key = ''
                 ORDER BY COALESCE(sender, user_id), origin_server_ts DESC
             )
-            SELECT owner_user_id, friend_room_id, content
+            SELECT owner_user_id as "owner_user_id!", friend_room_id as "friend_room_id!", content as "content!"
             FROM latest_friend_lists
             WHERE EXISTS (
                 SELECT 1
                 FROM jsonb_array_elements(COALESCE(content->'friends', '[]'::jsonb)) AS friend
                 WHERE friend->>'dm_room_id' = $1
             )
-            ",
+            "#,
+            dm_room_id
         )
-        .bind(dm_room_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -129,9 +127,9 @@ impl FriendRoomStorage {
         room_id: &str,
         request_type: &str,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let event_type = format!("m.friend_requests.{request_type}");
+        let event_type = format!("m.friend.requests.{request_type}");
 
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r"
             SELECT e.content
             FROM events e
@@ -141,14 +139,14 @@ impl FriendRoomStorage {
             ORDER BY e.origin_server_ts DESC
             LIMIT 1
             ",
+            room_id,
+            &event_type
         )
-        .bind(room_id)
-        .bind(&event_type)
         .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row
-            .and_then(|r| r.get::<Option<serde_json::Value>, _>("content"))
+            .map(|r| r.content)
             .and_then(|c| c.get("requests").cloned())
             .and_then(|r| r.as_array().cloned())
             .unwrap_or_default())
@@ -178,22 +176,20 @@ impl FriendRoomStorage {
 
     /// 获取好友分组信息
     pub async fn get_friend_groups(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row = sqlx::query(
-            r"
-            SELECT e.content
-            FROM events e
-            WHERE e.room_id = $1
-            AND e.event_type = 'm.friends.groups'
-            AND e.state_key = ''
-            ORDER BY e.origin_server_ts DESC
-            LIMIT 1
-            ",
+        let row = sqlx::query!(
+            r"SELECT e.content
+               FROM events e
+               WHERE e.room_id = $1
+               AND e.event_type = 'm.friends.groups'
+               AND e.state_key = ''
+               ORDER BY e.origin_server_ts DESC
+               LIMIT 1",
+            room_id
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row.map(|r| r.get("content")))
+        Ok(row.map(|r| r.content))
     }
 
     /// 获取好友所在的分组列表
@@ -432,17 +428,17 @@ impl FriendRoomStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let event_id = format!("${}", uuid::Uuid::new_v4().simple());
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO events (event_id, room_id, sender, event_type, state_key, content, origin_server_ts, depth)
             VALUES ($1, $2, $3, 'm.friends.groups', '', $4, $5, 1)
             ",
+            &event_id,
+            room_id,
+            user_id,
+            content,
+            now
         )
-        .bind(&event_id)
-        .bind(room_id)
-        .bind(user_id)
-        .bind(content)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -461,34 +457,34 @@ impl FriendRoomStorage {
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let row = sqlx::query(
-            r"
-            INSERT INTO friend_requests (sender_id, receiver_id, message, status, created_ts)
+        let row = sqlx::query!(
+            r#"INSERT INTO friend_requests (sender_id, receiver_id, message, status, created_ts)
             VALUES ($1, $2, $3, 'pending', $4)
             ON CONFLICT (sender_id, receiver_id)
             DO UPDATE SET status = 'pending', updated_ts = $4, message = $3
-            RETURNING id
-            ",
+            RETURNING id as "id!""#,
+            sender_id,
+            receiver_id,
+            message,
+            now
         )
-        .bind(sender_id)
-        .bind(receiver_id)
-        .bind(message)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some(row) = row {
-            return Ok(row.get("id"));
+        if let Some(r) = row {
+            return Ok(r.id);
         }
 
-        let fallback = sqlx::query("SELECT id FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2")
-            .bind(sender_id)
-            .bind(receiver_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let fallback = sqlx::query!(
+            r#"SELECT id as "id!" FROM friend_requests WHERE sender_id = $1 AND receiver_id = $2"#,
+            sender_id,
+            receiver_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         match fallback {
-            Some(row) => Ok(row.get("id")),
+            Some(r) => Ok(r.id),
             None => {
                 tracing::error!(
                     "INSERT...ON CONFLICT RETURNING produced no row and no existing record for sender={} receiver={}",
@@ -505,15 +501,15 @@ impl FriendRoomStorage {
         sender_id: &str,
         receiver_id: &str,
     ) -> Result<Option<FriendRequestRecord>, sqlx::Error> {
-        let row = sqlx::query_as::<_, FriendRequestRecord>(
-            r"
-            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
-            FROM friend_requests
-            WHERE sender_id = $1 AND receiver_id = $2
-            ",
+        let row = sqlx::query_as!(FriendRequestRecord,
+            r#"SELECT id as "id!", sender_id as "sender_id!", receiver_id as "receiver_id!",
+                      message as "message?", status as "status!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts?"
+               FROM friend_requests
+               WHERE sender_id = $1 AND receiver_id = $2"#,
+            sender_id,
+            receiver_id
         )
-        .bind(sender_id)
-        .bind(receiver_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -525,15 +521,15 @@ impl FriendRoomStorage {
         sender_id: &str,
         receiver_id: &str,
     ) -> Result<Option<FriendRequestRecord>, sqlx::Error> {
-        let row = sqlx::query_as::<_, FriendRequestRecord>(
-            r"
-            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
-            FROM friend_requests
-            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-            ",
+        let row = sqlx::query_as!(FriendRequestRecord,
+            r#"SELECT id as "id!", sender_id as "sender_id!", receiver_id as "receiver_id!",
+                      message as "message?", status as "status!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts?"
+               FROM friend_requests
+               WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'"#,
+            sender_id,
+            receiver_id
         )
-        .bind(sender_id)
-        .bind(receiver_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -544,15 +540,15 @@ impl FriendRoomStorage {
         &self,
         receiver_id: &str,
     ) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, FriendRequestRecord>(
-            r"
-            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
-            FROM friend_requests
-            WHERE receiver_id = $1 AND status = 'pending'
-            ORDER BY created_ts DESC
-            ",
+        let rows = sqlx::query_as!(FriendRequestRecord,
+            r#"SELECT id as "id!", sender_id as "sender_id!", receiver_id as "receiver_id!",
+                      message as "message?", status as "status!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts?"
+               FROM friend_requests
+               WHERE receiver_id = $1 AND status = 'pending'
+               ORDER BY created_ts DESC"#,
+            receiver_id
         )
-        .bind(receiver_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -560,15 +556,15 @@ impl FriendRoomStorage {
     }
 
     pub async fn get_outgoing_friend_requests(&self, sender_id: &str) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, FriendRequestRecord>(
-            r"
-            SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
-            FROM friend_requests
-            WHERE sender_id = $1 AND status = 'pending'
-            ORDER BY created_ts DESC
-            ",
+        let rows = sqlx::query_as!(FriendRequestRecord,
+            r#"SELECT id as "id!", sender_id as "sender_id!", receiver_id as "receiver_id!",
+                      message as "message?", status as "status!",
+                      created_ts as "created_ts!", updated_ts as "updated_ts?"
+               FROM friend_requests
+               WHERE sender_id = $1 AND status = 'pending'
+               ORDER BY created_ts DESC"#,
+            sender_id
         )
-        .bind(sender_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -583,17 +579,17 @@ impl FriendRoomStorage {
     ) -> Result<bool, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE friend_requests
             SET status = $3, updated_ts = $4
             WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
             ",
+            sender_id,
+            receiver_id,
+            status,
+            now
         )
-        .bind(sender_id)
-        .bind(receiver_id)
-        .bind(status)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -601,14 +597,14 @@ impl FriendRoomStorage {
     }
 
     pub async fn delete_friend_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM friend_requests
             WHERE sender_id = $1 AND receiver_id = $2
             ",
+            sender_id,
+            receiver_id
         )
-        .bind(sender_id)
-        .bind(receiver_id)
         .execute(&*self.pool)
         .await?;
 
@@ -616,14 +612,14 @@ impl FriendRoomStorage {
     }
 
     pub async fn has_pending_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r"
-            SELECT 1 FROM friend_requests
+            SELECT 1 as exists_check FROM friend_requests
             WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
             ",
+            sender_id,
+            receiver_id
         )
-        .bind(sender_id)
-        .bind(receiver_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -631,15 +627,15 @@ impl FriendRoomStorage {
     }
 
     pub async fn has_any_pending_request(&self, user_a: &str, user_b: &str) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r"
-            SELECT 1 FROM friend_requests
+            SELECT 1 as exists_check FROM friend_requests
             WHERE ((sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1))
             AND status = 'pending'
             ",
+            user_a,
+            user_b
         )
-        .bind(user_a)
-        .bind(user_b)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -648,7 +644,7 @@ impl FriendRoomStorage {
 
     pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let existing =
-            sqlx::query("SELECT 1 FROM users WHERE user_id = $1").bind(user_id).fetch_optional(&*self.pool).await?;
+            sqlx::query!("SELECT 1 as exists_check FROM users WHERE user_id = $1", user_id).fetch_optional(&*self.pool).await?;
 
         if existing.is_none() {
             tracing::warn!("Friend request references non-existent user: {} - refusing to auto-create", user_id);
@@ -699,24 +695,22 @@ impl FriendRoomStorage {
     }
 
     pub async fn get_shared_rooms(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT DISTINCT r1.room_id
-            FROM room_memberships r1
-            INNER JOIN room_memberships r2 ON r1.room_id = r2.room_id
-            WHERE r1.user_id = $1
-            AND r2.user_id = $2
-            AND r1.membership = 'join'
-            AND r2.membership = 'join'
-            LIMIT 20
-            ",
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT r1.room_id as "room_id!"
+               FROM room_memberships r1
+               INNER JOIN room_memberships r2 ON r1.room_id = r2.room_id
+               WHERE r1.user_id = $1
+               AND r2.user_id = $2
+               AND r1.membership = 'join'
+               AND r2.membership = 'join'
+               LIMIT 20"#,
+            user_id,
+            target_user_id
         )
-        .bind(user_id)
-        .bind(target_user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.iter().filter_map(|r| r.try_get("room_id").ok()).collect())
+        Ok(rows.iter().map(|r| r.room_id.clone()).collect())
     }
 
     pub async fn get_friend_suggestions_from_mutual_friends(
@@ -724,8 +718,8 @@ impl FriendRoomStorage {
         user_id: &str,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
+        let rows = sqlx::query!(
+            r#"
             WITH user_friends AS (
                 SELECT DISTINCT jsonb_array_elements(content->'friends')->>'user_id' AS friend_id
                 FROM events
@@ -756,10 +750,10 @@ impl FriendRoomStorage {
                 u.avatar_url
             FROM friends_of_friends f
             LEFT JOIN users u ON u.user_id = f.suggested_user
-            ",
+            "#,
+            user_id,
+            limit
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -767,11 +761,11 @@ impl FriendRoomStorage {
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "user_id": r.get::<String, _>("user_id"),
-                    "displayname": r.get::<Option<String>, _>("displayname"),
-                    "avatar_url": r.get::<Option<String>, _>("avatar_url"),
+                    "user_id": r.user_id,
+                    "displayname": r.displayname,
+                    "avatar_url": r.avatar_url,
                     "reason": "mutual_friends",
-                    "mutual_friends_count": r.get::<i64, _>("mutual_count")
+                    "mutual_friends_count": r.mutual_count
                 })
             })
             .collect())
@@ -782,8 +776,8 @@ impl FriendRoomStorage {
         user_id: &str,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
+        let rows = sqlx::query!(
+            r#"
             WITH user_rooms AS (
                 SELECT room_id FROM room_memberships
                 WHERE user_id = $1 AND membership = 'join'
@@ -813,10 +807,10 @@ impl FriendRoomStorage {
                 u.avatar_url
             FROM room_users ru
             LEFT JOIN users u ON u.user_id = ru.user_id
-            ",
+            "#,
+            user_id,
+            limit
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -824,11 +818,11 @@ impl FriendRoomStorage {
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "user_id": r.get::<String, _>("user_id"),
-                    "displayname": r.get::<Option<String>, _>("displayname"),
-                    "avatar_url": r.get::<Option<String>, _>("avatar_url"),
+                    "user_id": r.user_id,
+                    "displayname": r.displayname,
+                    "avatar_url": r.avatar_url,
                     "reason": "shared_rooms",
-                    "shared_rooms_count": r.get::<i64, _>("shared_rooms_count")
+                    "shared_rooms_count": r.shared_rooms_count
                 })
             })
             .collect())
